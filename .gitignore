@@ -1,0 +1,14 @@
+# Build outputs
+build/
+classes/
+install/SweetHome3D-*.jar
+
+# Test artifacts
+build/test-classes/
+core*
+hs_err_pid*.log
+Test@#.obj
+
+# Locally fetched test libs
+libtest/junit-*.jar
+libtest/hamcrest-core-*.jar

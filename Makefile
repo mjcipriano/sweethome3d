@@ -1,0 +1,126 @@
+SHELL := /bin/bash
+
+# Adjustable settings
+VERSION ?= 7.5
+CONDA_ACTIVATE ?= source "$(HOME)/miniconda3/bin/activate" sweethome3d
+JAVA_OPTS ?= -Xmx1024m \
+  --add-opens=java.desktop/java.awt=ALL-UNNAMED \
+  --add-opens=java.desktop/sun.awt=ALL-UNNAMED \
+  --add-opens=java.desktop/com.apple.eio=ALL-UNNAMED \
+  --add-opens=java.desktop/com.apple.eawt=ALL-UNNAMED
+JAVA_TEST_OPTS ?= $(JAVA_OPTS) \
+  --add-opens=java.base/java.util=ALL-UNNAMED \
+  --add-exports=java.desktop/sun.awt=ALL-UNNAMED
+
+# Derived helpers
+ANT := $(CONDA_ACTIVATE) && ant
+JAVA := $(CONDA_ACTIVATE) && java
+JAVAC := $(CONDA_ACTIVATE) && javac
+CPSEP := :
+ifeq ($(OS),Windows_NT)
+  CPSEP := ;
+endif
+JAVA_LIB_PATH ?= lib/linux/x64:lib/java3d-1.6/linux/amd64:lib/yafaray/linux/x64
+ifeq ($(OS),Windows_NT)
+  JAVA_LIB_PATH := lib\\windows\\x64;lib\\java3d-1.6\\windows\\amd64;lib\\yafaray\\windows\\x64
+endif
+
+# Paths
+MAIN_JAR := build/SweetHome3D.jar
+INSTALL_JAR := install/SweetHome3D-$(VERSION).jar
+DEV_RESOURCE_JARS := build/Furniture.jar build/Textures.jar build/Examples.jar build/Help.jar
+DEV_CLASS_PATH := $(MAIN_JAR)$(CPSEP)build/Furniture.jar$(CPSEP)build/Textures.jar$(CPSEP)build/Examples.jar$(CPSEP)build/Help.jar
+TEST_CLASSES := build/test-classes
+TEST_JARS := libtest/junit-4.13.2.jar libtest/hamcrest-core-1.3.jar
+JUNIT_URL := https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar
+HAMCREST_URL := https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar
+TEST_COMPILE_CP := $(DEV_CLASS_PATH)$(CPSEP)lib/*$(CPSEP)lib/java3d-1.6/*$(CPSEP)libtest/*$(CPSEP)test
+TEST_RUN_CP := $(TEST_CLASSES)$(CPSEP)$(DEV_CLASS_PATH)$(CPSEP)test$(CPSEP)lib/*$(CPSEP)lib/java3d-1.6/*$(CPSEP)libtest/*
+GL_TEST_EXCLUDES := \
+  com/eteks/sweethome3d/junit/PlanComponentTest \
+  com/eteks/sweethome3d/junit/PrintTest \
+  com/eteks/sweethome3d/junit/OBJWriterTest \
+  com/eteks/sweethome3d/junit/PlanComponentWithFurnitureTest \
+  com/eteks/sweethome3d/junit/UserPreferencesPanelTest \
+  com/eteks/sweethome3d/junit/ImportedTextureWizardTest \
+  com/eteks/sweethome3d/junit/PhotoCreationTest \
+  com/eteks/sweethome3d/junit/IconManagerTest \
+  com/eteks/sweethome3d/junit/HomeFileRecorderTest \
+  com/eteks/sweethome3d/junit/ImportedFurnitureWizardTest \
+  com/eteks/sweethome3d/junit/HomeCameraTest \
+  com/eteks/sweethome3d/junit/ModelManagerTest \
+  com/eteks/sweethome3d/junit/TransferHandlerTest \
+  com/eteks/sweethome3d/junit/BackgroundImageWizardTest \
+  com/eteks/sweethome3d/junit/HomeFurniturePanelTest \
+  com/eteks/sweethome3d/junit/RoomTest \
+  com/eteks/sweethome3d/junit/HomeControllerTest \
+  com/eteks/sweethome3d/junit/LevelTest \
+  com/eteks/sweethome3d/junit/PlanControllerTest \
+  com/eteks/sweethome3d/junit/PackageDependenciesTest
+ALL_TEST_SOURCES := $(shell find test -name "*Test.java")
+ifeq ($(SKIP_3D_TESTS),1)
+  FILTERED_TEST_SOURCES := $(filter-out $(addprefix test/,$(addsuffix .java,$(GL_TEST_EXCLUDES))),$(ALL_TEST_SOURCES))
+else
+  FILTERED_TEST_SOURCES := $(ALL_TEST_SOURCES)
+endif
+TEST_NAMES := $(subst /,.,$(FILTERED_TEST_SOURCES:test/%.java=%))
+
+.PHONY: help build jar run run-dev test clean test-deps
+
+help:
+	@echo "Common targets:"
+	@echo "  make build      - Compile Sweet Home 3D jars with Ant (build/*.jar)."
+	@echo "  make jar        - Build the distributable $(INSTALL_JAR)."
+	@echo "  make run        - Run the distributable jar (builds it first)."
+	@echo "  make run-dev    - Run from local classes/jars without repackaging."
+	@echo "  make test       - Compile and run JUnit tests (downloads junit if needed)."
+	@echo "  make clean      - Remove build artifacts produced by this Makefile."
+	@echo "Variables: VERSION, CONDA_ACTIVATE, JAVA_OPTS."
+
+# Build jars used for development
+$(MAIN_JAR) $(DEV_RESOURCE_JARS):
+	$(ANT) build furniture textures examples help
+
+build: $(MAIN_JAR)
+
+# Build the packaged executable jar (default Ant target does the same)
+$(INSTALL_JAR):
+	$(ANT) jarExecutable
+
+jar: $(INSTALL_JAR)
+
+# Run packaged application (matches release configuration)
+run: $(INSTALL_JAR)
+	$(JAVA) $(JAVA_OPTS) -Djava.library.path="$(JAVA_LIB_PATH)" -Djogamp.gluegen.UseTempJarCache=false -jar $(INSTALL_JAR)
+
+# Run directly from build output and repo libs (useful during development)
+run-dev: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
+	$(JAVA) $(JAVA_OPTS) \
+	  -Djava.library.path="$(JAVA_LIB_PATH)" \
+	  -Djogamp.gluegen.UseTempJarCache=false \
+	  -cp "$(DEV_CLASS_PATH)$(CPSEP)lib/*$(CPSEP)lib/java3d-1.6/*$(CPSEP)libtest/jnlp.jar" \
+	  com.eteks.sweethome3d.SweetHome3D
+
+# Ensure JUnit dependencies are available for tests
+$(TEST_JARS):
+	@mkdir -p libtest
+	@if [ "$@" = "libtest/junit-4.13.2.jar" ]; then \
+	  echo "Downloading JUnit 4.13.2..."; \
+	  curl -L --fail -o "$@" $(JUNIT_URL); \
+	else \
+	  echo "Downloading Hamcrest 1.3..."; \
+	  curl -L --fail -o "$@" $(HAMCREST_URL); \
+	fi
+
+test-deps: $(TEST_JARS)
+
+# Compile and run JUnit 4 tests
+test: $(MAIN_JAR) test-deps
+	@mkdir -p $(TEST_CLASSES)
+	$(JAVAC) -encoding ISO-8859-1 -cp "$(TEST_COMPILE_CP)" \
+	  -d $(TEST_CLASSES) $(FILTERED_TEST_SOURCES)
+	$(JAVA) $(JAVA_TEST_OPTS) -Djava.library.path="$(JAVA_LIB_PATH)" -cp "$(TEST_RUN_CP)" \
+	  org.junit.runner.JUnitCore $(TEST_NAMES)
+
+clean:
+	rm -rf build $(INSTALL_JAR) $(TEST_CLASSES)

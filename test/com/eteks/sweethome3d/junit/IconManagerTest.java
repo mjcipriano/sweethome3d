@@ -44,6 +44,11 @@ import com.eteks.sweethome3d.tools.URLContent;
  * @author Emmanuel Puybaret
  */
 public class IconManagerTest extends TestCase {
+  protected void setUp() throws Exception {
+    TestUtilities.assume3DIsAvailable();
+    super.setUp();
+  }
+
   private final int HEIGHT = 32;
 
   public void testIconManager()

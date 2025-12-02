@@ -73,6 +73,11 @@ import junit.extensions.abbot.ComponentTestFixture;
  * @author Emmanuel Puybaret
  */
 public class ImportedFurnitureWizardTest extends ComponentTestFixture {
+  protected void setUp() throws Exception {
+    TestUtilities.assume3DIsAvailable();
+    super.setUp();
+  }
+
   public void testImportFurnitureWizard() throws ComponentSearchException, InterruptedException, 
       NoSuchFieldException, IllegalAccessException, InvocationTargetException {
     String language = Locale.getDefault().getLanguage();

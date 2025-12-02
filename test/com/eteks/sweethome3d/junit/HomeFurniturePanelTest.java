@@ -53,6 +53,11 @@ import com.eteks.sweethome3d.viewcontroller.HomeFurnitureController;
  * @author Emmanuel Puybaret
  */
 public class HomeFurniturePanelTest extends ComponentTestFixture {
+  protected void setUp() throws Exception {
+    TestUtilities.assume3DIsAvailable();
+    super.setUp();
+  }
+
   public void testHomePieceOfFurniturePanel() throws ComponentSearchException, NoSuchFieldException, IllegalAccessException {
     // 1. Create default preferences for a user that uses centimeter
     Locale.setDefault(Locale.FRANCE);

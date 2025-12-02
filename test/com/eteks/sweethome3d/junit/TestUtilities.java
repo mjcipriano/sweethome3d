@@ -23,6 +23,9 @@ import java.awt.Component;
 import java.awt.Container;
 import java.awt.event.KeyEvent;
 import java.lang.reflect.Field;
+import javax.media.j3d.Canvas3D;
+import com.sun.j3d.utils.universe.SimpleUniverse;
+import org.junit.Assume;
 
 import com.eteks.sweethome3d.tools.OperatingSystem;
 
@@ -79,5 +82,20 @@ public final class TestUtilities {
    */
   public static int getMagnetismToggleKey() {
     return OperatingSystem.isWindows() ? KeyEvent.VK_ALT : KeyEvent.VK_META;
+  }
+
+  /**
+   * Skip current test if a 3D/GLX capable Canvas3D cannot be created.
+   */
+  public static void assume3DIsAvailable() {
+    try {
+      Canvas3D canvas = new Canvas3D(SimpleUniverse.getPreferredConfiguration());
+      if (canvas.getGraphicsConfiguration() == null
+          || canvas.getGraphicsConfiguration().getDevice() == null) {
+        throw new IllegalStateException("No graphics configuration");
+      }
+    } catch (Throwable ex) {
+      Assume.assumeTrue("3D/GLX unavailable: " + ex, false);
+    }
   }
 }

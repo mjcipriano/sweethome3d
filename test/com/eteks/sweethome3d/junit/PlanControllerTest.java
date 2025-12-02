@@ -53,6 +53,11 @@ import com.eteks.sweethome3d.viewcontroller.ViewFactory;
  * @author Emmanuel Puybaret
  */
 public class PlanControllerTest extends TestCase {
+  protected void setUp() throws Exception {
+    TestUtilities.assume3DIsAvailable();
+    super.setUp();
+  }
+
   /**
    * Performs the same tests as {@link PlanComponentTest#testPlanComponent()}
    * but with direct calls to controller in memory.

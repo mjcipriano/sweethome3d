@@ -38,6 +38,11 @@ import com.eteks.sweethome3d.tools.URLContent;
  * @author Emmanuel Puybaret
  */
 public class ModelManagerTest extends TestCase {
+  protected void setUp() throws Exception {
+    TestUtilities.assume3DIsAvailable();
+    super.setUp();
+  }
+
   public void testDAELoader() throws IOException {
     BranchGroup model = ModelManager.getInstance().loadModel(
         new URLContent(ModelManagerTest.class.getResource("resources/test.dae")));

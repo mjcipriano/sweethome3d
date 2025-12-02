@@ -59,6 +59,11 @@ import com.eteks.sweethome3d.viewcontroller.ViewFactory;
  * @author Emmanuel Puybaret
  */
 public class BackgroundImageWizardTest extends ComponentTestFixture {
+  protected void setUp() throws Exception {
+    TestUtilities.assume3DIsAvailable();
+    super.setUp();
+  }
+
   public void testBackgroundImageWizard() throws ComponentSearchException, InterruptedException, 
       NoSuchFieldException, IllegalAccessException, InvocationTargetException {
     final UserPreferences preferences = new DefaultUserPreferences();

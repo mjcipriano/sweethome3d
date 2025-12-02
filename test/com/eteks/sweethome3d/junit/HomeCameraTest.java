@@ -69,6 +69,11 @@ import com.eteks.sweethome3d.viewcontroller.HomeController;
  * @author Emmanuel Puybaret
  */
 public class HomeCameraTest extends ComponentTestFixture {
+  protected void setUp() throws Exception {
+    TestUtilities.assume3DIsAvailable();
+    super.setUp();
+  }
+
   public void testHomeCamera() throws ComponentSearchException, InterruptedException, 
       NoSuchFieldException, IllegalAccessException, InvocationTargetException {
     Locale.setDefault(Locale.FRANCE);

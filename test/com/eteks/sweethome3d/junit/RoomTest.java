@@ -69,6 +69,11 @@ import junit.extensions.abbot.ComponentTestFixture;
  * @author Emmanuel Puybaret
  */
 public class RoomTest extends ComponentTestFixture {
+  protected void setUp() throws Exception {
+    TestUtilities.assume3DIsAvailable();
+    super.setUp();
+  }
+
   public void testRoomCreation() throws ComponentSearchException,
       NoSuchFieldException, IllegalAccessException {
     // 1. Create a frame that displays a home view

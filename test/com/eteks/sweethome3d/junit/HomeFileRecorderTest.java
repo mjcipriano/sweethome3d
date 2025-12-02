@@ -52,6 +52,11 @@ import junit.framework.TestCase;
  * @author Emmanuel Puybaret
  */
 public class HomeFileRecorderTest extends TestCase {
+  protected void setUp() throws Exception {
+    TestUtilities.assume3DIsAvailable();
+    super.setUp();
+  }
+
   public void testWriteReadHome() throws RecorderException {
     // Create an empty home with a wall and a group with two pieces of furniture
     Home home1 = new Home();
