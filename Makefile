@@ -8,6 +8,11 @@ JAVA_OPTS ?= -Xmx1024m \
   --add-opens=java.desktop/sun.awt=ALL-UNNAMED \
   --add-opens=java.desktop/com.apple.eio=ALL-UNNAMED \
   --add-opens=java.desktop/com.apple.eawt=ALL-UNNAMED
+RUN_LANG ?= en_US.UTF-8
+RUN_LC_ALL ?= en_US.UTF-8
+USER_LANG ?= en
+USER_COUNTRY ?= US
+USER_VARIANT ?=
 JAVA_TEST_OPTS ?= $(JAVA_OPTS) \
   --add-opens=java.base/java.util=ALL-UNNAMED \
   --add-exports=java.desktop/sun.awt=ALL-UNNAMED
@@ -91,11 +96,14 @@ jar: $(INSTALL_JAR)
 
 # Run packaged application (matches release configuration)
 run: $(INSTALL_JAR)
-	$(JAVA) $(JAVA_OPTS) -Djava.library.path="$(JAVA_LIB_PATH)" -Djogamp.gluegen.UseTempJarCache=false -jar $(INSTALL_JAR)
+	LANG=$(RUN_LANG) LC_ALL=$(RUN_LC_ALL) $(JAVA) $(JAVA_OPTS) \
+	  -Duser.language=$(USER_LANG) -Duser.country=$(USER_COUNTRY) -Duser.variant=$(USER_VARIANT) \
+	  -Djava.library.path="$(JAVA_LIB_PATH)" -Djogamp.gluegen.UseTempJarCache=false -jar $(INSTALL_JAR)
 
 # Run directly from build output and repo libs (useful during development)
 run-dev: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
-	$(JAVA) $(JAVA_OPTS) \
+	LANG=$(RUN_LANG) LC_ALL=$(RUN_LC_ALL) $(JAVA) $(JAVA_OPTS) \
+	  -Duser.language=$(USER_LANG) -Duser.country=$(USER_COUNTRY) -Duser.variant=$(USER_VARIANT) \
 	  -Djava.library.path="$(JAVA_LIB_PATH)" \
 	  -Djogamp.gluegen.UseTempJarCache=false \
 	  -cp "$(DEV_CLASS_PATH)$(CPSEP)lib/*$(CPSEP)lib/java3d-1.6/*$(CPSEP)libtest/jnlp.jar" \
@@ -119,7 +127,9 @@ test: $(MAIN_JAR) test-deps
 	@mkdir -p $(TEST_CLASSES)
 	$(JAVAC) -encoding ISO-8859-1 -cp "$(TEST_COMPILE_CP)" \
 	  -d $(TEST_CLASSES) $(FILTERED_TEST_SOURCES)
-	$(JAVA) $(JAVA_TEST_OPTS) -Djava.library.path="$(JAVA_LIB_PATH)" -cp "$(TEST_RUN_CP)" \
+	LANG=$(RUN_LANG) LC_ALL=$(RUN_LC_ALL) $(JAVA) $(JAVA_TEST_OPTS) \
+	  -Duser.language=$(USER_LANG) -Duser.country=$(USER_COUNTRY) -Duser.variant=$(USER_VARIANT) \
+	  -Djava.library.path="$(JAVA_LIB_PATH)" -cp "$(TEST_RUN_CP)" \
 	  org.junit.runner.JUnitCore $(TEST_NAMES)
 
 clean:
