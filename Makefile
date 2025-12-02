@@ -13,6 +13,7 @@ RUN_LC_ALL ?= en_US.UTF-8
 USER_LANG ?= en
 USER_COUNTRY ?= US
 USER_VARIANT ?=
+APP_FOLDERS ?= $(CURDIR)
 JAVA_TEST_OPTS ?= $(JAVA_OPTS) \
   --add-opens=java.base/java.util=ALL-UNNAMED \
   --add-exports=java.desktop/sun.awt=ALL-UNNAMED
@@ -78,6 +79,9 @@ help:
 	@echo "  make jar        - Build the distributable $(INSTALL_JAR)."
 	@echo "  make run        - Run the distributable jar (builds it first)."
 	@echo "  make run-dev    - Run from local classes/jars without repackaging."
+	@echo "  make vr-plugin  - Build plugins/VRPreview.sh3p (VR preview plugin)."
+	@echo "  make run-vr-preview VR_HOME_FILE=<file.sh3d> - Build plugin and launch app with plugin loaded."
+	@echo "  make run-vr-viewer HOME=<file.sh3d> - Full-screen viewer for desktop/VR streaming."
 	@echo "  make test       - Compile and run JUnit tests (downloads junit if needed)."
 	@echo "  make clean      - Remove build artifacts produced by this Makefile."
 	@echo "Variables: VERSION, CONDA_ACTIVATE, JAVA_OPTS."
@@ -97,12 +101,14 @@ jar: $(INSTALL_JAR)
 # Run packaged application (matches release configuration)
 run: $(INSTALL_JAR)
 	LANG=$(RUN_LANG) LC_ALL=$(RUN_LC_ALL) $(JAVA) $(JAVA_OPTS) \
+	  -Dcom.eteks.sweethome3d.applicationFolders="$(APP_FOLDERS)" \
 	  -Duser.language=$(USER_LANG) -Duser.country=$(USER_COUNTRY) -Duser.variant=$(USER_VARIANT) \
 	  -Djava.library.path="$(JAVA_LIB_PATH)" -Djogamp.gluegen.UseTempJarCache=false -jar $(INSTALL_JAR)
 
 # Run directly from build output and repo libs (useful during development)
 run-dev: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
 	LANG=$(RUN_LANG) LC_ALL=$(RUN_LC_ALL) $(JAVA) $(JAVA_OPTS) \
+	  -Dcom.eteks.sweethome3d.applicationFolders="$(APP_FOLDERS)" \
 	  -Duser.language=$(USER_LANG) -Duser.country=$(USER_COUNTRY) -Duser.variant=$(USER_VARIANT) \
 	  -Djava.library.path="$(JAVA_LIB_PATH)" \
 	  -Djogamp.gluegen.UseTempJarCache=false \
@@ -134,3 +140,35 @@ test: $(MAIN_JAR) test-deps
 
 clean:
 	rm -rf build $(INSTALL_JAR) $(TEST_CLASSES)
+
+# Launch the standalone VR-oriented viewer (desktop streaming to HMD).
+run-vr-viewer: $(INSTALL_JAR)
+	@if [ -z "$(VR_HOME_FILE)" ]; then echo "Usage: make run-vr-viewer VR_HOME_FILE=<path-to-home.sh3d>"; exit 1; fi
+	LANG=$(RUN_LANG) LC_ALL=$(RUN_LC_ALL) $(JAVA) $(JAVA_OPTS) \
+	  -Duser.language=$(USER_LANG) -Duser.country=$(USER_COUNTRY) -Duser.variant=$(USER_VARIANT) \
+	  -Djava.library.path="$(JAVA_LIB_PATH)" \
+	  -cp "$(INSTALL_JAR)" com.eteks.sweethome3d.vr.VRStandaloneViewer "$(VR_HOME_FILE)"
+
+# Build VR preview plugin (.sh3p) into plugins/VRPreview.sh3p
+vr-plugin: $(INSTALL_JAR)
+	@mkdir -p .plugin-build/vr plugins
+	$(JAVAC) -encoding ISO-8859-1 -cp "$(INSTALL_JAR)" \
+	  -d .plugin-build/vr src/com/eteks/sweethome3d/plugin/vr/VRPreviewPlugin.java
+	cp src/com/eteks/sweethome3d/plugin/vr/ApplicationPlugin.properties .plugin-build/vr/
+	jar cf plugins/VRPreview.sh3p -C .plugin-build/vr .
+	rm -rf .plugin-build/vr
+	@echo "Plugin built at plugins/VRPreview.sh3p"
+
+# Build plugin and run app with local plugins folder
+run-vr-preview: vr-plugin
+	@VR_HOME_FILE="$(VR_HOME_FILE)"; \
+	if [ -n "$$VR_HOME_FILE" ]; then \
+	  OPEN_ARG="$$VR_HOME_FILE"; \
+	else \
+	  OPEN_ARG=""; \
+	fi; \
+	LANG=$(RUN_LANG) LC_ALL=$(RUN_LC_ALL) $(JAVA) $(JAVA_OPTS) \
+	  -Dcom.eteks.sweethome3d.applicationFolders="$(CURDIR)" \
+	  -Duser.language=$(USER_LANG) -Duser.country=$(USER_COUNTRY) -Duser.variant=$(USER_VARIANT) \
+	  -Djava.library.path="$(JAVA_LIB_PATH)" -Djogamp.gluegen.UseTempJarCache=false \
+	  -jar $(INSTALL_JAR) $$OPEN_ARG

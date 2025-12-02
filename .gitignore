@@ -12,3 +12,7 @@ Test@#.obj
 # Locally fetched test libs
 libtest/junit-*.jar
 libtest/hamcrest-core-*.jar
+
+# Plugin build artifacts
+.plugin-build/
+plugins/VRPreview.sh3p
