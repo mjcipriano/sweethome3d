@@ -79,6 +79,11 @@ import junit.extensions.abbot.ComponentTestFixture;
  * @author Emmanuel Puybaret
  */
 public class LevelTest extends ComponentTestFixture {
+  protected void setUp() throws Exception {
+    TestUtilities.assume3DIsAvailable();
+    super.setUp();
+  }
+
   public void testLevels() throws RecorderException, NoSuchFieldException, IllegalAccessException, InterruptedException, ComponentSearchException, URISyntaxException {
     UserPreferences preferences = new DefaultUserPreferences() {
         @Override

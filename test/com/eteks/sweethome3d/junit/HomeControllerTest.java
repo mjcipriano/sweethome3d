@@ -86,6 +86,7 @@ public class HomeControllerTest extends TestCase {
 
   @Override
   protected void setUp() {
+    TestUtilities.assume3DIsAvailable();
     this.viewFactory = new SwingViewFactory();
     this.preferences = new DefaultUserPreferences();
     this.preferences.setFurnitureCatalogViewedInTree(true);

@@ -82,6 +82,7 @@ public class PhotoCreationTest extends ComponentTestFixture {
 
   @Override
   protected void setUp() throws Exception {
+    TestUtilities.assume3DIsAvailable();
     super.setUp();
     System.setProperty("com.eteks.sweethome3d.j3d.rendererClassNames", PhotoRenderer.class.getName());
     this.preferences = new DefaultUserPreferences() {

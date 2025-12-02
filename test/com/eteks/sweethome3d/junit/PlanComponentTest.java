@@ -64,6 +64,11 @@ import com.eteks.sweethome3d.viewcontroller.ViewFactory;
  * @author Emmanuel Puybaret
  */
 public class PlanComponentTest extends ComponentTestFixture {
+  protected void setUp() throws Exception {
+    TestUtilities.assume3DIsAvailable();
+    super.setUp();
+  }
+
   public void testPlanComponentWithMouse() {
     // 1. Create a frame that displays a PlanComponent instance of
     // a new home at 540 pixels by 400 preferred size, and a tool bar

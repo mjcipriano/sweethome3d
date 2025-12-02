@@ -66,6 +66,11 @@ import junit.extensions.abbot.ComponentTestFixture;
  * @author Emmanuel Puybaret
  */
 public class PlanComponentWithFurnitureTest extends ComponentTestFixture {
+  protected void setUp() throws Exception {
+    TestUtilities.assume3DIsAvailable();
+    super.setUp();
+  }
+
   public void testPlanComponentWithFurniture() throws InterruptedException {
     // 1. Create a frame that displays a home view and a tool bar
     // with Mode, Add furniture, Undo and Redo buttons

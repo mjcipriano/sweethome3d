@@ -78,6 +78,11 @@ import com.eteks.sweethome3d.viewcontroller.WallController;
  * @author Emmanuel Puybaret
  */
 public class ImportedTextureWizardTest extends ComponentTestFixture {
+  protected void setUp() throws Exception {
+    TestUtilities.assume3DIsAvailable();
+    super.setUp();
+  }
+
   public void testImportedTextureWizard() throws ComponentSearchException, InterruptedException, 
       NoSuchFieldException, IllegalAccessException, InvocationTargetException {
     String language = Locale.getDefault().getLanguage();

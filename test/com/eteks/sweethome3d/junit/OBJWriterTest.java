@@ -52,6 +52,11 @@ import com.sun.j3d.utils.geometry.Sphere;
  * @author Emmanuel Puybaret
  */
 public class OBJWriterTest extends TestCase {
+  protected void setUp() throws Exception {
+    TestUtilities.assume3DIsAvailable();
+    super.setUp();
+  }
+
   /**
    * Simple test of OBJWriter class with Java 3D objects.
    */

@@ -59,6 +59,11 @@ import com.eteks.sweethome3d.viewcontroller.ViewFactory;
  * @author Emmanuel Puybaret
  */
 public class TransferHandlerTest extends ComponentTestFixture {
+  protected void setUp() throws Exception {
+    TestUtilities.assume3DIsAvailable();
+    super.setUp();
+  }
+
   public void testTransferHandler() throws ComponentSearchException, UnsupportedFlavorException,
                                            IOException, InterruptedException, InvocationTargetException {
     UserPreferences preferences = new DefaultUserPreferences();
