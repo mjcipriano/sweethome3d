@@ -1,0 +1,148 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to package, for example 7.5
+        required: true
+        type: string
+      publish:
+        description: Create a GitHub release
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: windows-latest
+            platform: windows-x64
+          - os: macos-15-intel
+            platform: macos-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "push") {
+            $version = "${{ github.ref_name }}".TrimStart("v")
+          } else {
+            $version = "${{ inputs.version }}"
+          }
+          if ($version -notmatch "^\d+(\.\d+){1,3}$") {
+            throw "Version must contain only numeric dot-separated components."
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Install Ant
+        shell: pwsh
+        run: |
+          if ($IsLinux) {
+            sudo apt-get update
+            sudo apt-get install -y ant
+          } elseif ($IsMacOS) {
+            brew install ant
+          } else {
+            choco install ant --no-progress -y
+          }
+
+      - name: Build platform bundle
+        shell: pwsh
+        run: |
+          make test-core
+          ./scripts/package-release.ps1 -Version "${{ steps.version.outputs.version }}"
+
+      - name: Verify release artifacts
+        shell: pwsh
+        run: ./scripts/verify-release.ps1 -Version "${{ steps.version.outputs.version }}" -ArtifactDirectory release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SweetHome3D-${{ steps.version.outputs.version }}-${{ matrix.platform }}
+          path: |
+            release/SweetHome3D-${{ steps.version.outputs.version }}-${{ matrix.platform }}.*
+            release/SweetHome3D-${{ steps.version.outputs.version }}.jar
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub release
+    needs: package
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: SweetHome3D-*
+          path: release
+          merge-multiple: true
+
+      - name: Resolve version and tag
+        id: release
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "push") {
+            $tag = "${{ github.ref_name }}"
+            $version = $tag.TrimStart("v")
+          } else {
+            $version = "${{ inputs.version }}"
+            $tag = "v$version"
+          }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Validate merged executable JAR
+        shell: pwsh
+        run: |
+          $jars = @(Get-ChildItem release -Filter "SweetHome3D-${{ steps.release.outputs.version }}.jar")
+          if ($jars.Count -ne 1) {
+            throw "Expected one merged executable JAR, found $($jars.Count)."
+          }
+
+      - name: Create checksums
+        shell: bash
+        run: |
+          cd release
+          sha256sum SweetHome3D-* > SHA256SUMS.txt
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          args=(
+            "${{ steps.release.outputs.tag }}"
+            release/*
+            --repo "${{ github.repository }}"
+            --title "Sweet Home 3D ${{ steps.release.outputs.version }}"
+            --generate-notes
+          )
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            args+=(--verify-tag)
+          else
+            args+=(--target "${{ github.sha }}")
+          fi
+          gh release create "${args[@]}"

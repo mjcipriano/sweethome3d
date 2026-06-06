@@ -20,6 +20,7 @@
 package com.eteks.sweethome3d.junit;
 
 import java.io.IOException;
+import java.util.Collection;
 
 import jdepend.framework.DependencyConstraint;
 import jdepend.framework.JDepend;
@@ -41,9 +42,11 @@ public class PackageDependenciesTest extends TestCase {
     packageFilter.addPackage("java.*");
     // Ignore JUnit tests
     packageFilter.addPackage("com.eteks.sweethome3d.junit");
+    // The VR preview is packaged as a plugin and may use the public application API.
+    packageFilter.addPackage("com.eteks.sweethome3d.plugin.vr");
 
     JDepend jdepend = new JDepend(packageFilter);
-    jdepend.addDirectory("classes");
+    jdepend.addDirectory(System.getProperty("sweethome3d.testClasses", "classes"));
 
     DependencyConstraint constraint = new DependencyConstraint();
     // Sweet Home 3D packages
@@ -68,6 +71,7 @@ public class PackageDependenciesTest extends TestCase {
     JavaPackage swingColorchooser = constraint.addPackage("javax.swing.colorchooser");
     JavaPackage swingFilechooser = constraint.addPackage("javax.swing.filechooser");
     JavaPackage swingPlaf = constraint.addPackage("javax.swing.plaf");
+    JavaPackage swingPlafBasic = constraint.addPackage("javax.swing.plaf.basic");
     JavaPackage swingPlafSynth = constraint.addPackage("javax.swing.plaf.synth");
     JavaPackage imageio = constraint.addPackage("javax.imageio");
     JavaPackage imageioStream = constraint.addPackage("javax.imageio.stream");
@@ -131,6 +135,7 @@ public class PackageDependenciesTest extends TestCase {
     sweetHome3DViewController.dependsUpon(swingUndo);
     sweetHome3DViewController.dependsUpon(swingText);
     sweetHome3DViewController.dependsUpon(swingTextHtml);
+    sweetHome3DViewController.dependsUpon(xmlParsers);
     sweetHome3DViewController.dependsUpon(xmlSax);
     sweetHome3DViewController.dependsUpon(xmlSaxHelpers);
 
@@ -180,6 +185,7 @@ public class PackageDependenciesTest extends TestCase {
     sweetHome3DSwing.dependsUpon(swingColorchooser);
     sweetHome3DSwing.dependsUpon(swingFilechooser);
     sweetHome3DSwing.dependsUpon(swingPlaf);
+    sweetHome3DSwing.dependsUpon(swingPlafBasic);
     sweetHome3DSwing.dependsUpon(swingPlafSynth);
     sweetHome3DSwing.dependsUpon(accessibility);
     sweetHome3DSwing.dependsUpon(imageio);
@@ -219,13 +225,11 @@ public class PackageDependenciesTest extends TestCase {
     sweetHome3DApplication.dependsUpon(swing);
     sweetHome3DApplication.dependsUpon(swingEvent);
     sweetHome3DApplication.dependsUpon(swingBorder);
+    sweetHome3DApplication.dependsUpon(swingPlafBasic);
     sweetHome3DApplication.dependsUpon(imageio);
     sweetHome3DApplication.dependsUpon(java3d);
     sweetHome3DApplication.dependsUpon(sun3dExpSwing);
     sweetHome3DApplication.dependsUpon(eawt);
-    sweetHome3DApplication.dependsUpon(xmlParsers);
-    sweetHome3DApplication.dependsUpon(xmlSax);
-    sweetHome3DApplication.dependsUpon(xmlSaxHelpers);
     sweetHome3DApplication.dependsUpon(jnlp);
 
     sweetHome3DApplet.dependsUpon(sweetHome3DModel);
@@ -238,11 +242,52 @@ public class PackageDependenciesTest extends TestCase {
     sweetHome3DApplet.dependsUpon(swing);
     sweetHome3DApplet.dependsUpon(swingEvent);
     sweetHome3DApplet.dependsUpon(swingTable);
-    sweetHome3DApplet.dependsUpon(java3d);
     sweetHome3DApplet.dependsUpon(jnlp);
 
     jdepend.analyze();
 
-    assertTrue("Dependency mismatch", jdepend.dependencyMatch(constraint));
+    assertTrue(getDependencyMismatchMessage(jdepend, constraint),
+        jdepend.dependencyMatch(constraint));
+  }
+
+  private String getDependencyMismatchMessage(JDepend jdepend, DependencyConstraint constraint) {
+    StringBuilder message = new StringBuilder("Dependency mismatch");
+    if (jdepend.getPackages().size() != constraint.getPackages().size()) {
+      message.append("\nExpected packages: ").append(getPackageNames(constraint.getPackages()));
+      message.append("\nActual packages: ").append(getPackageNames(jdepend.getPackages()));
+    }
+    for (Object expectedObject : constraint.getPackages()) {
+      JavaPackage expected = (JavaPackage)expectedObject;
+      JavaPackage actual = jdepend.getPackage(expected.getName());
+      if (actual == null) {
+        message.append("\nMissing package: ").append(expected.getName());
+      } else {
+        appendDifference(message, expected.getName(), "outgoing",
+            expected.getEfferents(), actual.getEfferents());
+        appendDifference(message, expected.getName(), "incoming",
+            expected.getAfferents(), actual.getAfferents());
+      }
+    }
+    return message.toString();
+  }
+
+  private void appendDifference(StringBuilder message, String packageName, String direction,
+                                Collection expected, Collection actual) {
+    if (!expected.containsAll(actual) || !actual.containsAll(expected)) {
+      message.append("\n").append(packageName).append(" ").append(direction);
+      message.append("\n  expected: ").append(getPackageNames(expected));
+      message.append("\n  actual:   ").append(getPackageNames(actual));
+    }
+  }
+
+  private String getPackageNames(Collection packages) {
+    StringBuilder names = new StringBuilder("[");
+    for (Object packageObject : packages) {
+      if (names.length() > 1) {
+        names.append(", ");
+      }
+      names.append(((JavaPackage)packageObject).getName());
+    }
+    return names.append("]").toString();
   }
 }

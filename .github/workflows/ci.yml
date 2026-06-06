@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "chore/**"
+      - "feat/**"
+      - "fix/**"
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-tests:
+    name: Core tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-15-intel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Ant
+        shell: pwsh
+        run: |
+          if ($IsLinux) {
+            sudo apt-get update
+            sudo apt-get install -y ant xvfb libgl1
+          } elseif ($IsMacOS) {
+            brew install ant
+          } else {
+            choco install ant --no-progress -y
+          }
+
+      - name: Run core tests
+        shell: pwsh
+        run: |
+          if ($IsLinux) {
+            xvfb-run -a make test-core
+          } else {
+            make test-core
+          }
+
+      - name: Build executable JAR
+        run: make jar
+
+      - name: Check executable JAR contents
+        shell: pwsh
+        run: |
+          New-Item release -ItemType Directory -Force | Out-Null
+          Copy-Item install/SweetHome3D-7.5.jar release/
+          & ./scripts/verify-release.ps1 -Version 7.5 -ArtifactDirectory release -SkipArchiveCheck
+
+  full-tests:
+    name: Full graphics test suite
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install graphics test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ant xvfb libgl1 libgl1-mesa-dri
+
+      - name: Run complete test suite
+        run: xvfb-run -a make test
