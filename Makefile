@@ -78,6 +78,9 @@ help:
 	@echo "  make jar        - Build the distributable $(INSTALL_JAR)."
 	@echo "  make run        - Run the distributable jar (builds it first)."
 	@echo "  make run-dev    - Run from local classes/jars without repackaging."
+	@echo "  make vr-plugin  - Build plugins/VRPreview.sh3p (legacy VR preview)."
+	@echo "  make webxr-plugin - Build plugins/WebXRPreview.sh3p (WebXR OBJ preview)."
+	@echo "  make run-webxr-preview [VR_HOME_FILE=<file.sh3d>] - Build plugin and launch app with WebXR plugin."
 	@echo "  make test       - Compile and run JUnit tests (downloads junit if needed)."
 	@echo "  make clean      - Remove build artifacts produced by this Makefile."
 	@echo "Variables: VERSION, CONDA_ACTIVATE, JAVA_OPTS."
@@ -134,3 +137,37 @@ test: $(MAIN_JAR) test-deps
 
 clean:
 	rm -rf build $(INSTALL_JAR) $(TEST_CLASSES)
+
+# Build legacy VR preview plugin (.sh3p)
+vr-plugin: $(INSTALL_JAR)
+	@mkdir -p .plugin-build/vr plugins
+	$(JAVAC) -encoding ISO-8859-1 -cp "$(INSTALL_JAR)" \
+	  -d .plugin-build/vr src/com/eteks/sweethome3d/plugin/vr/VRPreviewPlugin.java
+	cp src/com/eteks/sweethome3d/plugin/vr/ApplicationPlugin.properties .plugin-build/vr/
+	jar cf plugins/VRPreview.sh3p -C .plugin-build/vr .
+	rm -rf .plugin-build/vr
+	@echo "Plugin built at plugins/VRPreview.sh3p"
+
+# Build WebXR preview plugin (.sh3p)
+webxr-plugin: $(INSTALL_JAR)
+	@mkdir -p .plugin-build/webxr plugins
+	$(JAVAC) --release 8 -encoding ISO-8859-1 -cp "$(INSTALL_JAR)$(CPSEP)lib/*$(CPSEP)lib/java3d-1.6/*" \
+	  -d .plugin-build/webxr pluginsrc/com/eteks/sweethome3d/plugin/webxr/WebXRPreviewPlugin.java
+	cp pluginsrc/com/eteks/sweethome3d/plugin/webxr/ApplicationPlugin.properties .plugin-build/webxr/
+	$(CONDA_ACTIVATE) && jar cf plugins/WebXRPreview.sh3p -C .plugin-build/webxr .
+	rm -rf .plugin-build/webxr
+	@echo "Plugin built at plugins/WebXRPreview.sh3p"
+
+# Build WebXR plugin and launch app with plugins folder set
+run-webxr-preview: webxr-plugin
+	@VR_HOME_FILE="$(VR_HOME_FILE)"; \
+	if [ -n "$$VR_HOME_FILE" ]; then \
+	  OPEN_ARG="$$VR_HOME_FILE"; \
+	else \
+	  OPEN_ARG=""; \
+	fi; \
+	LANG=$(RUN_LANG) LC_ALL=$(RUN_LC_ALL) $(JAVA) $(JAVA_OPTS) \
+	  -Dcom.eteks.sweethome3d.applicationFolders="$(CURDIR)" \
+	  -Duser.language=$(USER_LANG) -Duser.country=$(USER_COUNTRY) -Duser.variant=$(USER_VARIANT) \
+	  -Djava.library.path="$(JAVA_LIB_PATH)" -Djogamp.gluegen.UseTempJarCache=false \
+	  -jar $(INSTALL_JAR) $$OPEN_ARG
