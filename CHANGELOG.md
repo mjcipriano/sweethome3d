@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.5.1-beta.6](https://github.com/mjcipriano/sweethome3d/compare/v7.5.1-beta.5...v7.5.1-beta.6) (2026-06-07)
+
+
+### Features
+
+* 3D rendering diagnostics — GPU + live FPS (Help → 3D rendering information) ([23c1cd6](https://github.com/mjcipriano/sweethome3d/commit/23c1cd62fab2ddf21a97c99fab7a0e9743eecf9b))
+* add 3D rendering diagnostics (GPU and live FPS) ([a7e890b](https://github.com/mjcipriano/sweethome3d/commit/a7e890b80c5642efc187c86473ba4dfe0137d89e))
+
 ## [7.5.1-beta.5](https://github.com/mjcipriano/sweethome3d/compare/v7.5.1-beta.4...v7.5.1-beta.5) (2026-06-07)
 
 
