@@ -66,9 +66,10 @@ jobs:
       - name: Check executable JAR contents
         shell: pwsh
         run: |
+          $version = (Get-Content version.txt -Raw).Trim()
           New-Item release -ItemType Directory -Force | Out-Null
-          Copy-Item install/SweetHome3D-7.5.jar release/
-          & ./scripts/verify-release.ps1 -Version 7.5 -ArtifactDirectory release -SkipArchiveCheck
+          Copy-Item "install/SweetHome3D-$version.jar" release/
+          & ./scripts/verify-release.ps1 -Version $version -ArtifactDirectory release -SkipArchiveCheck
 
   gui-tests:
     name: GUI tests without Java 3D
