@@ -207,6 +207,13 @@ class HomeContentContext {
   }
 
   /**
+   * Returns <code>true</code> if the home contains a content digest manifest.
+   */
+  public boolean containsContentDigests() {
+    return this.contentDigests != null;
+  }
+
+  /**
    * Returns <code>true</code> if the stream contains some invalid content 
    * whether it could be replaced or not.
    */

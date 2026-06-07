@@ -35,10 +35,13 @@ iteration includes JVM and class-loading costs.
 | --- | ---: | ---: |
 | Original content lookup | 2.46-2.82 s | 199-203 MB |
 | Digest-keyed content lookup | 2.56-2.99 s | 112-114 MB |
+| Digest verification without eager ZIP inflation | 1.50-1.86 s | 113-114 MB |
 
 The digest-keyed lookup reduces retained heap by about 44 percent. It does not
-yet provide a statistically meaningful load-time improvement. JFR shows that
-full ZIP validation and decompression dominate the remaining load time.
+provide a statistically meaningful load-time improvement on its own. Avoiding
+the redundant eager inflation pass for modern local files reduces warm load
+time by roughly 35-45 percent. Legacy archives, URL inputs, and archives
+without a readable digest manifest continue to use exhaustive ZIP validation.
 
 ## Optimization Rules
 

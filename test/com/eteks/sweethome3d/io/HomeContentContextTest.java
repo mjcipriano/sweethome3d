@@ -14,6 +14,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
+import java.net.URL;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.LinkedHashMap;
@@ -29,6 +30,12 @@ import junit.framework.TestCase;
  * Tests content validation and sharing while reading a home archive.
  */
 public class HomeContentContextTest extends TestCase {
+  public void testDamagedHomesAreReported() throws Exception {
+    assertDamagedContentCount("damagedHomeWithContentDigests.sh3d", 5);
+    assertDamagedContentCount(
+        "damagedHomeInValidZipWithContentDigestsAndNoContent.sh3d", 9);
+  }
+
   public void testDuplicateContentsAreShared() throws Exception {
     Map<String, byte []> contents = new LinkedHashMap<String, byte []>();
     contents.put("1", "shared model".getBytes("UTF-8"));
@@ -108,5 +115,25 @@ public class HomeContentContextTest extends TestCase {
       zipOut.close();
     }
     return homeFile;
+  }
+
+  private void assertDamagedContentCount(String resourceName,
+                                         int expectedInvalidContentCount)
+      throws Exception {
+    URL resource = HomeContentContextTest.class.getResource(
+        "../junit/resources/" + resourceName);
+    assertNotNull("Missing test resource " + resourceName, resource);
+    DefaultHomeInputStream in = new DefaultHomeInputStream(
+        new File(resource.toURI()), ContentRecording.INCLUDE_ALL_CONTENT,
+        null, null, false);
+    try {
+      in.readHome();
+      fail("Damaged home should not load without reporting invalid content");
+    } catch (DamagedHomeIOException ex) {
+      assertEquals("Wrong invalid content count for " + resourceName,
+          expectedInvalidContentCount, ex.getInvalidContent().size());
+    } finally {
+      in.close();
+    }
   }
 }
