@@ -61,6 +61,36 @@ ms p95 results. JFR identified PNG decoding and image scaling as the main
 warm-up costs, with geometry area construction and Java2D rasterization as
 secondary costs.
 
+## 2D Interaction
+
+Full-frame paint throughput does not capture interaction latency, where only a
+small part of the plan usually changes. This benchmark measures common
+interactions and, for each, reports the apply cost, the size of the invalidated
+repaint rectangle the plan requests, and the cost to paint only that rectangle:
+
+```sh
+make benchmark-plan-interaction \
+  BENCHMARK_HOME=example-files/2025-11-27-House-Layout-v3.sh3d \
+  BENCHMARK_ITERATIONS=20
+```
+
+Set `PLAN_INTERACTION_JFR=profiles/plan-interaction.jfr` to record the hot
+paths. Interactions are synthesized through the model the same way the view is
+driven: `setSelectedItems` for selection, `Selectable.move` for a drag result,
+and `PlanComponent.setScale` for zoom. The benchmark works on the level that
+carries the most furniture and runs off-screen.
+
+On the reference complex home every interaction - selecting a single piece,
+selecting all, moving one piece, and zooming - invalidates the **entire**
+1920x1080 viewport (`dirty_pct_median=100`), so even a single-piece selection
+pays a full ~9-10 ms repaint. `PlanComponent` issues bare full-component
+`repaint()` at all of its call sites; there are no targeted `repaint(rectangle)`
+calls. Shrinking the invalidated region for localized interactions (task C1) is
+the main opportunity this measurement exposes; the per-paint allocation and
+geometry cost (task C2) is the secondary one. The `apply_*` figures (tens of
+microseconds) confirm the model mutation itself is cheap - the cost is the
+paint that follows.
+
 ## Startup And First Usable Paint
 
 The cold-start phases a user waits through before a home is usable can be
