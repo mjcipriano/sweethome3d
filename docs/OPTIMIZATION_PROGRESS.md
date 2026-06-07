@@ -34,7 +34,8 @@ approved. The `example-files/` directory is ignored.
 | Toolchain | Pin OpenJDK 17 and developer/runtime dependencies in `environment.yml` | Build, JFR, Git, GitHub CLI, and Java 3D runtime dependencies resolve from one Conda environment | `9e37c1d` |
 | OBJ/MTL loading | Replace synchronized `BufferedReader` with a 64 KiB unsynchronized reader in the thread-confined parser | Controlled scene-construction median reduced from 15.09 s to 13.44 s, about 11% | `3573e1b` |
 | 3D measurement | Add Java 3D scene/frame benchmark and optional JFR capture | Safe scene mode works with the complex reference home | `3573e1b` |
-| Startup measurement | Add a cold-start phase benchmark (`make benchmark-startup`) covering prefs init, home load, plan creation, and first 2D paint, with optional JFR | Cold pass on the reference home is about 2.0 s total; cold first paint is about 0.46 s; harness is headless and adds no app behavior (task A1) | _pending_ |
+| Startup measurement | Add a cold-start phase benchmark (`make benchmark-startup`) covering prefs init, home load, plan creation, and first 2D paint, with optional JFR | Cold pass on the reference home is about 2.0 s total; cold first paint is about 0.46 s; harness is headless and adds no app behavior (task A1) | merged PR #7 |
+| 2D interaction measurement | Add an interaction benchmark (`make benchmark-plan-interaction`) reporting apply cost, invalidated repaint area, and paint cost for select/move/zoom | Found that every interaction invalidates the full 1920x1080 viewport (`dirty_pct=100`), so a single-piece selection costs a full ~9-10 ms repaint; `PlanComponent` has no targeted `repaint(rectangle)` calls (task A2) | _pending_ |
 
 ## Tried And Rejected
 
@@ -81,9 +82,12 @@ in parallel, then F.
 - A1. Startup/EDT timeline benchmark - **done in this branch** (`make
   benchmark-startup`). Cold pass on the reference home is about 2.0 s with a
   cold first paint near 0.46 s.
-- A2. 2D interaction micro-benchmark (selection, drag, zoom, pan, wall edit,
-  and invalidated repaint area), not just full-repaint throughput. Inspect
-  `PlanComponent`, `IconManager`, and geometry `Area` construction.
+- A2. 2D interaction micro-benchmark - **done** (`make
+  benchmark-plan-interaction`). Finding: every interaction currently
+  invalidates the full viewport, which makes C1 the highest-value 2D task -
+  give `PlanComponent` targeted `repaint(rectangle)` calls for localized
+  interactions (selection, single-piece move) so a small change stops paying a
+  full-frame repaint.
 - A3. 3D scene-update micro-benchmark (camera move, furniture move, level
   visibility, texture update) in `scene` mode only, avoiding the unstable large
   off-screen frame path. Inspect `HomeComponent3D` and `ModelManager`.
