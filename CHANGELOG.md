@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.5.1-beta.5](https://github.com/mjcipriano/sweethome3d/compare/v7.5.1-beta.4...v7.5.1-beta.5) (2026-06-07)
+
+
+### Performance Improvements
+
+* default Windows 3D rendering to speed (no antialiasing) ([70070fa](https://github.com/mjcipriano/sweethome3d/commit/70070fa3a76010b73ba1abb36dfa11da4bb57394))
+* Windows 3D fast path — speed-default rendering + Optimus GPU guidance (E1) ([34f892f](https://github.com/mjcipriano/sweethome3d/commit/34f892f7147041027228d1bfa83c93e25f8708f3))
+
 ## [7.5.1-beta.4](https://github.com/mjcipriano/sweethome3d/compare/v7.5.1-beta.3...v7.5.1-beta.4) (2026-06-07)
 
 
