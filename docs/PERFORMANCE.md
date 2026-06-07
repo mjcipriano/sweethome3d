@@ -153,6 +153,16 @@ construction from 15.09 seconds to 13.44 seconds (about 11%) by replacing the
 synchronized `BufferedReader` in the thread-confined OBJ parser with a larger
 unsynchronized buffer.
 
+`BENCHMARK_MODE=update` measures how long the live scene graph takes to react to
+repeated model changes after the scene is built - moving a piece, rotating a
+piece, and moving the camera - without using the unstable off-screen frame path.
+Because `HomeComponent3D` applies furniture updates through
+`EventQueue.invokeLater`, each measurement mutates the home on the event
+dispatch thread and then posts an empty barrier so the elapsed time covers the
+whole deferred update cycle. On the reference home the medians were about 3 ms
+for a piece move, 3 ms for a piece rotation, and 1 ms for a camera move. These
+are the baselines for the model-loading and scene-update work in workstream D.
+
 ## Optimization Rules
 
 1. Capture a baseline before changing a hot path.

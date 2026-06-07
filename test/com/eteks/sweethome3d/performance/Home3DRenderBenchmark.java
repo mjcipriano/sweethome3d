@@ -17,9 +17,12 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Set;
 
+import javax.swing.SwingUtilities;
+
 import com.eteks.sweethome3d.io.DefaultUserPreferences;
 import com.eteks.sweethome3d.io.HomeFileRecorder;
 import com.eteks.sweethome3d.j3d.Component3DManager;
+import com.eteks.sweethome3d.model.Camera;
 import com.eteks.sweethome3d.model.Content;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomeFurnitureGroup;
@@ -49,8 +52,8 @@ public class Home3DRenderBenchmark {
     if (iterations < 1) {
       throw new IllegalArgumentException("Iterations must be positive");
     }
-    if (!"scene".equals(mode) && !"frame".equals(mode)) {
-      throw new IllegalArgumentException("Mode must be scene or frame");
+    if (!"scene".equals(mode) && !"frame".equals(mode) && !"update".equals(mode)) {
+      throw new IllegalArgumentException("Mode must be scene, frame or update");
     }
 
     Home home = new HomeFileRecorder(
@@ -89,6 +92,15 @@ public class Home3DRenderBenchmark {
       System.exit(0);
     }
 
+    if ("update".equals(mode)) {
+      try {
+        measureSceneUpdates(home, iterations);
+      } finally {
+        component.endOffscreenImagesCreation();
+      }
+      System.exit(0);
+    }
+
     long [] frameMillis = new long [iterations];
     try {
       for (int i = 0; i < iterations; i++) {
@@ -107,6 +119,104 @@ public class Home3DRenderBenchmark {
     System.out.println("median_frame_ms=" + percentile(frameMillis, 50));
     System.out.println("p95_frame_ms=" + percentile(frameMillis, 95));
     System.exit(0);
+  }
+
+  /**
+   * Measures how long the live Java 3D scene graph takes to react to repeated
+   * model changes after the scene is built: moving a piece, rotating a piece,
+   * and moving the camera. {@code HomeComponent3D} applies furniture updates
+   * through {@code EventQueue.invokeLater}, so each measurement mutates the home
+   * on the event dispatch thread and then posts an empty barrier; FIFO ordering
+   * guarantees the deferred update runs before the barrier returns, so the
+   * elapsed time covers the whole update cycle.
+   */
+  private static void measureSceneUpdates(Home home, int iterations) throws Exception {
+    final HomePieceOfFurniture piece = firstMovablePiece(home);
+    if (piece == null) {
+      throw new IllegalStateException("No movable furniture found to update");
+    }
+    final Camera camera = home.getCamera();
+    final float baseX = piece.getX();
+    final float baseAngle = piece.getAngle();
+    final float cameraBaseX = camera.getX();
+
+    // Warm up the deferred-update path and JIT before recording.
+    for (int i = 0; i < 5; i++) {
+      timeSceneUpdate(new Runnable() {
+        public void run() { piece.setX(piece.getX() + 5f); }
+      });
+    }
+    runOnEdt(new Runnable() {
+      public void run() { piece.setX(baseX); }
+    });
+
+    long [] moveMillis = new long [iterations];
+    long [] rotateMillis = new long [iterations];
+    long [] cameraMillis = new long [iterations];
+    for (int i = 0; i < iterations; i++) {
+      final float sign = (i % 2 == 0) ? 1f : -1f;
+      moveMillis [i] = timeSceneUpdate(new Runnable() {
+        public void run() { piece.setX(baseX + sign * 25f); }
+      });
+      rotateMillis [i] = timeSceneUpdate(new Runnable() {
+        public void run() { piece.setAngle(baseAngle + sign * 0.2f); }
+      });
+      cameraMillis [i] = timeSceneUpdate(new Runnable() {
+        public void run() { camera.setX(cameraBaseX + sign * 25f); }
+      });
+    }
+    // Restore mutated state.
+    runOnEdt(new Runnable() {
+      public void run() {
+        piece.setX(baseX);
+        piece.setAngle(baseAngle);
+        camera.setX(cameraBaseX);
+      }
+    });
+
+    printUpdateSummary("move_piece", moveMillis);
+    printUpdateSummary("rotate_piece", rotateMillis);
+    printUpdateSummary("move_camera", cameraMillis);
+  }
+
+  /**
+   * Mutates the home on the event dispatch thread and returns the elapsed
+   * milliseconds once the deferred scene-graph update has also run.
+   */
+  private static long timeSceneUpdate(Runnable mutation) throws Exception {
+    long start = System.nanoTime();
+    SwingUtilities.invokeAndWait(mutation);
+    SwingUtilities.invokeAndWait(new Runnable() {
+      public void run() {
+        // Empty barrier: ensures the invokeLater scene update has executed.
+      }
+    });
+    return elapsedMillis(start);
+  }
+
+  private static void runOnEdt(Runnable runnable) throws Exception {
+    SwingUtilities.invokeAndWait(runnable);
+  }
+
+  private static HomePieceOfFurniture firstMovablePiece(Home home) {
+    for (HomePieceOfFurniture piece : home.getFurniture()) {
+      if (!(piece instanceof HomeFurnitureGroup) && piece.isVisible()) {
+        return piece;
+      }
+    }
+    for (HomePieceOfFurniture piece : home.getFurniture()) {
+      if (!(piece instanceof HomeFurnitureGroup)) {
+        return piece;
+      }
+    }
+    return null;
+  }
+
+  private static void printUpdateSummary(String name, long [] values) {
+    long [] sorted = values.clone();
+    Arrays.sort(sorted);
+    System.out.println(name + "_median_ms=" + percentile(sorted, 50)
+        + " " + name + "_p95_ms=" + percentile(sorted, 95));
   }
 
   private static int countModels(
