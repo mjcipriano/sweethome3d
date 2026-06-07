@@ -3,6 +3,8 @@ build/
 classes/
 install/SweetHome3D-*.jar
 release/
+profiles/
+example-files/
 
 # Test artifacts
 build/test-classes/
