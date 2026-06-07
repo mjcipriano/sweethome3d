@@ -36,7 +36,8 @@ approved. The `example-files/` directory is ignored.
 | 3D measurement | Add Java 3D scene/frame benchmark and optional JFR capture | Safe scene mode works with the complex reference home | `3573e1b` |
 | Startup measurement | Add a cold-start phase benchmark (`make benchmark-startup`) covering prefs init, home load, plan creation, and first 2D paint, with optional JFR | Cold pass on the reference home is about 2.0 s total; cold first paint is about 0.46 s; harness is headless and adds no app behavior (task A1) | merged PR #7 |
 | 2D interaction measurement | Add an interaction benchmark (`make benchmark-plan-interaction`) reporting apply cost, invalidated repaint area, and paint cost for select/move/zoom | Found that every interaction invalidates the full 1920x1080 viewport (`dirty_pct=100`), so a single-piece selection costs a full ~9-10 ms repaint; `PlanComponent` has no targeted `repaint(rectangle)` calls (task A2) | merged PR #9 |
-| 2D interaction | Repaint only the area of the previously and newly selected items (plus an indicator margin) on selection change, instead of the whole plan | Selecting a single piece dropped from invalidating 100% of the viewport to ~1% and from a ~9-10 ms paint to sub-ms; pixel-coverage check and GUI suite confirm no artifacts (task C1, selection) | _pending_ |
+| 2D interaction | Repaint only the area of the previously and newly selected items (plus an indicator margin) on selection change, instead of the whole plan | Selecting a single piece dropped from invalidating 100% of the viewport to ~1% and from a ~9-10 ms paint to sub-ms; pixel-coverage check and GUI suite confirm no artifacts (task C1, selection) | merged PR #10 |
+| 3D scene-update measurement | Add `BENCHMARK_MODE=update` to the 3D benchmark, timing scene-graph reaction to piece move, piece rotation, and camera move via an EDT barrier around the deferred `invokeLater` update | Baselines on the reference home: ~3 ms piece move, ~3 ms rotation, ~1 ms camera move; runs stably in scene mode without the off-screen frame path (task A3) | _pending_ |
 
 ## Tried And Rejected
 
@@ -89,9 +90,10 @@ in parallel, then F.
   give `PlanComponent` targeted `repaint(rectangle)` calls for localized
   interactions (selection, single-piece move) so a small change stops paying a
   full-frame repaint.
-- A3. 3D scene-update micro-benchmark (camera move, furniture move, level
-  visibility, texture update) in `scene` mode only, avoiding the unstable large
-  off-screen frame path. Inspect `HomeComponent3D` and `ModelManager`.
+- A3. 3D scene-update micro-benchmark - **done** (`make benchmark-home-3d
+  BENCHMARK_MODE=update`). Baselines: piece move/rotate ~3 ms, camera move
+  ~1 ms. This is the measurement baseline for workstream D (model loading and
+  scene updates).
 - A4. Evaluate the Java 21 runtime against Java 17 - **done; rejected**. No
   repeatable win on the WSL host (see Tried And Rejected); keep OpenJDK 17.
   Re-run only on a quieter measurement host. A newer JDK alone is not evidence

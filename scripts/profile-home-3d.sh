@@ -11,8 +11,8 @@ if [[ -z "$home_file" ]]; then
   echo "Usage: $0 <home.sh3d> [scene|frame] [iterations]" >&2
   exit 2
 fi
-if [[ "$mode" != "scene" && "$mode" != "frame" ]]; then
-  echo "Mode must be scene or frame." >&2
+if [[ "$mode" != "scene" && "$mode" != "frame" && "$mode" != "update" ]]; then
+  echo "Mode must be scene, frame or update." >&2
   exit 2
 fi
 if [[ -z "${DISPLAY:-}" ]]; then
