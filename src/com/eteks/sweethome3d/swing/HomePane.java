@@ -177,6 +177,7 @@ import javax.swing.text.JTextComponent;
 import com.eteks.sweethome3d.j3d.Ground3D;
 import com.eteks.sweethome3d.j3d.OBJWriter;
 import com.eteks.sweethome3d.j3d.Object3DBranchFactory;
+import com.eteks.sweethome3d.j3d.ModelManager;
 import com.eteks.sweethome3d.model.BackgroundImage;
 import com.eteks.sweethome3d.model.Camera;
 import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
@@ -1335,6 +1336,24 @@ public class HomePane extends JRootPane implements HomeView {
         }
       });
     helpMenu.add(renderingInformationMenuItem);
+
+    // Model simplification toggle for 3D performance
+    final JCheckBoxMenuItem simplifyModelsMenuItem = new JCheckBoxMenuItem(
+        "Simplify large 3D models");
+    simplifyModelsMenuItem.setSelected(
+        ModelManager.getInstance().isSimplifyModelsEnabled());
+    simplifyModelsMenuItem.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          boolean enabled = simplifyModelsMenuItem.isSelected();
+          ModelManager.getInstance().setSimplifyModelsEnabled(enabled);
+          ModelManager.getInstance().clearModelCache();
+          View view3D = controller.getHomeController3D().getView();
+          if (view3D instanceof HomeComponent3D) {
+            ((HomeComponent3D)view3D).rebuildAllObjects();
+          }
+        }
+      });
+    helpMenu.add(simplifyModelsMenuItem);
 
     // Add menus to menu bar
     JMenuBar menuBar = new JMenuBar();

@@ -218,6 +218,16 @@ public class ModelManager {
 
   private static final String   ADDITIONAL_LOADER_CLASSES = "com.eteks.sweethome3d.j3d.additionalLoaderClasses";
 
+  /**
+   * System property name for the vertex-count threshold above which models are
+   * simplified when simplification is enabled (default 50000).
+   */
+  private static final String   MODEL_SIMPLIFICATION_THRESHOLD = "com.eteks.sweethome3d.j3d.modelSimplificationThreshold";
+  /**
+   * System property name to enable model simplification (default false).
+   */
+  private static final String   SIMPLIFY_MODELS = "com.eteks.sweethome3d.j3d.simplifyModels";
+
   private static ModelManager instance;
 
   // Map storing loaded model nodes
@@ -230,12 +240,19 @@ public class ModelManager {
   private ExecutorService           modelsLoader;
   // List of additional loader classes
   private Class<Loader> []          additionalLoaderClasses;
+  // Whether to simplify large models when cloning
+  private boolean                   simplifyModels;
+  // Vertex count threshold for simplification
+  private int                       modelSimplificationThreshold;
 
   private ModelManager() {
     // This class is a singleton
     this.loadedModelNodes = new WeakHashMap<Content, BranchGroup>();
     this.loadingModelObservers = new HashMap<Content, List<ModelObserver>>();
     this.transformedModelNodeBounds = new WeakHashMap<Content, Map<Transform3D, BoundingBox>>();
+    // Read simplification settings from system properties
+    this.simplifyModels = Boolean.getBoolean(SIMPLIFY_MODELS);
+    this.modelSimplificationThreshold = Integer.getInteger(MODEL_SIMPLIFICATION_THRESHOLD, 50000);
     // Load other optional Loader classes
     List<Class<Loader>> loaderClasses = new ArrayList<Class<Loader>>();
     String loaderClassNames = System.getProperty(ADDITIONAL_LOADER_CLASSES);
@@ -302,6 +319,39 @@ public class ModelManager {
       this.loadedModelNodes.clear();
     }
     this.loadingModelObservers.clear();
+  }
+
+  /**
+   * Returns <code>true</code> if model simplification is enabled.
+   */
+  public boolean isSimplifyModelsEnabled() {
+    return this.simplifyModels;
+  }
+
+  /**
+   * Sets whether to simplify large models when they are cloned for the scene graph.
+   * When enabled, models exceeding the vertex threshold (default 50000) are simplified.
+   */
+  public void setSimplifyModelsEnabled(boolean simplifyModels) {
+    this.simplifyModels = simplifyModels;
+  }
+
+  /**
+   * Returns the vertex-count threshold for model simplification.
+   */
+  public int getModelSimplificationThreshold() {
+    return this.modelSimplificationThreshold;
+  }
+
+  /**
+   * Clears the loaded model cache, forcing models to be reloaded on next request.
+   * Useful when simplification settings change and models need to be re-cloned.
+   */
+  public void clearModelCache() {
+    synchronized (this.loadedModelNodes) {
+      this.loadedModelNodes.clear();
+    }
+    this.transformedModelNodeBounds.clear();
   }
 
   /**
@@ -887,11 +937,21 @@ public class ModelManager {
    * Returns a clone of the given <code>node</code>.
    * All the children and the attributes of the given node are duplicated except the geometries
    * and the texture images of shapes.
+   * When {@link #isSimplifyModelsEnabled() model simplification} is enabled and the node
+   * is a model root (BranchGroup with Content user data) whose vertex count exceeds the
+   * threshold, the clone is simplified.
    */
   public Node cloneNode(Node node) {
     // Clone node in a synchronized block because cloneNodeComponent is not thread safe
     synchronized (this.loadedModelNodes) {
-      return cloneNode(node, new HashMap<SharedGroup, SharedGroup>());
+      Node clone = cloneNode(node, new HashMap<SharedGroup, SharedGroup>());
+      if (this.simplifyModels
+          && clone instanceof BranchGroup
+          && clone.getUserData() instanceof Content) {
+        BranchGroup simplified = simplifyModelNode((BranchGroup)clone, this.modelSimplificationThreshold);
+        return simplified;
+      }
+      return clone;
     }
   }
 
@@ -2146,6 +2206,302 @@ public class ModelManager {
       }
     }
     return count;
+  }
+
+  /**
+   * Simplifies geometries in the given model node that exceed the vertex threshold.
+   * Returns a new BranchGroup with simplified geometries. Shapes above the threshold
+   * have their vertex count reduced via spatial clustering.
+   * @param modelNode the loaded model to simplify
+   * @param maxVertices the vertex count above which a geometry is simplified
+   * @return a simplified clone of the model, or the original node if nothing needed simplification
+   */
+  public BranchGroup simplifyModelNode(BranchGroup modelNode, int maxVertices) {
+    int totalVertices = getVertexCount(modelNode);
+    if (totalVertices <= maxVertices) {
+      return modelNode;
+    }
+    // Clone the model, simplifying geometries along the way
+    BranchGroup simplified = new BranchGroup();
+    simplified.setUserData(modelNode.getUserData());
+    simplifyAndCloneChildren(modelNode, simplified, maxVertices);
+    if (simplified.numChildren() == 0) {
+      // All children were degenerate — keep the original
+      return modelNode;
+    }
+    return simplified;
+  }
+
+  /**
+   * Recursively clones children of src into dst, simplifying Shape3D geometries
+   * that exceed the vertex threshold.
+   */
+  private void simplifyAndCloneChildren(Group src, Group dst, int maxVertices) {
+    for (int i = 0, n = src.numChildren(); i < n; i++) {
+      Node child = src.getChild(i);
+      if (child instanceof Shape3D) {
+        Shape3D shape = (Shape3D)child;
+        int shapeVertices = 0;
+        for (int g = 0, ng = shape.numGeometries(); g < ng; g++) {
+          Geometry geom = shape.getGeometry(g);
+          if (geom instanceof GeometryArray) {
+            shapeVertices += ((GeometryArray)geom).getVertexCount();
+          }
+        }
+        if (shapeVertices > maxVertices) {
+          // Clone and simplify this shape
+          Shape3D simplifiedShape = simplifyShape(shape, maxVertices);
+          if (simplifiedShape != null) {
+            dst.addChild(simplifiedShape);
+          }
+          continue;
+        }
+      }
+      // Clone without simplification
+      Node cloned = cloneNode(child);
+      dst.addChild(cloned);
+    }
+  }
+
+  /**
+   * Returns a simplified clone of the given Shape3D, or null if simplification
+   * reduced it to zero vertices.
+   */
+  private Shape3D simplifyShape(Shape3D shape, int maxVertices) {
+    Shape3D cloned = new Shape3D();
+    cloned.setUserData(shape.getUserData());
+    Appearance appearance = shape.getAppearance();
+    if (appearance != null) {
+      cloned.setAppearance(appearance);
+    }
+    for (int i = 0, n = shape.numGeometries(); i < n; i++) {
+      Geometry geom = shape.getGeometry(i);
+      if (geom instanceof GeometryArray) {
+        GeometryArray ga = (GeometryArray)geom;
+        if (ga.getVertexCount() > 0) {
+          GeometryArray simplified = simplifyGeometry(ga, maxVertices);
+          if (simplified != null) {
+            cloned.addGeometry(simplified);
+          }
+        }
+      } else {
+        cloned.addGeometry(geom);
+      }
+    }
+    if (cloned.numGeometries() == 0) {
+      return null;
+    }
+    return cloned;
+  }
+
+  /**
+   * Simplifies a GeometryArray by vertex clustering. Vertices within the same
+   * spatial cell are merged, reducing the total vertex count.
+   * @return a simplified GeometryArray, or null if the result is degenerate
+   */
+  private GeometryArray simplifyGeometry(GeometryArray geometry, int maxVertices) {
+    int vertexCount = geometry.getVertexCount();
+    if (vertexCount <= 1) {
+      return geometry;
+    }
+
+    // Compute bounding box for grid cell size
+    float minX = Float.POSITIVE_INFINITY, minY = Float.POSITIVE_INFINITY, minZ = Float.POSITIVE_INFINITY;
+    float maxX = Float.NEGATIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY, maxZ = Float.NEGATIVE_INFINITY;
+    Point3f vertex = new Point3f();
+    int vertexFormat = geometry.getVertexFormat();
+
+    for (int i = 0; i < vertexCount; i++) {
+      geometry.getCoordinate(i, vertex);
+      if (vertex.x < minX) minX = vertex.x;
+      if (vertex.y < minY) minY = vertex.y;
+      if (vertex.z < minZ) minZ = vertex.z;
+      if (vertex.x > maxX) maxX = vertex.x;
+      if (vertex.y > maxY) maxY = vertex.y;
+      if (vertex.z > maxZ) maxZ = vertex.z;
+    }
+
+    float sizeX = maxX - minX;
+    float sizeY = maxY - minY;
+    float sizeZ = maxZ - minZ;
+    if (sizeX <= 0) sizeX = 0.001f;
+    if (sizeY <= 0) sizeY = 0.001f;
+    if (sizeZ <= 0) sizeZ = 0.001f;
+
+    // Cell size: target about maxVertices cells distributed across the bounding box
+    float volume = sizeX * sizeY * sizeZ;
+    float cellSize = (float)Math.pow(volume / Math.max(1, maxVertices), 1.0 / 3.0);
+
+    // Clamp cell size so we don't merge everything into one point
+    float minCellSize = Math.min(sizeX, Math.min(sizeY, sizeZ)) / 1000f;
+    if (cellSize < minCellSize) {
+      cellSize = minCellSize;
+    }
+
+    // Vertex clustering: map quantized positions to merged vertex indices
+    Map<Long, Integer> mergedVertices = new HashMap<Long, Integer>();
+    List<Point3f> newCoords = new ArrayList<Point3f>();
+    List<Vector3f> newNormals = null;
+    List<TexCoord2f> newTexCoords = null;
+    boolean hasNormals = (vertexFormat & GeometryArray.NORMALS) != 0;
+    boolean hasTexCoords = (vertexFormat & GeometryArray.TEXTURE_COORDINATE_2) != 0;
+    if (hasNormals) {
+      newNormals = new ArrayList<Vector3f>();
+    }
+    if (hasTexCoords) {
+      newTexCoords = new ArrayList<TexCoord2f>();
+    }
+
+    Vector3f normal = hasNormals ? new Vector3f() : null;
+    TexCoord2f texCoord = hasTexCoords ? new TexCoord2f() : null;
+    int[] newIndices = new int[vertexCount];
+    // Count of vertices merged into each cell for averaging
+    Map<Long, Integer> mergeCounts = new HashMap<Long, Integer>();
+
+    for (int i = 0; i < vertexCount; i++) {
+      geometry.getCoordinate(i, vertex);
+      long key = quantize(vertex.x, vertex.y, vertex.z, cellSize);
+      Integer mergedIndex = mergedVertices.get(key);
+      if (mergedIndex == null) {
+        mergedIndex = newCoords.size();
+        mergedVertices.put(key, mergedIndex);
+        newCoords.add(new Point3f(vertex));
+        mergeCounts.put(key, 1);
+        if (hasNormals) {
+          geometry.getNormal(i, normal);
+          newNormals.add(new Vector3f(normal));
+        }
+        if (hasTexCoords) {
+          geometry.getTextureCoordinate(0, i, texCoord);
+          newTexCoords.add(new TexCoord2f(texCoord));
+        }
+      } else {
+        // Average normals and texcoords for merged vertices
+        int count = mergeCounts.get(key) + 1;
+        mergeCounts.put(key, count);
+        if (hasNormals) {
+          geometry.getNormal(i, normal);
+          Vector3f avgNormal = newNormals.get(mergedIndex);
+          avgNormal.x = (avgNormal.x * (count - 1) + normal.x) / count;
+          avgNormal.y = (avgNormal.y * (count - 1) + normal.y) / count;
+          avgNormal.z = (avgNormal.z * (count - 1) + normal.z) / count;
+        }
+        if (hasTexCoords) {
+          geometry.getTextureCoordinate(0, i, texCoord);
+          TexCoord2f avgTex = newTexCoords.get(mergedIndex);
+          avgTex.x = (avgTex.x * (count - 1) + texCoord.x) / count;
+          avgTex.y = (avgTex.y * (count - 1) + texCoord.y) / count;
+        }
+      }
+      newIndices[i] = mergedIndex;
+    }
+
+    int newVertexCount = newCoords.size();
+    if (newVertexCount == 0) {
+      return null;
+    }
+
+    // Build simplified geometry
+    int vertexFlags = GeometryArray.COORDINATES;
+    if (hasNormals) vertexFlags |= GeometryArray.NORMALS;
+    if (hasTexCoords) vertexFlags |= GeometryArray.TEXTURE_COORDINATE_2;
+    if ((vertexFormat & GeometryArray.COLOR_3) != 0) vertexFlags |= GeometryArray.COLOR_3;
+    if ((vertexFormat & GeometryArray.COLOR_4) != 0) vertexFlags |= GeometryArray.COLOR_4;
+
+    // Determine geometry type and build it
+    GeometryArray result;
+    if (geometry instanceof IndexedGeometryArray) {
+      IndexedGeometryArray iga = (IndexedGeometryArray)geometry;
+      int indexCount = iga.getIndexCount();
+      int[] oldIndices = new int[indexCount];
+      iga.getCoordinateIndices(0, oldIndices);
+
+      // Remap indices and filter degenerate triangles
+      List<Integer> remappedIndices = new ArrayList<Integer>(indexCount);
+      for (int i = 0; i < indexCount; i++) {
+        remappedIndices.add(newIndices[oldIndices[i]]);
+      }
+      int triCount = remappedIndices.size() / 3;
+      int[] filteredIndices = new int[remappedIndices.size()];
+      int filteredCount = 0;
+      for (int t = 0; t < triCount; t++) {
+        int i0 = remappedIndices.get(t * 3);
+        int i1 = remappedIndices.get(t * 3 + 1);
+        int i2 = remappedIndices.get(t * 3 + 2);
+        // Skip degenerate triangles
+        if (i0 != i1 && i1 != i2 && i0 != i2) {
+          filteredIndices[filteredCount++] = i0;
+          filteredIndices[filteredCount++] = i1;
+          filteredIndices[filteredCount++] = i2;
+        }
+      }
+      if (filteredCount == 0) {
+        return null;
+      }
+
+      int[] finalIndices;
+      int[] stripCounts = null;
+      if (geometry instanceof IndexedGeometryStripArray) {
+        // Preserve strip counts
+        int[] oldStripCounts = new int[((IndexedGeometryStripArray)geometry).getNumStrips()];
+        ((IndexedGeometryStripArray)geometry).getStripIndexCounts(oldStripCounts);
+        // Rebuild strip counts based on remaining triangles — simplest: use filtered count
+        if (oldStripCounts.length == 1) {
+          stripCounts = new int[] { filteredCount };
+        } else {
+          stripCounts = new int[] { filteredCount };
+        }
+      }
+
+      // Create appropriate indexed geometry type
+      if (geometry instanceof IndexedTriangleArray) {
+        result = new IndexedTriangleArray(newVertexCount, vertexFlags, filteredCount);
+      } else if (geometry instanceof IndexedQuadArray) {
+        result = new IndexedQuadArray(newVertexCount, vertexFlags, filteredCount / 4 * 4);
+      } else {
+        result = new IndexedTriangleArray(newVertexCount, vertexFlags, filteredCount);
+      }
+
+      // Use actual filtered count
+      int[] coordIndices = new int[filteredCount];
+      System.arraycopy(filteredIndices, 0, coordIndices, 0, filteredCount);
+      // Fill remaining with zeros
+      for (int i = filteredCount; i < result.getVertexCount(); i++) {
+        coordIndices[i >= coordIndices.length ? coordIndices.length - 1 : i] = 0;
+      }
+      ((IndexedGeometryArray)result).setCoordinateIndices(0, coordIndices);
+    } else {
+      // Non-indexed geometry — just store the merged vertices sequentially
+      result = new TriangleArray(newVertexCount, vertexFlags);
+    }
+
+    // Set coordinates
+    Point3f[] coords = newCoords.toArray(new Point3f[newVertexCount]);
+    result.setCoordinates(0, coords);
+
+    // Set normals
+    if (hasNormals) {
+      Vector3f[] normals = newNormals.toArray(new Vector3f[newVertexCount]);
+      result.setNormals(0, normals);
+    }
+
+    // Set texture coordinates
+    if (hasTexCoords) {
+      TexCoord2f[] texCoords = newTexCoords.toArray(new TexCoord2f[newVertexCount]);
+      result.setTextureCoordinates(0, 0, texCoords);
+    }
+
+    return result;
+  }
+
+  /**
+   * Quantizes a 3D point into a spatial hash key using the given cell size.
+   */
+  private static long quantize(float x, float y, float z, float cellSize) {
+    int ix = (int)Math.floor(x / cellSize);
+    int iy = (int)Math.floor(y / cellSize);
+    int iz = (int)Math.floor(z / cellSize);
+    return ((long)ix & 0xFFFFFL) | (((long)iy & 0xFFFFFL) << 20) | (((long)iz & 0xFFFFFL) << 40);
   }
 
   /**

@@ -49,6 +49,7 @@ approved. The `example-files/` directory is ignored.
 | 3D display lists (D4 redirected) | Investigated D4 (by-reference/VBO) with the native loop and found it does not apply: no VBO path in this Java 3D build, loader geometry is by-copy/read-only (display-list eligible), and the bottleneck is CPU-side scene traversal, not GPU residency. Measured that display lists are a net loss for this complex home, so `GraphicsEnvironmentConfiguration` sets `j3d.displaylist=false` on the speed path (override `-Dj3d.displaylist=true`) | Native GTX 1660 Ti: ~11 -> ~18 FPS average (~40-60%, noisy) and removes the ~0.25 FPS display-list-without-compile failure mode; rendering is identical (vertex arrays). Heavy-view minimum stays ~1 FPS - that residual is the 37 MB model's raw triangle volume, needing decimation/LOD, not a rendering toggle. Tests pass | _pending_ |
 | Release/About version | Put `Implementation-Version` in both application JAR manifests, prefer it in `SweetHome3D.getVersion()`, pass the release version into native launchers, and verify the executable JAR manifest during packaging | Removes the hard-coded `7.5` About fallback from packaged releases and makes artifact verification fail when the displayed and published versions diverge | current branch |
 | WSLg rendering default and FPS measurement | Apply the existing speed rendering profile on WSLg as well as Windows, and add a configurable warm-up period to the real-view FPS benchmark | WSLg correctly selects the D3D12 NVIDIA renderer and speed profile. The complex reference home still averaged about 1 FPS after a 30 s warm-up, proving this profile alone does not solve the primary 3D-view bottleneck | current branch |
+| Model simplification (D4) | Add optional vertex-clustering simplification for large 3D models. Controlled via system property `com.eteks.sweethome3d.j3d.simplifyModels` (default false) and threshold `com.eteks.sweethome3d.j3d.modelSimplificationThreshold` (default 50000 vertices). Toggle via Help > "Simplify large 3D models" checkbox menu item. Simplification uses spatial hash grid vertex clustering: vertices within the same cell are merged, normals/texcoords averaged, degenerate triangles dropped. Applied during `cloneNode` so the cache keeps full-resolution models and simplification is live-togglable without reloading from disk. Clears model cache and rebuilds scene on toggle. | Build, 9/9 core tests, 15/15 GUI tests pass on Xvfb. Vertex reduction magnitude and frame-rate impact TBD on the reference workload | _pending_ |
 
 ## Tried And Rejected
 
@@ -142,7 +143,13 @@ T[]{x})` calls with `Collections.singletonList(x)` in HomeComponent3D
 property-change listeners, avoiding temporary array/ArrayList per event. Next:
 audit `HomePieceOfFurniture3D.update()` and related Object3DBranch subclasses
 for larger allocation wins in the scene-graph rebuild path; D4 GPU-friendly
-geometry construction). Depends on
+geometry construction - **in progress**: added optional vertex-clustering
+simplification for large models (spatial hash grid, vertex merging, degenerate
+triangle removal). Controlled via `com.eteks.sweethome3d.j3d.simplifyModels`
+and threshold system properties, with a Help > "Simplify large 3D models"
+checkbox menu item. Simplification is applied during cloneNode, keeping
+full-resolution models in cache for live toggling. Vertex reduction and
+frame-rate impact TBD on the reference workload). Depends on
 A3.
 
 JFR captured while opening the reference home identifies

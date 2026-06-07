@@ -543,6 +543,19 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
   }
 
   /**
+   * Rebuilds all 3D objects in the scene, causing models to be re-cloned
+   * through the current {@link ModelManager} configuration. This is used
+   * when model simplification is toggled at runtime.
+   */
+  public void rebuildAllObjects() {
+    if (this.home != null) {
+      updateObjects(this.home.getFurniture());
+      updateObjects(this.home.getWalls());
+      updateObjects(this.home.getRooms());
+    }
+  }
+
+  /**
    * Captures the active OpenGL device of <code>canvas3D</code> once, storing it in
    * {@link #renderingStatistics} and logging it (the packaged application has no
    * console, so it is also appended to a graphics log file).
