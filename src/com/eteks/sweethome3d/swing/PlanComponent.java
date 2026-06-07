@@ -264,6 +264,11 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
 
   private static final float    MARGIN = 40;
 
+  // Pixel margin added around selected items when repainting a selection change,
+  // large enough to cover the selection indicators drawn at a fixed pixel size
+  // around items (see paintPieceOFFurnitureIndicators and similar methods).
+  private static final int      SELECTION_INDICATOR_PIXEL_MARGIN = 32;
+
   private final Home            home;
   private final UserPreferences preferences;
   private final Object3DFactory object3dFactory;
@@ -1091,7 +1096,7 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
       });
     home.addSelectionListener(new SelectionListener () {
         public void selectionChanged(SelectionEvent ev) {
-          repaint();
+          repaintSelectionChange(ev.getOldSelectedItems(), ev.getSelectedItems());
         }
       });
     home.addPropertyChangeListener(Home.Property.BACKGROUND_IMAGE,
@@ -5719,6 +5724,56 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
       selectedItems.remove(this.home.getCamera());
       return getItemsBounds(g, selectedItems);
     }
+  }
+
+  /**
+   * Repaints only the parts of this component that show the previously and the
+   * newly selected items, together with the selection indicators drawn around
+   * them, instead of repainting the whole plan. Selection changes happen on
+   * every click, so painting just the affected region avoids a full-frame
+   * repaint. Falls back to a full repaint when the affected area can't be
+   * determined, for example when the previous selection isn't known.
+   */
+  private void repaintSelectionChange(List<? extends Object> oldSelectedItems,
+                                      List<? extends Object> newSelectedItems) {
+    if (oldSelectedItems == null) {
+      // Previous selection unknown: can't tell which indicators must be erased
+      repaint();
+      return;
+    }
+    Rectangle2D selectionBounds = getItemsBounds(null, getSelectableItems(oldSelectedItems));
+    Rectangle2D newSelectionBounds = getItemsBounds(null, getSelectableItems(newSelectedItems));
+    if (newSelectionBounds != null) {
+      if (selectionBounds == null) {
+        selectionBounds = newSelectionBounds;
+      } else {
+        selectionBounds.add(newSelectionBounds);
+      }
+    }
+    if (selectionBounds == null) {
+      // Selection was empty and stays empty: nothing to update
+      return;
+    }
+    int xMin = convertXModelToPixel((float)selectionBounds.getMinX());
+    int yMin = convertYModelToPixel((float)selectionBounds.getMinY());
+    int xMax = convertXModelToPixel((float)selectionBounds.getMaxX());
+    int yMax = convertYModelToPixel((float)selectionBounds.getMaxY());
+    int margin = SELECTION_INDICATOR_PIXEL_MARGIN;
+    repaint(xMin - margin, yMin - margin,
+        xMax - xMin + 2 * margin, yMax - yMin + 2 * margin);
+  }
+
+  /**
+   * Returns the items of the given list that can be displayed in the plan.
+   */
+  private List<Selectable> getSelectableItems(List<? extends Object> items) {
+    List<Selectable> selectableItems = new ArrayList<Selectable>(items.size());
+    for (Object item : items) {
+      if (item instanceof Selectable) {
+        selectableItems.add((Selectable)item);
+      }
+    }
+    return selectableItems;
   }
 
   /**
