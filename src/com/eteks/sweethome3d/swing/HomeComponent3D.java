@@ -1050,7 +1050,12 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     SimpleUniverse universe = new SimpleUniverse(viewingPlatform, viewer);
 
     View view = viewer.getView();
-    view.setTransparencySortingPolicy(View.TRANSPARENCY_SORT_GEOMETRY);
+    // Sorting transparent geometry by depth is done on the CPU every frame and is
+    // costly on complex scenes. Skip it when rendering is tuned for speed.
+    view.setTransparencySortingPolicy(
+        "speed".equalsIgnoreCase(System.getProperty(GraphicsEnvironmentConfiguration.RENDERING_QUALITY_PROPERTY))
+            ? View.TRANSPARENCY_SORT_NONE
+            : View.TRANSPARENCY_SORT_GEOMETRY);
 
     // Parallel or perspective projection
     view.setProjectionPolicy(this.projection == Projection.PERSPECTIVE
@@ -1068,9 +1073,17 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       addCameraListeners(view, viewPlatformTransform);
     }
 
-    // Link scene matching home to universe
-    universe.addBranchGraph(createSceneTree(
-        displayShadowOnFloor, listenToHomeUpdates, waitForLoading));
+    // Link scene matching home to universe. Compiling the branch optimizes its
+    // static parts (flattens transforms, merges shapes, builds display lists),
+    // which speeds up rendering of complex homes. Runtime edits still work because
+    // compile() preserves the capabilities already set on the nodes. Set
+    // com.eteks.sweethome3d.j3d.compileScene=false to disable.
+    BranchGroup sceneTree = createSceneTree(
+        displayShadowOnFloor, listenToHomeUpdates, waitForLoading);
+    if (!"false".equalsIgnoreCase(System.getProperty("com.eteks.sweethome3d.j3d.compileScene"))) {
+      sceneTree.compile();
+    }
+    universe.addBranchGraph(sceneTree);
 
     return universe;
   }
