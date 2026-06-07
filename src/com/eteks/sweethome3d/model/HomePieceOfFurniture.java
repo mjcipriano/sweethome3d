@@ -65,7 +65,8 @@ public class HomePieceOfFurniture extends HomeObject implements PieceOfFurniture
    */
   public enum SortableProperty {CATALOG_ID, NAME, DESCRIPTION, CREATOR, LICENSE, WIDTH, DEPTH, HEIGHT, MOVABLE,
                                 DOOR_OR_WINDOW, COLOR, TEXTURE, VISIBLE, X, Y, ELEVATION, ANGLE, MODEL_SIZE,
-                                PRICE, VALUE_ADDED_TAX, VALUE_ADDED_TAX_PERCENTAGE, PRICE_VALUE_ADDED_TAX_INCLUDED, LEVEL};
+                                PRICE, VALUE_ADDED_TAX, VALUE_ADDED_TAX_PERCENTAGE, PRICE_VALUE_ADDED_TAX_INCLUDED, LEVEL,
+                                VERTICES};
   private static final Map<SortableProperty, Comparator<HomePieceOfFurniture>> SORTABLE_PROPERTY_COMPARATORS;
 
   static {

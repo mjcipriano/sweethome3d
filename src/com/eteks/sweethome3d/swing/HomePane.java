@@ -1329,30 +1329,30 @@ public class HomePane extends JRootPane implements HomeView {
       addActionToMenu(ActionType.ABOUT, helpMenu);
     }
     // 3D rendering diagnostics (active GPU and frame rate) to help tune 3D performance
-    JMenuItem renderingInformationMenuItem = new JMenuItem("3D rendering information...");
-    renderingInformationMenuItem.addActionListener(new ActionListener() {
+    Action renderingInformationAction = new AbstractAction("3D rendering information...") {
         public void actionPerformed(ActionEvent ev) {
           showRenderingInformationDialog();
         }
-      });
+      };
+    JMenuItem renderingInformationMenuItem = new JMenuItem(renderingInformationAction);
     helpMenu.add(renderingInformationMenuItem);
 
     // Model simplification toggle for 3D performance
     final JCheckBoxMenuItem simplifyModelsMenuItem = new JCheckBoxMenuItem(
-        "Simplify large 3D models");
-    simplifyModelsMenuItem.setSelected(
-        ModelManager.getInstance().isSimplifyModelsEnabled());
-    simplifyModelsMenuItem.addActionListener(new ActionListener() {
-        public void actionPerformed(ActionEvent ev) {
-          boolean enabled = simplifyModelsMenuItem.isSelected();
-          ModelManager.getInstance().setSimplifyModelsEnabled(enabled);
-          ModelManager.getInstance().clearModelCache();
-          View view3D = controller.getHomeController3D().getView();
-          if (view3D instanceof HomeComponent3D) {
-            ((HomeComponent3D)view3D).rebuildAllObjects();
+        new AbstractAction("Simplify large 3D models") {
+          {
+            putValue(SELECTED_KEY, ModelManager.getInstance().isSimplifyModelsEnabled());
           }
-        }
-      });
+          public void actionPerformed(ActionEvent ev) {
+            boolean enabled = (Boolean)getValue(SELECTED_KEY);
+            ModelManager.getInstance().setSimplifyModelsEnabled(enabled);
+            ModelManager.getInstance().clearModelCache();
+            View view3D = controller.getHomeController3D().getView();
+            if (view3D instanceof HomeComponent3D) {
+              ((HomeComponent3D)view3D).rebuildAllObjects();
+            }
+          }
+        });
     helpMenu.add(simplifyModelsMenuItem);
 
     // Add menus to menu bar
