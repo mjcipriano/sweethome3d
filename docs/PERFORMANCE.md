@@ -133,6 +133,29 @@ all tests pass), but the frame-rate gain itself must be measured on the Windows
 NVIDIA hardware; it can't be measured on the WSL/Mesa development host, whose
 off-screen frame path still crashes (tracked with the graphics-stack upgrade).
 
+### In-app 3D diagnostics
+
+To make all of the above observable without external tools, the application
+reports its 3D rendering device and frame rate:
+
+- **Help -> 3D rendering information** opens a dialog with the OpenGL vendor,
+  renderer (the GPU name), and version, plus a live frames-per-second reading and
+  a checkbox to toggle an on-canvas overlay. The renderer string is the
+  definitive answer to "which GPU?": it reads, for example,
+  `NVIDIA GeForce GTX 1660 Ti` on the discrete GPU versus an `Intel(R) ...` name
+  on the integrated one.
+- The same GPU/renderer line is written once to a `graphics.log` file in the
+  user application folder (`~/.eteks/Sweet Home 3D` and the platform equivalents)
+  and to standard output, because the packaged Windows application has no
+  console.
+- Launch with `-Dcom.eteks.sweethome3d.j3d.showStatistics=true` to show the
+  overlay from startup.
+
+Use the frames-per-second reading while rotating the 3D view to measure whether
+a change (the speed default, forcing the NVIDIA GPU, or future tuning) actually
+helps. On the WSL/Mesa host the renderer reads
+`D3D12 (NVIDIA GeForce GTX 1660 Ti)`, which confirms the capture path works.
+
 ## Startup And First Usable Paint
 
 The cold-start phases a user waits through before a home is usable can be
