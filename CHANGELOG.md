@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.5.4-beta.1](https://github.com/mjcipriano/sweethome3d/compare/v7.5.3-beta.7...v7.5.4-beta.1) (2026-06-07)
+
+
+### Performance Improvements
+
+* render 3D with vertex arrays instead of display lists on the speed path ([41cb8a5](https://github.com/mjcipriano/sweethome3d/commit/41cb8a58d3692186be84bc6bf2374418c1bdc3f6))
+* vertex arrays over display lists on speed path (D4 investigated/redirected) + native-NVIDIA test docs ([6d8c106](https://github.com/mjcipriano/sweethome3d/commit/6d8c1062d591591679733e3a283fffc5deebda90))
+
 ## [7.5.3-beta.7](https://github.com/mjcipriano/sweethome3d/compare/v7.5.2-beta.7...v7.5.3-beta.7) (2026-06-07)
 
 
