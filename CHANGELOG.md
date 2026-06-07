@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.5.1-beta.3](https://github.com/mjcipriano/sweethome3d/compare/v7.5.1-beta.2...v7.5.1-beta.3) (2026-06-07)
+
+
+### Performance Improvements
+
+* parallel furniture-model preload for scene builds (D2) — ~51% faster ([c6d2d01](https://github.com/mjcipriano/sweethome3d/commit/c6d2d017faf28160490a4461600139613efbd1aa))
+* preload furniture models in parallel for synchronous scene builds ([bf3c802](https://github.com/mjcipriano/sweethome3d/commit/bf3c8026774806783db6be4830007934a44fdd7a))
+
 ## [7.5.1-beta.2](https://github.com/mjcipriano/sweethome3d/compare/v7.5.0...v7.5.1-beta.2) (2026-06-07)
 
 
