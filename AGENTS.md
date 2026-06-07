@@ -28,6 +28,8 @@ UTF-8/ASCII.
 - `install`: legacy installer definitions, icons, launchers, and templates.
 - `pluginsrc`: separately packaged plugin sources.
 - `.github/workflows`: CI and release automation.
+- `docs/OPTIMIZATION_PROGRESS.md`: current optimization checkpoint, accepted
+  and rejected experiments, validation state, and prioritized next work.
 
 The intended dependency direction is documented and enforced by
 `PackageDependenciesTest`: model is at the bottom; tools, controllers, Swing,
@@ -107,6 +109,97 @@ that merely invokes `wsl.exe`; use a terminal owned by the WSL extension.
 
 Do not rely on files under ignored `build/`, `classes/`, or `release/`.
 
+## Agent Continuation Protocol
+
+For performance or modernization work, read these files in order:
+
+1. `AGENTS.md`
+2. `docs/OPTIMIZATION_PROGRESS.md`
+3. `docs/PERFORMANCE.md`
+4. `docs/JAVA_MODERNIZATION.md`
+
+`docs/OPTIMIZATION_PROGRESS.md` is the handoff source of truth. Update it in
+the same commit or pull request as every accepted optimization, rejected
+experiment, benchmark change, dependency migration, or newly discovered
+blocker. Do not leave progress only in chat, a local profile, or a PR comment.
+
+Before editing:
+
+```bash
+conda activate sweethome3d
+git status --short
+git checkout main
+git pull --ff-only origin main
+git checkout -b perf/<short-scope>
+```
+
+Never discard an existing dirty worktree. Treat unrecognized changes as
+user-owned, inspect them, and stage only files that belong to the task. After a
+checkpoint branch is merged, continue on a new branch from updated `main`.
+
+For each performance hypothesis:
+
+1. Capture a repeatable baseline on the same runtime, hardware, workload, and
+   benchmark command.
+2. Record sample count and median; record p95 for interaction/frame timings.
+3. Change one meaningful variable at a time.
+4. Run focused functional tests and the same benchmark.
+5. Keep the change only when the result is repeatable and behavior remains
+   correct. Record unsuccessful experiments in the progress ledger.
+6. Update documentation before committing.
+
+Profiles belong in ignored `profiles/`. Do not commit `.sh3d` benchmark files,
+JFR recordings, native crash logs, core dumps, or generated build/release
+artifacts.
+
+## Git And Pull Requests
+
+Use conventional commits because release-please derives versions and release
+notes from them:
+
+- `perf:` for measured runtime or memory improvements.
+- `fix:` for user-visible correctness fixes.
+- `feat:` for new user-visible capabilities.
+- `test:` for test-only changes.
+- `build:` or `ci:` for toolchain and workflow changes.
+- `docs:` for documentation-only changes.
+- Add `!` or a `BREAKING CHANGE:` footer only for an intentional incompatible
+  change.
+
+Before committing:
+
+```bash
+git diff --check
+make test-core
+make test-gui                 # Required for Swing/controller changes
+make test-local-check         # Required before local Java 3D work
+```
+
+Run the relevant benchmark from `docs/PERFORMANCE.md` after any hot-path
+change. The complete `make test-local` suite is a compatibility probe while the
+legacy graphics stack can crash in native Mesa GLX; a native crash does not
+replace the required stable `make test-gui` suite.
+
+Stage explicit paths, commit a coherent unit, push the branch, and create or
+update a draft PR:
+
+```bash
+git add <intended-files>
+git commit -m "perf: describe the measured change"
+git push -u origin "$(git branch --show-current)"
+gh pr create --draft --base main --fill
+```
+
+If a PR already exists, update its description with the workload, baseline,
+result, tests, known limitations, and remaining work. Check CI before merge:
+
+```bash
+gh pr checks <number> --watch
+```
+
+Do not push directly to `main`, force-push shared branches, create release tags
+manually, or commit unrelated user files.
+
 ## Release Automation
 
 `release-please` manages semantic versions, `CHANGELOG.md`, tags, and GitHub
@@ -124,6 +217,20 @@ artifacts. `version.txt` is the canonical version; release-please also updates
 the annotated values in `Makefile` and `build.xml`.
 
 `workflow_dispatch` remains available for an explicit emergency SemVer release.
+It accepts stable versions such as `7.5.1` and prerelease versions such as
+`7.5.1-beta.1`. Set `prerelease=true` for prerelease versions. Run it from
+`main` after the checkpoint PR is merged:
+
+```bash
+gh workflow run release.yml --ref main \
+  -f version=7.5.1-beta.1 \
+  -f prerelease=true
+```
+
+Wait for all platform packaging jobs to pass, then verify the GitHub release is
+marked as a prerelease and contains the Windows, Linux, macOS, executable JAR,
+and checksum assets. Record the release URL and validation result in
+`docs/OPTIMIZATION_PROGRESS.md`.
 
 `ci.yml` runs core tests on Windows, Linux, and macOS plus the non-Java3D GUI
 suite on Linux/Xvfb. The legacy Java 3D compatibility probe runs on schedule
@@ -192,3 +299,5 @@ For UI responsiveness:
 
 Follow `docs/JAVA_MODERNIZATION.md` for the Java and graphics dependency
 migration sequence. Do not raise the source level independently of that plan.
+Follow `docs/OPTIMIZATION_PROGRESS.md` for the current checkpoint and next
+measured work.
