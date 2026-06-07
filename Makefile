@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 # Adjustable settings
 VERSION ?= 7.5
-CONDA_ACTIVATE ?= source "$(HOME)/miniconda3/bin/activate" sweethome3d
+CONDA_ACTIVATE ?=
 JAVA_OPTS ?= -Xmx1024m \
   --add-opens=java.desktop/java.awt=ALL-UNNAMED \
   --add-opens=java.desktop/sun.awt=ALL-UNNAMED \
@@ -16,11 +16,14 @@ USER_VARIANT ?=
 JAVA_TEST_OPTS ?= $(JAVA_OPTS) \
   --add-opens=java.base/java.util=ALL-UNNAMED \
   --add-exports=java.desktop/sun.awt=ALL-UNNAMED
+TEST_JAVAC_FLAGS ?= -source 8 -target 8
 
 # Derived helpers
-ANT := $(CONDA_ACTIVATE) && ant
-JAVA := $(CONDA_ACTIVATE) && java
-JAVAC := $(CONDA_ACTIVATE) && javac
+RUN_IN_ENV := $(if $(strip $(CONDA_ACTIVATE)),$(CONDA_ACTIVATE) && ,)
+ANT := $(RUN_IN_ENV)ant -Dversion=$(VERSION)
+JAVA := $(RUN_IN_ENV)java
+JAVAC := $(RUN_IN_ENV)javac
+JAR := $(RUN_IN_ENV)jar
 CPSEP := :
 ifeq ($(OS),Windows_NT)
   CPSEP := ;
@@ -63,14 +66,22 @@ GL_TEST_EXCLUDES := \
   com/eteks/sweethome3d/junit/PlanControllerTest \
   com/eteks/sweethome3d/junit/PackageDependenciesTest
 ALL_TEST_SOURCES := $(shell find test -name "*Test.java")
+CORE_TEST_SOURCES := \
+  test/com/eteks/sweethome3d/junit/HomeTest.java \
+  test/com/eteks/sweethome3d/junit/OperatingSystemTest.java \
+  test/com/eteks/sweethome3d/junit/PackageDependenciesTest.java
+ifneq ($(strip $(TEST_SOURCES)),)
+  FILTERED_TEST_SOURCES := $(TEST_SOURCES)
+else
 ifeq ($(SKIP_3D_TESTS),1)
   FILTERED_TEST_SOURCES := $(filter-out $(addprefix test/,$(addsuffix .java,$(GL_TEST_EXCLUDES))),$(ALL_TEST_SOURCES))
 else
   FILTERED_TEST_SOURCES := $(ALL_TEST_SOURCES)
 endif
+endif
 TEST_NAMES := $(subst /,.,$(FILTERED_TEST_SOURCES:test/%.java=%))
 
-.PHONY: help build jar run run-dev test clean test-deps
+.PHONY: help build jar run run-dev test test-core test-local test-local-check clean test-deps
 
 help:
 	@echo "Common targets:"
@@ -81,7 +92,10 @@ help:
 	@echo "  make vr-plugin  - Build plugins/VRPreview.sh3p (legacy VR preview)."
 	@echo "  make webxr-plugin - Build plugins/WebXRPreview.sh3p (WebXR OBJ preview)."
 	@echo "  make run-webxr-preview [VR_HOME_FILE=<file.sh3d>] - Build plugin and launch app with WebXR plugin."
-	@echo "  make test       - Compile and run JUnit tests (downloads junit if needed)."
+	@echo "  make test       - Compile and run the complete JUnit suite."
+	@echo "  make test-core  - Run tests that don't require Java 3D / OpenGL."
+	@echo "  make test-local - Run the complete suite through WSLg/X11 or Xvfb."
+	@echo "  make test-local-check - Check the local display and OpenGL setup."
 	@echo "  make clean      - Remove build artifacts produced by this Makefile."
 	@echo "Variables: VERSION, CONDA_ACTIVATE, JAVA_OPTS."
 
@@ -128,12 +142,28 @@ test-deps: $(TEST_JARS)
 # Compile and run JUnit 4 tests
 test: $(MAIN_JAR) test-deps
 	@mkdir -p $(TEST_CLASSES)
-	$(JAVAC) -encoding ISO-8859-1 -cp "$(TEST_COMPILE_CP)" \
+	@rm -rf build/test-analysis && mkdir -p build/test-analysis
+	@cd build/test-analysis && $(JAR) xf ../SweetHome3D.jar
+	$(JAVAC) $(TEST_JAVAC_FLAGS) -encoding ISO-8859-1 -cp "$(TEST_COMPILE_CP)" \
 	  -d $(TEST_CLASSES) $(FILTERED_TEST_SOURCES)
 	LANG=$(RUN_LANG) LC_ALL=$(RUN_LC_ALL) $(JAVA) $(JAVA_TEST_OPTS) \
 	  -Duser.language=$(USER_LANG) -Duser.country=$(USER_COUNTRY) -Duser.variant=$(USER_VARIANT) \
+	  -Dsweethome3d.testClasses=build/test-analysis \
 	  -Djava.library.path="$(JAVA_LIB_PATH)" -cp "$(TEST_RUN_CP)" \
 	  org.junit.runner.JUnitCore $(TEST_NAMES)
+
+test-core:
+	$(MAKE) test TEST_SOURCES="$(CORE_TEST_SOURCES)" JAVA_TEST_OPTS="$(JAVA_TEST_OPTS) -Djava.awt.headless=true"
+
+test-local:
+	CONDA_ACTIVATE='$(CONDA_ACTIVATE)' TEST_DISPLAY_MODE='$(TEST_DISPLAY_MODE)' \
+	  TEST_JAVA_HOME='$(TEST_JAVA_HOME)' TEST_JAVA='$(TEST_JAVA)' \
+	  scripts/test-linux-display.sh run
+
+test-local-check:
+	CONDA_ACTIVATE='$(CONDA_ACTIVATE)' TEST_DISPLAY_MODE='$(TEST_DISPLAY_MODE)' \
+	  TEST_JAVA_HOME='$(TEST_JAVA_HOME)' TEST_JAVA='$(TEST_JAVA)' \
+	  scripts/test-linux-display.sh check
 
 clean:
 	rm -rf build $(INSTALL_JAR) $(TEST_CLASSES)
@@ -154,7 +184,7 @@ webxr-plugin: $(INSTALL_JAR)
 	$(JAVAC) --release 8 -encoding ISO-8859-1 -cp "$(INSTALL_JAR)$(CPSEP)lib/*$(CPSEP)lib/java3d-1.6/*" \
 	  -d .plugin-build/webxr pluginsrc/com/eteks/sweethome3d/plugin/webxr/WebXRPreviewPlugin.java
 	cp pluginsrc/com/eteks/sweethome3d/plugin/webxr/ApplicationPlugin.properties .plugin-build/webxr/
-	$(CONDA_ACTIVATE) && jar cf plugins/WebXRPreview.sh3p -C .plugin-build/webxr .
+	$(JAR) cf plugins/WebXRPreview.sh3p -C .plugin-build/webxr .
 	rm -rf .plugin-build/webxr
 	@echo "Plugin built at plugins/WebXRPreview.sh3p"
 

@@ -2,6 +2,7 @@
 build/
 classes/
 install/SweetHome3D-*.jar
+release/
 
 # Test artifacts
 build/test-classes/
