@@ -48,6 +48,7 @@ import javax.media.j3d.VirtualUniverse;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
+import com.eteks.sweethome3d.tools.GraphicsEnvironmentConfiguration;
 import com.eteks.sweethome3d.tools.OperatingSystem;
 import com.sun.j3d.utils.universe.SimpleUniverse;
 import com.sun.j3d.utils.universe.Viewer;
@@ -101,8 +102,13 @@ public class Component3DManager {
    * Returns the template to configure the graphics of canvas 3D.
    */
   private GraphicsConfigTemplate3D createGraphicsConfigurationTemplate3D(int preferredDepthSize) {
+    // When rendering is tuned for speed (e.g. the Windows default, see
+    // GraphicsEnvironmentConfiguration), skip the antialiasing that costs the most
+    // per frame on integrated GPUs. Quality remains the default everywhere else.
+    boolean preferRenderingSpeed = "speed".equalsIgnoreCase(
+        System.getProperty(GraphicsEnvironmentConfiguration.RENDERING_QUALITY_PROPERTY));
     if (System.getProperty("j3d.implicitAntialiasing") == null) {
-      System.setProperty("j3d.implicitAntialiasing", "true");
+      System.setProperty("j3d.implicitAntialiasing", preferRenderingSpeed ? "false" : "true");
     }
 
     GraphicsConfigTemplate3D template = new GraphicsConfigTemplate3D();
@@ -115,8 +121,10 @@ public class Component3DManager {
       }
     }
 
-    // Try to get antialiasing
-    template.setSceneAntialiasing(GraphicsConfigTemplate3D.PREFERRED);
+    // Request scene antialiasing only when rendering is tuned for quality
+    template.setSceneAntialiasing(preferRenderingSpeed
+        ? GraphicsConfigTemplate3D.UNNECESSARY
+        : GraphicsConfigTemplate3D.PREFERRED);
 
     // From http://www.java.net/node/683852
     // Check if the user has set the Java 3D stereo option.
