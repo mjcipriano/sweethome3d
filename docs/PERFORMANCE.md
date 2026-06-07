@@ -314,17 +314,32 @@ the reference home:
 
 | Configuration | Average FPS |
 | --- | ---: |
-| `compile()` on (default) | 10-11 (about 170 frames) |
-| `compile()` off | ~0 (4 frames in 16 s, ~0.25 FPS) |
+| `compile()` on, display lists on (was default) | 10-14 |
+| `compile()` on, display lists off | 17-19 |
+| `compile()` off, display lists on | ~0.25 (4 frames in 16 s) |
+| `compile()` off, display lists off | 8 |
 
-So `compile()` is roughly a 40x win and is essential, confirming task D-render.
-However the frame rate is strongly view-dependent (min ~1, max ~50): at camera
-angles that face the high-polygon models the scene still drops to ~1 FPS even
-compiled. The reference home is dominated by very large models (a 37 MB Collada
-model and several 5-7 MB tree meshes), and toggling `j3d.displaylist` changes
-nothing, which indicates the heavy model geometry is not GPU-resident and is
-re-submitted each frame. Making that geometry by-reference so the JOGL pipeline
-uploads it to vertex buffer objects (task D4) is the next measured step.
+`compile()` is essential (its absence with display lists collapses to ~0.25
+FPS). Two findings then redirected the geometry work:
+
+- **By-reference / VBO geometry (task D4) does not apply here.** This Java 3D
+  build has no VBO path (no VBO symbols in `j3dcore`/`jogl-all`), the loader
+  geometry is by-copy with read-only capabilities (so it is display-list
+  eligible), and forcing display lists off is *faster*, not slower. The
+  bottleneck is therefore CPU-side per-frame scene-graph work (traversal and
+  draw dispatch over thousands of shapes), not GPU geometry residency, so
+  uploading geometry to buffers would not help.
+- **Display lists are a net loss for this complex home.** Building them for the
+  huge static models costs more than it saves. `j3d.displaylist=false` raised
+  the average from ~11 to ~18 FPS and removed the ~0.25 FPS failure mode, so
+  `GraphicsEnvironmentConfiguration` now sets it on the speed path
+  (override with `-Dj3d.displaylist=true`).
+
+The frame rate remains strongly view-dependent: facing the very large models (a
+37 MB Collada model and several 5-7 MB tree meshes) it still drops to ~1 FPS in
+every configuration. That residual is raw visible-triangle volume, which only
+geometry decimation / level-of-detail on those oversized models would address;
+it is a larger change and partly a content issue (that model is extreme).
 
 ## Optimization Rules
 

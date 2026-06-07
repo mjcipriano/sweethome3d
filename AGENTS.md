@@ -101,6 +101,33 @@ and runs the on-screen FPS smoke benchmark to confirm the application's own
 test for WSL; native Windows OpenGL performance still needs the packaged
 Windows app or a Windows-native benchmark run.
 
+#### Measuring real NVIDIA OpenGL FPS from WSL
+
+WSLg renders through Mesa's D3D12 translation layer, whose frame rate is noisy
+and not representative of native Windows OpenGL. To measure the actual GPU, run a
+Windows JDK against the build through WSL's Windows interop (`cmd.exe` /
+`powershell.exe`). This is how 3D frame-rate changes were measured for the
+display-list and antialiasing work.
+
+1. `make build`, then compile the benchmark into `build/performance-classes`:
+   `javac -source 8 -target 8 -encoding ISO-8859-1 -cp "build/SweetHome3D.jar:build/Furniture.jar:build/Textures.jar:build/Examples.jar:build/Help.jar:lib/*:lib/java3d-1.6/*:test" -d build/performance-classes test/com/eteks/sweethome3d/performance/Home3DFpsBenchmark.java`
+2. Stage to a local Windows folder (loading native DLLs over `\\wsl$` fails), for
+   example `cp`-ing into `/mnt/c/sh3d-bench`: the `build/*.jar` dev jars,
+   `build/performance-classes`, the Java 3D 1.6 jars `lib/java3d-1.6/*.jar` (not
+   the legacy `lib/j3dcore.jar`/`vecmath.jar`), the non-3D `lib/*.jar` (batik,
+   jeksparser, iText, freehep, sunflow, jmf), the
+   `lib/java3d-1.6/windows/amd64/*.dll` natives, and the `.sh3d` home.
+3. Run a Windows JDK with the natives on `-Djava.library.path` (Java 8 needs no
+   `--add-opens`; a Java 11+ JDK needs the same `--add-opens`/`--add-exports` the
+   packaged app uses, and enables JFR). The benchmark prints the OpenGL renderer
+   (confirming the GPU, e.g. `NVIDIA GeForce GTX 1660 Ti`) and a deterministic
+   average FPS from a fixed camera sweep, plus the view-dependent min/max:
+   `cmd.exe /c '"C:\Program Files\Java\<jdk>\bin\java.exe" -Xmx2g -Djava.library.path=C:\sh3d-bench\natives -Djogamp.gluegen.UseTempJarCache=false -cp "C:\sh3d-bench\app\*;C:\sh3d-bench\perf;C:\sh3d-bench\j3d\*;C:\sh3d-bench\libs\*" com.eteks.sweethome3d.performance.Home3DFpsBenchmark C:\sh3d-bench\home.sh3d 16'`
+4. A/B Java 3D properties by prepending them, for example
+   `-Dj3d.displaylist=true` or `-Dcom.eteks.sweethome3d.j3d.compileScene=false`.
+   Run each two or three times; native frame rate is view-dependent and varies
+   run to run, so compare medians, not single runs.
+
 Avoid JetBrains Runtime for the complete Java 3D suite under Linux/WSL. It may
 crash in Mesa's `libGLX_mesa.so` while Java 3D creates a rendering context.
 The local runner and 3D benchmark reject JBR by default. Update
@@ -224,8 +251,18 @@ releases from conventional commits merged to `main`:
 - `feat!:` / `fix!:` or a `BREAKING CHANGE:` footer creates a major release
   candidate.
 
-After qualifying commits reach `main`, the Release workflow opens or updates a
-release PR. Merging that PR creates the version tag and GitHub release, then
+Only `fix:`, `feat:`, and breaking changes trigger a release. `perf:`, `test:`,
+`docs:`, `build:`, `ci:`, `refactor:`, and `chore:` commits do **not** open a
+release PR on their own, so a `perf:`-only change merges to `main` with no
+prerelease. When such a change should still produce a downloadable build, add a
+`Release-As: <version>` footer to a commit in the branch (for example
+`Release-As: 7.5.4-beta.1`); release-please then opens a release PR for exactly
+that version regardless of the commit types. Use a prerelease suffix
+(`-beta.N`) for test builds. This is the usual mechanism for shipping testable
+performance prereleases.
+
+After qualifying commits (or a `Release-As:` footer) reach `main`, the Release
+workflow opens or updates a release PR. Merging that PR creates the version tag and GitHub release, then
 builds and attaches the Windows, Linux, macOS, executable JAR, and checksum
 artifacts. `version.txt` is the canonical version; release-please also updates
 the annotated values in `Makefile` and `build.xml`. Packaged JAR manifests and
