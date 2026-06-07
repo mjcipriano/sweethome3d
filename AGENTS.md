@@ -94,8 +94,25 @@ Do not rely on files under ignored `build/`, `classes/`, or `release/`.
 
 ## Release Automation
 
-`ci.yml` runs core tests on Windows, Linux, and macOS. The complete graphics
-suite runs on Linux/Xvfb on `main`, on schedule, and on manual dispatch.
+`release-please` manages semantic versions, `CHANGELOG.md`, tags, and GitHub
+releases from conventional commits merged to `main`:
+
+- `fix:` creates a patch release candidate.
+- `feat:` creates a minor release candidate.
+- `feat!:` / `fix!:` or a `BREAKING CHANGE:` footer creates a major release
+  candidate.
+
+After qualifying commits reach `main`, the Release workflow opens or updates a
+release PR. Merging that PR creates the version tag and GitHub release, then
+builds and attaches the Windows, Linux, macOS, executable JAR, and checksum
+artifacts. `version.txt` is the canonical version; release-please also updates
+the annotated values in `Makefile` and `build.xml`.
+
+`workflow_dispatch` remains available for an explicit emergency SemVer release.
+
+`ci.yml` runs core tests on Windows, Linux, and macOS plus the non-Java3D GUI
+suite on Linux/Xvfb. The legacy Java 3D compatibility probe runs on schedule
+and manual dispatch.
 
 `release.yml` builds:
 
@@ -105,16 +122,16 @@ suite runs on Linux/Xvfb on `main`, on schedule, and on manual dispatch.
 - a macOS x64 runnable tarball containing an `.app` and bundled runtime;
 - SHA-256 checksums.
 
-Pushing a tag such as `v7.5.1` publishes a GitHub release. Manual dispatch can
-build artifacts without publishing. Packages are currently unsigned. Windows
-code signing and Apple signing/notarization require repository secrets and
-should be added as separate guarded steps.
+Release tags are created by release-please rather than pushed manually. Manual
+dispatch publishes the requested SemVer directly. Packages are currently
+unsigned. Windows code signing and Apple signing/notarization require
+repository secrets and should be added as separate guarded steps.
 
 To reproduce a platform bundle locally:
 
 ```powershell
-./scripts/package-release.ps1 -Version 7.5
-./scripts/verify-release.ps1 -Version 7.5 -ArtifactDirectory release
+./scripts/package-release.ps1 -Version 7.5.0
+./scripts/verify-release.ps1 -Version 7.5.0 -ArtifactDirectory release
 ```
 
 ## Change Guidelines

@@ -2,26 +2,54 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       version:
-        description: Version to package, for example 7.5
+        description: Version to publish, for example 7.5.1
         required: true
         type: string
-      publish:
-        description: Create a GitHub release
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created || steps.manual.outputs.release_created }}
+      version: ${{ steps.release.outputs.version || steps.manual.outputs.version }}
+      tag: ${{ steps.release.outputs.tag_name || steps.manual.outputs.tag }}
+    steps:
+      - name: Update release pull request or create release
+        id: release
+        if: github.event_name == 'push'
+        uses: googleapis/release-please-action@v5
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Resolve manual release
+        id: manual
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          $version = "${{ inputs.version }}"
+          if ($version -notmatch "^\d+\.\d+\.\d+$") {
+            throw "Version must be a semantic version such as 7.5.1."
+          }
+          "release_created=true" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+
   package:
     name: Package ${{ matrix.platform }}
+    needs: prepare
+    if: needs.prepare.outputs.release_created == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -42,21 +70,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Resolve version
-        id: version
-        shell: pwsh
-        run: |
-          if ("${{ github.event_name }}" -eq "push") {
-            $version = "${{ github.ref_name }}".TrimStart("v")
-          } else {
-            $version = "${{ inputs.version }}"
-          }
-          if ($version -notmatch "^\d+(\.\d+){1,3}$") {
-            throw "Version must contain only numeric dot-separated components."
-          }
-          "version=$version" >> $env:GITHUB_OUTPUT
-
-      - name: Install Ant
+      - name: Install build tools
         shell: pwsh
         run: |
           if ($IsLinux) {
@@ -72,25 +86,27 @@ jobs:
         shell: pwsh
         run: |
           make test-core
-          ./scripts/package-release.ps1 -Version "${{ steps.version.outputs.version }}"
+          ./scripts/package-release.ps1 -Version "${{ needs.prepare.outputs.version }}"
 
       - name: Verify release artifacts
         shell: pwsh
-        run: ./scripts/verify-release.ps1 -Version "${{ steps.version.outputs.version }}" -ArtifactDirectory release
+        run: ./scripts/verify-release.ps1 -Version "${{ needs.prepare.outputs.version }}" -ArtifactDirectory release
 
       - uses: actions/upload-artifact@v4
         with:
-          name: SweetHome3D-${{ steps.version.outputs.version }}-${{ matrix.platform }}
+          name: SweetHome3D-${{ needs.prepare.outputs.version }}-${{ matrix.platform }}
           path: |
-            release/SweetHome3D-${{ steps.version.outputs.version }}-${{ matrix.platform }}.*
-            release/SweetHome3D-${{ steps.version.outputs.version }}.jar
+            release/SweetHome3D-${{ needs.prepare.outputs.version }}-${{ matrix.platform }}.*
+            release/SweetHome3D-${{ needs.prepare.outputs.version }}.jar
           if-no-files-found: error
           retention-days: 14
 
   publish:
-    name: Publish GitHub release
-    needs: package
-    if: github.event_name == 'push' || inputs.publish
+    name: Attach release artifacts
+    needs:
+      - prepare
+      - package
+    if: needs.prepare.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -100,24 +116,10 @@ jobs:
           path: release
           merge-multiple: true
 
-      - name: Resolve version and tag
-        id: release
-        shell: pwsh
-        run: |
-          if ("${{ github.event_name }}" -eq "push") {
-            $tag = "${{ github.ref_name }}"
-            $version = $tag.TrimStart("v")
-          } else {
-            $version = "${{ inputs.version }}"
-            $tag = "v$version"
-          }
-          "tag=$tag" >> $env:GITHUB_OUTPUT
-          "version=$version" >> $env:GITHUB_OUTPUT
-
       - name: Validate merged executable JAR
         shell: pwsh
         run: |
-          $jars = @(Get-ChildItem release -Filter "SweetHome3D-${{ steps.release.outputs.version }}.jar")
+          $jars = @(Get-ChildItem release -Filter "SweetHome3D-${{ needs.prepare.outputs.version }}.jar")
           if ($jars.Count -ne 1) {
             throw "Expected one merged executable JAR, found $($jars.Count)."
           }
@@ -128,21 +130,25 @@ jobs:
           cd release
           sha256sum SweetHome3D-* > SHA256SUMS.txt
 
-      - name: Create GitHub release
+      - name: Create manual release when needed
+        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          args=(
-            "${{ steps.release.outputs.tag }}"
-            release/*
-            --repo "${{ github.repository }}"
-            --title "Sweet Home 3D ${{ steps.release.outputs.version }}"
-            --generate-notes
-          )
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            args+=(--verify-tag)
-          else
-            args+=(--target "${{ github.sha }}")
+          if ! gh release view "${{ needs.prepare.outputs.tag }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release create "${{ needs.prepare.outputs.tag }}" \
+              --repo "${{ github.repository }}" \
+              --target "${{ github.sha }}" \
+              --title "Sweet Home 3D ${{ needs.prepare.outputs.version }}" \
+              --generate-notes
           fi
-          gh release create "${args[@]}"
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release upload "${{ needs.prepare.outputs.tag }}" release/* \
+            --repo "${{ github.repository }}" \
+            --clobber

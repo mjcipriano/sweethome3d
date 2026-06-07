@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 # Adjustable settings
-VERSION ?= 7.5
+VERSION ?= 7.5.0 # x-release-please-version
 CONDA_ACTIVATE ?=
 JAVA_OPTS ?= -Xmx1024m \
   --add-opens=java.desktop/java.awt=ALL-UNNAMED \
