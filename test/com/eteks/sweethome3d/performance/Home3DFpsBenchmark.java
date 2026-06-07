@@ -99,28 +99,32 @@ public class Home3DFpsBenchmark {
       Thread.sleep(16);
     }
 
-    // Rotate continuously and sample the measured frame rate
-    double sum = 0;
-    int samples = 0;
+    // Sweep the camera through full rotations at a fixed angular rate so every run
+    // covers the same views, and measure the average frame rate from the swap
+    // counter (deterministic, unlike sampling the rolling FPS value). Also track
+    // the worst and best rolling FPS to show the view-dependent spread.
     float min = Float.MAX_VALUE;
     float max = 0;
-    long end = System.nanoTime() + seconds * 1000000000L;
+    long startFrames = HomeComponent3D.getRenderedFrameCount();
+    long startTime = System.nanoTime();
+    long end = startTime + seconds * 1000000000L;
     while (System.nanoTime() < end) {
       rotate(camera, yaw);
       Thread.sleep(16);
       float fps = HomeComponent3D.getRenderingStatistics().getFramesPerSecond();
       if (fps > 0) {
-        sum += fps;
-        samples++;
         min = Math.min(min, fps);
         max = Math.max(max, fps);
       }
     }
+    long renderedFrames = HomeComponent3D.getRenderedFrameCount() - startFrames;
+    double elapsedSeconds = (System.nanoTime() - startTime) / 1.0E9;
 
-    System.out.println("fps_avg=" + (samples > 0 ? Math.round(sum / samples) : 0)
-        + " fps_min=" + (samples > 0 ? Math.round(min) : 0)
+    System.out.println("fps_avg=" + Math.round(renderedFrames / elapsedSeconds)
+        + " fps_min=" + (min == Float.MAX_VALUE ? 0 : Math.round(min))
         + " fps_max=" + Math.round(max)
-        + " samples=" + samples);
+        + " frames=" + renderedFrames
+        + " seconds=" + Math.round(elapsedSeconds));
 
     SwingUtilities.invokeAndWait(new Runnable() {
       public void run() {

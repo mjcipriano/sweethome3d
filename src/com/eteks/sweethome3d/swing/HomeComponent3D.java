@@ -465,6 +465,8 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
   private static volatile boolean            statisticsOverlayVisible =
       Boolean.getBoolean("com.eteks.sweethome3d.j3d.showStatistics");
   private static volatile RenderingStatistics renderingStatistics;
+  // Total frames swapped since startup, for deterministic frame-rate benchmarking.
+  private static volatile long               renderedFrameCount;
 
   /**
    * Snapshot of 3D rendering diagnostics: the active OpenGL device reported by the
@@ -515,6 +517,15 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    */
   public static RenderingStatistics getRenderingStatistics() {
     return renderingStatistics;
+  }
+
+  /**
+   * Returns the total number of frames the 3D view has swapped since startup.
+   * Dividing a delta of this counter by elapsed time gives a deterministic frame
+   * rate for benchmarking, independent of the rolling FPS sampling window.
+   */
+  public static long getRenderedFrameCount() {
+    return renderedFrameCount;
   }
 
   /**
@@ -642,6 +653,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
               public void canvas3DSwapped(Canvas3D canvas3D) {
                 // Identify the GPU once and keep a rolling frame-rate measurement
                 initRenderingStatistics(canvas3D);
+                renderedFrameCount++;
                 RenderingStatistics statistics = renderingStatistics;
                 if (statistics != null) {
                   long now = System.nanoTime();

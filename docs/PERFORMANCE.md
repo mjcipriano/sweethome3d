@@ -291,6 +291,41 @@ native NVIDIA OpenGL (display lists behave differently there), so the absolute
 Windows+NVIDIA hardware with the in-app overlay (Help > 3D rendering information),
 toggling the properties above.
 
+### Measuring on native Windows NVIDIA from WSL
+
+WSL can drive the real NVIDIA OpenGL driver by running a Windows JDK through
+`cmd.exe`/`powershell.exe` interop, which is the only reliable way to measure 3D
+frame rate here. `Home3DFpsBenchmark` reports a deterministic average from
+`HomeComponent3D.getRenderedFrameCount()` over a fixed camera sweep, plus the
+min/max rolling FPS that shows the view-dependent spread. Procedure:
+
+1. `make build` and compile the benchmark into `build/performance-classes`.
+2. Stage to a local Windows folder (avoids loading native DLLs over `\\wsl$`):
+   the dev resource jars, `build/performance-classes`, the Java 3D 1.6 jars
+   (`lib/java3d-1.6/*.jar` - not the 1.5.2 `lib/j3dcore.jar`/`vecmath.jar`), the
+   non-3D `lib/*.jar`, the `lib/java3d-1.6/windows/amd64/*.dll` natives, and the
+   home file.
+3. Run with the Windows JDK and the natives on `-Djava.library.path`. Java 8
+   needs no `--add-opens`. Set `JOPTS` to A/B properties such as
+   `-Dcom.eteks.sweethome3d.j3d.compileScene=false`.
+
+Findings on a GTX 1660 Ti (OpenGL 4.6, driver 596.36), 1280x800, 16 s sweep of
+the reference home:
+
+| Configuration | Average FPS |
+| --- | ---: |
+| `compile()` on (default) | 10-11 (about 170 frames) |
+| `compile()` off | ~0 (4 frames in 16 s, ~0.25 FPS) |
+
+So `compile()` is roughly a 40x win and is essential, confirming task D-render.
+However the frame rate is strongly view-dependent (min ~1, max ~50): at camera
+angles that face the high-polygon models the scene still drops to ~1 FPS even
+compiled. The reference home is dominated by very large models (a 37 MB Collada
+model and several 5-7 MB tree meshes), and toggling `j3d.displaylist` changes
+nothing, which indicates the heavy model geometry is not GPU-resident and is
+re-submitted each frame. Making that geometry by-reference so the JOGL pipeline
+uploads it to vertex buffer objects (task D4) is the next measured step.
+
 ## Optimization Rules
 
 1. Capture a baseline before changing a hot path.
