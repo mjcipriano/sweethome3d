@@ -34,6 +34,7 @@ approved. The `example-files/` directory is ignored.
 | Toolchain | Pin OpenJDK 17 and developer/runtime dependencies in `environment.yml` | Build, JFR, Git, GitHub CLI, and Java 3D runtime dependencies resolve from one Conda environment | `9e37c1d` |
 | OBJ/MTL loading | Replace synchronized `BufferedReader` with a 64 KiB unsynchronized reader in the thread-confined parser | Controlled scene-construction median reduced from 15.09 s to 13.44 s, about 11% | `3573e1b` |
 | 3D measurement | Add Java 3D scene/frame benchmark and optional JFR capture | Safe scene mode works with the complex reference home | `3573e1b` |
+| Startup measurement | Add a cold-start phase benchmark (`make benchmark-startup`) covering prefs init, home load, plan creation, and first 2D paint, with optional JFR | Cold pass on the reference home is about 2.0 s total; cold first paint is about 0.46 s; harness is headless and adds no app behavior (task A1) | _pending_ |
 
 ## Tried And Rejected
 
@@ -46,6 +47,7 @@ evidence.
 | JetBrains Runtime for Java 3D profiling under WSL | Native Mesa GLX crashes during rendering-context creation | Replaced with standard conda-forge OpenJDK 17 |
 | 1920x1080 Java 3D off-screen frame benchmark on the legacy Java 3D/JOGL stack | Native crash in `libGLX_mesa.so` while creating the off-screen context | Keep `scene` mode as the safe default; retry after the graphics stack is upgraded |
 | Complete legacy Java 3D JUnit suite on current WSLg/Mesa | JVM terminated in native `libGLX_mesa.so` before JUnit completed | Treat as a scheduled/manual compatibility probe; use `make test-gui` as the required stable GUI suite |
+| OpenJDK 21 runtime vs 17 on the headless benchmarks (task A4) | Interleaved 4-round A/B on the reference home showed no repeatable difference: plan-render warmed median ~15 ms on both; startup cold ~2.16 s on both. Run-to-run variance on the WSL host (e.g. 2.0-3.4 s cold-start swings) swamps any JDK delta. No crashes or regressions on 21 | Keep the pinned OpenJDK 17; do not add a Java 21 dev toolchain without a materially quieter measurement host or a different workload. Bytecode stays at Java 8 either way |
 
 Generated `hs_err_pid*.log` files are diagnostic artifacts and must not be
 committed.
@@ -68,34 +70,54 @@ committed.
 
 ## Next Work
 
-Start future work from updated `main` after PR #6 and the prerelease checkpoint
-are complete. Use a new branch rather than continuing on the merged checkpoint
-branch.
+Start future work from updated `main`. Use a new `perf/<scope>` branch per
+task rather than continuing on a merged checkpoint branch. The backlog below is
+organized into workstreams; the design rationale, file pointers, and acceptance
+criteria for each task live in the working plan. Order is A first, then B/C/D/E
+in parallel, then F.
 
-1. Capture interactive startup and EDT latency.
-   - Add timestamps for process start, first window shown, home loaded, first
-     usable 2D paint, and first usable 3D frame.
-   - Use JFR `JavaMonitorWait`, file I/O, allocation, and execution samples to
-     identify work blocking the EDT.
-2. Profile 2D interaction rather than only full repaint throughput.
-   - Measure selection, drag, zoom, pan, wall editing, and invalidated repaint
-     area on the complex home.
-   - Inspect `PlanComponent`, `IconManager`, geometry `Area` construction, and
-     asynchronous top-view icon decode/scale behavior.
-3. Profile repeated 3D scene updates after initial construction.
-   - Measure camera movement, furniture moves, level visibility changes, and
-     texture updates without using the unstable large off-screen frame path.
-   - Inspect `HomeComponent3D`, `ModelManager`, transformed geometry, normals,
-     triangulation, and Java 3D scene graph update frequency.
-4. Upgrade the graphics stack as an isolated project.
-   - Upgrade Java 3D, JOGL, GlueGen, vecmath, and native binaries together.
-   - Restore the complete Java 3D suite and frame benchmark on Windows, Linux,
-     macOS, and WSL before raising the Java source/bytecode baseline.
-5. Add controlled performance regression thresholds only after runners and
-   workloads are stable enough to avoid noisy failures.
+**Workstream A - Measurement foundations**
+
+- A1. Startup/EDT timeline benchmark - **done in this branch** (`make
+  benchmark-startup`). Cold pass on the reference home is about 2.0 s with a
+  cold first paint near 0.46 s.
+- A2. 2D interaction micro-benchmark (selection, drag, zoom, pan, wall edit,
+  and invalidated repaint area), not just full-repaint throughput. Inspect
+  `PlanComponent`, `IconManager`, and geometry `Area` construction.
+- A3. 3D scene-update micro-benchmark (camera move, furniture move, level
+  visibility, texture update) in `scene` mode only, avoiding the unstable large
+  off-screen frame path. Inspect `HomeComponent3D` and `ModelManager`.
+- A4. Evaluate the Java 21 runtime against Java 17 - **done; rejected**. No
+  repeatable win on the WSL host (see Tried And Rejected); keep OpenJDK 17.
+  Re-run only on a quieter measurement host. A newer JDK alone is not evidence
+  of a speedup. Note: the WSL host's run-to-run variance is large enough that
+  small (sub-15%) wins are not measurable here; controlled regression
+  thresholds (F2) need a quieter runner.
+
+**Workstream B - Startup and EDT latency** (B1 move blocking work off the EDT;
+B2 defer/parallelize startup init). Depends on A1.
+
+**Workstream C - 2D interaction latency** (C1 shrink invalidated repaint scope;
+C2 cut per-paint allocations and geometry rebuilds; C3 top-view icon
+decode/scale path). Depends on A2.
+
+**Workstream D - 3D scene, model loading and memory** (D1 model
+load/clone/bounds caching audit; D2 parallelize model loading across cores; D3
+reduce per-frame allocations in scene updates; D4 GPU-friendly geometry
+construction). Depends on A3.
+
+**Workstream E - Graphics environment tuning** (E1 central Windows+NVIDIA
+auto-tuner with kill-switch and stock fallback, behind one class called from
+`SweetHome3DBootstrap.main`; E2 measure each candidate property on
+Windows+NVIDIA; E3 discrete-GPU launcher preference). Depends on A3.
+
+**Workstream F - Graphics stack upgrade** (F1 unify/upgrade Java 3D, JOGL,
+GlueGen, vecmath and native binaries together to stop the Mesa GLX crash and
+restore the frame benchmark and full Java 3D suite; F2 3D regression
+thresholds). Sequenced after the app-level wins.
 
 `docs/JAVA_MODERNIZATION.md` defines the larger Java and graphics migration
-sequence. A newer JDK alone is not evidence of a speedup.
+sequence.
 
 ## Handoff Checklist
 

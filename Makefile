@@ -43,6 +43,7 @@ PERFORMANCE_CLASSES := build/performance-classes
 HOME_LOAD_BENCHMARK_SOURCE := test/com/eteks/sweethome3d/performance/HomeLoadBenchmark.java
 PLAN_RENDER_BENCHMARK_SOURCE := test/com/eteks/sweethome3d/performance/PlanRenderBenchmark.java
 HOME_3D_BENCHMARK_SOURCE := test/com/eteks/sweethome3d/performance/Home3DRenderBenchmark.java
+STARTUP_BENCHMARK_SOURCE := test/com/eteks/sweethome3d/performance/StartupBenchmark.java
 TEST_JARS := libtest/junit-4.13.2.jar libtest/hamcrest-core-1.3.jar
 JUNIT_URL := https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar
 HAMCREST_URL := https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar
@@ -86,7 +87,7 @@ endif
 endif
 TEST_NAMES := $(subst /,.,$(FILTERED_TEST_SOURCES:test/%.java=%))
 
-.PHONY: help build jar run run-dev test test-core test-gui test-local test-local-check benchmark-home-load benchmark-plan-render benchmark-home-3d clean test-deps
+.PHONY: help build jar run run-dev test test-core test-gui test-local test-local-check benchmark-home-load benchmark-plan-render benchmark-home-3d benchmark-startup clean test-deps
 
 help:
 	@echo "Common targets:"
@@ -105,6 +106,7 @@ help:
 	@echo "  make benchmark-home-load BENCHMARK_HOME=<file.sh3d> [BENCHMARK_MODE=recorder|direct]"
 	@echo "  make benchmark-plan-render BENCHMARK_HOME=<file.sh3d> [BENCHMARK_ITERATIONS=10]"
 	@echo "  make benchmark-home-3d BENCHMARK_HOME=<file.sh3d> [BENCHMARK_MODE=scene|frame]"
+	@echo "  make benchmark-startup BENCHMARK_HOME=<file.sh3d> [BENCHMARK_ITERATIONS=5]"
 	@echo "  make clean      - Remove build artifacts produced by this Makefile."
 	@echo "Variables: VERSION, CONDA_ACTIVATE, JAVA_OPTS."
 
@@ -200,6 +202,14 @@ benchmark-home-3d: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
 	  -d $(PERFORMANCE_CLASSES) $(HOME_3D_BENCHMARK_SOURCE)
 	$(RUN_IN_ENV)HOME_3D_JAVA='$(HOME_3D_JAVA)' HOME_3D_JFR='$(HOME_3D_JFR)' scripts/profile-home-3d.sh \
 	  "$(BENCHMARK_HOME)" "$(or $(BENCHMARK_MODE),scene)" "$(or $(BENCHMARK_ITERATIONS),5)"
+
+benchmark-startup: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
+	@test -n "$(BENCHMARK_HOME)" || (echo "BENCHMARK_HOME is required" >&2; exit 2)
+	@mkdir -p $(PERFORMANCE_CLASSES)
+	$(JAVAC) $(TEST_JAVAC_FLAGS) -encoding ISO-8859-1 -cp "$(TEST_COMPILE_CP)" \
+	  -d $(PERFORMANCE_CLASSES) $(STARTUP_BENCHMARK_SOURCE)
+	$(RUN_IN_ENV)STARTUP_JFR='$(STARTUP_JFR)' scripts/profile-startup.sh \
+	  "$(BENCHMARK_HOME)" "$(or $(BENCHMARK_ITERATIONS),5)"
 
 clean:
 	rm -rf build $(INSTALL_JAR) $(TEST_CLASSES) $(PERFORMANCE_CLASSES)

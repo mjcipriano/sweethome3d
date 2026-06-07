@@ -61,6 +61,36 @@ ms p95 results. JFR identified PNG decoding and image scaling as the main
 warm-up costs, with geometry area construction and Java2D rasterization as
 secondary costs.
 
+## Startup And First Usable Paint
+
+The cold-start phases a user waits through before a home is usable can be
+measured without starting the full Swing application or Java 3D:
+
+```sh
+make benchmark-startup \
+  BENCHMARK_HOME=example-files/2025-11-27-House-Layout-v3.sh3d \
+  BENCHMARK_ITERATIONS=5
+```
+
+Set `STARTUP_JFR=profiles/startup.jfr` to record the cold-start hot paths
+(`JavaMonitorWait`, file I/O, allocation, and execution samples).
+
+The benchmark prints four phases per iteration: user-preferences
+initialization (`prefs_ms`), home load (`load_ms`), plan-component creation
+(`plan_create_ms`), and the first 2D paint (`first_paint_ms`), plus the
+`total_ms`. Iteration 1 is the genuine cold pass because it pays one-time
+class-loading and JIT warm-up; later iterations show the warm cost of the same
+phases. To compare cold startup across runtimes, launch the target several
+times and compare the `cold_total_ms` line, since class loading is paid once
+per JVM.
+
+On the reference complex home the cold pass was about 2.0 s total
+(prefs ~0.21 s, load ~1.18 s, plan create ~0.19 s, first paint ~0.46 s); warm
+iterations dropped to roughly 0.22-0.58 s total. The cold first paint is the
+cost the warmed `benchmark-plan-render` deliberately excludes, so this harness
+is the baseline for startup and EDT work. The first usable 3D frame is measured
+separately by `benchmark-home-3d`.
+
 ## 3D Scene And Frame Rendering
 
 Run the Java 3D benchmark on a working WSLg/X11 display:
