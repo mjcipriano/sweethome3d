@@ -153,6 +153,15 @@ construction from 15.09 seconds to 13.44 seconds (about 11%) by replacing the
 synchronized `BufferedReader` in the thread-confined OBJ parser with a larger
 unsynchronized buffer.
 
+When a scene is built synchronously (off-screen image creation, photo rendering,
+export), each piece previously loaded its model on the build thread, so the 148
+distinct models of the reference home were parsed one after another. Preloading
+the distinct models in parallel with the existing CPU-sized loader pool before
+the scene-tree build, so the build only clones cached models, reduced median
+off-screen scene construction from about 13.1 s to about 6.4 s (around 51%) on a
+12-core machine. The interactive on-screen view already loads models
+asynchronously and is unaffected.
+
 `BENCHMARK_MODE=update` measures how long the live scene graph takes to react to
 repeated model changes after the scene is built - moving a piece, rotating a
 piece, and moving the camera - without using the unstable off-screen frame path.

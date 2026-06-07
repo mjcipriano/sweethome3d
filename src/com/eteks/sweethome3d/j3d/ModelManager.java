@@ -37,6 +37,7 @@ import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -51,6 +52,7 @@ import java.util.TreeSet;
 import java.util.WeakHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import javax.media.j3d.Appearance;
 import javax.media.j3d.BoundingBox;
@@ -389,7 +391,7 @@ public class ModelManager {
 
   /**
    * Returns <code>true</code> if the rotation matrix matches only rotations of
-   * a multiple of 90° degrees around x, y or z axis.
+   * a multiple of 90ï¿½ degrees around x, y or z axis.
    */
   private boolean isOrthogonalRotation(Transform3D transformation) {
     Matrix3f matrix = new Matrix3f();
@@ -815,6 +817,68 @@ public class ModelManager {
             }
           }
         });
+      }
+    }
+  }
+
+  /**
+   * Loads the models of the given <code>contents</code> in parallel and stores them in the
+   * cache, so that later synchronous {@link #loadModel(Content, boolean, ModelObserver) loadModel}
+   * calls return a cached model instead of parsing each one on the calling thread. This is used
+   * to speed up building a complete scene, where many distinct models would otherwise be parsed
+   * one after the other. This method blocks until every model is loaded and may be called from
+   * any thread. Models that fail to load are skipped here and the error is reported as usual when
+   * the model is requested individually.
+   * @param contents objects containing models; duplicates and already cached models are ignored
+   */
+  public void preloadModels(Collection<Content> contents) {
+    List<Content> contentsToLoad = new ArrayList<Content>();
+    Set<Content> distinctContents = new HashSet<Content>();
+    synchronized (this.loadedModelNodes) {
+      for (Content content : contents) {
+        if (content != null
+            && !this.loadedModelNodes.containsKey(content)
+            && distinctContents.add(content)) {
+          contentsToLoad.add(content);
+        }
+      }
+    }
+    if (contentsToLoad.size() <= 1) {
+      // Nothing to gain from parallel loading; let the regular path handle it
+      return;
+    }
+    if (this.modelsLoader == null) {
+      this.modelsLoader = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    }
+    List<Future<?>> loadingTasks = new ArrayList<Future<?>>(contentsToLoad.size());
+    for (final Content content : contentsToLoad) {
+      loadingTasks.add(this.modelsLoader.submit(new Runnable() {
+          public void run() {
+            try {
+              BranchGroup loadedModel = loadModel(content);
+              synchronized (loadedModelNodes) {
+                if (!loadedModelNodes.containsKey(content)) {
+                  loadedModelNodes.put(content, loadedModel);
+                  transformedModelNodeBounds.put(content, new WeakHashMap<Transform3D, BoundingBox>());
+                }
+              }
+            } catch (IOException ex) {
+              // Ignore here: the model will be requested again individually,
+              // and the error will be reported to its observer as before
+            } catch (RuntimeException ex) {
+              // Same fallback for unexpected loader failures
+            }
+          }
+        }));
+    }
+    for (Future<?> loadingTask : loadingTasks) {
+      try {
+        loadingTask.get();
+      } catch (InterruptedException ex) {
+        Thread.currentThread().interrupt();
+        return;
+      } catch (Exception ex) {
+        // Ignore: fall back to loading this model individually later
       }
     }
   }
