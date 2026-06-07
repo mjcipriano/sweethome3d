@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.5.2-beta.7](https://github.com/mjcipriano/sweethome3d/compare/v7.5.1-beta.7...v7.5.2-beta.7) (2026-06-07)
+
+
+### Performance Improvements
+
+* fix broken bounds cache (D1) and reduce scene-update allocations (D3) ([1a6d6ae](https://github.com/mjcipriano/sweethome3d/commit/1a6d6aecacc20d621b946dd97b8b55077b235619))
+* fix broken bounds cache and reduce scene-update allocations ([ad287cb](https://github.com/mjcipriano/sweethome3d/commit/ad287cbc9718046f814bccaf36c98bb18b227640))
+
 ## [7.5.1-beta.7](https://github.com/mjcipriano/sweethome3d/compare/v7.5.1-beta.6...v7.5.1-beta.7) (2026-06-07)
 
 
