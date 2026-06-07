@@ -20,7 +20,9 @@ import com.eteks.sweethome3d.io.DefaultUserPreferences;
 import com.eteks.sweethome3d.io.HomeFileRecorder;
 import com.eteks.sweethome3d.model.Camera;
 import com.eteks.sweethome3d.model.Home;
+import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.UserPreferences;
+import com.eteks.sweethome3d.model.Wall;
 import com.eteks.sweethome3d.swing.HomeComponent3D;
 import com.eteks.sweethome3d.viewcontroller.HomeController3D;
 
@@ -37,16 +39,19 @@ public class Home3DFpsBenchmark {
 
   public static void main(String [] args) throws Exception {
     if (args.length < 1 || args.length > 2) {
-      System.err.println("Usage: Home3DFpsBenchmark <home.sh3d> [seconds]");
+      System.err.println("Usage: Home3DFpsBenchmark <home.sh3d|--smoke> [seconds]");
       System.exit(2);
     }
-    final File homeFile = new File(args[0]).getCanonicalFile();
+    final boolean smoke = "--smoke".equals(args[0]);
+    final File homeFile = smoke ? null : new File(args[0]).getCanonicalFile();
     final int seconds = args.length == 2 ? Integer.parseInt(args[1]) : 15;
 
-    final Home home = new HomeFileRecorder(
-        0, false, null, false, true).readHome(homeFile.getPath());
+    final Home home = smoke
+        ? createSmokeHome()
+        : new HomeFileRecorder(
+            0, false, null, false, true).readHome(homeFile.getPath());
     final UserPreferences preferences = new DefaultUserPreferences();
-    System.out.println("file=" + homeFile);
+    System.out.println(smoke ? "scene=synthetic-smoke" : "file=" + homeFile);
     System.out.println("furniture=" + home.getFurniture().size()
         + " walls=" + home.getWalls().size() + " levels=" + home.getLevels().size());
     System.out.println("renderingQuality="
@@ -122,5 +127,20 @@ public class Home3DFpsBenchmark {
         camera.setYaw(yaw [0]);
       }
     });
+  }
+
+  private static Home createSmokeHome() {
+    Home home = new Home();
+    float size = 500;
+    float thickness = 15;
+    float height = home.getWallHeight();
+    home.addWall(new Wall(0, 0, size, 0, thickness, height));
+    home.addWall(new Wall(size, 0, size, size, thickness, height));
+    home.addWall(new Wall(size, size, 0, size, thickness, height));
+    home.addWall(new Wall(0, size, 0, 0, thickness, height));
+    home.addRoom(new Room(new float [][] {
+        {0, 0}, {size, 0}, {size, size}, {0, size}
+    }));
+    return home;
   }
 }

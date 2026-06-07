@@ -41,7 +41,8 @@ approved. The `example-files/` directory is ignored.
 | 3D scene construction | Preload distinct furniture models in parallel (existing CPU loader pool) before the synchronous scene-tree build so the build only clones cached models; gated by `com.eteks.sweethome3d.j3d.preloadModels` (default on) | Interleaved 4-round A/B on the reference home (12 cores): median off-screen scene construction ~13.2 s with preload off vs ~7.0 s with preload on, about 47%; interactive async view unaffected; tests green (task D2) | merged PR #14 + kill-switch |
 | Windows 3D rendering | Central `GraphicsEnvironmentConfiguration` (called from `SweetHome3DBootstrap`) defaults the Java 3D renderer to speed on Windows so `Component3DManager` skips scene/implicit antialiasing; kill-switch and `renderingQuality=quality` override; no-op on macOS/Linux | Targets choppy interactive 3D on switchable-graphics laptops (antialiasing is the biggest per-frame cost on integrated GPUs); scene builds correctly with antialiasing off and all tests pass. Frame-rate gain must be measured on Windows+NVIDIA hardware - cannot be measured on WSL/Mesa (task E1) | merged PR #18 |
 | 3D diagnostics | Capture the OpenGL vendor/renderer/version via `Canvas3D.queryProperties` in `HomeComponent3D`'s render observer, measure a rolling FPS, surface both in a Help > 3D rendering information dialog and an optional on-canvas overlay, and log the GPU line to `graphics.log` | Lets a user confirm which GPU drives the 3D view (discrete vs integrated) and measure frame rate so Windows+NVIDIA tuning (E2) is observable; verified on WSLg - renderer reported as `D3D12 (NVIDIA GeForce GTX 1660 Ti)`; tests pass (task E-observability, enables E2) | merged PR #20 |
-| 3D interactive frame rate | The diagnostics showed a complex home renders at ~1 FPS on a discrete NVIDIA GPU (CPU-bound render loop, not GPU). Add `compile()` of the home scene branch before `addBranchGraph` (display lists, default on, kill-switch `compileScene=false`) and use `TRANSPARENCY_SORT_NONE` under `renderingQuality=speed`; add an on-screen FPS benchmark (`benchmark-home-3d-fps`) since the off-screen frame path crashes on Mesa | `compile()` verified safe - post-compile scene mutation works with no exceptions; build and tests pass. Magnitude not measurable on the noisy WSL/Mesa D3D12 layer (display lists behave unlike native GL); to be confirmed on Windows+NVIDIA via the in-app overlay (task D-render / E2) | _pending_ |
+| 3D interactive frame rate | The diagnostics showed a complex home renders at ~1 FPS on a discrete NVIDIA GPU (CPU-bound render loop, not GPU). Add `compile()` of the home scene branch before `addBranchGraph` (display lists, default on, kill-switch `compileScene=false`) and use `TRANSPARENCY_SORT_NONE` under `renderingQuality=speed`; add an on-screen FPS benchmark (`benchmark-home-3d-fps`) since the off-screen frame path crashes on Mesa | `compile()` verified safe - post-compile scene mutation works with no exceptions; build and tests pass. Magnitude not measurable on the noisy WSL/Mesa D3D12 layer (display lists behave unlike native GL); to be confirmed on Windows+NVIDIA via the in-app overlay (task D-render / E2) | merged PR #22 |
+| WSLg GPU testing | Add `make test-wsl-gpu`, a hardware-rendering smoke gate that checks WSLg X11/GLX, rejects software Mesa, requires the D3D12 renderer under WSL by default, runs Java 3D update mode, and confirms the on-screen FPS harness reports frames from Sweet Home 3D's `Canvas3D` | Passed on WSLg with `D3D12 (NVIDIA GeForce GTX 1660 Ti)`: the reference home's scene was created in 7.49 s, update operations completed, and the synthetic on-screen scene averaged 137 FPS over 335 samples. This gives WSL developers an adequate Java 3D GPU correctness/integration test without using the known-crashing off-screen frame benchmark or treating WSLg/Mesa as native Windows OpenGL | completed on `perf/wsl-gpu-tests` |
 
 ## Tried And Rejected
 
@@ -70,6 +71,7 @@ committed.
 | `make test-local-check` | Passed with direct NVIDIA-backed rendering |
 | `make benchmark-plan-render ...` | Passed; latest run median 9 ms, p95 11 ms |
 | `make benchmark-home-3d ... BENCHMARK_MODE=scene` | Passed; final confirmation run 14.95 s |
+| `make test-wsl-gpu BENCHMARK_HOME=example-files/2025-11-27-House-Layout-v3.sh3d BENCHMARK_SECONDS=6` | Passed; GLX and Java 3D both reported `D3D12 (NVIDIA GeForce GTX 1660 Ti)`; scene creation 7.49 s; synthetic smoke 137 FPS over 335 samples |
 | `ant -Dversion=7.5.1-beta.1 jarExecutable` | Passed; produced the prerelease executable JAR |
 | Complete `make test-local TEST_DISPLAY_MODE=display` | Native Mesa GLX crash; known legacy graphics-stack limitation |
 | Cross-platform GitHub Actions | Passed on Windows, Linux, macOS, and Linux GUI in [CI run 15](https://github.com/mjcipriano/sweethome3d/actions/runs/27095017708) |
@@ -135,7 +137,10 @@ is now documented in `docs/PERFORMANCE.md` rather than coded). Depends on A3.
 **Workstream F - Graphics stack upgrade** (F1 unify/upgrade Java 3D, JOGL,
 GlueGen, vecmath and native binaries together to stop the Mesa GLX crash and
 restore the frame benchmark and full Java 3D suite; F2 3D regression
-thresholds). Sequenced after the app-level wins.
+thresholds). Sequenced after the app-level wins. Until F1 is done,
+`make test-wsl-gpu` is the required WSL Java 3D GPU smoke gate; it validates
+hardware-accelerated WSLg/D3D12 rendering and on-screen frame production, while
+the full off-screen frame path remains a compatibility probe.
 
 `docs/JAVA_MODERNIZATION.md` defines the larger Java and graphics migration
 sequence.

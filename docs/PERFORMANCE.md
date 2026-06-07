@@ -204,6 +204,21 @@ to record the active OpenGL vendor, renderer, and direct-rendering status.
 Run this benchmark from the pinned `sweethome3d` Conda environment; its
 standard OpenJDK 17 build is required for stable Java 3D profiling under WSL.
 
+For an end-to-end WSLg GPU smoke test, use:
+
+```sh
+make test-wsl-gpu \
+  BENCHMARK_HOME=example-files/2025-11-27-House-Layout-v3.sh3d
+```
+
+This target verifies X11/GLX, rejects software renderers such as `llvmpipe`,
+requires WSLg's `D3D12 (...)` renderer by default, runs the safe Java 3D
+scene-update benchmark, and runs the on-screen FPS benchmark to prove that
+Sweet Home 3D's own `Canvas3D` reports rendered frames on the WSLg GPU path.
+Set `WSL_GPU_REQUIRE_D3D12=0` only for non-WSLg Linux diagnostics. This is the
+adequate WSL GPU gate for Java 3D correctness and integration; it is not a
+native Windows OpenGL performance proxy.
+
 The reference home contains 435 model references backed by 148 distinct model
 contents. A controlled three-run comparison reduced median synchronous scene
 construction from 15.09 seconds to 13.44 seconds (about 11%) by replacing the
