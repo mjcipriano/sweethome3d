@@ -36,8 +36,20 @@ types out of the model package.
 
 ## Build And Test
 
-Prerequisites: JDK 17, Apache Ant, GNU Make, and a working OpenGL environment.
-Linux GUI tests require WSLg/X11 or Xvfb plus Mesa GLX utilities.
+Use the repository's `sweethome3d` Conda environment for the JDK and developer
+tools. It pins a standard conda-forge OpenJDK 17 build because the JetBrains
+Runtime may crash in Mesa GLX while Java 3D creates a rendering context.
+
+```bash
+scripts/setup-conda-env.sh
+conda activate sweethome3d
+```
+
+The environment includes OpenJDK, JFR, Ant, Make, Git, GitHub CLI, and the
+AWT/X11 libraries required by Java 3D. Linux GUI tests require WSLg/X11 or
+Xvfb. The host must provide `xdpyinfo`, `glxinfo`, and optionally `Xvfb`
+because conda-forge doesn't publish current runnable packages for these
+diagnostic/server commands.
 
 ```bash
 make build       # Compile application/resource JARs
@@ -60,9 +72,11 @@ Code WSL terminal:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y openjdk-17-jdk ant make x11-utils mesa-utils libgl1-mesa-dri xvfb
+sudo apt-get install -y x11-utils mesa-utils libgl1-mesa-dri xvfb
+scripts/setup-conda-env.sh
+conda activate sweethome3d
 make test-local-check
-make test-local TEST_JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+make test-local
 ```
 
 `test-local` uses the existing WSLg display when `DISPLAY` and GLX work. Force
@@ -77,8 +91,9 @@ make test-local TEST_JAVA=/path/to/java    # Override only the test JVM
 
 Avoid JetBrains Runtime for the complete Java 3D suite under Linux/WSL. It may
 crash in Mesa's `libGLX_mesa.so` while Java 3D creates a rendering context.
-The local runner rejects JBR by default. `TEST_JAVA_HOME` selects a standard
-test JDK without changing the system-wide Java or the JDK used by VS Code.
+The local runner and 3D benchmark reject JBR by default. Update
+`environment.yml` whenever developer tools or native runtime libraries are
+added to the `sweethome3d` environment.
 
 The required Linux CI GUI suite uses `make test-gui`. The legacy Java 3D native
 suite is a scheduled/manual compatibility probe until Java 3D and JOGL are

@@ -1,0 +1,18 @@
+name: sweethome3d
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - openjdk=17.0.18=ha668962_0
+  - ant=1.10.8
+  - make=4.4.1
+  - git=2.54.0
+  - gh=2.93.0
+  - libglu=9.0.3
+  - xorg-libx11
+  - xorg-libxext
+  - xorg-libxrender
+  - xorg-libxt
+  - xorg-libsm
+  - xorg-libxfixes
+  - xorg-libxi
