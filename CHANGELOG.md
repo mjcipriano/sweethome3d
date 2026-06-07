@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.5.1-beta.4](https://github.com/mjcipriano/sweethome3d/compare/v7.5.1-beta.3...v7.5.1-beta.4) (2026-06-07)
+
+
+### Bug Fixes
+
+* rebuild on source change + model-preload kill-switch (D2 verification) ([0073c75](https://github.com/mjcipriano/sweethome3d/commit/0073c751a8e763877c08cb5e89529baae0d81be0))
+* rebuild on source change and add model-preload kill-switch ([c4c9368](https://github.com/mjcipriano/sweethome3d/commit/c4c9368953d809ee96fef65eb482cdede1d94deb))
+
 ## [7.5.1-beta.3](https://github.com/mjcipriano/sweethome3d/compare/v7.5.1-beta.2...v7.5.1-beta.3) (2026-06-07)
 
 
