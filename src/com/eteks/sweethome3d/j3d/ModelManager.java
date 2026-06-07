@@ -244,12 +244,21 @@ public class ModelManager {
   private boolean                   simplifyModels;
   // Vertex count threshold for simplification
   private int                       modelSimplificationThreshold;
+  // Map storing simplified versions of loaded models (always populated at load time)
+  private Map<Content, BranchGroup> simplifiedModelNodes;
+  // Map storing the vertex count of loaded models for display in the furniture table
+  private Map<Content, Integer>     modelVertexCounts;
+  // Map storing the simplified vertex count
+  private Map<Content, Integer>     simplifiedVertexCounts;
 
   private ModelManager() {
     // This class is a singleton
     this.loadedModelNodes = new WeakHashMap<Content, BranchGroup>();
     this.loadingModelObservers = new HashMap<Content, List<ModelObserver>>();
     this.transformedModelNodeBounds = new WeakHashMap<Content, Map<Transform3D, BoundingBox>>();
+    this.simplifiedModelNodes = new WeakHashMap<Content, BranchGroup>();
+    this.modelVertexCounts = new HashMap<Content, Integer>();
+    this.simplifiedVertexCounts = new HashMap<Content, Integer>();
     // Read simplification settings from system properties
     this.simplifyModels = Boolean.getBoolean(SIMPLIFY_MODELS);
     this.modelSimplificationThreshold = Integer.getInteger(MODEL_SIMPLIFICATION_THRESHOLD, 50000);
@@ -351,7 +360,46 @@ public class ModelManager {
     synchronized (this.loadedModelNodes) {
       this.loadedModelNodes.clear();
     }
+    this.simplifiedModelNodes.clear();
     this.transformedModelNodeBounds.clear();
+    this.modelVertexCounts.clear();
+    this.simplifiedVertexCounts.clear();
+  }
+
+  /**
+   * Returns the total vertex count for the given model content,
+   * or 0 if the model hasn't been loaded yet.
+   */
+  public int getModelVertexCount(Content content) {
+    Integer count = this.modelVertexCounts.get(content);
+    return count != null ? count : 0;
+  }
+
+  /**
+   * Returns the simplified vertex count for the given model content,
+   * or the original count if no simplification was applied.
+   */
+  public int getModelSimplifiedVertexCount(Content content) {
+    Integer count = this.simplifiedVertexCounts.get(content);
+    if (count != null) {
+      return count;
+    }
+    return getModelVertexCount(content);
+  }
+
+  /**
+   * Computes and caches a simplified version of the given model for later use
+   * when simplification is enabled.
+   */
+  private void cacheSimplifiedModel(Content content, BranchGroup modelRoot) {
+    int vertexCount = getVertexCount(modelRoot);
+    if (vertexCount > this.modelSimplificationThreshold) {
+      BranchGroup simplified = simplifyModelNode(modelRoot, this.modelSimplificationThreshold);
+      if (simplified != modelRoot) {
+        this.simplifiedModelNodes.put(content, simplified);
+        this.simplifiedVertexCounts.put(content, getVertexCount(simplified));
+      }
+    }
   }
 
   /**
@@ -811,6 +859,8 @@ public class ModelManager {
           // Store in cache model node for future copies
           this.loadedModelNodes.put(content, (BranchGroup)modelRoot);
           this.transformedModelNodeBounds.put(content, new HashMap<Transform3D, BoundingBox>());
+          this.modelVertexCounts.put(content, getVertexCount(modelRoot));
+          cacheSimplifiedModel(content, (BranchGroup)modelRoot);
         }
         modelObserver.modelUpdated((BranchGroup)cloneNode(modelRoot));
       } catch (IOException ex) {
@@ -842,6 +892,8 @@ public class ModelManager {
                 // Update loaded models cache and notify registered observers
                 loadedModelNodes.put(content, loadedModel);
                 transformedModelNodeBounds.put(content, new HashMap<Transform3D, BoundingBox>());
+                modelVertexCounts.put(content, getVertexCount(loadedModel));
+                cacheSimplifiedModel(content, loadedModel);
               }
               EventQueue.invokeLater(new Runnable() {
                   public void run() {
@@ -910,6 +962,8 @@ public class ModelManager {
                 if (!loadedModelNodes.containsKey(content)) {
                   loadedModelNodes.put(content, loadedModel);
                   transformedModelNodeBounds.put(content, new HashMap<Transform3D, BoundingBox>());
+                  modelVertexCounts.put(content, getVertexCount(loadedModel));
+                  cacheSimplifiedModel(content, loadedModel);
                 }
               }
             } catch (IOException ex) {
@@ -937,21 +991,22 @@ public class ModelManager {
    * Returns a clone of the given <code>node</code>.
    * All the children and the attributes of the given node are duplicated except the geometries
    * and the texture images of shapes.
-   * When {@link #isSimplifyModelsEnabled() model simplification} is enabled and the node
-   * is a model root (BranchGroup with Content user data) whose vertex count exceeds the
-   * threshold, the clone is simplified.
+   * When {@link #isSimplifyModelsEnabled() model simplification} is enabled and a simplified
+   * version was precomputed at load time, it is used instead.
    */
   public Node cloneNode(Node node) {
     // Clone node in a synchronized block because cloneNodeComponent is not thread safe
     synchronized (this.loadedModelNodes) {
-      Node clone = cloneNode(node, new HashMap<SharedGroup, SharedGroup>());
+      // If simplification is enabled and we have a simplified version, clone that instead
       if (this.simplifyModels
-          && clone instanceof BranchGroup
-          && clone.getUserData() instanceof Content) {
-        BranchGroup simplified = simplifyModelNode((BranchGroup)clone, this.modelSimplificationThreshold);
-        return simplified;
+          && node instanceof BranchGroup
+          && node.getUserData() instanceof Content) {
+        BranchGroup simplified = this.simplifiedModelNodes.get(node.getUserData());
+        if (simplified != null) {
+          return cloneNode(simplified, new HashMap<SharedGroup, SharedGroup>());
+        }
       }
-      return clone;
+      return cloneNode(node, new HashMap<SharedGroup, SharedGroup>());
     }
   }
 

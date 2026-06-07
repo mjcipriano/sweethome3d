@@ -133,6 +133,7 @@ import com.eteks.sweethome3d.model.SelectionListener;
 import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.tools.OperatingSystem;
 import com.eteks.sweethome3d.tools.ResourceURLContent;
+import com.eteks.sweethome3d.j3d.ModelManager;
 import com.eteks.sweethome3d.viewcontroller.FurnitureController;
 import com.eteks.sweethome3d.viewcontroller.FurnitureView;
 
@@ -1168,6 +1169,7 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
             break;
           case ANGLE :
           case MODEL_SIZE :
+          case VERTICES :
           case PRICE :
           case VALUE_ADDED_TAX_PERCENTAGE :
           case VALUE_ADDED_TAX :
@@ -1518,6 +1520,8 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
             return preferences.getLocalizedString(FurnitureTable.class, "levelColumn");
           case MODEL_SIZE :
             return preferences.getLocalizedString(FurnitureTable.class, "modelSizeColumn");
+          case VERTICES :
+            return "Vertices";
           case COLOR :
             return preferences.getLocalizedString(FurnitureTable.class, "colorColumn");
           case TEXTURE :
@@ -1566,6 +1570,7 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
           case Y :
           case ELEVATION :
           case MODEL_SIZE :
+          case VERTICES :
             return 50;
           case ANGLE :
             return 35;
@@ -1623,6 +1628,8 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
             return getLevelRenderer();
           case MODEL_SIZE :
             return getModelSizeRenderer();
+          case VERTICES :
+            return getVerticesRenderer();
           case COLOR :
             return getColorRenderer();
           case TEXTURE :
@@ -2127,6 +2134,74 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
               : null;
           return this.integerRenderer.getTableCellRendererComponent(
               table, modelSize, isSelected, hasFocus, row, column);
+        }
+      };
+    }
+
+    /**
+     * Returns a renderer that displays the vertex count of a piece of furniture,
+     * color-coded to highlight performance-heavy models.
+     */
+    private TableCellRenderer getVerticesRenderer() {
+      return new DefaultTableCellRenderer() {
+        private NumberFormat integerFormat;
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table,
+             Object value, boolean isSelected, boolean hasFocus,
+             int row, int column) {
+          HomePieceOfFurniture piece = (HomePieceOfFurniture)value;
+          int vertexCount = 0;
+          Content content = null;
+          if (piece != null) {
+            content = piece.getModel();
+            if (content != null) {
+              vertexCount = ModelManager.getInstance().getModelVertexCount(content);
+            }
+          }
+          setHorizontalAlignment(JLabel.RIGHT);
+          JLabel label = (JLabel)super.getTableCellRendererComponent(
+              table, "", isSelected, hasFocus, row, column);
+          if (vertexCount > 0) {
+            if (this.integerFormat == null) {
+              this.integerFormat = NumberFormat.getIntegerInstance();
+            }
+            String text = this.integerFormat.format(vertexCount);
+            boolean simplified = ModelManager.getInstance().isSimplifyModelsEnabled()
+                && vertexCount > ModelManager.getInstance().getModelSimplificationThreshold();
+            if (simplified) {
+              int simplifiedCount = ModelManager.getInstance().getModelSimplifiedVertexCount(content);
+              if (simplifiedCount < vertexCount) {
+                text = this.integerFormat.format(simplifiedCount) + " / " + text;
+                label.setToolTipText("Simplified from " + this.integerFormat.format(vertexCount)
+                    + " to " + this.integerFormat.format(simplifiedCount) + " vertices");
+              }
+            } else {
+              label.setToolTipText(this.integerFormat.format(vertexCount) + " vertices");
+            }
+            label.setText(text);
+            // Color-code: green (< 10000), black (10k-50k), orange (50k-200k), red (> 200k)
+            if (!isSelected) {
+              if (vertexCount <= 10000) {
+                label.setForeground(new Color(0, 128, 0));
+              } else if (vertexCount <= 50000) {
+                label.setForeground(Color.BLACK);
+              } else if (vertexCount <= 200000) {
+                label.setForeground(new Color(200, 120, 0));
+              } else {
+                label.setForeground(Color.RED);
+              }
+            }
+          }
+          return label;
+        }
+
+        private int estimateSimplifiedVertexCount(int originalCount, int threshold) {
+          if (originalCount <= threshold) {
+            return originalCount;
+          }
+          double ratio = Math.pow((double)threshold / originalCount, 1.0 / 3.0);
+          return Math.max(threshold, (int)(originalCount * ratio * ratio));
         }
       };
     }
