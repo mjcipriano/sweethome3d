@@ -63,7 +63,7 @@ committed.
 | `make benchmark-home-3d ... BENCHMARK_MODE=scene` | Passed; final confirmation run 14.95 s |
 | `ant -Dversion=7.5.1-beta.1 jarExecutable` | Passed; produced the prerelease executable JAR |
 | Complete `make test-local TEST_DISPLAY_MODE=display` | Native Mesa GLX crash; known legacy graphics-stack limitation |
-| Cross-platform GitHub Actions | Required before merge; record the run or PR check result below |
+| Cross-platform GitHub Actions | Passed on Windows, Linux, macOS, and Linux GUI in [CI run 15](https://github.com/mjcipriano/sweethome3d/actions/runs/27095017708) |
 | Prerelease packaging on Windows, Linux, and macOS | Required after merge through `release.yml` |
 
 ## Next Work
