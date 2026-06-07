@@ -48,6 +48,13 @@ New-Item $input -ItemType Directory -Force | Out-Null
 New-Item $appImages -ItemType Directory -Force | Out-Null
 Copy-Item $jarPath (Join-Path $input $jarName)
 
+# jpackage accepts numeric application versions only. Keep the full semantic
+# version in artifact names and use the numeric core for native metadata.
+$appVersion = $Version.Split("-", 2)[0]
+if ($appVersion -notmatch "^\d+\.\d+\.\d+$") {
+  throw "Version must start with a numeric semantic version such as 7.5.1."
+}
+
 $jpackageArgs = @(
   "--type", "app-image",
   "--name", "Sweet Home 3D",
@@ -55,7 +62,7 @@ $jpackageArgs = @(
   "--input", $input,
   "--main-jar", $jarName,
   "--main-class", "com.eteks.sweethome3d.SweetHome3DBootstrap",
-  "--app-version", $Version,
+  "--app-version", $appVersion,
   "--vendor", "Space Mushrooms",
   "--description", "Interior design application",
   "--java-options", "-Xmx2g",

@@ -26,6 +26,7 @@ import java.io.InputStreamReader;
 import java.io.InterruptedIOException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -51,9 +52,9 @@ class HomeContentContext {
   private URL                      homeUrl;
   private boolean                  containsInvalidContents;
   private List<Content>            invalidContents;
-  private List<URLContent>         validContentsNotInPreferences;
+  private Map<ContentDigest, URLContent> validContentsNotInPreferences;
 
-  private Map<URLContent, byte []> contentDigests;
+  private Map<String, byte []>     contentDigests;
   private Set<URLContent>          preferencesContentsCache;
   private boolean                  preferPreferencesContent;
   
@@ -64,7 +65,7 @@ class HomeContentContext {
     this.preferPreferencesContent = preferPreferencesContent;
     this.contentDigests = readContentDigests(homeSource);
     this.invalidContents = new ArrayList<Content>();
-    this.validContentsNotInPreferences = new ArrayList<URLContent>();
+    this.validContentsNotInPreferences = new HashMap<ContentDigest, URLContent>();
     if (preferences != null 
         && this.preferencesContentsCache == null) {
       this.preferencesContentsCache = getUserPreferencesContent(preferences);
@@ -75,7 +76,7 @@ class HomeContentContext {
    * Returns the digest of content contained in the given home, or 
    * <code>null</code> if this information doesn't exist in the home file.
    */
-  private Map<URLContent, byte []> readContentDigests(URL homeUrl) {
+  private Map<String, byte []> readContentDigests(URL homeUrl) {
     ZipInputStream zipIn = null;
     try {
       zipIn = new ZipInputStream(homeUrl.openStream());
@@ -87,7 +88,7 @@ class HomeContentContext {
           String line = reader.readLine();
           if (line != null
               && line.trim().startsWith("ContentDigests-Version: 1")) {
-            Map<URLContent, byte []> contentDigests = new HashMap<URLContent, byte[]>();
+            Map<String, byte []> contentDigests = new HashMap<String, byte[]>();
             // Read Name / SHA-1-Digest lines  
             String entryName = null;
             while ((line = reader.readLine()) != null) {
@@ -98,8 +99,7 @@ class HomeContentContext {
                 if (entryName == null) {
                   throw new IOException("Missing entry name");
                 } else {
-                  URL url = new URL("jar:" + homeUrl + "!/" + entryName);
-                  contentDigests.put(new HomeURLContent(url), digest);
+                  contentDigests.put(entryName, digest);
                   entryName = null;
                 }
               }
@@ -128,6 +128,9 @@ class HomeContentContext {
     URL fileURL = new URL("jar:" + this.homeUrl + "!/" + contentEntryName);
     HomeURLContent urlContent = new HomeURLContent(fileURL);
     ContentDigestManager contentDigestManager = ContentDigestManager.getInstance();
+    byte [] expectedDigest = this.contentDigests != null
+        ? this.contentDigests.get(contentEntryName)
+        : null;
     if (!isValid(urlContent)) {
       this.containsInvalidContents = true;
       // Try to find in user preferences a content with the same digest 
@@ -139,30 +142,30 @@ class HomeContentContext {
         this.invalidContents.add(urlContent);
       }
     } else {
-      // Check if duplicated content can be avoided 
-      // (coming from files older than version 4.4)
-      for (URLContent content : this.validContentsNotInPreferences) {
-        if (contentDigestManager.equals(urlContent, content)) {
-          return content;
-        }
-      }
       if (Thread.interrupted()) {
         throw new InterruptedIOException();
       }
-      // If content digests information is available, check the digest against read content 
-      byte [] contentDigest;
-      if (this.contentDigests != null
-          && (contentDigest = this.contentDigests.get(urlContent)) != null
-          && !contentDigestManager.isContentDigestEqual(urlContent, contentDigest)) {
+
+      byte [] actualDigest = contentDigestManager.getContentDigest(urlContent);
+      if (expectedDigest != null
+          && !Arrays.equals(actualDigest, expectedDigest)) {
         this.containsInvalidContents = true;
         // Try to find in user preferences a content with the same digest  
-        URLContent preferencesContent = findUserPreferencesContent(urlContent);
+        URLContent preferencesContent = findUserPreferencesContent(expectedDigest);
         if (preferencesContent != null) {
           return preferencesContent;
         } else {
           this.invalidContents.add(urlContent);
         }
       } else {
+        ContentDigest digest = null;
+        if (actualDigest.length > 0) {
+          digest = new ContentDigest(actualDigest);
+          URLContent existingContent = this.validContentsNotInPreferences.get(digest);
+          if (existingContent != null) {
+            return existingContent;
+          }
+        }
         if (this.preferencesContentsCache != null
             && this.preferPreferencesContent) {
           // Check if user preferences contains the same content to share it
@@ -172,7 +175,9 @@ class HomeContentContext {
             }
           }
         }
-        this.validContentsNotInPreferences.add(urlContent);
+        if (digest != null) {
+          this.validContentsNotInPreferences.put(digest, urlContent);
+        }
       }
     }
     return urlContent;
@@ -202,6 +207,13 @@ class HomeContentContext {
   }
 
   /**
+   * Returns <code>true</code> if the home contains a content digest manifest.
+   */
+  public boolean containsContentDigests() {
+    return this.contentDigests != null;
+  }
+
+  /**
    * Returns <code>true</code> if the stream contains some invalid content 
    * whether it could be replaced or not.
    */
@@ -216,13 +228,20 @@ class HomeContentContext {
   private URLContent findUserPreferencesContent(URLContent content) {
     if (this.contentDigests != null
         && this.preferencesContentsCache != null) {
-      byte [] contentDigest = this.contentDigests.get(content);
+      byte [] contentDigest = this.contentDigests.get(content.getJAREntryName());
       if (contentDigest != null) {
-        ContentDigestManager contentDigestManager = ContentDigestManager.getInstance();
-        for (URLContent preferencesContent : this.preferencesContentsCache) {
-          if (contentDigestManager.isContentDigestEqual(preferencesContent, contentDigest)) {
-            return preferencesContent;
-          }
+        return findUserPreferencesContent(contentDigest);
+      }
+    }
+    return null;
+  }
+
+  private URLContent findUserPreferencesContent(byte [] contentDigest) {
+    if (this.preferencesContentsCache != null) {
+      ContentDigestManager contentDigestManager = ContentDigestManager.getInstance();
+      for (URLContent preferencesContent : this.preferencesContentsCache) {
+        if (contentDigestManager.isContentDigestEqual(preferencesContent, contentDigest)) {
+          return preferencesContent;
         }
       }
     }
@@ -259,6 +278,27 @@ class HomeContentContext {
   private void addURLContent(Content content, Set<URLContent> preferencesContent) {
     if (content instanceof URLContent) {
       preferencesContent.add((URLContent)content);
+    }
+  }
+
+  private static class ContentDigest {
+    private final byte [] digest;
+    private final int hashCode;
+
+    ContentDigest(byte [] digest) {
+      this.digest = digest.clone();
+      this.hashCode = Arrays.hashCode(digest);
+    }
+
+    @Override
+    public int hashCode() {
+      return this.hashCode;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+      return obj instanceof ContentDigest
+          && Arrays.equals(this.digest, ((ContentDigest)obj).digest);
     }
   }
 }

@@ -220,6 +220,7 @@ public class DefaultHomeInputStream extends FilterInputStream {
     URL homeUrl = null;
     HomeContentContext contentContext = null;
     if (this.contentRecording != ContentRecording.INCLUDE_NO_CONTENT) {
+      boolean directZipFile = this.zipFile != null;
       InputStream homeIn = null;
       if (this.zipFile == null) {
         if (isZipPrefix()) {
@@ -236,25 +237,38 @@ public class DefaultHomeInputStream extends FilterInputStream {
       }
 
       if (validZipFile) {
-        // Check if all entries in the home file can be fully read using a zipped input stream
-        List<ZipEntry> validEntries = new ArrayList<ZipEntry>();
-        validZipFile = isZipFileValidUsingInputStream(homeIn, validEntries) && validEntries.size() > 0;
-        if (!validZipFile) {
-          int validEntriesCount = validEntries.size();
-          validEntries.clear();
-          // Check how many entries can be read using zip dictionary
-          // (some times, this gives a different result from the previous way)
-          // and create a temporary copy with only valid entries
-          isZipFileValidUsingDictionnary(this.zipFile, validEntries);
-          if (validEntries.size() > validEntriesCount) {
-            this.zipFile = createTemporaryFileFromValidEntries(this.zipFile, validEntries);
-          } else {
-            this.zipFile = createTemporaryFileFromValidEntriesCount(this.zipFile, validEntriesCount);
+        if (directZipFile) {
+          homeUrl = this.zipFile.toURI().toURL();
+          contentContext = new HomeContentContext(homeUrl, this.preferences, this.preferPreferencesContent);
+        }
+        // Modern local homes verify referenced content against their digest
+        // manifest while the home is read. Avoid inflating every ZIP entry a
+        // second time when its central directory is readable.
+        if (!directZipFile
+            || !contentContext.containsContentDigests()
+            || !isZipDirectoryReadable(this.zipFile)) {
+          // Check if all entries in the home file can be fully read using a zipped input stream
+          List<ZipEntry> validEntries = new ArrayList<ZipEntry>();
+          validZipFile = isZipFileValidUsingInputStream(homeIn, validEntries) && validEntries.size() > 0;
+          if (!validZipFile) {
+            int validEntriesCount = validEntries.size();
+            validEntries.clear();
+            // Check how many entries can be read using zip dictionary
+            // (some times, this gives a different result from the previous way)
+            // and create a temporary copy with only valid entries
+            isZipFileValidUsingDictionnary(this.zipFile, validEntries);
+            if (validEntries.size() > validEntriesCount) {
+              this.zipFile = createTemporaryFileFromValidEntries(this.zipFile, validEntries);
+            } else {
+              this.zipFile = createTemporaryFileFromValidEntriesCount(this.zipFile, validEntriesCount);
+            }
+            contentContext = null;
           }
         }
-
-        homeUrl = this.zipFile.toURI().toURL();
-        contentContext = new HomeContentContext(homeUrl, this.preferences, this.preferPreferencesContent);
+        if (contentContext == null) {
+          homeUrl = this.zipFile.toURI().toURL();
+          contentContext = new HomeContentContext(homeUrl, this.preferences, this.preferPreferencesContent);
+        }
       }
     }
 
@@ -337,6 +351,26 @@ public class DefaultHomeInputStream extends FilterInputStream {
     } finally {
       if (homeObjectIn != null) {
         homeObjectIn.close();
+      }
+    }
+  }
+
+  /**
+   * Returns <code>true</code> if the ZIP central directory can be read.
+   */
+  private boolean isZipDirectoryReadable(File file) {
+    ZipFile zipFile = null;
+    try {
+      zipFile = new ZipFile(file);
+      return zipFile.entries().hasMoreElements();
+    } catch (IOException ex) {
+      return false;
+    } finally {
+      if (zipFile != null) {
+        try {
+          zipFile.close();
+        } catch (IOException ex) {
+        }
       }
     }
   }

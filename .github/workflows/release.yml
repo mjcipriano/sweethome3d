@@ -7,9 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version to publish, for example 7.5.1
+        description: Version to publish, for example 7.5.1 or 7.5.1-beta.1
         required: true
         type: string
+      prerelease:
+        description: Mark the GitHub release as a prerelease
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -24,6 +29,7 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created || steps.manual.outputs.release_created }}
       version: ${{ steps.release.outputs.version || steps.manual.outputs.version }}
       tag: ${{ steps.release.outputs.tag_name || steps.manual.outputs.tag }}
+      prerelease: ${{ steps.manual.outputs.prerelease || 'false' }}
     steps:
       - name: Update release pull request or create release
         id: release
@@ -39,12 +45,17 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ inputs.version }}"
-          if ($version -notmatch "^\d+\.\d+\.\d+$") {
-            throw "Version must be a semantic version such as 7.5.1."
+          if ($version -notmatch "^\d+\.\d+\.\d+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$") {
+            throw "Version must be a semantic version such as 7.5.1 or 7.5.1-beta.1."
+          }
+          $prerelease = "${{ inputs.prerelease }}".ToLowerInvariant()
+          if ($version.Contains("-") -and $prerelease -ne "true") {
+            throw "A version with a prerelease suffix requires prerelease=true."
           }
           "release_created=true" >> $env:GITHUB_OUTPUT
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=v$version" >> $env:GITHUB_OUTPUT
+          "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
 
   package:
     name: Package ${{ matrix.platform }}
@@ -137,11 +148,17 @@ jobs:
         shell: bash
         run: |
           if ! gh release view "${{ needs.prepare.outputs.tag }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            gh release create "${{ needs.prepare.outputs.tag }}" \
-              --repo "${{ github.repository }}" \
-              --target "${{ github.sha }}" \
-              --title "Sweet Home 3D ${{ needs.prepare.outputs.version }}" \
+            release_args=(
+              "${{ needs.prepare.outputs.tag }}"
+              --repo "${{ github.repository }}"
+              --target "${{ github.sha }}"
+              --title "Sweet Home 3D ${{ needs.prepare.outputs.version }}"
               --generate-notes
+            )
+            if [[ "${{ needs.prepare.outputs.prerelease }}" == "true" ]]; then
+              release_args+=(--prerelease)
+            fi
+            gh release create "${release_args[@]}"
           fi
 
       - name: Upload release assets

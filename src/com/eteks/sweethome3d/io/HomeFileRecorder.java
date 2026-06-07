@@ -312,24 +312,25 @@ public class HomeFileRecorder implements HomeRecorder {
   public Home readHome(String name) throws RecorderException {
     DefaultHomeInputStream homeInputStream = null;
     try {
-      InputStream in;
-      try {
-        // Open a stream on file
-        in = new FileInputStream(name);
-      } catch (FileNotFoundException ex) {
+      File homeFile = new File(name);
+      if (homeFile.isFile()) {
+        homeInputStream = new DefaultHomeInputStream(homeFile, ContentRecording.INCLUDE_ALL_CONTENT,
+            this.preferXmlEntry ? getHomeXMLHandler() : null,
+            this.preferences, this.preferPreferencesContent);
+      } else {
+        InputStream in;
         if (this.acceptUrl) {
           // Then try to open file as a URL
           URLConnection connection = new URL(name).openConnection();
           connection.setUseCaches(false);
           in = connection.getInputStream();
         } else {
-          throw ex;
+          throw new FileNotFoundException(name);
         }
+        homeInputStream = new DefaultHomeInputStream(in, ContentRecording.INCLUDE_ALL_CONTENT,
+            this.preferXmlEntry ? getHomeXMLHandler() : null,
+            this.preferences, this.preferPreferencesContent);
       }
-      // Read home with HomeInputStream
-      homeInputStream = new DefaultHomeInputStream(in, ContentRecording.INCLUDE_ALL_CONTENT,
-          this.preferXmlEntry ? getHomeXMLHandler() : null,
-          this.preferences, this.preferPreferencesContent);
       Home home = homeInputStream.readHome();
       return home;
     } catch (InterruptedIOException ex) {

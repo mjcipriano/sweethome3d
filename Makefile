@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 # Adjustable settings
-VERSION ?= 7.5.0 # x-release-please-version
+VERSION ?= 7.5.0# x-release-please-version
 CONDA_ACTIVATE ?=
 JAVA_OPTS ?= -Xmx1024m \
   --add-opens=java.desktop/java.awt=ALL-UNNAMED \
@@ -39,6 +39,10 @@ INSTALL_JAR := install/SweetHome3D-$(VERSION).jar
 DEV_RESOURCE_JARS := build/Furniture.jar build/Textures.jar build/Examples.jar build/Help.jar
 DEV_CLASS_PATH := $(MAIN_JAR)$(CPSEP)build/Furniture.jar$(CPSEP)build/Textures.jar$(CPSEP)build/Examples.jar$(CPSEP)build/Help.jar
 TEST_CLASSES := build/test-classes
+PERFORMANCE_CLASSES := build/performance-classes
+HOME_LOAD_BENCHMARK_SOURCE := test/com/eteks/sweethome3d/performance/HomeLoadBenchmark.java
+PLAN_RENDER_BENCHMARK_SOURCE := test/com/eteks/sweethome3d/performance/PlanRenderBenchmark.java
+HOME_3D_BENCHMARK_SOURCE := test/com/eteks/sweethome3d/performance/Home3DRenderBenchmark.java
 TEST_JARS := libtest/junit-4.13.2.jar libtest/hamcrest-core-1.3.jar
 JUNIT_URL := https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar
 HAMCREST_URL := https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar
@@ -67,6 +71,7 @@ GL_TEST_EXCLUDES := \
   com/eteks/sweethome3d/junit/PackageDependenciesTest
 ALL_TEST_SOURCES := $(shell find test -name "*Test.java")
 CORE_TEST_SOURCES := \
+  test/com/eteks/sweethome3d/io/HomeContentContextTest.java \
   test/com/eteks/sweethome3d/junit/HomeTest.java \
   test/com/eteks/sweethome3d/junit/OperatingSystemTest.java \
   test/com/eteks/sweethome3d/junit/PackageDependenciesTest.java
@@ -81,7 +86,7 @@ endif
 endif
 TEST_NAMES := $(subst /,.,$(FILTERED_TEST_SOURCES:test/%.java=%))
 
-.PHONY: help build jar run run-dev test test-core test-gui test-local test-local-check clean test-deps
+.PHONY: help build jar run run-dev test test-core test-gui test-local test-local-check benchmark-home-load benchmark-plan-render benchmark-home-3d clean test-deps
 
 help:
 	@echo "Common targets:"
@@ -97,6 +102,9 @@ help:
 	@echo "  make test-gui   - Run Swing/controller tests without the native Java 3D pipeline."
 	@echo "  make test-local - Run the complete suite through WSLg/X11 or Xvfb."
 	@echo "  make test-local-check - Check the local display and OpenGL setup."
+	@echo "  make benchmark-home-load BENCHMARK_HOME=<file.sh3d> [BENCHMARK_MODE=recorder|direct]"
+	@echo "  make benchmark-plan-render BENCHMARK_HOME=<file.sh3d> [BENCHMARK_ITERATIONS=10]"
+	@echo "  make benchmark-home-3d BENCHMARK_HOME=<file.sh3d> [BENCHMARK_MODE=scene|frame]"
 	@echo "  make clean      - Remove build artifacts produced by this Makefile."
 	@echo "Variables: VERSION, CONDA_ACTIVATE, JAVA_OPTS."
 
@@ -169,8 +177,32 @@ test-local-check:
 	  TEST_JAVA_HOME='$(TEST_JAVA_HOME)' TEST_JAVA='$(TEST_JAVA)' \
 	  scripts/test-linux-display.sh check
 
+benchmark-home-load: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
+	@test -n "$(BENCHMARK_HOME)" || (echo "BENCHMARK_HOME is required" >&2; exit 2)
+	@mkdir -p $(PERFORMANCE_CLASSES)
+	$(JAVAC) $(TEST_JAVAC_FLAGS) -encoding ISO-8859-1 -cp "$(TEST_COMPILE_CP)" \
+	  -d $(PERFORMANCE_CLASSES) $(HOME_LOAD_BENCHMARK_SOURCE)
+	$(RUN_IN_ENV)HOME_LOAD_JFR='$(HOME_LOAD_JFR)' scripts/profile-home-load.sh \
+	  "$(BENCHMARK_HOME)" "$(or $(BENCHMARK_MODE),recorder)" "$(or $(BENCHMARK_ITERATIONS),1)"
+
+benchmark-plan-render: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
+	@test -n "$(BENCHMARK_HOME)" || (echo "BENCHMARK_HOME is required" >&2; exit 2)
+	@mkdir -p $(PERFORMANCE_CLASSES)
+	$(JAVAC) $(TEST_JAVAC_FLAGS) -encoding ISO-8859-1 -cp "$(TEST_COMPILE_CP)" \
+	  -d $(PERFORMANCE_CLASSES) $(PLAN_RENDER_BENCHMARK_SOURCE)
+	$(RUN_IN_ENV)PLAN_RENDER_JFR='$(PLAN_RENDER_JFR)' scripts/profile-plan-render.sh \
+	  "$(BENCHMARK_HOME)" "$(or $(BENCHMARK_ITERATIONS),10)"
+
+benchmark-home-3d: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
+	@test -n "$(BENCHMARK_HOME)" || (echo "BENCHMARK_HOME is required" >&2; exit 2)
+	@mkdir -p $(PERFORMANCE_CLASSES)
+	$(JAVAC) $(TEST_JAVAC_FLAGS) -encoding ISO-8859-1 -cp "$(TEST_COMPILE_CP)" \
+	  -d $(PERFORMANCE_CLASSES) $(HOME_3D_BENCHMARK_SOURCE)
+	$(RUN_IN_ENV)HOME_3D_JAVA='$(HOME_3D_JAVA)' HOME_3D_JFR='$(HOME_3D_JFR)' scripts/profile-home-3d.sh \
+	  "$(BENCHMARK_HOME)" "$(or $(BENCHMARK_MODE),scene)" "$(or $(BENCHMARK_ITERATIONS),5)"
+
 clean:
-	rm -rf build $(INSTALL_JAR) $(TEST_CLASSES)
+	rm -rf build $(INSTALL_JAR) $(TEST_CLASSES) $(PERFORMANCE_CLASSES)
 
 # Build legacy VR preview plugin (.sh3p)
 vr-plugin: $(INSTALL_JAR)
