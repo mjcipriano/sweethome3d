@@ -71,6 +71,15 @@ graphics stack are stable. Evaluate startup, memory, GC pauses, and rendering
 latency against Java 17. Adopt Java 21 when the measurements and support window
 justify it, not solely for newer syntax.
 
+A first headless A/B (task A4, 2026-06-07) compared OpenJDK 21 against the
+pinned OpenJDK 17 on the reference home using the home-load, plan-render, and
+startup benchmarks, with bytecode held at Java 8. Interleaved rounds showed no
+repeatable difference (warmed 2D paint and cold-start medians were equal within
+noise), and Java 21 produced no crashes or regressions. The conclusion was to
+keep OpenJDK 17 for now; revisit Java 21 on a quieter measurement host, where
+small wins would be detectable, and after the graphics-stack upgrade. See
+`docs/OPTIMIZATION_PROGRESS.md` for the numbers.
+
 ## Compatibility Rules
 
 - `.sh3d` serialized and XML formats remain compatible.

@@ -47,6 +47,7 @@ evidence.
 | JetBrains Runtime for Java 3D profiling under WSL | Native Mesa GLX crashes during rendering-context creation | Replaced with standard conda-forge OpenJDK 17 |
 | 1920x1080 Java 3D off-screen frame benchmark on the legacy Java 3D/JOGL stack | Native crash in `libGLX_mesa.so` while creating the off-screen context | Keep `scene` mode as the safe default; retry after the graphics stack is upgraded |
 | Complete legacy Java 3D JUnit suite on current WSLg/Mesa | JVM terminated in native `libGLX_mesa.so` before JUnit completed | Treat as a scheduled/manual compatibility probe; use `make test-gui` as the required stable GUI suite |
+| OpenJDK 21 runtime vs 17 on the headless benchmarks (task A4) | Interleaved 4-round A/B on the reference home showed no repeatable difference: plan-render warmed median ~15 ms on both; startup cold ~2.16 s on both. Run-to-run variance on the WSL host (e.g. 2.0-3.4 s cold-start swings) swamps any JDK delta. No crashes or regressions on 21 | Keep the pinned OpenJDK 17; do not add a Java 21 dev toolchain without a materially quieter measurement host or a different workload. Bytecode stays at Java 8 either way |
 
 Generated `hs_err_pid*.log` files are diagnostic artifacts and must not be
 committed.
@@ -86,10 +87,12 @@ in parallel, then F.
 - A3. 3D scene-update micro-benchmark (camera move, furniture move, level
   visibility, texture update) in `scene` mode only, avoiding the unstable large
   off-screen frame path. Inspect `HomeComponent3D` and `ModelManager`.
-- A4. Evaluate the Java 21 runtime against Java 17 with the existing benchmarks
-  plus `benchmark-startup`. Runtime change only; keep source/bytecode at 8.
-  Accept only a repeatable, crash-free win. A newer JDK alone is not evidence
-  of a speedup.
+- A4. Evaluate the Java 21 runtime against Java 17 - **done; rejected**. No
+  repeatable win on the WSL host (see Tried And Rejected); keep OpenJDK 17.
+  Re-run only on a quieter measurement host. A newer JDK alone is not evidence
+  of a speedup. Note: the WSL host's run-to-run variance is large enough that
+  small (sub-15%) wins are not measurable here; controlled regression
+  thresholds (F2) need a quieter runner.
 
 **Workstream B - Startup and EDT latency** (B1 move blocking work off the EDT;
 B2 defer/parallelize startup init). Depends on A1.
