@@ -41,6 +41,7 @@ DEV_CLASS_PATH := $(MAIN_JAR)$(CPSEP)build/Furniture.jar$(CPSEP)build/Textures.j
 TEST_CLASSES := build/test-classes
 PERFORMANCE_CLASSES := build/performance-classes
 HOME_LOAD_BENCHMARK_SOURCE := test/com/eteks/sweethome3d/performance/HomeLoadBenchmark.java
+PLAN_RENDER_BENCHMARK_SOURCE := test/com/eteks/sweethome3d/performance/PlanRenderBenchmark.java
 TEST_JARS := libtest/junit-4.13.2.jar libtest/hamcrest-core-1.3.jar
 JUNIT_URL := https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar
 HAMCREST_URL := https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar
@@ -84,7 +85,7 @@ endif
 endif
 TEST_NAMES := $(subst /,.,$(FILTERED_TEST_SOURCES:test/%.java=%))
 
-.PHONY: help build jar run run-dev test test-core test-gui test-local test-local-check benchmark-home-load clean test-deps
+.PHONY: help build jar run run-dev test test-core test-gui test-local test-local-check benchmark-home-load benchmark-plan-render clean test-deps
 
 help:
 	@echo "Common targets:"
@@ -101,6 +102,7 @@ help:
 	@echo "  make test-local - Run the complete suite through WSLg/X11 or Xvfb."
 	@echo "  make test-local-check - Check the local display and OpenGL setup."
 	@echo "  make benchmark-home-load BENCHMARK_HOME=<file.sh3d> [BENCHMARK_MODE=recorder|direct]"
+	@echo "  make benchmark-plan-render BENCHMARK_HOME=<file.sh3d> [BENCHMARK_ITERATIONS=10]"
 	@echo "  make clean      - Remove build artifacts produced by this Makefile."
 	@echo "Variables: VERSION, CONDA_ACTIVATE, JAVA_OPTS."
 
@@ -180,6 +182,14 @@ benchmark-home-load: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
 	  -d $(PERFORMANCE_CLASSES) $(HOME_LOAD_BENCHMARK_SOURCE)
 	$(RUN_IN_ENV)HOME_LOAD_JFR='$(HOME_LOAD_JFR)' scripts/profile-home-load.sh \
 	  "$(BENCHMARK_HOME)" "$(or $(BENCHMARK_MODE),recorder)" "$(or $(BENCHMARK_ITERATIONS),1)"
+
+benchmark-plan-render: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
+	@test -n "$(BENCHMARK_HOME)" || (echo "BENCHMARK_HOME is required" >&2; exit 2)
+	@mkdir -p $(PERFORMANCE_CLASSES)
+	$(JAVAC) $(TEST_JAVAC_FLAGS) -encoding ISO-8859-1 -cp "$(TEST_COMPILE_CP)" \
+	  -d $(PERFORMANCE_CLASSES) $(PLAN_RENDER_BENCHMARK_SOURCE)
+	$(RUN_IN_ENV)PLAN_RENDER_JFR='$(PLAN_RENDER_JFR)' scripts/profile-plan-render.sh \
+	  "$(BENCHMARK_HOME)" "$(or $(BENCHMARK_ITERATIONS),10)"
 
 clean:
 	rm -rf build $(INSTALL_JAR) $(TEST_CLASSES) $(PERFORMANCE_CLASSES)

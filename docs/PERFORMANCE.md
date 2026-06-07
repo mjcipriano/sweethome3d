@@ -43,6 +43,24 @@ the redundant eager inflation pass for modern local files reduces warm load
 time by roughly 35-45 percent. Legacy archives, URL inputs, and archives
 without a readable digest manifest continue to use exhaustive ZIP validation.
 
+## 2D Plan Rendering
+
+Repeated off-screen plan painting can be measured without Java 3D:
+
+```sh
+make benchmark-plan-render \
+  BENCHMARK_HOME=example-files/2025-11-27-House-Layout-v3.sh3d \
+  BENCHMARK_ITERATIONS=10
+```
+
+Set `PLAN_RENDER_JFR=profiles/plan-render.jfr` to record the render hot paths.
+
+The initial complex-home baseline at 1920x1080 was about 820 ms for the first
+paint. Repeated paints varied while asynchronous top-view icons were decoded,
+then settled around 43-80 ms. JFR identified PNG decoding and image scaling as
+the main warm-up costs, with geometry area construction and Java2D
+rasterization as secondary costs.
+
 ## Optimization Rules
 
 1. Capture a baseline before changing a hot path.
