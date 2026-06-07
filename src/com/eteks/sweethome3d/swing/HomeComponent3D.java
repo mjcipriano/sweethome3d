@@ -155,6 +155,7 @@ import com.eteks.sweethome3d.model.CollectionEvent;
 import com.eteks.sweethome3d.model.CollectionListener;
 import com.eteks.sweethome3d.model.DimensionLine;
 import com.eteks.sweethome3d.model.Elevatable;
+import com.eteks.sweethome3d.model.Content;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomeDoorOrWindow;
 import com.eteks.sweethome3d.model.HomeEnvironment;
@@ -1464,7 +1465,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     }
 
     // Return distance to plane
-    // from https://fr.wikipedia.org/wiki/Distance_d%27un_point_à_un_plan
+    // from https://fr.wikipedia.org/wiki/Distance_d%27un_point_ï¿½_un_plan
     Vector3f vector1 = new Vector3f(boxVertices [index2].x - boxVertices [index1].x,
         boxVertices [index2].y - boxVertices [index1].y,
         boxVertices [index2].z - boxVertices [index1].z);
@@ -1481,7 +1482,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    * Returns the distance between the given <code>point</code> and the line defined by two points.
    */
   private float getDistanceToLine(Point3f point, Point3f point1, Point3f point2) {
-    // From https://fr.wikipedia.org/wiki/Distance_d%27un_point_à_une_droite#Dans_l.27espace
+    // From https://fr.wikipedia.org/wiki/Distance_d%27un_point_ï¿½_une_droite#Dans_l.27espace
     Vector3f lineDirection = new Vector3f(point2.x - point1.x, point2.y - point1.y, point2.z - point1.z);
     Vector3f vector = new Vector3f(point.x - point1.x, point.y - point1.y, point.z - point1.z);
     Vector3f crossProduct = new Vector3f();
@@ -2970,6 +2971,16 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     for (Wall wall : this.home.getWalls()) {
       addObject(homeRoot, wall, listenToHomeUpdates, waitForLoading);
     }
+    if (waitForLoading) {
+      // When pieces are loaded synchronously (e.g. for off-screen image creation),
+      // pre-load their distinct models in parallel so the loop below hits the model
+      // cache instead of parsing each model one after the other on this thread.
+      Set<Content> modelContents = new HashSet<Content>();
+      for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+        collectModelContents(piece, modelContents);
+      }
+      ModelManager.getInstance().preloadModels(modelContents);
+    }
     Map<HomePieceOfFurniture, Node> pieces3D = new HashMap<HomePieceOfFurniture, Node>();
     for (HomePieceOfFurniture piece : this.home.getFurniture()) {
       if (piece instanceof HomeFurnitureGroup) {
@@ -3010,6 +3021,23 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       // that displays shadow on floor yet
     }
     return homeRoot;
+  }
+
+  /**
+   * Adds the model content of the given <code>piece</code> (or of every piece it contains
+   * if it's a group) to <code>modelContents</code>, so distinct models can be preloaded.
+   */
+  private static void collectModelContents(HomePieceOfFurniture piece, Set<Content> modelContents) {
+    if (piece instanceof HomeFurnitureGroup) {
+      for (HomePieceOfFurniture childPiece : ((HomeFurnitureGroup)piece).getAllFurniture()) {
+        collectModelContents(childPiece, modelContents);
+      }
+    } else {
+      Content model = piece.getModel();
+      if (model != null) {
+        modelContents.add(model);
+      }
+    }
   }
 
   /**

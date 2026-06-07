@@ -37,7 +37,8 @@ approved. The `example-files/` directory is ignored.
 | Startup measurement | Add a cold-start phase benchmark (`make benchmark-startup`) covering prefs init, home load, plan creation, and first 2D paint, with optional JFR | Cold pass on the reference home is about 2.0 s total; cold first paint is about 0.46 s; harness is headless and adds no app behavior (task A1) | merged PR #7 |
 | 2D interaction measurement | Add an interaction benchmark (`make benchmark-plan-interaction`) reporting apply cost, invalidated repaint area, and paint cost for select/move/zoom | Found that every interaction invalidates the full 1920x1080 viewport (`dirty_pct=100`), so a single-piece selection costs a full ~9-10 ms repaint; `PlanComponent` has no targeted `repaint(rectangle)` calls (task A2) | merged PR #9 |
 | 2D interaction | Repaint only the area of the previously and newly selected items (plus an indicator margin) on selection change, instead of the whole plan | Selecting a single piece dropped from invalidating 100% of the viewport to ~1% and from a ~9-10 ms paint to sub-ms; pixel-coverage check and GUI suite confirm no artifacts (task C1, selection) | merged PR #10 |
-| 3D scene-update measurement | Add `BENCHMARK_MODE=update` to the 3D benchmark, timing scene-graph reaction to piece move, piece rotation, and camera move via an EDT barrier around the deferred `invokeLater` update | Baselines on the reference home: ~3 ms piece move, ~3 ms rotation, ~1 ms camera move; runs stably in scene mode without the off-screen frame path (task A3) | _pending_ |
+| 3D scene-update measurement | Add `BENCHMARK_MODE=update` to the 3D benchmark, timing scene-graph reaction to piece move, piece rotation, and camera move via an EDT barrier around the deferred `invokeLater` update | Baselines on the reference home: ~3 ms piece move, ~3 ms rotation, ~1 ms camera move; runs stably in scene mode without the off-screen frame path (task A3) | merged |
+| 3D scene construction | Preload distinct furniture models in parallel (existing CPU loader pool) before the synchronous scene-tree build so the build only clones cached models | Median off-screen scene construction on the reference home dropped from ~13.1 s to ~6.4 s (about 51%) on a 12-core machine; same-machine A/B; interactive async view unaffected; tests green (task D2) | _pending_ |
 
 ## Tried And Rejected
 
@@ -110,9 +111,11 @@ per-paint allocations and geometry rebuilds; C3 top-view icon decode/scale
 path). Depends on A2.
 
 **Workstream D - 3D scene, model loading and memory** (D1 model
-load/clone/bounds caching audit; D2 parallelize model loading across cores; D3
-reduce per-frame allocations in scene updates; D4 GPU-friendly geometry
-construction). Depends on A3.
+load/clone/bounds caching audit - the cache and dedup already existed, the gap
+was serial loading on the synchronous path; D2 parallelize model loading across
+cores - **done**, ~51% faster off-screen scene construction; D3 reduce per-frame
+allocations in scene updates; D4 GPU-friendly geometry construction). Depends on
+A3.
 
 **Workstream E - Graphics environment tuning** (E1 central Windows+NVIDIA
 auto-tuner with kill-switch and stock fallback, behind one class called from
