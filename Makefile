@@ -81,7 +81,7 @@ endif
 endif
 TEST_NAMES := $(subst /,.,$(FILTERED_TEST_SOURCES:test/%.java=%))
 
-.PHONY: help build jar run run-dev test test-core test-local test-local-check clean test-deps
+.PHONY: help build jar run run-dev test test-core test-gui test-local test-local-check clean test-deps
 
 help:
 	@echo "Common targets:"
@@ -94,6 +94,7 @@ help:
 	@echo "  make run-webxr-preview [VR_HOME_FILE=<file.sh3d>] - Build plugin and launch app with WebXR plugin."
 	@echo "  make test       - Compile and run the complete JUnit suite."
 	@echo "  make test-core  - Run tests that don't require Java 3D / OpenGL."
+	@echo "  make test-gui   - Run Swing/controller tests without the native Java 3D pipeline."
 	@echo "  make test-local - Run the complete suite through WSLg/X11 or Xvfb."
 	@echo "  make test-local-check - Check the local display and OpenGL setup."
 	@echo "  make clean      - Remove build artifacts produced by this Makefile."
@@ -154,6 +155,9 @@ test: $(MAIN_JAR) test-deps
 
 test-core:
 	$(MAKE) test TEST_SOURCES="$(CORE_TEST_SOURCES)" JAVA_TEST_OPTS="$(JAVA_TEST_OPTS) -Djava.awt.headless=true"
+
+test-gui:
+	$(MAKE) test SKIP_3D_TESTS=1
 
 test-local:
 	CONDA_ACTIVATE='$(CONDA_ACTIVATE)' TEST_DISPLAY_MODE='$(TEST_DISPLAY_MODE)' \

@@ -43,6 +43,7 @@ Linux GUI tests require WSLg/X11 or Xvfb plus Mesa GLX utilities.
 make build       # Compile application/resource JARs
 make jar         # Build install/SweetHome3D-7.5.jar
 make test-core   # Deterministic model/platform tests; no display required
+make test-gui    # Swing/controller tests; display required, Java 3D excluded
 make test-local-check  # Verify local X11 and GLX support
 make test-local  # Complete suite on Linux or WSL
 make run         # Run the executable JAR
@@ -78,6 +79,11 @@ Avoid JetBrains Runtime for the complete Java 3D suite under Linux/WSL. It may
 crash in Mesa's `libGLX_mesa.so` while Java 3D creates a rendering context.
 The local runner rejects JBR by default. `TEST_JAVA_HOME` selects a standard
 test JDK without changing the system-wide Java or the JDK used by VS Code.
+
+The required Linux CI GUI suite uses `make test-gui`. The legacy Java 3D native
+suite is a scheduled/manual compatibility probe until Java 3D and JOGL are
+upgraded; current Mesa/GLX combinations may terminate the JVM before JUnit can
+report or skip a test.
 
 If `make test-local-check` cannot connect to `DISPLAY=:0`, restart WSL from
 Windows with `wsl --shutdown`, reopen the folder through VS Code's WSL
