@@ -35,7 +35,8 @@ approved. The `example-files/` directory is ignored.
 | OBJ/MTL loading | Replace synchronized `BufferedReader` with a 64 KiB unsynchronized reader in the thread-confined parser | Controlled scene-construction median reduced from 15.09 s to 13.44 s, about 11% | `3573e1b` |
 | 3D measurement | Add Java 3D scene/frame benchmark and optional JFR capture | Safe scene mode works with the complex reference home | `3573e1b` |
 | Startup measurement | Add a cold-start phase benchmark (`make benchmark-startup`) covering prefs init, home load, plan creation, and first 2D paint, with optional JFR | Cold pass on the reference home is about 2.0 s total; cold first paint is about 0.46 s; harness is headless and adds no app behavior (task A1) | merged PR #7 |
-| 2D interaction measurement | Add an interaction benchmark (`make benchmark-plan-interaction`) reporting apply cost, invalidated repaint area, and paint cost for select/move/zoom | Found that every interaction invalidates the full 1920x1080 viewport (`dirty_pct=100`), so a single-piece selection costs a full ~9-10 ms repaint; `PlanComponent` has no targeted `repaint(rectangle)` calls (task A2) | _pending_ |
+| 2D interaction measurement | Add an interaction benchmark (`make benchmark-plan-interaction`) reporting apply cost, invalidated repaint area, and paint cost for select/move/zoom | Found that every interaction invalidates the full 1920x1080 viewport (`dirty_pct=100`), so a single-piece selection costs a full ~9-10 ms repaint; `PlanComponent` has no targeted `repaint(rectangle)` calls (task A2) | merged PR #9 |
+| 2D interaction | Repaint only the area of the previously and newly selected items (plus an indicator margin) on selection change, instead of the whole plan | Selecting a single piece dropped from invalidating 100% of the viewport to ~1% and from a ~9-10 ms paint to sub-ms; pixel-coverage check and GUI suite confirm no artifacts (task C1, selection) | _pending_ |
 
 ## Tried And Rejected
 
@@ -101,9 +102,10 @@ in parallel, then F.
 **Workstream B - Startup and EDT latency** (B1 move blocking work off the EDT;
 B2 defer/parallelize startup init). Depends on A1.
 
-**Workstream C - 2D interaction latency** (C1 shrink invalidated repaint scope;
-C2 cut per-paint allocations and geometry rebuilds; C3 top-view icon
-decode/scale path). Depends on A2.
+**Workstream C - 2D interaction latency** (C1 shrink invalidated repaint scope -
+selection done; the furniture-move/revalidate path and zoom remain; C2 cut
+per-paint allocations and geometry rebuilds; C3 top-view icon decode/scale
+path). Depends on A2.
 
 **Workstream D - 3D scene, model loading and memory** (D1 model
 load/clone/bounds caching audit; D2 parallelize model loading across cores; D3

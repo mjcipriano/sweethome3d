@@ -80,16 +80,24 @@ driven: `setSelectedItems` for selection, `Selectable.move` for a drag result,
 and `PlanComponent.setScale` for zoom. The benchmark works on the level that
 carries the most furniture and runs off-screen.
 
-On the reference complex home every interaction - selecting a single piece,
-selecting all, moving one piece, and zooming - invalidates the **entire**
-1920x1080 viewport (`dirty_pct_median=100`), so even a single-piece selection
-pays a full ~9-10 ms repaint. `PlanComponent` issues bare full-component
-`repaint()` at all of its call sites; there are no targeted `repaint(rectangle)`
-calls. Shrinking the invalidated region for localized interactions (task C1) is
-the main opportunity this measurement exposes; the per-paint allocation and
-geometry cost (task C2) is the secondary one. The `apply_*` figures (tens of
-microseconds) confirm the model mutation itself is cheap - the cost is the
-paint that follows.
+The baseline measurement showed that every interaction - selecting a single
+piece, selecting all, moving one piece, and zooming - invalidated the **entire**
+1920x1080 viewport (`dirty_pct_median=100`), because `PlanComponent` issued bare
+full-component `repaint()` at all of its call sites with no targeted
+`repaint(rectangle)` calls. The `apply_*` figures (tens of microseconds) confirm
+the model mutation itself is cheap - the cost is the paint that follows.
+
+Task C1 made the **selection** change repaint only the area covering the
+previously and newly selected items plus a fixed pixel margin for their
+indicators. On the reference home, selecting a single piece dropped from
+invalidating 100% of the viewport to about 1% (roughly 13k vs 2.07M pixels), and
+its paint cost dropped from ~9-10 ms to sub-millisecond. Selecting all items
+still invalidates most of the plan (~91%), which is correct because the change
+really does cover it. A pixel-coverage check confirmed the targeted region
+fully contains every pixel that differs between the unselected and selected
+renders, so there are no leftover indicator artifacts. Moving a piece and
+zooming still trigger a full repaint and remain follow-up work (a further part
+of C1 for moves, and C2 for per-paint cost).
 
 ## Startup And First Usable Paint
 
