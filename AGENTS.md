@@ -59,6 +59,7 @@ make jar         # Build install/SweetHome3D-7.5.jar
 make test-core   # Deterministic model/platform tests; no display required
 make test-gui    # Swing/controller tests; display required, Java 3D excluded
 make test-local-check  # Verify local X11 and GLX support
+make test-wsl-gpu BENCHMARK_HOME=<file.sh3d>  # WSLg D3D12 Java 3D smoke test
 make test-local  # Complete suite on Linux or WSL
 make run         # Run the executable JAR
 ```
@@ -78,6 +79,7 @@ sudo apt-get install -y x11-utils mesa-utils libgl1-mesa-dri xvfb
 scripts/setup-conda-env.sh
 conda activate sweethome3d
 make test-local-check
+make test-wsl-gpu BENCHMARK_HOME=example-files/2025-11-27-House-Layout-v3.sh3d
 make test-local
 ```
 
@@ -90,6 +92,14 @@ make test-local TEST_DISPLAY_MODE=xvfb     # Start a private Xvfb server
 LIBGL_ALWAYS_SOFTWARE=1 make test-local    # Force Mesa software rendering
 make test-local TEST_JAVA=/path/to/java    # Override only the test JVM
 ```
+
+Use `make test-wsl-gpu` when validating Java 3D work under WSLg. It requires a
+real WSLg display, rejects software Mesa renderers, verifies the GLX renderer is
+the WSLg D3D12 path by default, runs the safe Java 3D scene-update benchmark,
+and runs the on-screen FPS smoke benchmark to confirm the application's own
+`Canvas3D` renders frames on the same GPU path. This is a correctness and smoke
+test for WSL; native Windows OpenGL performance still needs the packaged
+Windows app or a Windows-native benchmark run.
 
 Avoid JetBrains Runtime for the complete Java 3D suite under Linux/WSL. It may
 crash in Mesa's `libGLX_mesa.so` while Java 3D creates a rendering context.

@@ -7,11 +7,23 @@ jfr_file="${HOME_3D_FPS_JFR:-}"
 java_command="${HOME_3D_JAVA:-java}"
 
 if [[ -z "$home_file" ]]; then
-  echo "Usage: $0 <home.sh3d> [seconds]" >&2
+  echo "Usage: $0 <home.sh3d|--smoke> [seconds]" >&2
   exit 2
 fi
 if [[ -z "${DISPLAY:-}" ]]; then
   echo "DISPLAY is required: this benchmark drives the on-screen 3D view." >&2
+  exit 1
+fi
+if [[ ! -x "$java_command" ]] && ! command -v "$java_command" >/dev/null 2>&1; then
+  echo "HOME_3D_JAVA must name an executable Java command: $java_command" >&2
+  exit 1
+fi
+
+java_version="$("$java_command" -version 2>&1)"
+printf '%s\n' "$java_version"
+if grep -q "JBR-" <<<"$java_version"; then
+  echo "JetBrains Runtime is unsupported for Java 3D profiling under Linux/WSL." >&2
+  echo "Set HOME_3D_JAVA to an OpenJDK 17 java executable." >&2
   exit 1
 fi
 

@@ -89,7 +89,7 @@ endif
 endif
 TEST_NAMES := $(subst /,.,$(FILTERED_TEST_SOURCES:test/%.java=%))
 
-.PHONY: help build jar run run-dev test test-core test-gui test-local test-local-check benchmark-home-load benchmark-plan-render benchmark-plan-interaction benchmark-home-3d benchmark-home-3d-fps benchmark-startup clean test-deps
+.PHONY: help build jar run run-dev test test-core test-gui test-local test-local-check test-wsl-gpu benchmark-home-load benchmark-plan-render benchmark-plan-interaction benchmark-home-3d benchmark-home-3d-fps benchmark-startup clean test-deps
 
 help:
 	@echo "Common targets:"
@@ -105,6 +105,7 @@ help:
 	@echo "  make test-gui   - Run Swing/controller tests without the native Java 3D pipeline."
 	@echo "  make test-local - Run the complete suite through WSLg/X11 or Xvfb."
 	@echo "  make test-local-check - Check the local display and OpenGL setup."
+	@echo "  make test-wsl-gpu BENCHMARK_HOME=<file.sh3d> - Verify WSLg D3D12 Java 3D rendering."
 	@echo "  make benchmark-home-load BENCHMARK_HOME=<file.sh3d> [BENCHMARK_MODE=recorder|direct]"
 	@echo "  make benchmark-plan-render BENCHMARK_HOME=<file.sh3d> [BENCHMARK_ITERATIONS=10]"
 	@echo "  make benchmark-plan-interaction BENCHMARK_HOME=<file.sh3d> [BENCHMARK_ITERATIONS=20]"
@@ -188,6 +189,13 @@ test-local-check:
 	CONDA_ACTIVATE='$(CONDA_ACTIVATE)' TEST_DISPLAY_MODE='$(TEST_DISPLAY_MODE)' \
 	  TEST_JAVA_HOME='$(TEST_JAVA_HOME)' TEST_JAVA='$(TEST_JAVA)' \
 	  scripts/test-linux-display.sh check
+
+test-wsl-gpu: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
+	@test -n "$(BENCHMARK_HOME)" || (echo "BENCHMARK_HOME is required" >&2; exit 2)
+	@mkdir -p $(PERFORMANCE_CLASSES)
+	$(JAVAC) $(TEST_JAVAC_FLAGS) -encoding ISO-8859-1 -cp "$(TEST_COMPILE_CP)" \
+	  -d $(PERFORMANCE_CLASSES) $(HOME_3D_BENCHMARK_SOURCE) $(HOME_3D_FPS_BENCHMARK_SOURCE)
+	CONDA_ACTIVATE='$(CONDA_ACTIVATE)' scripts/test-wsl-gpu.sh "$(BENCHMARK_HOME)" "$(or $(BENCHMARK_SECONDS),6)"
 
 benchmark-home-load: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
 	@test -n "$(BENCHMARK_HOME)" || (echo "BENCHMARK_HOME is required" >&2; exit 2)
