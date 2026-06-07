@@ -157,10 +157,16 @@ When a scene is built synchronously (off-screen image creation, photo rendering,
 export), each piece previously loaded its model on the build thread, so the 148
 distinct models of the reference home were parsed one after another. Preloading
 the distinct models in parallel with the existing CPU-sized loader pool before
-the scene-tree build, so the build only clones cached models, reduced median
-off-screen scene construction from about 13.1 s to about 6.4 s (around 51%) on a
-12-core machine. The interactive on-screen view already loads models
-asynchronously and is unaffected.
+the scene-tree build, so the build only clones cached models, cut off-screen
+scene construction substantially: an interleaved 4-round A/B on a 12-core
+machine measured a median of about 13.2 s with preloading off versus about
+7.0 s with it on (around 47%). The interactive on-screen view already loads
+models asynchronously and is unaffected. Set
+`com.eteks.sweethome3d.j3d.preloadModels=false` to disable the parallel preload
+(for example to A/B it or if a loader misbehaves).
+
+Always rebuild with a current jar before measuring; `make` rebuilds the jars
+when sources change, but a stale jar would silently benchmark old code.
 
 `BENCHMARK_MODE=update` measures how long the live scene graph takes to react to
 repeated model changes after the scene is built - moving a piece, rotating a

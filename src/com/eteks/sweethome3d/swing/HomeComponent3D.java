@@ -2971,10 +2971,12 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     for (Wall wall : this.home.getWalls()) {
       addObject(homeRoot, wall, listenToHomeUpdates, waitForLoading);
     }
-    if (waitForLoading) {
+    if (waitForLoading
+        && !"false".equalsIgnoreCase(System.getProperty("com.eteks.sweethome3d.j3d.preloadModels"))) {
       // When pieces are loaded synchronously (e.g. for off-screen image creation),
       // pre-load their distinct models in parallel so the loop below hits the model
       // cache instead of parsing each model one after the other on this thread.
+      // Set com.eteks.sweethome3d.j3d.preloadModels=false to disable this fast path.
       Set<Content> modelContents = new HashSet<Content>();
       for (HomePieceOfFurniture piece : this.home.getFurniture()) {
         collectModelContents(piece, modelContents);
