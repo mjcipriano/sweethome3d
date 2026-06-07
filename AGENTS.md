@@ -190,6 +190,10 @@ change. The complete `make test-local` suite is a compatibility probe while the
 legacy graphics stack can crash in native Mesa GLX; a native crash does not
 replace the required stable `make test-gui` suite.
 
+For complex-home FPS comparisons, set `BENCHMARK_WARMUP_SECONDS` (normally 30)
+so asynchronous model insertion is distinguished from the measured interval.
+Record both the warm-up and measurement durations.
+
 Stage explicit paths, commit a coherent unit, push the branch, and create or
 update a draft PR:
 
@@ -224,7 +228,10 @@ After qualifying commits reach `main`, the Release workflow opens or updates a
 release PR. Merging that PR creates the version tag and GitHub release, then
 builds and attaches the Windows, Linux, macOS, executable JAR, and checksum
 artifacts. `version.txt` is the canonical version; release-please also updates
-the annotated values in `Makefile` and `build.xml`.
+the annotated values in `Makefile` and `build.xml`. Packaged JAR manifests and
+native launcher JVM options must carry that same version so the About dialog
+matches the GitHub release. `scripts/verify-release.ps1` enforces the executable
+JAR manifest value.
 
 `workflow_dispatch` remains available for an explicit emergency SemVer release.
 It accepts stable versions such as `7.5.1` and prerelease versions such as

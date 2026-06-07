@@ -1,0 +1,54 @@
+/*
+ * SweetHome3DVersionTest.java 7 June 2026
+ *
+ * Copyright (c) 2026 Space Mushrooms <info@sweethome3d.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ */
+package com.eteks.sweethome3d.junit;
+
+import com.eteks.sweethome3d.SweetHome3D;
+
+import junit.framework.TestCase;
+
+public class SweetHome3DVersionTest extends TestCase {
+  private static final String VERSION_PROPERTY =
+      "com.eteks.sweethome3d.applicationVersion";
+
+  public void testPackagedVersionIsUsedByDefault() {
+    String implementationVersion =
+        SweetHome3D.class.getPackage().getImplementationVersion();
+    assertNotNull("SweetHome3D.jar must declare Implementation-Version",
+        implementationVersion);
+    assertEquals(implementationVersion, new TestApplication().getVersion());
+  }
+
+  public void testExplicitVersionOverridesPackagedVersion() {
+    String previousVersion = System.getProperty(VERSION_PROPERTY);
+    try {
+      System.setProperty(VERSION_PROPERTY, "test-version");
+      assertEquals("test-version", new TestApplication().getVersion());
+    } finally {
+      if (previousVersion != null) {
+        System.setProperty(VERSION_PROPERTY, previousVersion);
+      } else {
+        System.clearProperty(VERSION_PROPERTY);
+      }
+    }
+  }
+
+  private static class TestApplication extends SweetHome3D {
+  }
+}

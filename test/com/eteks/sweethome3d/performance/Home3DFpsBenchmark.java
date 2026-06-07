@@ -24,6 +24,7 @@ import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.model.Wall;
 import com.eteks.sweethome3d.swing.HomeComponent3D;
+import com.eteks.sweethome3d.tools.GraphicsEnvironmentConfiguration;
 import com.eteks.sweethome3d.viewcontroller.HomeController3D;
 
 /**
@@ -38,13 +39,15 @@ public class Home3DFpsBenchmark {
   private static final int HEIGHT = 800;
 
   public static void main(String [] args) throws Exception {
-    if (args.length < 1 || args.length > 2) {
-      System.err.println("Usage: Home3DFpsBenchmark <home.sh3d|--smoke> [seconds]");
+    GraphicsEnvironmentConfiguration.applyDefaults();
+    if (args.length < 1 || args.length > 3) {
+      System.err.println("Usage: Home3DFpsBenchmark <home.sh3d|--smoke> [seconds] [warmup-seconds]");
       System.exit(2);
     }
     final boolean smoke = "--smoke".equals(args[0]);
     final File homeFile = smoke ? null : new File(args[0]).getCanonicalFile();
-    final int seconds = args.length == 2 ? Integer.parseInt(args[1]) : 15;
+    final int seconds = args.length >= 2 ? Integer.parseInt(args[1]) : 15;
+    final int warmupSeconds = args.length == 3 ? Integer.parseInt(args[2]) : 0;
 
     final Home home = smoke
         ? createSmokeHome()
@@ -58,6 +61,7 @@ public class Home3DFpsBenchmark {
         + System.getProperty("com.eteks.sweethome3d.j3d.renderingQuality", "(default)")
         + " compileScene="
         + System.getProperty("com.eteks.sweethome3d.j3d.compileScene", "(default)"));
+    System.out.println("warmup_seconds=" + warmupSeconds + " measure_seconds=" + seconds);
 
     final JFrame [] frameHolder = new JFrame [1];
     SwingUtilities.invokeAndWait(new Runnable() {
@@ -88,6 +92,12 @@ public class Home3DFpsBenchmark {
       System.exit(1);
     }
     System.out.println("gpu=" + statistics.getOpenGLRenderer());
+
+    long warmupEnd = System.nanoTime() + warmupSeconds * 1000000000L;
+    while (System.nanoTime() < warmupEnd) {
+      rotate(camera, yaw);
+      Thread.sleep(16);
+    }
 
     // Rotate continuously and sample the measured frame rate
     double sum = 0;
