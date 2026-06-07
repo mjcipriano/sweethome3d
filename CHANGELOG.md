@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.5.1-beta.7](https://github.com/mjcipriano/sweethome3d/compare/v7.5.1-beta.6...v7.5.1-beta.7) (2026-06-07)
+
+
+### Performance Improvements
+
+* compile 3D scene + skip transparency sort (fix ~1 FPS render loop) ([f4e493b](https://github.com/mjcipriano/sweethome3d/commit/f4e493b0a8b09e567033e99e6459e411bf28b54e))
+* compile 3D scene graph and skip transparency sort for speed ([cbd46f0](https://github.com/mjcipriano/sweethome3d/commit/cbd46f05b9af3c13ee9164befd86db190dc1baf8))
+
 ## [7.5.1-beta.6](https://github.com/mjcipriano/sweethome3d/compare/v7.5.1-beta.5...v7.5.1-beta.6) (2026-06-07)
 
 
