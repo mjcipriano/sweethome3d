@@ -78,7 +78,9 @@ committed.
 | Complete `make test-local TEST_DISPLAY_MODE=display` | Native Mesa GLX crash; known legacy graphics-stack limitation |
 | Cross-platform GitHub Actions | Passed on Windows, Linux, macOS, and Linux GUI in [CI run 15](https://github.com/mjcipriano/sweethome3d/actions/runs/27095017708) |
 | Prerelease packaging on Windows, Linux, and macOS | Required after merge through `release.yml` |
-| D1/D3 branch build and core tests | Passed; 7/7 core tests on OpenJDK 17; GUI tests pending (running next) |
+| D1/D3 branch build and core tests | Passed; 7/7 core tests on OpenJDK 17 |
+| D1/D3 branch GUI tests (Xvfb) | Passed, 13/13 tests |
+| D1/D3 branch 3D benchmark (Xvfb, test home) | Passed; scene creation 222 ms (7-piece home); reference home not available |
 
 ## Next Work
 
