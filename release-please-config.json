@@ -5,6 +5,7 @@
   "packages": {
     ".": {
       "package-name": "Sweet Home 3D",
+      "component": "sweethome3d",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         {
