@@ -37,19 +37,52 @@ types out of the model package.
 ## Build And Test
 
 Prerequisites: JDK 17, Apache Ant, GNU Make, and a working OpenGL environment.
-Linux GUI tests require Xvfb.
+Linux GUI tests require WSLg/X11 or Xvfb plus Mesa GLX utilities.
 
 ```bash
 make build       # Compile application/resource JARs
 make jar         # Build install/SweetHome3D-7.5.jar
 make test-core   # Deterministic model/platform tests; no display required
-xvfb-run -a make test  # Complete suite on Linux
+make test-local-check  # Verify local X11 and GLX support
+make test-local  # Complete suite on Linux or WSL
 make run         # Run the executable JAR
 ```
 
 JUnit and Hamcrest are downloaded into `libtest/` on first test run. Override
 `VERSION` for packaging, for example `make jar VERSION=7.5.1`. Developers using
 a Conda environment may set `CONDA_ACTIVATE` to the activation command.
+
+### WSL And VS Code
+
+WSL2 with WSLg is the preferred local graphics test environment. From the VS
+Code WSL terminal:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y openjdk-17-jdk ant make x11-utils mesa-utils libgl1-mesa-dri xvfb
+make test-local-check
+make test-local TEST_JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+```
+
+`test-local` uses the existing WSLg display when `DISPLAY` and GLX work. Force
+a mode while troubleshooting:
+
+```bash
+make test-local TEST_DISPLAY_MODE=display  # Require WSLg/current X server
+make test-local TEST_DISPLAY_MODE=xvfb     # Start a private Xvfb server
+LIBGL_ALWAYS_SOFTWARE=1 make test-local    # Force Mesa software rendering
+make test-local TEST_JAVA=/path/to/java    # Override only the test JVM
+```
+
+Avoid JetBrains Runtime for the complete Java 3D suite under Linux/WSL. It may
+crash in Mesa's `libGLX_mesa.so` while Java 3D creates a rendering context.
+The local runner rejects JBR by default. `TEST_JAVA_HOME` selects a standard
+test JDK without changing the system-wide Java or the JDK used by VS Code.
+
+If `make test-local-check` cannot connect to `DISPLAY=:0`, restart WSL from
+Windows with `wsl --shutdown`, reopen the folder through VS Code's WSL
+extension, and retry. Do not run GUI tests from a plain Windows VS Code terminal
+that merely invokes `wsl.exe`; use a terminal owned by the WSL extension.
 
 Do not rely on files under ignored `build/`, `classes/`, or `release/`.
 
@@ -118,3 +151,6 @@ For UI responsiveness:
   per-frame traversal loops.
 - Verify changes in both 2D and 3D views and watch memory growth; speedups that
   create unbounded caches are regressions.
+
+Follow `docs/JAVA_MODERNIZATION.md` for the Java and graphics dependency
+migration sequence. Do not raise the source level independently of that plan.

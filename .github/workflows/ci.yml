@@ -48,7 +48,7 @@ jobs:
           } elseif ($IsMacOS) {
             brew install ant
           } else {
-            choco install ant --no-progress -y
+            choco install ant make --no-progress -y
           }
 
       - name: Run core tests
@@ -86,7 +86,7 @@ jobs:
       - name: Install graphics test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ant xvfb libgl1 libgl1-mesa-dri
+          sudo apt-get install -y ant xvfb x11-utils mesa-utils libgl1 libgl1-mesa-dri
 
       - name: Run complete test suite
-        run: xvfb-run -a make test
+        run: make test-local TEST_DISPLAY_MODE=xvfb
