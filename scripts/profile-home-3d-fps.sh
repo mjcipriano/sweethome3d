@@ -3,11 +3,12 @@ set -euo pipefail
 
 home_file="${1:-}"
 seconds="${2:-15}"
+warmup_seconds="${3:-0}"
 jfr_file="${HOME_3D_FPS_JFR:-}"
 java_command="${HOME_3D_JAVA:-java}"
 
 if [[ -z "$home_file" ]]; then
-  echo "Usage: $0 <home.sh3d|--smoke> [seconds]" >&2
+  echo "Usage: $0 <home.sh3d|--smoke> [seconds] [warmup-seconds]" >&2
   exit 2
 fi
 if [[ -z "${DISPLAY:-}" ]]; then
@@ -44,4 +45,4 @@ fi
 exec "$java_command" "${java_options[@]}" \
   -cp "build/performance-classes:build/SweetHome3D.jar:build/Furniture.jar:build/Textures.jar:build/Examples.jar:build/Help.jar:lib/*:lib/java3d-1.6/*" \
   com.eteks.sweethome3d.performance.Home3DFpsBenchmark \
-  "$home_file" "$seconds"
+  "$home_file" "$seconds" "$warmup_seconds"

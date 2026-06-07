@@ -8,10 +8,10 @@ measurements remain in `docs/PERFORMANCE.md`.
 ## Current Checkpoint
 
 - Updated: 2026-06-07
-- Checkpoint branch: `perf/modernize-and-optimize`
-- Pull request: <https://github.com/mjcipriano/sweethome3d/pull/6>
-- Target: merge this checkpoint to `main`, then publish `7.5.1-beta.1` as a
-  GitHub prerelease.
+- Checkpoint branch: `perf/3d-view-version-release`
+- Pull request: <https://github.com/mjcipriano/sweethome3d/pull/27>
+- Target: align the About dialog with packaged release versions, improve WSLg
+  rendering defaults, and publish a testable prerelease.
 - Reference workload:
   `example-files/2025-11-27-House-Layout-v3.sh3d`
 - Reference workload shape: 141 MB, 435 furniture items, 162 walls, 47 rooms,
@@ -42,9 +42,11 @@ approved. The `example-files/` directory is ignored.
 | Windows 3D rendering | Central `GraphicsEnvironmentConfiguration` (called from `SweetHome3DBootstrap`) defaults the Java 3D renderer to speed on Windows so `Component3DManager` skips scene/implicit antialiasing; kill-switch and `renderingQuality=quality` override; no-op on macOS/Linux | Targets choppy interactive 3D on switchable-graphics laptops (antialiasing is the biggest per-frame cost on integrated GPUs); scene builds correctly with antialiasing off and all tests pass. Frame-rate gain must be measured on Windows+NVIDIA hardware - cannot be measured on WSL/Mesa (task E1) | merged PR #18 |
 | 3D diagnostics | Capture the OpenGL vendor/renderer/version via `Canvas3D.queryProperties` in `HomeComponent3D`'s render observer, measure a rolling FPS, surface both in a Help > 3D rendering information dialog and an optional on-canvas overlay, and log the GPU line to `graphics.log` | Lets a user confirm which GPU drives the 3D view (discrete vs integrated) and measure frame rate so Windows+NVIDIA tuning (E2) is observable; verified on WSLg - renderer reported as `D3D12 (NVIDIA GeForce GTX 1660 Ti)`; tests pass (task E-observability, enables E2) | merged PR #20 |
 | 3D interactive frame rate | The diagnostics showed a complex home renders at ~1 FPS on a discrete NVIDIA GPU (CPU-bound render loop, not GPU). Add `compile()` of the home scene branch before `addBranchGraph` (display lists, default on, kill-switch `compileScene=false`) and use `TRANSPARENCY_SORT_NONE` under `renderingQuality=speed`; add an on-screen FPS benchmark (`benchmark-home-3d-fps`) since the off-screen frame path crashes on Mesa | `compile()` verified safe - post-compile scene mutation works with no exceptions; build and tests pass. Magnitude not measurable on the noisy WSL/Mesa D3D12 layer (display lists behave unlike native GL); to be confirmed on Windows+NVIDIA via the in-app overlay (task D-render / E2) | merged PR #22 |
-| WSLg GPU testing | Add `make test-wsl-gpu`, a hardware-rendering smoke gate that checks WSLg X11/GLX, rejects software Mesa, requires the D3D12 renderer under WSL by default, runs Java 3D update mode, and confirms the on-screen FPS harness reports frames from Sweet Home 3D's `Canvas3D` | Passed on WSLg with `D3D12 (NVIDIA GeForce GTX 1660 Ti)`: the reference home's scene was created in 7.49 s, update operations completed, and the synthetic on-screen scene averaged 137 FPS over 335 samples. This gives WSL developers an adequate Java 3D GPU correctness/integration test without using the known-crashing off-screen frame benchmark or treating WSLg/Mesa as native Windows OpenGL | completed on `perf/wsl-gpu-tests` |
-| 3D bounds cache (D1) | Audit `ModelManager` model load/clone/bounds caching. Found inner `WeakHashMap<Transform3D, BoundingBox>` in `transformedModelNodeBounds` broken: `computeBounds` creates fresh `Transform3D` keys each call, and WeakHashMap silently evicts entries when keys are only weakly reachable, making the cache a permanent miss. Replaced inner map with `HashMap` — outer map remains `WeakHashMap<Content, ...>` so eviction still works at the Content level when models are GC'd. | Build and 7/7 core tests pass; magnitude TBD on the reference workload (435 pieces, 148 models); small home (7 pieces) shows no measurable delta | _pending commit_ |
-| 3D scene update allocations (D3) | Replaced 14 `Arrays.asList(new T[]{x})` call sites in `HomeComponent3D` property-change listeners (furniture, room, polyline, dimension line, label) with `Collections.singletonList(x)`, avoiding a temporary array and ArrayList allocation per interaction event. Removed unused `java.util.Arrays` import. | Build and 7/7 core tests pass; per-event allocation savings are small (one array + one ArrayList) but accumulate across rapid property-change sequences (drag-move fires X and Y changes) | _pending commit_ |
+| WSLg GPU testing | Add `make test-wsl-gpu`, a hardware-rendering smoke gate that checks WSLg X11/GLX, rejects software Mesa, requires the D3D12 renderer under WSL by default, runs Java 3D update mode, and confirms the on-screen FPS harness reports frames from Sweet Home 3D's `Canvas3D` | Passed on WSLg with `D3D12 (NVIDIA GeForce GTX 1660 Ti)`: the reference home's scene was created in 7.49 s, update operations completed, and the synthetic on-screen scene averaged 137 FPS over 335 samples. This gives WSL developers an adequate Java 3D GPU correctness/integration test without using the known-crashing off-screen frame benchmark or treating WSLg/Mesa as native Windows OpenGL | merged PR #24 |
+| 3D bounds cache (D1) | Audit `ModelManager` model load/clone/bounds caching. Found inner `WeakHashMap<Transform3D, BoundingBox>` in `transformedModelNodeBounds` broken: `computeBounds` creates fresh `Transform3D` keys each call, and WeakHashMap silently evicts entries when keys are only weakly reachable, making the cache a permanent miss. Replaced inner map with `HashMap` - outer map remains `WeakHashMap<Content, ...>` so eviction still works at the Content level when models are GC'd. | Build and tests pass; magnitude TBD on the reference workload (435 pieces, 148 models); small home (7 pieces) shows no measurable delta | merged PR #25 |
+| 3D scene update allocations (D3) | Replaced 14 `Arrays.asList(new T[]{x})` call sites in `HomeComponent3D` property-change listeners (furniture, room, polyline, dimension line, label) with `Collections.singletonList(x)`, avoiding a temporary array and ArrayList allocation per interaction event. Removed unused `java.util.Arrays` import. | Build and tests pass; per-event allocation savings are small and do not address steady-state frame rate | merged PR #25 |
+| Release/About version | Put `Implementation-Version` in both application JAR manifests, prefer it in `SweetHome3D.getVersion()`, pass the release version into native launchers, and verify the executable JAR manifest during packaging | Removes the hard-coded `7.5` About fallback from packaged releases and makes artifact verification fail when the displayed and published versions diverge | current branch |
+| WSLg rendering default and FPS measurement | Apply the existing speed rendering profile on WSLg as well as Windows, and add a configurable warm-up period to the real-view FPS benchmark | WSLg correctly selects the D3D12 NVIDIA renderer and speed profile. The complex reference home still averaged about 1 FPS after a 30 s warm-up, proving this profile alone does not solve the primary 3D-view bottleneck | current branch |
 
 ## Tried And Rejected
 
@@ -58,6 +60,7 @@ evidence.
 | 1920x1080 Java 3D off-screen frame benchmark on the legacy Java 3D/JOGL stack | Native crash in `libGLX_mesa.so` while creating the off-screen context | Keep `scene` mode as the safe default; retry after the graphics stack is upgraded |
 | Complete legacy Java 3D JUnit suite on current WSLg/Mesa | JVM terminated in native `libGLX_mesa.so` before JUnit completed | Treat as a scheduled/manual compatibility probe; use `make test-gui` as the required stable GUI suite |
 | OpenJDK 21 runtime vs 17 on the headless benchmarks (task A4) | Interleaved 4-round A/B on the reference home showed no repeatable difference: plan-render warmed median ~15 ms on both; startup cold ~2.16 s on both. Run-to-run variance on the WSL host (e.g. 2.0-3.4 s cold-start swings) swamps any JDK delta. No crashes or regressions on 21 | Keep the pinned OpenJDK 17; do not add a Java 21 dev toolchain without a materially quieter measurement host or a different workload. Bytecode stays at Java 8 either way |
+| Compile each asynchronously loaded furniture branch before attaching it to the live scene | Compiling shared model geometry caused `RestrictedAccessException`; preserving compiled shared geometry then caused `CapabilityNotSetException` when pickability was initialized. Java 3D requires all mutable capabilities and per-instance state to be established before compilation | Removed. Revisit only as a broader model-instantiation refactor that separates immutable compiled geometry from mutable per-piece nodes |
 
 Generated `hs_err_pid*.log` files are diagnostic artifacts and must not be
 committed.
@@ -81,6 +84,12 @@ committed.
 | D1/D3 branch build and core tests | Passed; 7/7 core tests on OpenJDK 17 |
 | D1/D3 branch GUI tests (Xvfb) | Passed, 13/13 tests |
 | D1/D3 branch 3D benchmark (Xvfb, test home) | Passed; scene creation 222 ms (7-piece home); reference home not available |
+| Warmed WSLg FPS benchmark, speed profile, reference home | Passed on D3D12 / NVIDIA GTX 1660 Ti; 30 s warm-up + 15 s measurement; average 1 FPS, min 0, max 3, 916 samples |
+| Current branch `make test-core` | Passed, 9/9 tests, including `SweetHome3DVersionTest` for manifest fallback and explicit launcher version override |
+| `ant -Dversion=7.5.2-beta.8 jarExecutable` | Passed; executable JAR manifest contains `Implementation-Version: 7.5.2-beta.8` |
+| `scripts/verify-release.ps1` locally | Not run; `pwsh` is not installed in the current Conda environment. The equivalent JAR manifest check was verified with `unzip`, and GitHub release packaging will run the PowerShell verifier on hosted runners |
+| Current branch `make test-gui` | Blocked locally because WSLg `DISPLAY=:0` and `xvfb-run` both failed to accept X11 connections; expected to run in CI's Linux/Xvfb job |
+| Forced-quality warmed FPS comparison | Blocked locally after WSLg stopped accepting `DISPLAY=:0` connections. The speed-profile run above is the only completed warmed WSLg FPS measurement for this branch |
 
 ## Next Work
 
@@ -133,6 +142,13 @@ audit `HomePieceOfFurniture3D.update()` and related Object3DBranch subclasses
 for larger allocation wins in the scene-graph rebuild path; D4 GPU-friendly
 geometry construction). Depends on
 A3.
+
+JFR captured while opening the reference home identifies
+`RenderBin.findAttributeBin` on Java 3D's render-structure update thread as the
+dominant Java-side CPU hotspot. The next D task should reduce or batch live
+scene attachment while 435 asynchronous furniture models arrive. Do not retry
+per-piece `compile()` until immutable shared geometry and mutable instance
+capabilities are separated.
 
 **Workstream E - Graphics environment tuning** (E1 central Windows auto-tuner
 with kill-switch and stock fallback - **done**: defaults the 3D renderer to

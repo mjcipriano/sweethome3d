@@ -28,12 +28,11 @@ package com.eteks.sweethome3d.tools;
  *   <li>{@code com.eteks.sweethome3d.graphics.autoTune=verbose} logs each decision;</li>
  *   <li>a property already set by the user (for example with {@code -D...}) is never overridden.</li>
  * </ul>
- * The current tuning targets Windows, where the bundled Java 3D pipeline requests
- * scene and implicit antialiasing by default. Antialiasing is the largest
- * per-frame cost on integrated GPUs (common on switchable-graphics laptops), so
- * on Windows the renderer defaults to the faster, no-antialiasing path unless the
- * user asks for quality. It is a no-op on macOS and Linux, where the current
- * defaults are kept.
+ * The current tuning targets Windows and WSLg, where the bundled Java 3D
+ * pipeline benefits from avoiding costly quality-path work. On Windows this
+ * disables scene and implicit antialiasing by default. On WSLg it also disables
+ * CPU transparency sorting, which is especially expensive through Mesa's D3D12
+ * translation layer. It is a no-op on macOS and native Linux.
  * @author Sweet Home 3D performance work
  */
 public class GraphicsEnvironmentConfiguration {
@@ -63,9 +62,12 @@ public class GraphicsEnvironmentConfiguration {
 
     String operatingSystemName = System.getProperty("os.name", "");
     boolean windows = operatingSystemName.toLowerCase().startsWith("windows");
-    if (!windows) {
+    boolean wsl = !windows
+        && (System.getenv("WSL_DISTRO_NAME") != null
+            || System.getenv("WSL_INTEROP") != null);
+    if (!windows && !wsl) {
       if (verbose) {
-        log("non-Windows platform (" + operatingSystemName + "), keeping default graphics settings");
+        log("native non-Windows platform (" + operatingSystemName + "), keeping default graphics settings");
       }
       return;
     }
@@ -75,7 +77,7 @@ public class GraphicsEnvironmentConfiguration {
     // no-antialiasing configuration.
     setIfAbsent(RENDERING_QUALITY_PROPERTY, "speed", verbose);
     if (verbose) {
-      log("applied Windows graphics speed defaults");
+      log("applied " + (windows ? "Windows" : "WSLg") + " graphics speed defaults");
     }
   }
 

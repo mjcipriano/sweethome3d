@@ -71,7 +71,8 @@ $jpackageArgs = @(
   "--java-options", "--add-opens=java.desktop/com.apple.eio=ALL-UNNAMED",
   "--java-options", "--add-opens=java.desktop/com.apple.eawt=ALL-UNNAMED",
   "--java-options", "-Djogamp.gluegen.UseTempJarCache=false",
-  "--java-options", "-Dcom.eteks.sweethome3d.applicationId=SweetHome3D#GitHubRelease"
+  "--java-options", "-Dcom.eteks.sweethome3d.applicationId=SweetHome3D#GitHubRelease",
+  "--java-options", "-Dcom.eteks.sweethome3d.applicationVersion=$Version"
 )
 
 if ($IsWindows) {

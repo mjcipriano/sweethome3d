@@ -110,8 +110,13 @@
     </copy>
 
     <!-- Create SweetHome3D.jar -->
-    <zip destfile="build/SweetHome3D.jar"
-         basedir="build/classes"/>
+    <jar destfile="build/SweetHome3D.jar"
+         basedir="build/classes">
+      <manifest>
+        <attribute name="Implementation-Title" value="Sweet Home 3D"/>
+        <attribute name="Implementation-Version" value="${version}"/>
+      </manifest>
+    </jar>
     <delete dir="build/classes"/>
   </target>
 
@@ -582,6 +587,8 @@
       <manifest>
         <attribute name="Add-opens" value="java.desktop/java.awt java.desktop/sun.awt java.desktop/com.apple.eio java.desktop/com.apple.eawt"/>
         <attribute name="Main-Class" value="com.eteks.sweethome3d.SweetHome3DBootstrap"/>
+        <attribute name="Implementation-Title" value="Sweet Home 3D"/>
+        <attribute name="Implementation-Version" value="${version}"/>
       </manifest>
       <zipfileset src="build/SweetHome3D.jar"/>
       <zipfileset src="build/Furniture.jar"/>

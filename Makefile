@@ -75,6 +75,7 @@ GL_TEST_EXCLUDES := \
 ALL_TEST_SOURCES := $(shell find test -name "*Test.java")
 CORE_TEST_SOURCES := \
   test/com/eteks/sweethome3d/io/HomeContentContextTest.java \
+  test/com/eteks/sweethome3d/junit/SweetHome3DVersionTest.java \
   test/com/eteks/sweethome3d/junit/HomeTest.java \
   test/com/eteks/sweethome3d/junit/OperatingSystemTest.java \
   test/com/eteks/sweethome3d/junit/PackageDependenciesTest.java
@@ -110,7 +111,7 @@ help:
 	@echo "  make benchmark-plan-render BENCHMARK_HOME=<file.sh3d> [BENCHMARK_ITERATIONS=10]"
 	@echo "  make benchmark-plan-interaction BENCHMARK_HOME=<file.sh3d> [BENCHMARK_ITERATIONS=20]"
 	@echo "  make benchmark-home-3d BENCHMARK_HOME=<file.sh3d> [BENCHMARK_MODE=scene|frame|update]"
-	@echo "  make benchmark-home-3d-fps BENCHMARK_HOME=<file.sh3d> [BENCHMARK_SECONDS=15] (on-screen, needs display)"
+	@echo "  make benchmark-home-3d-fps BENCHMARK_HOME=<file.sh3d> [BENCHMARK_SECONDS=15] [BENCHMARK_WARMUP_SECONDS=0]"
 	@echo "  make benchmark-startup BENCHMARK_HOME=<file.sh3d> [BENCHMARK_ITERATIONS=5]"
 	@echo "  make clean      - Remove build artifacts produced by this Makefile."
 	@echo "Variables: VERSION, CONDA_ACTIVATE, JAVA_OPTS."
@@ -235,7 +236,7 @@ benchmark-home-3d-fps: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
 	$(JAVAC) $(TEST_JAVAC_FLAGS) -encoding ISO-8859-1 -cp "$(TEST_COMPILE_CP)" \
 	  -d $(PERFORMANCE_CLASSES) $(HOME_3D_FPS_BENCHMARK_SOURCE)
 	$(RUN_IN_ENV)HOME_3D_JAVA='$(HOME_3D_JAVA)' HOME_3D_FPS_JFR='$(HOME_3D_FPS_JFR)' scripts/profile-home-3d-fps.sh \
-	  "$(BENCHMARK_HOME)" "$(or $(BENCHMARK_SECONDS),15)"
+	  "$(BENCHMARK_HOME)" "$(or $(BENCHMARK_SECONDS),15)" "$(or $(BENCHMARK_WARMUP_SECONDS),0)"
 
 benchmark-startup: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
 	@test -n "$(BENCHMARK_HOME)" || (echo "BENCHMARK_HOME is required" >&2; exit 2)

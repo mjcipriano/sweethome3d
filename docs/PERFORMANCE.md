@@ -258,13 +258,18 @@ rate is measured through the real on-screen pipeline instead:
 ```sh
 make benchmark-home-3d-fps \
   BENCHMARK_HOME=example-files/2025-11-27-House-Layout-v3.sh3d \
+  BENCHMARK_WARMUP_SECONDS=30 \
   BENCHMARK_SECONDS=15
 ```
 
-It opens the 3D view, rotates the camera, and reports `fps_avg/min/max` from the
-rendering statistics. A complex home rendered at ~1 FPS even on a discrete NVIDIA
-GPU, which is a CPU-bound render loop rather than a GPU limit. Two levers target
-it, both reversible:
+It opens the 3D view, rotates the camera during warm-up and measurement, and
+reports `fps_avg/min/max` from the rendering statistics. Use a warm-up for
+complex homes so startup model insertion is not silently mixed with settled
+viewport performance. A 30-second warm-up followed by a 15-second measurement
+still averaged about 1 FPS on WSLg's NVIDIA-backed D3D12 renderer. JFR during
+opening identified Java 3D render-bin updates while asynchronous furniture
+branches are attached as the dominant Java-side CPU cost. Two existing,
+reversible levers target rendering overhead:
 
 - **Scene compilation.** The home branch is now `compile()`d before it is added
   to the universe (flatten transforms, merge shapes, build display lists), which
@@ -275,6 +280,10 @@ it, both reversible:
 - **Transparency sorting.** Sorting transparent geometry by depth runs on the CPU
   every frame; under `renderingQuality=speed` (the Windows default) the view uses
   `TRANSPARENCY_SORT_NONE` instead of `TRANSPARENCY_SORT_GEOMETRY`.
+
+WSLg now selects the same speed profile automatically. Native Linux and macOS
+keep their previous defaults. Force an A/B run with
+`-Dcom.eteks.sweethome3d.j3d.renderingQuality=quality` or `speed`.
 
 Note: the WSL/Mesa D3D12 translation layer is a noisy, unrepresentative proxy for
 native NVIDIA OpenGL (display lists behave differently there), so the absolute

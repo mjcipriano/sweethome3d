@@ -34,6 +34,25 @@ foreach ($entry in $requiredEntries) {
   }
 }
 
+$zip = [System.IO.Compression.ZipFile]::OpenRead($jar)
+try {
+  $manifestEntry = $zip.GetEntry("META-INF/MANIFEST.MF")
+  if ($null -eq $manifestEntry) {
+    throw "Executable JAR is missing META-INF/MANIFEST.MF."
+  }
+  $reader = [System.IO.StreamReader]::new($manifestEntry.Open())
+  try {
+    $manifest = $reader.ReadToEnd()
+  } finally {
+    $reader.Dispose()
+  }
+} finally {
+  $zip.Dispose()
+}
+if ($manifest -notmatch "(?m)^Implementation-Version: $([regex]::Escape($Version))\r?$") {
+  throw "Executable JAR manifest version does not match release version $Version."
+}
+
 if (-not $SkipArchiveCheck) {
   $archives = @(Get-ChildItem $artifacts -File | Where-Object {
     $_.Name -match "^SweetHome3D-$([regex]::Escape($Version))-(windows|linux|macos)-x64\.(zip|tar\.gz)$"
