@@ -1,3 +1,37 @@
 # Changelog
 
+## [7.5.1-beta.2](https://github.com/mjcipriano/sweethome3d/compare/v7.5.0...v7.5.1-beta.2) (2026-06-07)
+
+
+### Features
+
+* automate semantic versioning and release assets ([5fd6b39](https://github.com/mjcipriano/sweethome3d/commit/5fd6b393b3eb80d16edb8195407c866ec26ee90c))
+* automate semantic versioning and release assets ([c02cd3e](https://github.com/mjcipriano/sweethome3d/commit/c02cd3e0588702e864f1e561ed74a44834052602))
+
+
+### Bug Fixes
+
+* read the canonical version in CI ([1915608](https://github.com/mjcipriano/sweethome3d/commit/1915608e68dfbd2aeccd8e965842559476505bc3))
+
+
+### Performance Improvements
+
+* add 2D interaction benchmark ([5a14abc](https://github.com/mjcipriano/sweethome3d/commit/5a14abcab2345cf4f8297415ab3be2f305c5187c))
+* add 2D interaction benchmark (task A2) ([e2e7388](https://github.com/mjcipriano/sweethome3d/commit/e2e7388230ac9cdfed0707db1d516490cedf019e))
+* add cold-start phase benchmark ([70b5e30](https://github.com/mjcipriano/sweethome3d/commit/70b5e30af4301e609275698519ff140927f1d9ef))
+* add cold-start phase benchmark (task A1) ([e4f22af](https://github.com/mjcipriano/sweethome3d/commit/e4f22afcbe0ad9de8b55e1cdb90eb0f090c02250))
+* add repeatable 2d plan render benchmark ([35585b7](https://github.com/mjcipriano/sweethome3d/commit/35585b7beda068aeed6d65b9b8a91cc1bcf9bd27))
+* avoid redundant home archive inflation ([4d5d8c3](https://github.com/mjcipriano/sweethome3d/commit/4d5d8c35e2380090a29d2872609b579e3a7fbe69))
+* reduce memory used while loading homes ([0b00814](https://github.com/mjcipriano/sweethome3d/commit/0b00814b36f7b3f94883db7020c2ac864b0a2c47))
+* reduce OBJ parsing overhead ([3573e1b](https://github.com/mjcipriano/sweethome3d/commit/3573e1b7e0c9f4cab4f49c0e28f49b2c7a622451))
+* repaint only the selection area on selection change ([4d616fb](https://github.com/mjcipriano/sweethome3d/commit/4d616fb444cc77fdb00cb649615638350c713792))
+* repaint only the selection area on selection change (C1) ([01efb9a](https://github.com/mjcipriano/sweethome3d/commit/01efb9ac3f83367ef136596d1a869dbc4f772d3d))
+
+
+### Tests
+
+* add 3D scene-update benchmark mode ([bf8380b](https://github.com/mjcipriano/sweethome3d/commit/bf8380bea9466f222c93c5d1007145bdfb4b6022))
+
+## Changelog
+
 Release notes are generated from conventional commits by release-please.
