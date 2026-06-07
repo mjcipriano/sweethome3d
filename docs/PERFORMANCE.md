@@ -99,6 +99,40 @@ renders, so there are no leftover indicator artifacts. Moving a piece and
 zooming still trigger a full repaint and remain follow-up work (a further part
 of C1 for moves, and C2 for per-paint cost).
 
+## Windows And Switchable-Graphics Laptops
+
+Two things make the interactive 3D view slow on Windows laptops with switchable
+graphics (Intel iGPU + NVIDIA), and both are addressed here.
+
+1. **Antialiasing cost.** The bundled Java 3D pipeline requests scene and
+   implicit antialiasing, which is the largest per-frame cost on integrated
+   GPUs. `GraphicsEnvironmentConfiguration`, called from `SweetHome3DBootstrap`
+   before any AWT/Java 3D class loads, now defaults the renderer to speed on
+   Windows, so `Component3DManager` builds a no-antialiasing configuration.
+   - Restore antialiasing: `-Dcom.eteks.sweethome3d.j3d.renderingQuality=quality`.
+   - Force speed anywhere: `-Dcom.eteks.sweethome3d.j3d.renderingQuality=speed`.
+   - Disable all auto-tuning: `-Dcom.eteks.sweethome3d.graphics.autoTune=false`.
+   - Log the decisions: `-Dcom.eteks.sweethome3d.graphics.autoTune=verbose`.
+   The tuning is a no-op on macOS and Linux, where the current quality default is
+   kept, and it never overrides a value the user set with `-D`.
+
+2. **Wrong GPU.** On switchable-graphics laptops the OpenGL context often lands
+   on the slow Intel iGPU instead of the NVIDIA card. Forcing the discrete GPU
+   is the single biggest win for choppy navigation, but it is a driver/launcher
+   setting that a Java application started through the `jpackage` launcher can't
+   set programmatically, so it is a one-time manual step:
+   - NVIDIA Control Panel -> Manage 3D settings -> Program Settings -> add the
+     Sweet Home 3D launcher (or `javaw.exe`) -> set "High-performance NVIDIA
+     processor"; or Windows Settings -> System -> Display -> Graphics -> add the
+     app -> High performance.
+   - Verify with Task Manager: the Performance tab shows activity on the NVIDIA
+     GPU (not Intel) while rotating the 3D view.
+
+These changes are correctness-safe (the scene builds with antialiasing off and
+all tests pass), but the frame-rate gain itself must be measured on the Windows
+NVIDIA hardware; it can't be measured on the WSL/Mesa development host, whose
+off-screen frame path still crashes (tracked with the graphics-stack upgrade).
+
 ## Startup And First Usable Paint
 
 The cold-start phases a user waits through before a home is usable can be

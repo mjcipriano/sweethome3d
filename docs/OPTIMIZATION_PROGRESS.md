@@ -39,6 +39,7 @@ approved. The `example-files/` directory is ignored.
 | 2D interaction | Repaint only the area of the previously and newly selected items (plus an indicator margin) on selection change, instead of the whole plan | Selecting a single piece dropped from invalidating 100% of the viewport to ~1% and from a ~9-10 ms paint to sub-ms; pixel-coverage check and GUI suite confirm no artifacts (task C1, selection) | merged PR #10 |
 | 3D scene-update measurement | Add `BENCHMARK_MODE=update` to the 3D benchmark, timing scene-graph reaction to piece move, piece rotation, and camera move via an EDT barrier around the deferred `invokeLater` update | Baselines on the reference home: ~3 ms piece move, ~3 ms rotation, ~1 ms camera move; runs stably in scene mode without the off-screen frame path (task A3) | merged |
 | 3D scene construction | Preload distinct furniture models in parallel (existing CPU loader pool) before the synchronous scene-tree build so the build only clones cached models; gated by `com.eteks.sweethome3d.j3d.preloadModels` (default on) | Interleaved 4-round A/B on the reference home (12 cores): median off-screen scene construction ~13.2 s with preload off vs ~7.0 s with preload on, about 47%; interactive async view unaffected; tests green (task D2) | merged PR #14 + kill-switch |
+| Windows 3D rendering | Central `GraphicsEnvironmentConfiguration` (called from `SweetHome3DBootstrap`) defaults the Java 3D renderer to speed on Windows so `Component3DManager` skips scene/implicit antialiasing; kill-switch and `renderingQuality=quality` override; no-op on macOS/Linux | Targets choppy interactive 3D on switchable-graphics laptops (antialiasing is the biggest per-frame cost on integrated GPUs); scene builds correctly with antialiasing off and all tests pass. Frame-rate gain must be measured on Windows+NVIDIA hardware - cannot be measured on WSL/Mesa (task E1) | _pending_ |
 
 ## Tried And Rejected
 
@@ -117,10 +118,14 @@ cores - **done**, ~51% faster off-screen scene construction; D3 reduce per-frame
 allocations in scene updates; D4 GPU-friendly geometry construction). Depends on
 A3.
 
-**Workstream E - Graphics environment tuning** (E1 central Windows+NVIDIA
-auto-tuner with kill-switch and stock fallback, behind one class called from
-`SweetHome3DBootstrap.main`; E2 measure each candidate property on
-Windows+NVIDIA; E3 discrete-GPU launcher preference). Depends on A3.
+**Workstream E - Graphics environment tuning** (E1 central Windows auto-tuner
+with kill-switch and stock fallback - **done**: defaults the 3D renderer to
+speed/no-antialiasing on Windows; E2 measure the antialiasing-off and any
+further levers on real Windows+NVIDIA hardware - **pending user measurement**,
+since the frame path can't run on WSL/Mesa; E3 discrete-GPU preference - the
+reliable Optimus fix is a manual NVIDIA Control Panel / Windows graphics setting
+because a `jpackage`-launched Java app can't export `NvOptimusEnablement`; this
+is now documented in `docs/PERFORMANCE.md` rather than coded). Depends on A3.
 
 **Workstream F - Graphics stack upgrade** (F1 unify/upgrade Java 3D, JOGL,
 GlueGen, vecmath and native binaries together to stop the Mesa GLX crash and
