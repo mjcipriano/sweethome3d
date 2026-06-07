@@ -55,11 +55,35 @@ make benchmark-plan-render \
 
 Set `PLAN_RENDER_JFR=profiles/plan-render.jfr` to record the render hot paths.
 
-The initial complex-home baseline at 1920x1080 was about 820 ms for the first
-paint. Repeated paints varied while asynchronous top-view icons were decoded,
-then settled around 43-80 ms. JFR identified PNG decoding and image scaling as
-the main warm-up costs, with geometry area construction and Java2D
-rasterization as secondary costs.
+The benchmark performs a five-second warm-up before recording samples. On the
+reference complex home, warmed 1920x1080 paints had 9-12 ms medians and 11-15
+ms p95 results. JFR identified PNG decoding and image scaling as the main
+warm-up costs, with geometry area construction and Java2D rasterization as
+secondary costs.
+
+## 3D Scene And Frame Rendering
+
+Run the Java 3D benchmark on a working WSLg/X11 display:
+
+```sh
+make benchmark-home-3d \
+  BENCHMARK_HOME=example-files/2025-11-27-House-Layout-v3.sh3d \
+  BENCHMARK_MODE=scene
+```
+
+Set `HOME_3D_JFR=profiles/home-3d.jfr` to record synchronous scene construction
+and model loading. `BENCHMARK_MODE=frame` additionally renders repeated
+1920x1080 off-screen frames, but legacy Java 3D / JOGL may crash in Mesa GLX
+while creating the large off-screen context. Use `make test-local-check` first
+to record the active OpenGL vendor, renderer, and direct-rendering status.
+Run this benchmark from the pinned `sweethome3d` Conda environment; its
+standard OpenJDK 17 build is required for stable Java 3D profiling under WSL.
+
+The reference home contains 435 model references backed by 148 distinct model
+contents. A controlled three-run comparison reduced median synchronous scene
+construction from 15.09 seconds to 13.44 seconds (about 11%) by replacing the
+synchronized `BufferedReader` in the thread-confined OBJ parser with a larger
+unsynchronized buffer.
 
 ## Optimization Rules
 

@@ -20,7 +20,6 @@
 package com.eteks.sweethome3d.j3d;
 
 import java.awt.image.BufferedImage;
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -1082,8 +1081,8 @@ public class OBJLoader extends LoaderBase implements Loader {
    * Returns the scene described in the given OBJ file.
    */
   private Scene load(Reader reader, URL baseUrl) throws FileNotFoundException {
-    if (!(reader instanceof BufferedReader)) {
-      reader = new BufferedReader(reader);
+    if (!(reader instanceof OBJReader)) {
+      reader = new OBJReader(reader);
     }
     try {
       return parseObjectStream(reader, baseUrl);
@@ -1601,7 +1600,7 @@ public class OBJLoader extends LoaderBase implements Loader {
     if (in != null) {
       try {
         this.appearances.putAll(parseMaterialStream(
-            new BufferedReader(new InputStreamReader(in, "ISO-8859-1")), baseUrl, this.useCaches));
+            new OBJReader(new InputStreamReader(in, "ISO-8859-1")), baseUrl, this.useCaches));
         return true;
       } catch (IOException ex) {
         throw new ParsingErrorException(ex.getMessage());
@@ -1623,6 +1622,9 @@ public class OBJLoader extends LoaderBase implements Loader {
   private static Map<String, Appearance> parseMaterialStream(Reader reader,
                                                              URL baseUrl,
                                                              Boolean useCaches) throws IOException {
+    if (!(reader instanceof OBJReader)) {
+      reader = new OBJReader(reader);
+    }
     Map<String, Appearance> appearances = new HashMap<String, Appearance>();
     Appearance              currentAppearance = null;
     StreamTokenizer tokenizer = createTokenizer(reader);
@@ -1978,6 +1980,57 @@ public class OBJLoader extends LoaderBase implements Loader {
 
     public List<Geometry> getGeometries() {
       return this.geometries;
+    }
+  }
+
+  /**
+   * Unsynchronized buffered reader used by the thread-confined OBJ parser.
+   */
+  private static class OBJReader extends Reader {
+    private static final int BUFFER_SIZE = 65536;
+
+    private final Reader reader;
+    private final char [] buffer = new char [BUFFER_SIZE];
+    private int position;
+    private int limit;
+
+    OBJReader(Reader reader) {
+      this.reader = reader;
+    }
+
+    @Override
+    public int read() throws IOException {
+      if (this.position >= this.limit
+          && !fillBuffer()) {
+        return -1;
+      }
+      return this.buffer [this.position++];
+    }
+
+    @Override
+    public int read(char [] characters, int offset, int length) throws IOException {
+      if (length == 0) {
+        return 0;
+      }
+      if (this.position >= this.limit
+          && !fillBuffer()) {
+        return -1;
+      }
+      int count = Math.min(length, this.limit - this.position);
+      System.arraycopy(this.buffer, this.position, characters, offset, count);
+      this.position += count;
+      return count;
+    }
+
+    private boolean fillBuffer() throws IOException {
+      this.limit = this.reader.read(this.buffer, 0, this.buffer.length);
+      this.position = 0;
+      return this.limit != -1;
+    }
+
+    @Override
+    public void close() throws IOException {
+      this.reader.close();
     }
   }
 }
