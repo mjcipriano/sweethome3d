@@ -1327,6 +1327,14 @@ public class HomePane extends JRootPane implements HomeView {
         || !Boolean.getBoolean("apple.laf.useScreenMenuBar")) {
       addActionToMenu(ActionType.ABOUT, helpMenu);
     }
+    // 3D rendering diagnostics (active GPU and frame rate) to help tune 3D performance
+    JMenuItem renderingInformationMenuItem = new JMenuItem("3D rendering information...");
+    renderingInformationMenuItem.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          showRenderingInformationDialog();
+        }
+      });
+    helpMenu.add(renderingInformationMenuItem);
 
     // Add menus to menu bar
     JMenuBar menuBar = new JMenuBar();
@@ -4678,6 +4686,54 @@ public class HomePane extends JRootPane implements HomeView {
     return SwingTools.showOptionDialog(this, message, title,
         JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
         new Object [] {quit, doNotQuit}, doNotQuit) == JOptionPane.YES_OPTION;
+  }
+
+  /**
+   * Displays 3D rendering diagnostics: the active GPU/OpenGL device and a live
+   * frame rate, plus a toggle for the on-canvas overlay. Helps confirm whether
+   * the 3D view runs on the discrete GPU and how fast it renders.
+   */
+  private void showRenderingInformationDialog() {
+    HomeComponent3D.RenderingStatistics statistics = HomeComponent3D.getRenderingStatistics();
+    final JLabel framesPerSecondLabel = new JLabel();
+    Object message;
+    if (statistics == null) {
+      message = "The 3D view hasn't rendered yet.\n"
+          + "Open or switch to the 3D view, rotate it, then reopen this dialog.";
+    } else {
+      JLabel informationLabel = new JLabel("<html><table>"
+          + "<tr><td><b>OpenGL vendor:</b></td><td>" + statistics.getOpenGLVendor() + "</td></tr>"
+          + "<tr><td><b>OpenGL renderer (GPU):</b></td><td>" + statistics.getOpenGLRenderer() + "</td></tr>"
+          + "<tr><td><b>OpenGL version:</b></td><td>" + statistics.getOpenGLVersion() + "</td></tr>"
+          + "<tr><td><b>Scene antialiasing:</b></td><td>"
+          + (statistics.isSceneAntialiasing() ? "available" : "unavailable") + "</td></tr>"
+          + "</table></html>");
+      final JCheckBox overlayCheckBox = new JCheckBox(
+          "Show GPU/FPS overlay on the 3D view", HomeComponent3D.isStatisticsOverlayVisible());
+      overlayCheckBox.addActionListener(new ActionListener() {
+          public void actionPerformed(ActionEvent ev) {
+            HomeComponent3D.setStatisticsOverlayVisible(overlayCheckBox.isSelected());
+          }
+        });
+      message = new Object [] {informationLabel, framesPerSecondLabel, overlayCheckBox};
+    }
+
+    // Refresh the frame rate while the dialog is open
+    final Timer framesPerSecondTimer = new Timer(250, null);
+    framesPerSecondTimer.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          HomeComponent3D.RenderingStatistics currentStatistics = HomeComponent3D.getRenderingStatistics();
+          framesPerSecondLabel.setText("Frames per second: "
+              + (currentStatistics != null ? Math.round(currentStatistics.getFramesPerSecond()) : 0));
+        }
+      });
+    framesPerSecondTimer.start();
+    try {
+      JOptionPane.showMessageDialog(this, message, "3D rendering information",
+          JOptionPane.INFORMATION_MESSAGE);
+    } finally {
+      framesPerSecondTimer.stop();
+    }
   }
 
   /**

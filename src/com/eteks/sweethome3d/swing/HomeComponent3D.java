@@ -22,6 +22,8 @@ package com.eteks.sweethome3d.swing;
 import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.ComponentOrientation;
 import java.awt.Composite;
 import java.awt.Container;
@@ -73,6 +75,10 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Enumeration;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -172,6 +178,7 @@ import com.eteks.sweethome3d.model.SelectionEvent;
 import com.eteks.sweethome3d.model.SelectionListener;
 import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.model.Wall;
+import com.eteks.sweethome3d.tools.GraphicsEnvironmentConfiguration;
 import com.eteks.sweethome3d.tools.OperatingSystem;
 import com.eteks.sweethome3d.viewcontroller.HomeController3D;
 import com.eteks.sweethome3d.viewcontroller.Object3DFactory;
@@ -455,6 +462,148 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       });
   }
 
+  // 3D rendering diagnostics: which GPU drives the 3D view and how fast it renders.
+  private static volatile boolean            statisticsOverlayVisible =
+      Boolean.getBoolean("com.eteks.sweethome3d.j3d.showStatistics");
+  private static volatile RenderingStatistics renderingStatistics;
+
+  /**
+   * Snapshot of 3D rendering diagnostics: the active OpenGL device reported by the
+   * driver and the most recently measured frame rate. Used by the on-canvas overlay
+   * and the Help &gt; 3D rendering information dialog so a user can confirm which GPU
+   * drives the 3D view (for example the discrete NVIDIA card versus an integrated
+   * GPU on a switchable-graphics laptop) and how fast it renders.
+   */
+  public static class RenderingStatistics {
+    private final String  openGLVendor;
+    private final String  openGLRenderer;
+    private final String  openGLVersion;
+    private final boolean sceneAntialiasing;
+    private volatile float framesPerSecond;
+
+    RenderingStatistics(String openGLVendor, String openGLRenderer,
+                        String openGLVersion, boolean sceneAntialiasing) {
+      this.openGLVendor = openGLVendor;
+      this.openGLRenderer = openGLRenderer;
+      this.openGLVersion = openGLVersion;
+      this.sceneAntialiasing = sceneAntialiasing;
+    }
+
+    public String getOpenGLVendor() {
+      return this.openGLVendor;
+    }
+
+    public String getOpenGLRenderer() {
+      return this.openGLRenderer;
+    }
+
+    public String getOpenGLVersion() {
+      return this.openGLVersion;
+    }
+
+    public boolean isSceneAntialiasing() {
+      return this.sceneAntialiasing;
+    }
+
+    public float getFramesPerSecond() {
+      return this.framesPerSecond;
+    }
+  }
+
+  /**
+   * Returns the latest 3D rendering statistics, or <code>null</code> if the 3D view
+   * hasn't rendered yet.
+   */
+  public static RenderingStatistics getRenderingStatistics() {
+    return renderingStatistics;
+  }
+
+  /**
+   * Returns whether the GPU and frame-rate overlay is drawn on the 3D view.
+   */
+  public static boolean isStatisticsOverlayVisible() {
+    return statisticsOverlayVisible;
+  }
+
+  /**
+   * Sets whether a small GPU and frame-rate overlay is drawn on the 3D view.
+   */
+  public static void setStatisticsOverlayVisible(boolean visible) {
+    statisticsOverlayVisible = visible;
+  }
+
+  /**
+   * Captures the active OpenGL device of <code>canvas3D</code> once, storing it in
+   * {@link #renderingStatistics} and logging it (the packaged application has no
+   * console, so it is also appended to a graphics log file).
+   */
+  private static void initRenderingStatistics(Canvas3D canvas3D) {
+    if (renderingStatistics == null) {
+      Map<?, ?> properties = canvas3D.queryProperties();
+      RenderingStatistics statistics = new RenderingStatistics(
+          String.valueOf(properties.get("native.vendor")),
+          String.valueOf(properties.get("native.renderer")),
+          String.valueOf(properties.get("native.version")),
+          Boolean.TRUE.equals(properties.get("sceneAntialiasingAvailable")));
+      renderingStatistics = statistics;
+      logRenderingStatistics(statistics);
+    }
+  }
+
+  private static void logRenderingStatistics(RenderingStatistics statistics) {
+    String message = "3D view OpenGL device: vendor=" + statistics.getOpenGLVendor()
+        + ", renderer=" + statistics.getOpenGLRenderer()
+        + ", version=" + statistics.getOpenGLVersion()
+        + ", sceneAntialiasingAvailable=" + statistics.isSceneAntialiasing()
+        + ", renderingQuality=" + getRenderingQualityName();
+    System.out.println(message);
+    try {
+      File applicationFolder = OperatingSystem.getDefaultApplicationFolder();
+      applicationFolder.mkdirs();
+      FileWriter writer = new FileWriter(new File(applicationFolder, "graphics.log"), true);
+      try {
+        writer.write(new Date() + "  " + message + System.getProperty("line.separator"));
+      } finally {
+        writer.close();
+      }
+    } catch (IOException ex) {
+      // Logging to a file is best effort; the console message above is enough
+    }
+  }
+
+  private static String getRenderingQualityName() {
+    return "speed".equalsIgnoreCase(
+        System.getProperty(GraphicsEnvironmentConfiguration.RENDERING_QUALITY_PROPERTY))
+            ? "speed" : "quality";
+  }
+
+  /**
+   * Draws a small GPU and frame-rate overlay in the corner of the 3D view.
+   */
+  private static void drawStatisticsOverlay(Canvas3D canvas3D) {
+    RenderingStatistics statistics = renderingStatistics;
+    if (statistics == null) {
+      return;
+    }
+    String gpuLine = "GPU: " + statistics.getOpenGLRenderer();
+    String fpsLine = "FPS: " + Math.round(statistics.getFramesPerSecond())
+        + "    rendering: " + getRenderingQualityName();
+    J3DGraphics2D g2D = canvas3D.getGraphics2D();
+    g2D.setFont(new Font("Dialog", Font.BOLD, 12));
+    FontMetrics metrics = g2D.getFontMetrics();
+    int textWidth = Math.max(metrics.stringWidth(gpuLine), metrics.stringWidth(fpsLine));
+    int boxWidth = textWidth + 16;
+    int boxHeight = metrics.getHeight() * 2 + 12;
+    g2D.setColor(new Color(0, 0, 0, 170));
+    g2D.fillRect(8, 8, boxWidth, boxHeight);
+    g2D.setColor(Color.WHITE);
+    int textX = 16;
+    int firstBaseline = 8 + 6 + metrics.getAscent();
+    g2D.drawString(gpuLine, textX, firstBaseline);
+    g2D.drawString(fpsLine, textX, firstBaseline + metrics.getHeight());
+    g2D.flush(true);
+  }
+
   /**
    * Creates the 3D component associated with the given <code>configuration</code> device.
    */
@@ -488,14 +637,35 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       this.component3D = Component3DManager.getInstance().getOnscreenCanvas3D(configuration,
           new Component3DManager.RenderingObserver() {
               private Shape3D dummyShape;
+              private long    framesWindowStartTime;
+              private int     framesSinceWindowStart;
 
               public void canvas3DSwapped(Canvas3D canvas3D) {
+                // Identify the GPU once and keep a rolling frame-rate measurement
+                initRenderingStatistics(canvas3D);
+                RenderingStatistics statistics = renderingStatistics;
+                if (statistics != null) {
+                  long now = System.nanoTime();
+                  if (this.framesWindowStartTime == 0) {
+                    this.framesWindowStartTime = now;
+                  }
+                  this.framesSinceWindowStart++;
+                  long elapsed = now - this.framesWindowStartTime;
+                  if (elapsed >= 500000000L) {
+                    statistics.framesPerSecond = (float)(this.framesSinceWindowStart * 1E9 / elapsed);
+                    this.framesSinceWindowStart = 0;
+                    this.framesWindowStartTime = now;
+                  }
+                }
               }
 
               public void canvas3DPreRendered(Canvas3D canvas3D) {
               }
 
               public void canvas3DPostRendered(Canvas3D canvas3D) {
+                if (statisticsOverlayVisible) {
+                  drawStatisticsOverlay(canvas3D);
+                }
                 // Copy reference to navigation panel image to avoid concurrency problems
                 // if it's modified in the EDT while this method draws it
                 BufferedImage navigationPanelImage = HomeComponent3D.this.navigationPanelImage;
