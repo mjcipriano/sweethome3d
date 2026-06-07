@@ -76,6 +76,16 @@ public class GraphicsEnvironmentConfiguration {
     // switchable-graphics laptops the most). Component3DManager turns this into a
     // no-antialiasing configuration.
     setIfAbsent(RENDERING_QUALITY_PROPERTY, "speed", verbose);
+
+    // Render geometry with vertex arrays rather than display lists. Native NVIDIA
+    // measurement of a complex home (a 37 MB model plus several high-poly trees)
+    // showed display lists are a net loss here: building them for huge static
+    // geometry is costly, and the worst case (display lists without a compiled
+    // scene) collapsed to about 0.25 FPS. Vertex arrays raised the average from
+    // ~11 to ~18 FPS and removed that failure mode. Override with
+    // -Dj3d.displaylist=true.
+    setIfAbsent("j3d.displaylist", "false", verbose);
+
     if (verbose) {
       log("applied " + (windows ? "Windows" : "WSLg") + " graphics speed defaults");
     }
