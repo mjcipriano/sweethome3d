@@ -70,7 +70,6 @@ import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -3376,12 +3375,12 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
             if (projection != Projection.PERSPECTIVE) {
               cameraChangeListener.propertyChange(null);
             }
-            updateObjectsLightScope(Arrays.asList(new HomePieceOfFurniture [] {updatedPiece}));
+            updateObjectsLightScope(Collections.singletonList(updatedPiece));
           } else if (HomePieceOfFurniture.Property.ANGLE.name().equals(propertyName)
               || HomePieceOfFurniture.Property.ROLL.name().equals(propertyName)
               || HomePieceOfFurniture.Property.PITCH.name().equals(propertyName)) {
             updatePieceOfFurnitureGeometry(updatedPiece, propertyName, (Float)ev.getOldValue());
-            updateObjectsLightScope(Arrays.asList(new HomePieceOfFurniture [] {updatedPiece}));
+            updateObjectsLightScope(Collections.singletonList(updatedPiece));
           } else if (HomePieceOfFurniture.Property.HEIGHT.name().equals(propertyName)
               || HomePieceOfFurniture.Property.ELEVATION.name().equals(propertyName)
               || HomePieceOfFurniture.Property.LEVEL.name().equals(propertyName)
@@ -3412,12 +3411,12 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
               || HomePieceOfFurniture.Property.SHININESS.name().equals(propertyName)
               || (HomeLight.Property.POWER.name().equals(propertyName)
                   && home.getEnvironment().getSubpartSizeUnderLight() > 0)) {
-            updateObjects(Arrays.asList(new HomePieceOfFurniture [] {updatedPiece}));
+            updateObjects(Collections.singletonList(updatedPiece));
           }
         }
 
         private void updatePieceOfFurnitureGeometry(HomePieceOfFurniture piece, String propertyName, Float oldValue) {
-          updateObjects(Arrays.asList(new HomePieceOfFurniture [] {piece}));
+          updateObjects(Collections.singletonList(piece));
           if (containsDoorsAndWindows(piece)) {
             if (oldValue != null) {
               HomePieceOfFurniture oldPiece = piece.clone();
@@ -3478,7 +3477,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
           if (projection != Projection.PERSPECTIVE) {
             cameraChangeListener.propertyChange(null);
           }
-          updateObjectsLightScope(Arrays.asList(new HomePieceOfFurniture [] {piece}));
+          updateObjectsLightScope(Collections.singletonList(piece));
         }
       };
     this.home.addFurnitureListener(this.furnitureListener);
@@ -3559,7 +3558,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
               || Room.Property.CEILING_TEXTURE.name().equals(propertyName)
               || Room.Property.CEILING_SHININESS.name().equals(propertyName)
               || Room.Property.CEILING_FLAT.name().equals(propertyName)) {
-            updateObjects(Arrays.asList(new Room [] {updatedRoom}));
+            updateObjects(Collections.singletonList(updatedRoom));
           } else if (Room.Property.FLOOR_VISIBLE.name().equals(propertyName)
               || Room.Property.CEILING_VISIBLE.name().equals(propertyName)
               || Room.Property.LEVEL.name().equals(propertyName)) {
@@ -3573,7 +3572,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
               // Don't try to optimize if more than one room to update
               updateObjects(home.getRooms());
             } else {
-              updateObjects(Arrays.asList(new Room [] {updatedRoom}));
+              updateObjects(Collections.singletonList(updatedRoom));
               updateObjects(getHomeObjects(HomeLight.class));
               // Search the rooms that overlap the updated one
               Area oldArea = new Area(getShape((float [][])ev.getOldValue()));
@@ -3589,11 +3588,11 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
                   Area roomAreaIntersectionWithNewArea = new Area(roomAreaIntersectionWithOldArea);
                   roomAreaIntersectionWithNewArea.intersect(newArea);
                   if (!roomAreaIntersectionWithNewArea.isEmpty()) {
-                    updateObjects(Arrays.asList(new Room [] {room}));
+                    updateObjects(Collections.singletonList(room));
                   } else {
                     roomAreaIntersectionWithOldArea.intersect(oldArea);
                     if (!roomAreaIntersectionWithOldArea.isEmpty()) {
-                      updateObjects(Arrays.asList(new Room [] {room}));
+                      updateObjects(Collections.singletonList(room));
                     }
                   }
                 }
@@ -3603,7 +3602,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
             if (projection != Projection.PERSPECTIVE) {
               cameraChangeListener.propertyChange(null);
             }
-            updateObjectsLightScope(Arrays.asList(new Room [] {updatedRoom}));
+            updateObjectsLightScope(Collections.singletonList(updatedRoom));
             updateObjectsLightScope(getHomeObjects(HomeLight.class));
           }
         }
@@ -3631,7 +3630,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
           if (projection != Projection.PERSPECTIVE) {
             cameraChangeListener.propertyChange(null);
           }
-          updateObjectsLightScope(Arrays.asList(new Room [] {room}));
+          updateObjectsLightScope(Collections.singletonList(room));
           updateObjectsLightScope(getHomeObjects(HomeLight.class));
         }
       };
@@ -3659,7 +3658,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     this.polylineChangeListener = new PropertyChangeListener() {
         public void propertyChange(PropertyChangeEvent ev) {
           Polyline updatedPolyline = (Polyline)ev.getSource();
-          updateObjects(Arrays.asList(new Polyline [] {updatedPolyline}));
+          updateObjects(Collections.singletonList(updatedPolyline));
           if (projection != Projection.PERSPECTIVE) {
             String propertyName = ev.getPropertyName();
             if (Polyline.Property.POINTS.name().equals(propertyName)
@@ -3703,7 +3702,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     this.dimensionLineChangeListener = new PropertyChangeListener() {
         public void propertyChange(PropertyChangeEvent ev) {
           DimensionLine updatedDimensionLine = (DimensionLine)ev.getSource();
-          updateObjects(Arrays.asList(new DimensionLine [] {updatedDimensionLine}));
+          updateObjects(Collections.singletonList(updatedDimensionLine));
           if (projection != Projection.PERSPECTIVE) {
             String propertyName = ev.getPropertyName();
             if (DimensionLine.Property.X_START.name().equals(propertyName)
@@ -3751,7 +3750,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     this.labelChangeListener = new PropertyChangeListener() {
         public void propertyChange(PropertyChangeEvent ev) {
           Label updatedLabel = (Label)ev.getSource();
-          updateObjects(Arrays.asList(new Label [] {updatedLabel}));
+          updateObjects(Collections.singletonList(updatedLabel));
           if (projection != Projection.PERSPECTIVE) {
             String propertyName = ev.getPropertyName();
             if (Label.Property.X.name().equals(propertyName)

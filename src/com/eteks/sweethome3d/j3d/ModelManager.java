@@ -760,7 +760,7 @@ public class ModelManager {
         synchronized (this.loadedModelNodes) {
           // Store in cache model node for future copies
           this.loadedModelNodes.put(content, (BranchGroup)modelRoot);
-          this.transformedModelNodeBounds.put(content, new WeakHashMap<Transform3D, BoundingBox>());
+          this.transformedModelNodeBounds.put(content, new HashMap<Transform3D, BoundingBox>());
         }
         modelObserver.modelUpdated((BranchGroup)cloneNode(modelRoot));
       } catch (IOException ex) {
@@ -791,7 +791,7 @@ public class ModelManager {
               synchronized (loadedModelNodes) {
                 // Update loaded models cache and notify registered observers
                 loadedModelNodes.put(content, loadedModel);
-                transformedModelNodeBounds.put(content, new WeakHashMap<Transform3D, BoundingBox>());
+                transformedModelNodeBounds.put(content, new HashMap<Transform3D, BoundingBox>());
               }
               EventQueue.invokeLater(new Runnable() {
                   public void run() {
@@ -859,7 +859,7 @@ public class ModelManager {
               synchronized (loadedModelNodes) {
                 if (!loadedModelNodes.containsKey(content)) {
                   loadedModelNodes.put(content, loadedModel);
-                  transformedModelNodeBounds.put(content, new WeakHashMap<Transform3D, BoundingBox>());
+                  transformedModelNodeBounds.put(content, new HashMap<Transform3D, BoundingBox>());
                 }
               }
             } catch (IOException ex) {

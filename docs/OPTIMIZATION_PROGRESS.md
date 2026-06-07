@@ -43,6 +43,8 @@ approved. The `example-files/` directory is ignored.
 | 3D diagnostics | Capture the OpenGL vendor/renderer/version via `Canvas3D.queryProperties` in `HomeComponent3D`'s render observer, measure a rolling FPS, surface both in a Help > 3D rendering information dialog and an optional on-canvas overlay, and log the GPU line to `graphics.log` | Lets a user confirm which GPU drives the 3D view (discrete vs integrated) and measure frame rate so Windows+NVIDIA tuning (E2) is observable; verified on WSLg - renderer reported as `D3D12 (NVIDIA GeForce GTX 1660 Ti)`; tests pass (task E-observability, enables E2) | merged PR #20 |
 | 3D interactive frame rate | The diagnostics showed a complex home renders at ~1 FPS on a discrete NVIDIA GPU (CPU-bound render loop, not GPU). Add `compile()` of the home scene branch before `addBranchGraph` (display lists, default on, kill-switch `compileScene=false`) and use `TRANSPARENCY_SORT_NONE` under `renderingQuality=speed`; add an on-screen FPS benchmark (`benchmark-home-3d-fps`) since the off-screen frame path crashes on Mesa | `compile()` verified safe - post-compile scene mutation works with no exceptions; build and tests pass. Magnitude not measurable on the noisy WSL/Mesa D3D12 layer (display lists behave unlike native GL); to be confirmed on Windows+NVIDIA via the in-app overlay (task D-render / E2) | merged PR #22 |
 | WSLg GPU testing | Add `make test-wsl-gpu`, a hardware-rendering smoke gate that checks WSLg X11/GLX, rejects software Mesa, requires the D3D12 renderer under WSL by default, runs Java 3D update mode, and confirms the on-screen FPS harness reports frames from Sweet Home 3D's `Canvas3D` | Passed on WSLg with `D3D12 (NVIDIA GeForce GTX 1660 Ti)`: the reference home's scene was created in 7.49 s, update operations completed, and the synthetic on-screen scene averaged 137 FPS over 335 samples. This gives WSL developers an adequate Java 3D GPU correctness/integration test without using the known-crashing off-screen frame benchmark or treating WSLg/Mesa as native Windows OpenGL | completed on `perf/wsl-gpu-tests` |
+| 3D bounds cache (D1) | Audit `ModelManager` model load/clone/bounds caching. Found inner `WeakHashMap<Transform3D, BoundingBox>` in `transformedModelNodeBounds` broken: `computeBounds` creates fresh `Transform3D` keys each call, and WeakHashMap silently evicts entries when keys are only weakly reachable, making the cache a permanent miss. Replaced inner map with `HashMap` — outer map remains `WeakHashMap<Content, ...>` so eviction still works at the Content level when models are GC'd. | Build and 7/7 core tests pass; magnitude TBD on the reference workload (435 pieces, 148 models); small home (7 pieces) shows no measurable delta | _pending commit_ |
+| 3D scene update allocations (D3) | Replaced 14 `Arrays.asList(new T[]{x})` call sites in `HomeComponent3D` property-change listeners (furniture, room, polyline, dimension line, label) with `Collections.singletonList(x)`, avoiding a temporary array and ArrayList allocation per interaction event. Removed unused `java.util.Arrays` import. | Build and 7/7 core tests pass; per-event allocation savings are small (one array + one ArrayList) but accumulate across rapid property-change sequences (drag-move fires X and Y changes) | _pending commit_ |
 
 ## Tried And Rejected
 
@@ -64,7 +66,7 @@ committed.
 
 | Check | Result |
 | --- | --- |
-| `scripts/setup-conda-env.sh` | Passed; reconciled the existing environment from `environment.yml` |
+| `scripts/setup-conda-env.sh` | Passed; reconciled the existing environment from `environment.yml` (relaxed ant and openjdk version pins for conda-forge availability) |
 | Ant production build on OpenJDK 17 | Passed |
 | `make test-core` | Passed, 7 tests |
 | `make test-gui` on WSLg | Passed, 13 tests |
@@ -76,6 +78,9 @@ committed.
 | Complete `make test-local TEST_DISPLAY_MODE=display` | Native Mesa GLX crash; known legacy graphics-stack limitation |
 | Cross-platform GitHub Actions | Passed on Windows, Linux, macOS, and Linux GUI in [CI run 15](https://github.com/mjcipriano/sweethome3d/actions/runs/27095017708) |
 | Prerelease packaging on Windows, Linux, and macOS | Required after merge through `release.yml` |
+| D1/D3 branch build and core tests | Passed; 7/7 core tests on OpenJDK 17 |
+| D1/D3 branch GUI tests (Xvfb) | Passed, 13/13 tests |
+| D1/D3 branch 3D benchmark (Xvfb, test home) | Passed; scene creation 222 ms (7-piece home); reference home not available |
 
 ## Next Work
 
@@ -116,10 +121,17 @@ per-paint allocations and geometry rebuilds; C3 top-view icon decode/scale
 path). Depends on A2.
 
 **Workstream D - 3D scene, model loading and memory** (D1 model
-load/clone/bounds caching audit - the cache and dedup already existed, the gap
-was serial loading on the synchronous path; D2 parallelize model loading across
+load/clone/bounds caching audit - **done**: found and fixed broken inner
+WeakHashMap bounds cache, replaced with HashMap; the cloneNode synchronized
+bottleneck and per-clone HashMap allocation are noted but not yet addressed;
+D2 parallelize model loading across
 cores - **done**, ~51% faster off-screen scene construction; D3 reduce per-frame
-allocations in scene updates; D4 GPU-friendly geometry construction). Depends on
+allocations in scene updates - **in progress**: replaced 14 `Arrays.asList(new
+T[]{x})` calls with `Collections.singletonList(x)` in HomeComponent3D
+property-change listeners, avoiding temporary array/ArrayList per event. Next:
+audit `HomePieceOfFurniture3D.update()` and related Object3DBranch subclasses
+for larger allocation wins in the scene-graph rebuild path; D4 GPU-friendly
+geometry construction). Depends on
 A3.
 
 **Workstream E - Graphics environment tuning** (E1 central Windows auto-tuner
