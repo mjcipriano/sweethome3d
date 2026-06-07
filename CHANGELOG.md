@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.5.3-beta.7](https://github.com/mjcipriano/sweethome3d/compare/v7.5.2-beta.7...v7.5.3-beta.7) (2026-06-07)
+
+
+### Performance Improvements
+
+* tune WSLg rendering and align release version ([35e7a4e](https://github.com/mjcipriano/sweethome3d/commit/35e7a4ec7054181c217ef70d53f8e38fcf4f4cb8))
+* tune WSLg rendering and align release version ([9268779](https://github.com/mjcipriano/sweethome3d/commit/92687793cbc32894b2429eabbe9bf84b8883d500))
+
 ## [7.5.2-beta.7](https://github.com/mjcipriano/sweethome3d/compare/v7.5.1-beta.7...v7.5.2-beta.7) (2026-06-07)
 
 
