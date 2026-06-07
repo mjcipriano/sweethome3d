@@ -1,5 +1,12 @@
 # Changelog
 
+## [7.6.0-beta.1](https://github.com/mjcipriano/sweethome3d/compare/v7.5.4-beta.1...v7.6.0-beta.1) (2026-06-07)
+
+
+### Features
+
+* model simplification for 3D performance (D4) ([3523071](https://github.com/mjcipriano/sweethome3d/commit/35230716d24086cb520c8b1ef6743e1ffea2703b))
+
 ## [7.5.4-beta.1](https://github.com/mjcipriano/sweethome3d/compare/v7.5.3-beta.7...v7.5.4-beta.1) (2026-06-07)
 
 
