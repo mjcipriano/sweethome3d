@@ -1,0 +1,126 @@
+/*
+ * Home3DFpsBenchmark.java
+ *
+ * Sweet Home 3D, Copyright (c) 2026 Space Mushrooms <info@sweethome3d.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ */
+package com.eteks.sweethome3d.performance;
+
+import java.awt.BorderLayout;
+import java.io.File;
+
+import javax.swing.JFrame;
+import javax.swing.SwingUtilities;
+
+import com.eteks.sweethome3d.io.DefaultUserPreferences;
+import com.eteks.sweethome3d.io.HomeFileRecorder;
+import com.eteks.sweethome3d.model.Camera;
+import com.eteks.sweethome3d.model.Home;
+import com.eteks.sweethome3d.model.UserPreferences;
+import com.eteks.sweethome3d.swing.HomeComponent3D;
+import com.eteks.sweethome3d.viewcontroller.HomeController3D;
+
+/**
+ * Measures the interactive frame rate of the on-screen 3D view while the camera
+ * rotates. Unlike the off-screen frame benchmark (which crashes on some Mesa
+ * stacks), this drives the real on-screen pipeline, so it works wherever the
+ * application's 3D view does. Frame rate is read from the rendering statistics
+ * captured by {@link HomeComponent3D}. Requires a display.
+ */
+public class Home3DFpsBenchmark {
+  private static final int WIDTH = 1280;
+  private static final int HEIGHT = 800;
+
+  public static void main(String [] args) throws Exception {
+    if (args.length < 1 || args.length > 2) {
+      System.err.println("Usage: Home3DFpsBenchmark <home.sh3d> [seconds]");
+      System.exit(2);
+    }
+    final File homeFile = new File(args[0]).getCanonicalFile();
+    final int seconds = args.length == 2 ? Integer.parseInt(args[1]) : 15;
+
+    final Home home = new HomeFileRecorder(
+        0, false, null, false, true).readHome(homeFile.getPath());
+    final UserPreferences preferences = new DefaultUserPreferences();
+    System.out.println("file=" + homeFile);
+    System.out.println("furniture=" + home.getFurniture().size()
+        + " walls=" + home.getWalls().size() + " levels=" + home.getLevels().size());
+    System.out.println("renderingQuality="
+        + System.getProperty("com.eteks.sweethome3d.j3d.renderingQuality", "(default)")
+        + " compileScene="
+        + System.getProperty("com.eteks.sweethome3d.j3d.compileScene", "(default)"));
+
+    final JFrame [] frameHolder = new JFrame [1];
+    SwingUtilities.invokeAndWait(new Runnable() {
+      public void run() {
+        HomeComponent3D component = new HomeComponent3D(home, preferences, (HomeController3D)null);
+        JFrame frame = new JFrame("Sweet Home 3D - FPS benchmark");
+        frame.getContentPane().add(component, BorderLayout.CENTER);
+        frame.setSize(WIDTH, HEIGHT);
+        frame.setLocationRelativeTo(null);
+        frame.setVisible(true);
+        frameHolder [0] = frame;
+      }
+    });
+
+    final Camera camera = home.getCamera();
+    final float [] yaw = {camera.getYaw()};
+
+    // Spin the camera until the first frame is rendered (statistics available)
+    long firstFrameDeadline = System.nanoTime() + 30000000000L;
+    while (HomeComponent3D.getRenderingStatistics() == null
+           && System.nanoTime() < firstFrameDeadline) {
+      rotate(camera, yaw);
+      Thread.sleep(50);
+    }
+    HomeComponent3D.RenderingStatistics statistics = HomeComponent3D.getRenderingStatistics();
+    if (statistics == null) {
+      System.out.println("ERROR: the 3D view never rendered a frame");
+      System.exit(1);
+    }
+    System.out.println("gpu=" + statistics.getOpenGLRenderer());
+
+    // Rotate continuously and sample the measured frame rate
+    double sum = 0;
+    int samples = 0;
+    float min = Float.MAX_VALUE;
+    float max = 0;
+    long end = System.nanoTime() + seconds * 1000000000L;
+    while (System.nanoTime() < end) {
+      rotate(camera, yaw);
+      Thread.sleep(16);
+      float fps = HomeComponent3D.getRenderingStatistics().getFramesPerSecond();
+      if (fps > 0) {
+        sum += fps;
+        samples++;
+        min = Math.min(min, fps);
+        max = Math.max(max, fps);
+      }
+    }
+
+    System.out.println("fps_avg=" + (samples > 0 ? Math.round(sum / samples) : 0)
+        + " fps_min=" + (samples > 0 ? Math.round(min) : 0)
+        + " fps_max=" + Math.round(max)
+        + " samples=" + samples);
+
+    SwingUtilities.invokeAndWait(new Runnable() {
+      public void run() {
+        frameHolder [0].dispose();
+      }
+    });
+    System.exit(0);
+  }
+
+  private static void rotate(final Camera camera, final float [] yaw) throws Exception {
+    SwingUtilities.invokeAndWait(new Runnable() {
+      public void run() {
+        yaw [0] += 0.03f;
+        camera.setYaw(yaw [0]);
+      }
+    });
+  }
+}

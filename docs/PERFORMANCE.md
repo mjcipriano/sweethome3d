@@ -235,6 +235,38 @@ whole deferred update cycle. On the reference home the medians were about 3 ms
 for a piece move, 3 ms for a piece rotation, and 1 ms for a camera move. These
 are the baselines for the model-loading and scene-update work in workstream D.
 
+### Interactive frame rate
+
+The off-screen frame benchmark crashes on some Mesa stacks, so interactive frame
+rate is measured through the real on-screen pipeline instead:
+
+```sh
+make benchmark-home-3d-fps \
+  BENCHMARK_HOME=example-files/2025-11-27-House-Layout-v3.sh3d \
+  BENCHMARK_SECONDS=15
+```
+
+It opens the 3D view, rotates the camera, and reports `fps_avg/min/max` from the
+rendering statistics. A complex home rendered at ~1 FPS even on a discrete NVIDIA
+GPU, which is a CPU-bound render loop rather than a GPU limit. Two levers target
+it, both reversible:
+
+- **Scene compilation.** The home branch is now `compile()`d before it is added
+  to the universe (flatten transforms, merge shapes, build display lists), which
+  is the standard Java 3D optimization for complex static geometry. Runtime edits
+  still work because `compile()` preserves the capabilities already set on the
+  nodes (verified with `BENCHMARK_MODE=update`). Disable with
+  `-Dcom.eteks.sweethome3d.j3d.compileScene=false`.
+- **Transparency sorting.** Sorting transparent geometry by depth runs on the CPU
+  every frame; under `renderingQuality=speed` (the Windows default) the view uses
+  `TRANSPARENCY_SORT_NONE` instead of `TRANSPARENCY_SORT_GEOMETRY`.
+
+Note: the WSL/Mesa D3D12 translation layer is a noisy, unrepresentative proxy for
+native NVIDIA OpenGL (display lists behave differently there), so the absolute
+`fps_*` numbers from this host are unreliable. Measure these levers on the target
+Windows+NVIDIA hardware with the in-app overlay (Help > 3D rendering information),
+toggling the properties above.
+
 ## Optimization Rules
 
 1. Capture a baseline before changing a hot path.
