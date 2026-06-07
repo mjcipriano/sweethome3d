@@ -112,14 +112,20 @@ help:
 	@echo "  make clean      - Remove build artifacts produced by this Makefile."
 	@echo "Variables: VERSION, CONDA_ACTIVATE, JAVA_OPTS."
 
+# Files whose changes should trigger a rebuild. Without these prerequisites make
+# treats an existing jar as up to date and skips Ant after a source change, which
+# silently runs and tests stale code. Ant still does its own incremental
+# compilation, so an unchanged tree rebuilds quickly.
+APP_SOURCE_FILES := $(shell find src furniture textures help -type f 2>/dev/null) build.xml
+
 # Build jars used for development
-$(MAIN_JAR) $(DEV_RESOURCE_JARS):
+$(MAIN_JAR) $(DEV_RESOURCE_JARS): $(APP_SOURCE_FILES)
 	$(ANT) build furniture textures examples help
 
 build: $(MAIN_JAR)
 
 # Build the packaged executable jar (default Ant target does the same)
-$(INSTALL_JAR):
+$(INSTALL_JAR): $(APP_SOURCE_FILES)
 	$(ANT) jarExecutable
 
 jar: $(INSTALL_JAR)
