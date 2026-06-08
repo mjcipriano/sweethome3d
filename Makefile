@@ -62,6 +62,8 @@ GL_TEST_EXCLUDES := \
   com/eteks/sweethome3d/junit/ImportedFurnitureWizardTest \
   com/eteks/sweethome3d/junit/HomeCameraTest \
   com/eteks/sweethome3d/junit/TransferHandlerTest \
+  com/eteks/sweethome3d/junit/BackgroundImageWizardTest \
+  com/eteks/sweethome3d/junit/HomeFurniturePanelTest \
   com/eteks/sweethome3d/junit/RoomTest \
   com/eteks/sweethome3d/junit/LevelTest
 ALL_TEST_SOURCES := $(shell find test -name "*Test.java")
