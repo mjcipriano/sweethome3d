@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.8.0-beta.3](https://github.com/mjcipriano/sweethome3d/compare/v7.7.0-beta.3...v7.8.0-beta.3) (2026-06-08)
+
+
+### Features
+
+* add Visible On / Visible Off to furniture table right-click menu ([067f0a2](https://github.com/mjcipriano/sweethome3d/commit/067f0a2acc56c4e4b7e0a8d516293feadd7b2144))
+* Visible On / Visible Off for multi-selected furniture rows ([a037853](https://github.com/mjcipriano/sweethome3d/commit/a03785337a3451072bd20892a2b1b831b3b3b971))
+
 ## [7.7.0-beta.3](https://github.com/mjcipriano/sweethome3d/compare/v7.7.0-beta.2...v7.7.0-beta.3) (2026-06-08)
 
 
