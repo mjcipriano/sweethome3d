@@ -59,6 +59,7 @@ GL_TEST_EXCLUDES := \
   com/eteks/sweethome3d/junit/OBJWriterTest \
   com/eteks/sweethome3d/junit/PlanComponentWithFurnitureTest \
   com/eteks/sweethome3d/junit/ImportedTextureWizardTest \
+  com/eteks/sweethome3d/junit/PhotoCreationTest \
   com/eteks/sweethome3d/junit/HomeFileRecorderTest \
   com/eteks/sweethome3d/junit/ImportedFurnitureWizardTest \
   com/eteks/sweethome3d/junit/HomeCameraTest \
