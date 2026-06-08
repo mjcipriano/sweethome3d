@@ -387,7 +387,7 @@ public class ImportedTextureWizardTest extends ComponentTestFixture {
         TextureChoiceComponent.class, "confirmDeleteSelectedCatalogTexture.title");
     tester.waitForFrameShowing(new AWTHierarchy(), confirmDeleteSelectedCatalogTextureDialogTitle);
     // Check dialog box is displayed
-    JDialog confirmDialog = (JDialog)new BasicFinder().find(textureDialog,  
+    JDialog confirmDialog = (JDialog)new BasicFinder().find(textureDialog,
         new Matcher() {
             public boolean matches(Component c) {
               return c instanceof JDialog && ((JDialog)c).getTitle().equals(

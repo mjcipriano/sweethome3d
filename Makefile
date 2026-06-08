@@ -55,27 +55,20 @@ HAMCREST_URL := https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/ha
 TEST_COMPILE_CP := $(DEV_CLASS_PATH)$(CPSEP)lib/java3d-1.6/*$(CPSEP)lib/*$(CPSEP)libtest/*$(CPSEP)test
 TEST_RUN_CP := $(TEST_CLASSES)$(CPSEP)$(DEV_CLASS_PATH)$(CPSEP)test$(CPSEP)lib/java3d-1.6/*$(CPSEP)lib/*$(CPSEP)libtest/*
 GL_TEST_EXCLUDES := \
-  com/eteks/sweethome3d/j3d/ModelLODGeneratorTest \
   com/eteks/sweethome3d/junit/PlanComponentTest \
-  com/eteks/sweethome3d/junit/PrintTest \
   com/eteks/sweethome3d/junit/OBJWriterTest \
   com/eteks/sweethome3d/junit/PlanComponentWithFurnitureTest \
-  com/eteks/sweethome3d/junit/UserPreferencesPanelTest \
   com/eteks/sweethome3d/junit/ImportedTextureWizardTest \
   com/eteks/sweethome3d/junit/PhotoCreationTest \
-  com/eteks/sweethome3d/junit/IconManagerTest \
   com/eteks/sweethome3d/junit/HomeFileRecorderTest \
   com/eteks/sweethome3d/junit/ImportedFurnitureWizardTest \
   com/eteks/sweethome3d/junit/HomeCameraTest \
-  com/eteks/sweethome3d/junit/ModelManagerTest \
   com/eteks/sweethome3d/junit/TransferHandlerTest \
   com/eteks/sweethome3d/junit/BackgroundImageWizardTest \
   com/eteks/sweethome3d/junit/HomeFurniturePanelTest \
   com/eteks/sweethome3d/junit/RoomTest \
   com/eteks/sweethome3d/junit/HomeControllerTest \
-  com/eteks/sweethome3d/junit/LevelTest \
-  com/eteks/sweethome3d/junit/PlanControllerTest \
-  com/eteks/sweethome3d/junit/PackageDependenciesTest
+  com/eteks/sweethome3d/junit/LevelTest
 ALL_TEST_SOURCES := $(shell find test -name "*Test.java")
 CORE_TEST_SOURCES := \
   test/com/eteks/sweethome3d/io/HomeContentContextTest.java \
