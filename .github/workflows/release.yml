@@ -86,11 +86,11 @@ jobs:
         run: |
           if ($IsLinux) {
             sudo apt-get update
-            sudo apt-get install -y ant
+            sudo apt-get install -y ant cmake g++
           } elseif ($IsMacOS) {
-            brew install ant
+            brew install ant cmake
           } else {
-            choco install ant make --no-progress -y
+            choco install ant make cmake --no-progress -y
           }
 
       - name: Build platform bundle
@@ -109,6 +109,7 @@ jobs:
           path: |
             release/SweetHome3D-${{ needs.prepare.outputs.version }}-${{ matrix.platform }}.*
             release/SweetHome3D-${{ needs.prepare.outputs.version }}.jar
+            release/native/**
           if-no-files-found: error
           retention-days: 14
 
@@ -121,6 +122,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
       - uses: actions/download-artifact@v4
         with:
           pattern: SweetHome3D-*
@@ -134,6 +140,23 @@ jobs:
           if ($jars.Count -ne 1) {
             throw "Expected one merged executable JAR, found $($jars.Count)."
           }
+
+      - name: Embed all platform model LOD libraries
+        shell: bash
+        run: |
+          universal_jar="release/SweetHome3D-${{ needs.prepare.outputs.version }}.jar"
+          jar uf "$universal_jar" \
+            -C release native
+          entries="$(jar tf "$universal_jar")"
+          for native_entry in \
+            native/linux/x64/libsweethome3d_model_lod.so \
+            native/windows/x64/sweethome3d_model_lod.dll \
+            native/macos/x64/libsweethome3d_model_lod.dylib; do
+            grep -qx "$native_entry" <<<"$entries" || {
+              echo "Universal JAR is missing $native_entry" >&2
+              exit 1
+            }
+          done
 
       - name: Create checksums
         shell: bash

@@ -47,14 +47,15 @@ scripts/setup-conda-env.sh
 conda activate sweethome3d
 ```
 
-The environment includes OpenJDK, JFR, Ant, Make, Git, GitHub CLI, and the
-AWT/X11 libraries required by Java 3D. Linux GUI tests require WSLg/X11 or
+The environment includes OpenJDK, JFR, Ant, Make, CMake, a C++ compiler, Git,
+GitHub CLI, and the AWT/X11 libraries required by Java 3D. Linux GUI tests require WSLg/X11 or
 Xvfb. The host must provide `xdpyinfo`, `glxinfo`, and optionally `Xvfb`
 because conda-forge doesn't publish current runnable packages for these
 diagnostic/server commands.
 
 ```bash
 make build       # Compile application/resource JARs
+make model-lod-native  # Build the meshoptimizer native LOD library
 make jar         # Build install/SweetHome3D-7.5.jar
 make test-core   # Deterministic model/platform tests; no display required
 make test-gui    # Swing/controller tests; display required, Java 3D excluded
@@ -221,6 +222,16 @@ Run the relevant benchmark from `docs/PERFORMANCE.md` after any hot-path
 change. The complete `make test-local` suite is a compatibility probe while the
 legacy graphics stack can crash in native Mesa GLX; a native crash does not
 replace the required stable `make test-gui` suite.
+
+For model LOD work, `make model-lod-native` builds the meshoptimizer native
+library from `native/model-lod` with the Conda CMake/C++ toolchain. `make jar`
+embeds the platform native library under `native/<os>/x64/` in the executable
+JAR; `ModelLODGenerator` first tries `java.library.path`, then extracts the
+embedded library. Run
+`make test TEST_SOURCES="test/com/eteks/sweethome3d/junit/ModelLODTest.java test/com/eteks/sweethome3d/j3d/ModelLODGeneratorTest.java"`
+for focused persistence/native checks, then validate the manual UI path by
+opening the reference home, choosing `3D view > Generate model LOD cache`,
+saving, reopening, and confirming high-vertex furniture renders from the cache.
 
 For complex-home FPS comparisons, set `BENCHMARK_WARMUP_SECONDS` (normally 30)
 so asynchronous model insertion is distinguished from the measured interval.

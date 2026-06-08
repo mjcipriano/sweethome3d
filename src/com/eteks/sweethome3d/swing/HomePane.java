@@ -100,6 +100,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -177,6 +179,7 @@ import javax.swing.text.JTextComponent;
 import com.eteks.sweethome3d.j3d.Ground3D;
 import com.eteks.sweethome3d.j3d.OBJWriter;
 import com.eteks.sweethome3d.j3d.Object3DBranchFactory;
+import com.eteks.sweethome3d.j3d.ModelLODGenerator;
 import com.eteks.sweethome3d.model.BackgroundImage;
 import com.eteks.sweethome3d.model.Camera;
 import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
@@ -195,6 +198,7 @@ import com.eteks.sweethome3d.model.InterruptedRecorderException;
 import com.eteks.sweethome3d.model.Label;
 import com.eteks.sweethome3d.model.Level;
 import com.eteks.sweethome3d.model.Library;
+import com.eteks.sweethome3d.model.ModelLOD;
 import com.eteks.sweethome3d.model.ObjectProperty;
 import com.eteks.sweethome3d.model.Polyline;
 import com.eteks.sweethome3d.model.RecorderException;
@@ -263,6 +267,7 @@ public class HomePane extends JRootPane implements HomeView {
   private boolean               exportAllToOBJ = true;
   private ActionMap             menuActionMap;
   private List<Action>          pluginActions;
+  private final Set<Content>    generatingModelLODs = Collections.synchronizedSet(new HashSet<Content>());
 
   /**
    * Creates home view associated with its controller.
@@ -272,6 +277,13 @@ public class HomePane extends JRootPane implements HomeView {
     this.home = home;
     this.preferences = preferences;
     this.controller = controller;
+    this.home.addFurnitureListener(new CollectionListener<HomePieceOfFurniture>() {
+        public void collectionChanged(CollectionEvent<HomePieceOfFurniture> ev) {
+          if (ev.getType() == CollectionEvent.Type.ADD) {
+            generateModelLODs(Collections.singleton(ev.getItem()), false);
+          }
+        }
+      });
 
     if (!Boolean.getBoolean("com.eteks.sweethome3d.j3d.useOffScreen3DView")) {
       JPopupMenu.setDefaultLightWeightPopupEnabled(false);
@@ -557,6 +569,7 @@ public class HomePane extends JRootPane implements HomeView {
       createAction(ActionType.CREATE_PHOTOS_AT_POINTS_OF_VIEW, preferences, controller, "createPhotos");
       createAction(ActionType.CREATE_VIDEO, preferences, controller, "createVideo");
       createAction(ActionType.EXPORT_TO_OBJ, preferences, controller, "exportToOBJ");
+      createAction(ActionType.GENERATE_MODEL_LODS, preferences, this, "generateModelLODs");
     }
 
     createAction(ActionType.HELP, preferences, controller, "help");
@@ -1321,6 +1334,7 @@ public class HomePane extends JRootPane implements HomeView {
     addActionToMenu(ActionType.CREATE_VIDEO, preview3DMenu);
     preview3DMenu.addSeparator();
     addActionToMenu(ActionType.EXPORT_TO_OBJ, preview3DMenu);
+    addActionToMenu(ActionType.GENERATE_MODEL_LODS, preview3DMenu);
 
     // Create Help menu
     JMenu helpMenu = new JMenu(this.menuActionMap.get(MenuActionType.HELP_MENU));
@@ -5463,6 +5477,104 @@ public class HomePane extends JRootPane implements HomeView {
     // Use a clone of home to ignore selection and for thread safety
     OBJExporter.exportHomeToFile(cloneHomeInEventDispatchThread(this.home),
         objFile, header, this.exportAllToOBJ, object3dFactory);
+  }
+
+  /**
+   * Generates persistent LOD models for all high-complexity furniture in this home.
+   */
+  public void generateModelLODs() {
+    generateModelLODs(this.home.getFurniture(), true);
+  }
+
+  private void generateModelLODs(Collection<HomePieceOfFurniture> furniture, final boolean showStatus) {
+    final Set<Content> models = new HashSet<Content>();
+    collectLODModels(furniture, models);
+    if (models.isEmpty()) {
+      if (showStatus) {
+        JOptionPane.showMessageDialog(this,
+            "All furniture models already have an LOD cache or don't use a 3D model.",
+            "Generate model LOD cache", JOptionPane.INFORMATION_MESSAGE);
+      }
+      return;
+    }
+    if (!ModelLODGenerator.isAvailable()) {
+      if (showStatus) {
+        JOptionPane.showMessageDialog(this,
+            "Model LOD generation requires the native sweethome3d_model_lod library.",
+            "Generate model LOD cache", JOptionPane.ERROR_MESSAGE);
+      }
+      return;
+    }
+
+    final List<Content> queuedModels = new ArrayList<Content>();
+    synchronized (this.generatingModelLODs) {
+      for (Content model : models) {
+        if (!this.generatingModelLODs.contains(model)) {
+          this.generatingModelLODs.add(model);
+          queuedModels.add(model);
+        }
+      }
+    }
+    if (queuedModels.isEmpty()) {
+      return;
+    }
+
+    Thread generatorThread = new Thread("Sweet Home 3D model LOD generator") {
+        @Override
+        public void run() {
+          final int [] generatedCount = {0};
+          final Exception [] lastError = {null};
+          ModelLODGenerator generator = new ModelLODGenerator();
+          for (final Content model : queuedModels) {
+            try {
+              final ModelLOD modelLOD = generator.generate(model);
+              if (modelLOD != null) {
+                EventQueue.invokeLater(new Runnable() {
+                    public void run() {
+                      home.setModelLOD(model, modelLOD);
+                    }
+                  });
+                generatedCount [0]++;
+              }
+            } catch (Exception ex) {
+              lastError [0] = ex;
+            } finally {
+              generatingModelLODs.remove(model);
+            }
+          }
+          if (showStatus) {
+            EventQueue.invokeLater(new Runnable() {
+                public void run() {
+                  if (lastError [0] != null && generatedCount [0] == 0) {
+                    JOptionPane.showMessageDialog(HomePane.this,
+                        "No model LOD cache was generated:\n" + lastError [0].getMessage(),
+                        "Generate model LOD cache", JOptionPane.ERROR_MESSAGE);
+                  } else {
+                    JOptionPane.showMessageDialog(HomePane.this,
+                        "Generated " + generatedCount [0] + " model LOD cache entr"
+                            + (generatedCount [0] == 1 ? "y." : "ies."),
+                        "Generate model LOD cache", JOptionPane.INFORMATION_MESSAGE);
+                  }
+                }
+              });
+          }
+        }
+      };
+    generatorThread.setDaemon(true);
+    generatorThread.start();
+  }
+
+  private void collectLODModels(Collection<HomePieceOfFurniture> furniture, Set<Content> models) {
+    for (HomePieceOfFurniture piece : furniture) {
+      if (piece instanceof HomeFurnitureGroup) {
+        collectLODModels(((HomeFurnitureGroup)piece).getFurniture(), models);
+      } else {
+        Content model = piece.getModel();
+        if (model != null && this.home.getModelLOD(model) == null) {
+          models.add(model);
+        }
+      }
+    }
   }
 
   /**

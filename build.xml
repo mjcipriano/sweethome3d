@@ -617,6 +617,11 @@
         <include name="java3d-1.6/macosx/*.dylib"/>
         <include name="yafaray/macosx/**/*.dylib"/>
       </fileset>
+      <fileset dir="build/model-lod-native" erroronmissingdir="false">
+        <include name="native/**/*.dll"/>
+        <include name="native/**/*.so"/>
+        <include name="native/**/*.dylib"/>
+      </fileset>
       <fileset dir="libtest">
         <include name="jnlp.jar"/>
       </fileset>

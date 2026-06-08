@@ -17,16 +17,8 @@ if (-not (Get-Command ant -ErrorAction SilentlyContinue)) {
 if (-not (Get-Command jpackage -ErrorAction SilentlyContinue)) {
   throw "jpackage is required. Use JDK 17 or newer."
 }
-
-& ant "-Dversion=$Version" jarExecutable
-if ($LASTEXITCODE -ne 0) {
-  throw "Ant build failed."
-}
-
-$jarName = "SweetHome3D-$Version.jar"
-$jarPath = Join-Path $root "install/$jarName"
-if (-not (Test-Path $jarPath)) {
-  throw "Expected executable JAR was not produced: $jarPath"
+if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+  throw "CMake is required to build the model LOD native library."
 }
 
 $platform = if ($IsWindows) {
@@ -37,6 +29,45 @@ $platform = if ($IsWindows) {
   "linux-x64"
 } else {
   throw "Unsupported operating system."
+}
+
+& cmake -S native/model-lod -B build/native/model-lod -DCMAKE_BUILD_TYPE=Release
+if ($LASTEXITCODE -ne 0) {
+  throw "CMake configure failed."
+}
+& cmake --build build/native/model-lod --config Release --parallel
+if ($LASTEXITCODE -ne 0) {
+  throw "Model LOD native build failed."
+}
+
+$nativePlatform = $platform.Split("-", 2)[0]
+$nativeResourceDir = Join-Path $root "build/model-lod-native/native/$nativePlatform/x64"
+New-Item $nativeResourceDir -ItemType Directory -Force | Out-Null
+$nativeLibrary = if ($IsWindows) {
+  "build/native/model-lod/Release/sweethome3d_model_lod.dll"
+} elseif ($IsMacOS) {
+  "build/native/model-lod/libsweethome3d_model_lod.dylib"
+} else {
+  "build/native/model-lod/libsweethome3d_model_lod.so"
+}
+if (-not (Test-Path $nativeLibrary)) {
+  throw "Expected native model LOD library was not produced: $nativeLibrary"
+}
+Copy-Item $nativeLibrary $nativeResourceDir -Force
+$nativeStaging = Join-Path ([System.IO.Path]::GetTempPath()) "sweethome3d-model-lod-$platform"
+Remove-Item $nativeStaging -Recurse -Force -ErrorAction SilentlyContinue
+New-Item $nativeStaging -ItemType Directory -Force | Out-Null
+Copy-Item $nativeLibrary $nativeStaging -Force
+
+& ant "-Dversion=$Version" jarExecutable
+if ($LASTEXITCODE -ne 0) {
+  throw "Ant build failed."
+}
+
+$jarName = "SweetHome3D-$Version.jar"
+$jarPath = Join-Path $root "install/$jarName"
+if (-not (Test-Path $jarPath)) {
+  throw "Expected executable JAR was not produced: $jarPath"
 }
 
 $output = Join-Path $root $OutputDirectory
@@ -115,5 +146,8 @@ if ($IsWindows) {
 }
 
 Copy-Item $jarPath (Join-Path $output $jarName) -Force
+$releaseNativeDir = Join-Path $output "native/$nativePlatform/x64"
+New-Item $releaseNativeDir -ItemType Directory -Force | Out-Null
+Copy-Item (Join-Path $nativeStaging (Split-Path $nativeLibrary -Leaf)) $releaseNativeDir -Force
 Write-Host "Created $archive"
 Write-Host "Created $(Join-Path $output $jarName)"

@@ -5,6 +5,8 @@ channels:
 dependencies:
   - openjdk=17
   - ant
+  - cmake
+  - cxx-compiler
   - make=4.4.1
   - git=2.54.0
   - gh=2.93.0

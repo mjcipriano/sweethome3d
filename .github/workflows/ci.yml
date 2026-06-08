@@ -39,9 +39,9 @@ jobs:
         run: |
           if ($IsLinux) {
             sudo apt-get update
-            sudo apt-get install -y ant xvfb libgl1
+            sudo apt-get install -y ant xvfb libgl1 cmake g++
           } else {
-            choco install ant make --no-progress -y
+            choco install ant make cmake --no-progress -y
           }
 
       - name: Run core tests
@@ -79,7 +79,7 @@ jobs:
       - name: Install graphics test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ant xvfb libgl1
+          sudo apt-get install -y ant xvfb libgl1 cmake g++
 
       - name: Run Swing and controller tests
         run: xvfb-run -a make test-gui
@@ -101,7 +101,7 @@ jobs:
       - name: Install graphics test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ant xvfb x11-utils mesa-utils libgl1 libgl1-mesa-dri
+          sudo apt-get install -y ant xvfb x11-utils mesa-utils libgl1 libgl1-mesa-dri cmake g++
 
       - name: Run complete legacy Java 3D suite
         run: make test-local TEST_DISPLAY_MODE=xvfb

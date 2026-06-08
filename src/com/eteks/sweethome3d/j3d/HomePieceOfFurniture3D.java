@@ -73,6 +73,7 @@ import com.eteks.sweethome3d.model.HomeTexture;
 import com.eteks.sweethome3d.model.Level;
 import com.eteks.sweethome3d.model.Light;
 import com.eteks.sweethome3d.model.LightSource;
+import com.eteks.sweethome3d.model.ModelLOD;
 import com.eteks.sweethome3d.model.PieceOfFurniture;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Selectable;
@@ -196,7 +197,7 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
 
     final HomePieceOfFurniture piece = (HomePieceOfFurniture)getUserData();
     // Store 3D model for possible future changes
-    Content model = piece.getModel();
+    Content model = getDisplayedModel(piece);
     transformGroup.setUserData(model);
     // Load piece 3D model
     ModelManager.getInstance().loadModel(model, waitModelAndTextureLoadingEnd,
@@ -256,7 +257,7 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
       HomePieceOfFurniture piece = (HomePieceOfFurniture)getUserData();
       TransformGroup transformGroup = (TransformGroup)getChild(0);
       Node normalization = ((Group)transformGroup.getChild(0)).getChild(0);
-      if (piece.getModel().equals(transformGroup.getUserData())
+      if (getDisplayedModel(piece).equals(transformGroup.getUserData())
           && Arrays.deepEquals(piece.getModelRotation(), (float [][])normalization.getUserData())) {
         updatePieceOfFurnitureModelTransformations();
         updatePieceOfFurnitureTransform();
@@ -267,6 +268,15 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
     }
     updateLight();
     updatePieceOfFurnitureVisibility();
+  }
+
+  private Content getDisplayedModel(HomePieceOfFurniture piece) {
+    Home home = getHome();
+    ModelLOD modelLOD = home != null
+        && !"false".equalsIgnoreCase(System.getProperty("com.eteks.sweethome3d.j3d.useModelLODs"))
+            ? home.getModelLOD(piece.getModel())
+            : null;
+    return modelLOD != null ? modelLOD.getContent() : piece.getModel();
   }
 
   /**
