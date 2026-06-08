@@ -328,6 +328,7 @@ public class HomeController implements Controller {
     homeView.setEnabled(HomeView.ActionType.CREATE_PHOTO, true);
     homeView.setEnabled(HomeView.ActionType.CREATE_VIDEO, true);
     homeView.setEnabled(HomeView.ActionType.EXPORT_TO_OBJ, true);
+    homeView.setEnabled(HomeView.ActionType.GENERATE_MODEL_LODS, true);
     homeView.setEnabled(HomeView.ActionType.HELP, true);
     homeView.setEnabled(HomeView.ActionType.ABOUT, true);
     enableCreationToolsActions(homeView);

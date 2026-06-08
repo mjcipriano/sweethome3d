@@ -46,7 +46,7 @@ public class Home implements Serializable, Cloneable {
    * in <code>Home</code> class or in one of the classes that it uses,
    * this number is increased.
    */
-  public static final long CURRENT_VERSION = 7401;
+  public static final long CURRENT_VERSION = 7402;
 
   private static final String  HOME_TOP_CAMERA_ID         = "camera-homeTopCamera";
   private static final String  HOME_OBSERVER_CAMERA_ID    = "observerCamera-homeObserverCamera";
@@ -73,7 +73,7 @@ public class Home implements Serializable, Cloneable {
   public enum Property {NAME, MODIFIED,
     FURNITURE_SORTED_PROPERTY, FURNITURE_DESCENDING_SORTED, FURNITURE_VISIBLE_PROPERTIES,
     BACKGROUND_IMAGE, CAMERA, PRINT, BASE_PLAN_LOCKED, STORED_CAMERAS, RECOVERED, REPAIRED,
-    SELECTED_LEVEL, ALL_LEVELS_SELECTION, FURNITURE_ADDITIONAL_PROPERTIES};
+    SELECTED_LEVEL, ALL_LEVELS_SELECTION, FURNITURE_ADDITIONAL_PROPERTIES, MODEL_LODS};
 
   private List<HomePieceOfFurniture>                  furniture;
   private transient CollectionChangeSupport<HomePieceOfFurniture> furnitureChangeSupport;
@@ -110,6 +110,7 @@ public class Home implements Serializable, Cloneable {
   private boolean                                     furnitureDescendingSorted;
   private Map<String, Object>                         visualProperties;
   private Map<String, String>                         properties;
+  private Map<Content, ModelLOD>                      modelLODs;
   private transient PropertyChangeSupport             propertyChangeSupport;
   private long                                        version;
   private boolean                                     basePlanLocked;
@@ -168,6 +169,7 @@ public class Home implements Serializable, Cloneable {
         HomePieceOfFurniture.SortableProperty.VERTICES,
         HomePieceOfFurniture.SortableProperty.VISIBLE});
     this.furnitureVisiblePropertyNames = new ArrayList<String>();
+    this.modelLODs = new HashMap<Content, ModelLOD>();
     for (HomePieceOfFurniture.SortableProperty property : this.furnitureVisibleProperties) {
       this.furnitureVisiblePropertyNames.add(property.name());
     }
@@ -196,6 +198,9 @@ public class Home implements Serializable, Cloneable {
   private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
     init(false);
     in.defaultReadObject();
+    if (this.modelLODs == null) {
+      this.modelLODs = new HashMap<Content, ModelLOD>();
+    }
 
     if (KEEP_BACKWARD_COMPATIBLITY) {
       // Restore furnitureSortedProperty from furnitureSortedPropertyName or reverse
@@ -1977,6 +1982,34 @@ public class Home implements Serializable, Cloneable {
   }
 
   /**
+   * Returns the simplified models embedded in this home.
+   */
+  public Map<Content, ModelLOD> getModelLODs() {
+    return Collections.unmodifiableMap(new HashMap<Content, ModelLOD>(this.modelLODs));
+  }
+
+  public ModelLOD getModelLOD(Content model) {
+    return this.modelLODs.get(model);
+  }
+
+  public void setModelLOD(Content model, ModelLOD modelLOD) {
+    if (model == null || modelLOD == null) {
+      throw new IllegalArgumentException("Model and LOD are required");
+    }
+    ModelLOD oldModelLOD = this.modelLODs.put(model, modelLOD);
+    this.propertyChangeSupport.firePropertyChange(Property.MODEL_LODS.name(), oldModelLOD, modelLOD);
+    setModified(true);
+  }
+
+  public void removeModelLOD(Content model) {
+    ModelLOD oldModelLOD = this.modelLODs.remove(model);
+    if (oldModelLOD != null) {
+      this.propertyChangeSupport.firePropertyChange(Property.MODEL_LODS.name(), oldModelLOD, null);
+      setModified(true);
+    }
+  }
+
+  /**
    * Returns a clone of this home and the objects it contains.
    * Listeners bound to this home aren't added to the returned home.
    * @since 2.3
@@ -2121,6 +2154,7 @@ public class Home implements Serializable, Cloneable {
         source.furnitureVisiblePropertyNames);
     destination.visualProperties = new HashMap<String, Object>(source.visualProperties);
     destination.properties = new HashMap<String, String>(source.properties);
+    destination.modelLODs = new HashMap<Content, ModelLOD>(source.modelLODs);
   }
 
   /**

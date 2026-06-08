@@ -28,7 +28,7 @@ CPSEP := :
 ifeq ($(OS),Windows_NT)
   CPSEP := ;
 endif
-JAVA_LIB_PATH ?= lib/linux/x64:lib/java3d-1.6/linux/amd64:lib/yafaray/linux/x64
+JAVA_LIB_PATH ?= build/native/model-lod:lib/linux/x64:lib/java3d-1.6/linux/amd64:lib/yafaray/linux/x64
 ifeq ($(OS),Windows_NT)
   JAVA_LIB_PATH := lib\\windows\\x64;lib\\java3d-1.6\\windows\\amd64;lib\\yafaray\\windows\\x64
 endif
@@ -46,12 +46,14 @@ HOME_3D_BENCHMARK_SOURCE := test/com/eteks/sweethome3d/performance/Home3DRenderB
 STARTUP_BENCHMARK_SOURCE := test/com/eteks/sweethome3d/performance/StartupBenchmark.java
 PLAN_INTERACTION_BENCHMARK_SOURCE := test/com/eteks/sweethome3d/performance/PlanInteractionBenchmark.java
 HOME_3D_FPS_BENCHMARK_SOURCE := test/com/eteks/sweethome3d/performance/Home3DFpsBenchmark.java
+MODEL_LOD_BENCHMARK_SOURCE := test/com/eteks/sweethome3d/performance/ModelLODGenerationBenchmark.java
 TEST_JARS := libtest/junit-4.13.2.jar libtest/hamcrest-core-1.3.jar
 JUNIT_URL := https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar
 HAMCREST_URL := https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar
 TEST_COMPILE_CP := $(DEV_CLASS_PATH)$(CPSEP)lib/*$(CPSEP)lib/java3d-1.6/*$(CPSEP)libtest/*$(CPSEP)test
 TEST_RUN_CP := $(TEST_CLASSES)$(CPSEP)$(DEV_CLASS_PATH)$(CPSEP)test$(CPSEP)lib/*$(CPSEP)lib/java3d-1.6/*$(CPSEP)libtest/*
 GL_TEST_EXCLUDES := \
+  com/eteks/sweethome3d/j3d/ModelLODGeneratorTest \
   com/eteks/sweethome3d/junit/PlanComponentTest \
   com/eteks/sweethome3d/junit/PrintTest \
   com/eteks/sweethome3d/junit/OBJWriterTest \
@@ -77,6 +79,7 @@ CORE_TEST_SOURCES := \
   test/com/eteks/sweethome3d/io/HomeContentContextTest.java \
   test/com/eteks/sweethome3d/junit/SweetHome3DVersionTest.java \
   test/com/eteks/sweethome3d/junit/HomeTest.java \
+  test/com/eteks/sweethome3d/junit/ModelLODTest.java \
   test/com/eteks/sweethome3d/junit/OperatingSystemTest.java \
   test/com/eteks/sweethome3d/junit/PackageDependenciesTest.java
 ifneq ($(strip $(TEST_SOURCES)),)
@@ -90,11 +93,12 @@ endif
 endif
 TEST_NAMES := $(subst /,.,$(FILTERED_TEST_SOURCES:test/%.java=%))
 
-.PHONY: help build jar run run-dev test test-core test-gui test-local test-local-check test-wsl-gpu benchmark-home-load benchmark-plan-render benchmark-plan-interaction benchmark-home-3d benchmark-home-3d-fps benchmark-startup clean test-deps
+.PHONY: help build model-lod-native jar run run-dev test test-core test-gui test-local test-local-check test-wsl-gpu benchmark-home-load benchmark-plan-render benchmark-plan-interaction benchmark-home-3d benchmark-home-3d-fps benchmark-model-lod benchmark-startup clean test-deps
 
 help:
 	@echo "Common targets:"
 	@echo "  make build      - Compile Sweet Home 3D jars with Ant (build/*.jar)."
+	@echo "  make model-lod-native - Build the native meshoptimizer LOD library."
 	@echo "  make jar        - Build the distributable $(INSTALL_JAR)."
 	@echo "  make run        - Run the distributable jar (builds it first)."
 	@echo "  make run-dev    - Run from local classes/jars without repackaging."
@@ -112,6 +116,7 @@ help:
 	@echo "  make benchmark-plan-interaction BENCHMARK_HOME=<file.sh3d> [BENCHMARK_ITERATIONS=20]"
 	@echo "  make benchmark-home-3d BENCHMARK_HOME=<file.sh3d> [BENCHMARK_MODE=scene|frame|update]"
 	@echo "  make benchmark-home-3d-fps BENCHMARK_HOME=<file.sh3d> [BENCHMARK_SECONDS=15] [BENCHMARK_WARMUP_SECONDS=0]"
+	@echo "  make benchmark-model-lod BENCHMARK_HOME=<file.sh3d> LOD_OUTPUT=<output.sh3d>"
 	@echo "  make benchmark-startup BENCHMARK_HOME=<file.sh3d> [BENCHMARK_ITERATIONS=5]"
 	@echo "  make clean      - Remove build artifacts produced by this Makefile."
 	@echo "Variables: VERSION, CONDA_ACTIVATE, JAVA_OPTS."
@@ -126,10 +131,26 @@ APP_SOURCE_FILES := $(shell find src furniture textures help -type f 2>/dev/null
 $(MAIN_JAR) $(DEV_RESOURCE_JARS): $(APP_SOURCE_FILES)
 	$(ANT) build furniture textures examples help
 
-build: $(MAIN_JAR)
+model-lod-native:
+	$(RUN_IN_ENV)cmake -S native/model-lod -B build/native/model-lod -DCMAKE_BUILD_TYPE=Release
+	$(RUN_IN_ENV)cmake --build build/native/model-lod --config Release --parallel
+	@if [ -f build/native/model-lod/libsweethome3d_model_lod.so ]; then \
+	  mkdir -p build/model-lod-native/native/linux/x64; \
+	  cp build/native/model-lod/libsweethome3d_model_lod.so build/model-lod-native/native/linux/x64/; \
+	fi
+	@if [ -f build/native/model-lod/Release/sweethome3d_model_lod.dll ]; then \
+	  mkdir -p build/model-lod-native/native/windows/x64; \
+	  cp build/native/model-lod/Release/sweethome3d_model_lod.dll build/model-lod-native/native/windows/x64/; \
+	fi
+	@if [ -f build/native/model-lod/libsweethome3d_model_lod.dylib ]; then \
+	  mkdir -p build/model-lod-native/native/macos/x64; \
+	  cp build/native/model-lod/libsweethome3d_model_lod.dylib build/model-lod-native/native/macos/x64/; \
+	fi
+
+build: model-lod-native $(MAIN_JAR)
 
 # Build the packaged executable jar (default Ant target does the same)
-$(INSTALL_JAR): $(APP_SOURCE_FILES)
+$(INSTALL_JAR): model-lod-native $(APP_SOURCE_FILES)
 	$(ANT) jarExecutable
 
 jar: $(INSTALL_JAR)
@@ -163,7 +184,7 @@ $(TEST_JARS):
 test-deps: $(TEST_JARS)
 
 # Compile and run JUnit 4 tests
-test: $(MAIN_JAR) test-deps
+test: model-lod-native $(MAIN_JAR) test-deps
 	@mkdir -p $(TEST_CLASSES)
 	@rm -rf build/test-analysis && mkdir -p build/test-analysis
 	@cd build/test-analysis && $(JAR) xf ../SweetHome3D.jar
@@ -237,6 +258,17 @@ benchmark-home-3d-fps: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
 	  -d $(PERFORMANCE_CLASSES) $(HOME_3D_FPS_BENCHMARK_SOURCE)
 	$(RUN_IN_ENV)HOME_3D_JAVA='$(HOME_3D_JAVA)' HOME_3D_FPS_JFR='$(HOME_3D_FPS_JFR)' scripts/profile-home-3d-fps.sh \
 	  "$(BENCHMARK_HOME)" "$(or $(BENCHMARK_SECONDS),15)" "$(or $(BENCHMARK_WARMUP_SECONDS),0)"
+
+benchmark-model-lod: model-lod-native $(MAIN_JAR) $(DEV_RESOURCE_JARS)
+	@test -n "$(BENCHMARK_HOME)" || (echo "BENCHMARK_HOME is required" >&2; exit 2)
+	@test -n "$(LOD_OUTPUT)" || (echo "LOD_OUTPUT is required" >&2; exit 2)
+	@mkdir -p $(PERFORMANCE_CLASSES)
+	$(JAVAC) $(TEST_JAVAC_FLAGS) -encoding ISO-8859-1 -cp "$(TEST_COMPILE_CP)" \
+	  -d $(PERFORMANCE_CLASSES) $(MODEL_LOD_BENCHMARK_SOURCE)
+	$(JAVA) $(JAVA_TEST_OPTS) -Djava.library.path="$(JAVA_LIB_PATH)" \
+	  -cp "$(PERFORMANCE_CLASSES)$(CPSEP)$(TEST_RUN_CP)" \
+	  com.eteks.sweethome3d.performance.ModelLODGenerationBenchmark \
+	  "$(BENCHMARK_HOME)" "$(LOD_OUTPUT)"
 
 benchmark-startup: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
 	@test -n "$(BENCHMARK_HOME)" || (echo "BENCHMARK_HOME is required" >&2; exit 2)

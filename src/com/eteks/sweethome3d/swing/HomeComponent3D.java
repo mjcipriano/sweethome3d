@@ -234,6 +234,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
   private PropertyChangeListener                   elevationChangeListener;
   private PropertyChangeListener                   wallsAlphaListener;
   private PropertyChangeListener                   drawingModeListener;
+  private PropertyChangeListener                   modelLODListener;
   private SelectionListener                        selectionListener;
   private CollectionListener<Level>                levelListener;
   private PropertyChangeListener                   levelChangeListener;
@@ -1104,6 +1105,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    */
   private void removeHomeListeners() {
     this.home.removePropertyChangeListener(Home.Property.CAMERA, this.homeCameraListener);
+    this.home.removePropertyChangeListener(Home.Property.MODEL_LODS, this.modelLODListener);
     HomeEnvironment homeEnvironment = this.home.getEnvironment();
     homeEnvironment.removePropertyChangeListener(HomeEnvironment.Property.SKY_COLOR, this.backgroundChangeListener);
     homeEnvironment.removePropertyChangeListener(HomeEnvironment.Property.SKY_TEXTURE, this.backgroundChangeListener);
@@ -3173,7 +3175,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       // Set com.eteks.sweethome3d.j3d.preloadModels=false to disable this fast path.
       Set<Content> modelContents = new HashSet<Content>();
       for (HomePieceOfFurniture piece : this.home.getFurniture()) {
-        collectModelContents(piece, modelContents);
+        collectModelContents(piece, this.home, modelContents);
       }
       ModelManager.getInstance().preloadModels(modelContents);
     }
@@ -3199,6 +3201,12 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       addLevelListener(homeRoot);
       addWallListener(homeRoot);
       addFurnitureListener(homeRoot);
+      this.modelLODListener = new PropertyChangeListener() {
+          public void propertyChange(PropertyChangeEvent ev) {
+            updateObjects(getHomeObjects(HomePieceOfFurniture.class));
+          }
+        };
+      this.home.addPropertyChangeListener(Home.Property.MODEL_LODS, this.modelLODListener);
       addRoomListener(homeRoot);
       addPolylineListener(homeRoot);
       addDimensionLineListener(homeRoot);
@@ -3223,13 +3231,15 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    * Adds the model content of the given <code>piece</code> (or of every piece it contains
    * if it's a group) to <code>modelContents</code>, so distinct models can be preloaded.
    */
-  private static void collectModelContents(HomePieceOfFurniture piece, Set<Content> modelContents) {
+  private static void collectModelContents(HomePieceOfFurniture piece, Home home, Set<Content> modelContents) {
     if (piece instanceof HomeFurnitureGroup) {
       for (HomePieceOfFurniture childPiece : ((HomeFurnitureGroup)piece).getAllFurniture()) {
-        collectModelContents(childPiece, modelContents);
+        collectModelContents(childPiece, home, modelContents);
       }
     } else {
-      Content model = piece.getModel();
+      com.eteks.sweethome3d.model.ModelLOD modelLOD =
+          home.getModelLOD(piece.getModel());
+      Content model = modelLOD != null ? modelLOD.getContent() : piece.getModel();
       if (model != null) {
         modelContents.add(model);
       }

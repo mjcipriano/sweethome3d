@@ -33,6 +33,16 @@ foreach ($entry in $requiredEntries) {
     throw "Executable JAR is missing required entry: $entry"
   }
 }
+$nativeEntry = if ($IsWindows) {
+  "native/windows/x64/sweethome3d_model_lod.dll"
+} elseif ($IsMacOS) {
+  "native/macos/x64/libsweethome3d_model_lod.dylib"
+} else {
+  "native/linux/x64/libsweethome3d_model_lod.so"
+}
+if ($jarEntries -notcontains $nativeEntry) {
+  throw "Executable JAR is missing platform model LOD library: $nativeEntry"
+}
 
 $zip = [System.IO.Compression.ZipFile]::OpenRead($jar)
 try {

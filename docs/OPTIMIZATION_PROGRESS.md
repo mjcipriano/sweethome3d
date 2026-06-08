@@ -50,6 +50,7 @@ approved. The `example-files/` directory is ignored.
 | Release/About version | Put `Implementation-Version` in both application JAR manifests, prefer it in `SweetHome3D.getVersion()`, pass the release version into native launchers, and verify the executable JAR manifest during packaging | Removes the hard-coded `7.5` About fallback from packaged releases and makes artifact verification fail when the displayed and published versions diverge | merged PR #27 |
 | WSLg rendering default and FPS measurement | Apply the existing speed rendering profile on WSLg as well as Windows, and add a configurable warm-up period to the real-view FPS benchmark | WSLg correctly selects the D3D12 NVIDIA renderer and speed profile. The complex reference home still averaged about 1 FPS after a 30 s warm-up, proving this profile alone does not solve the primary 3D-view bottleneck | merged PR #27 |
 | Model complexity diagnostics | Make Vertices a default furniture-table column for new and existing homes, wire it into the display-property menu, repaint when asynchronous model counts arrive, localize its heading, and avoid invalid sorting state | Large models are visibly identified without changing their geometry. Counts remain diagnostic only until a topology-safe LOD implementation is available | current branch |
+| Persistent topology-safe model LOD | Generate simplified OBJ caches asynchronously after furniture import or from `3D view > Generate model LOD cache`; persist original-to-LOD content mappings in `.sh3d`; use meshoptimizer per shape after rebuilding indices from complete position/normal/UV tuples; retain original/unsupported geometry; embed native libraries in platform and universal release JARs | Native simplification, home clone, embedded-content save/reopen, core tests, GUI tests, and embedded-native extraction pass. The complex reference-home generation/visual/FPS run is still pending because the current sandbox couldn't connect to WSLg or Xvfb and display escalation was unavailable | current branch |
 | Release automation | Restore the `main` push trigger required by the existing release-please job | Qualifying merged changes once again create or update a release PR; merging that PR builds and attaches platform artifacts | current branch |
 
 ## Tried And Rejected
@@ -102,6 +103,11 @@ committed.
 | `scripts/verify-release.ps1` locally | Not run; `pwsh` is not installed in the current Conda environment. The equivalent JAR manifest check was verified with `unzip`, and GitHub release packaging will run the PowerShell verifier on hosted runners |
 | Current branch Linux `make test-gui` | WSLg/Xvfb socket path is unavailable in this session; native Windows GUI fallback passed 16/16 through WSL interop |
 | Forced-quality warmed FPS comparison | Blocked locally after WSLg stopped accepting `DISPLAY=:0` connections. The speed-profile run above is the only completed warmed WSLg FPS measurement for this branch |
+| LOD focused native/persistence tests | Passed, 3/3: compact valid native mesh, home clone, and `.sh3d` embedded-content save/reopen after deleting source files |
+| LOD branch `make test-core` | Passed, 12/12 including package dependency checks |
+| LOD branch `make test-gui` on WSLg | Passed, 17/17 after excluding the JNI-only test from the Java-3D-free GUI suite |
+| LOD executable JAR native extraction | Passed with an empty `java.library.path`; embedded Linux x64 meshoptimizer library loaded and native simplification test passed |
+| Reference-home LOD generation/persistence benchmark | Pending: both direct `DISPLAY=:0` and private Xvfb failed to connect in the restricted sandbox; display escalation was unavailable |
 
 ## Next Work
 
@@ -152,12 +158,15 @@ T[]{x})` calls with `Collections.singletonList(x)` in HomeComponent3D
 property-change listeners, avoiding temporary array/ArrayList per event. Next:
 audit `HomePieceOfFurniture3D.update()` and related Object3DBranch subclasses
 for larger allocation wins in the scene-graph rebuild path; D4 topology-safe
-decimation/LOD - **pending redesign**. The hand-written vertex-clustering
-implementation was removed because it blocked model delivery and corrupted
-unsupported geometry. The next implementation must preserve indexed attributes
-and primitive topology, generate lower-detail geometry asynchronously or
-offline, keep the original model available, and validate visual fidelity before
-measuring heavy-view FPS on the reference home. Depends on A3.
+decimation/LOD - **current branch**: adds a persistent `Home` model-LOD cache,
+import-time background generation for newly added home furniture, a manual
+`3D view > Generate model LOD cache` command for existing files, runtime use of
+cached models, and a meshoptimizer native simplifier. The generator converts
+Java 3D geometry to indexed triangles, rebuilds adjacency from the complete
+position/normal/UV tuple to preserve seams, simplifies per shape/material, and
+keeps unsupported geometry at original fidelity. Focused native and persistence
+tests pass; remaining validation is visual inspection and FPS measurement on the
+reference home after generating/saving/reopening the cache. Depends on A3.
 
 JFR captured while opening the reference home identifies
 `RenderBin.findAttributeBin` on Java 3D's render-structure update thread as the
