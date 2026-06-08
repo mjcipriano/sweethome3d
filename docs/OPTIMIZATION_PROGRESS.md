@@ -151,9 +151,14 @@ in parallel, then F.
 B2 defer/parallelize startup init). Depends on A1.
 
 **Workstream C - 2D interaction latency** (C1 shrink invalidated repaint scope -
-selection done; the furniture-move/revalidate path and zoom remain; C2 cut
-per-paint allocations and geometry rebuilds; C3 top-view icon decode/scale
-path). Depends on A2.
+selection done; **plain-piece move done** (dragging a piece now repaints only the
+union of its old and new bounds instead of the whole plan: `move_piece` on the
+reference home dropped from a full 2,073,600 px / ~10.6 ms repaint to ~8,600 px /
+~0 ms; doors, windows, staircases and groups still fall back to a full repaint
+because they also repaint the wall/room/children they affect); the rotate/resize
+path remains and zoom legitimately needs a full repaint; C2 cut per-paint
+allocations and geometry rebuilds; C3 top-view icon decode/scale path). Depends
+on A2.
 
 **Workstream D - 3D scene, model loading and memory** (D1 model
 load/clone/bounds caching audit - **done**: found and fixed broken inner
