@@ -33,6 +33,7 @@ import com.eteks.sweethome3d.model.BoxBounds;
 import com.eteks.sweethome3d.model.Camera;
 import com.eteks.sweethome3d.model.Compass;
 import com.eteks.sweethome3d.model.Content;
+import com.eteks.sweethome3d.model.ModelLOD;
 import com.eteks.sweethome3d.model.DimensionLine;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomeDoorOrWindow;
@@ -174,6 +175,23 @@ public class HomeXMLExporter extends ObjectXMLExporter<Home> {
     for (Label label : home.getLabels()) {
       writeLabel(writer, label);
     }
+    // Write generated model LOD references so the simplified-model cache survives
+    // saving and reopening through the Home.xml entry (preferred by the reader)
+    for (Map.Entry<Content, ModelLOD> modelLODEntry : home.getModelLODs().entrySet()) {
+      writeModelLOD(writer, modelLODEntry.getKey(), modelLODEntry.getValue());
+    }
+  }
+
+  /**
+   * Writes in XML the LOD generated for the given <code>model</code> content.
+   */
+  protected void writeModelLOD(XMLWriter writer, Content model, ModelLOD modelLOD) throws IOException {
+    writer.writeStartElement("modelLOD");
+    writer.writeAttribute("model", getExportedContentName(model, model), null);
+    writer.writeAttribute("content", getExportedContentName(modelLOD.getContent(), modelLOD.getContent()), null);
+    writer.writeIntegerAttribute("sourceVertexCount", modelLOD.getSourceVertexCount());
+    writer.writeIntegerAttribute("vertexCount", modelLOD.getVertexCount());
+    writer.writeEndElement();
   }
 
   /**
