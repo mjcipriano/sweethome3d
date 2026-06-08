@@ -60,15 +60,12 @@ GL_TEST_EXCLUDES := \
   com/eteks/sweethome3d/junit/PlanComponentWithFurnitureTest \
   com/eteks/sweethome3d/junit/ImportedTextureWizardTest \
   com/eteks/sweethome3d/junit/PhotoCreationTest \
-  com/eteks/sweethome3d/junit/HomeFileRecorderTest \
   com/eteks/sweethome3d/junit/ImportedFurnitureWizardTest \
   com/eteks/sweethome3d/junit/HomeCameraTest \
-  com/eteks/sweethome3d/junit/TransferHandlerTest \
   com/eteks/sweethome3d/junit/BackgroundImageWizardTest \
   com/eteks/sweethome3d/junit/HomeFurniturePanelTest \
   com/eteks/sweethome3d/junit/RoomTest \
-  com/eteks/sweethome3d/junit/HomeControllerTest \
-  com/eteks/sweethome3d/junit/LevelTest
+  com/eteks/sweethome3d/junit/HomeControllerTest
 ALL_TEST_SOURCES := $(shell find test -name "*Test.java")
 CORE_TEST_SOURCES := \
   test/com/eteks/sweethome3d/io/HomeContentContextTest.java \
