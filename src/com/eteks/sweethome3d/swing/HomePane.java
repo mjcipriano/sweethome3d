@@ -3235,6 +3235,24 @@ public class HomePane extends JRootPane implements HomeView {
       furnitureViewPopup.add(createFurnitureDisplayPropertyMenu(home, preferences));
       furnitureViewPopup.addSeparator();
       addActionToPopupMenu(ActionType.EXPORT_TO_CSV, furnitureViewPopup);
+      // Multi-select visibility toggles
+      final JComponent furnitureTableView = furnitureView;
+      JMenuItem visibleOnItem = new JMenuItem(
+          this.preferences.getLocalizedString(HomePane.class, "visibleOn", "Visible On"));
+      visibleOnItem.addActionListener(new ActionListener() {
+          public void actionPerformed(ActionEvent ev) {
+            setSelectedFurnitureVisible(furnitureTableView, true);
+          }
+        });
+      furnitureViewPopup.add(visibleOnItem);
+      JMenuItem visibleOffItem = new JMenuItem(
+          this.preferences.getLocalizedString(HomePane.class, "visibleOff", "Visible Off"));
+      visibleOffItem.addActionListener(new ActionListener() {
+          public void actionPerformed(ActionEvent ev) {
+            setSelectedFurnitureVisible(furnitureTableView, false);
+          }
+        });
+      furnitureViewPopup.add(visibleOffItem);
       SwingTools.hideDisabledMenuItems(furnitureViewPopup);
       furnitureView.setComponentPopupMenu(furnitureViewPopup);
 
@@ -5575,6 +5593,36 @@ public class HomePane extends JRootPane implements HomeView {
         }
       }
     }
+  }
+
+  /**
+   * Sets the visibility of all selected furniture items in the given furniture view.
+   */
+  private void setSelectedFurnitureVisible(JComponent furnitureView, boolean visible) {
+    if (furnitureView instanceof FurnitureTable) {
+      FurnitureTable table = (FurnitureTable)furnitureView;
+      int [] selectedRows = table.getSelectedRows();
+      if (selectedRows.length > 0) {
+        for (int row : selectedRows) {
+          Object value = table.getValueAt(row, 0);
+          if (value instanceof HomePieceOfFurniture) {
+            setPieceVisible((HomePieceOfFurniture)value, visible);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Recursively sets visibility on a piece and its children if it's a group.
+   */
+  private void setPieceVisible(HomePieceOfFurniture piece, boolean visible) {
+    if (piece instanceof HomeFurnitureGroup) {
+      for (HomePieceOfFurniture child : ((HomeFurnitureGroup)piece).getFurniture()) {
+        setPieceVisible(child, visible);
+      }
+    }
+    piece.setVisible(visible);
   }
 
   /**
