@@ -111,7 +111,7 @@ Windows JDK against the build through WSL's Windows interop (`cmd.exe` /
 display-list and antialiasing work.
 
 1. `make build`, then compile the benchmark into `build/performance-classes`:
-   `javac -source 8 -target 8 -encoding ISO-8859-1 -cp "build/SweetHome3D.jar:build/Furniture.jar:build/Textures.jar:build/Examples.jar:build/Help.jar:lib/*:lib/java3d-1.6/*:test" -d build/performance-classes test/com/eteks/sweethome3d/performance/Home3DFpsBenchmark.java`
+   `javac -source 8 -target 8 -encoding ISO-8859-1 -cp "build/SweetHome3D.jar:build/Furniture.jar:build/Textures.jar:build/Examples.jar:build/Help.jar:lib/java3d-1.6/*:lib/*:test" -d build/performance-classes test/com/eteks/sweethome3d/performance/Home3DFpsBenchmark.java`
 2. Stage to a local Windows folder (loading native DLLs over `\\wsl$` fails), for
    example `cp`-ing into `/mnt/c/sh3d-bench`: the `build/*.jar` dev jars,
    `build/performance-classes`, the Java 3D 1.6 jars `lib/java3d-1.6/*.jar` (not

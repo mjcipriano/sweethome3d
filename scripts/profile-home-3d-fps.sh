@@ -34,7 +34,7 @@ java_options=(
   --add-opens=java.desktop/java.awt=ALL-UNNAMED
   --add-opens=java.desktop/sun.awt=ALL-UNNAMED
   --add-exports=java.desktop/sun.awt=ALL-UNNAMED
-  -Djava.library.path=lib/linux/x64:lib/java3d-1.6/linux/amd64:lib/yafaray/linux/x64
+  -Djava.library.path=lib/java3d-1.6/linux/amd64:lib/linux/x64:lib/yafaray/linux/x64
   -Djogamp.gluegen.UseTempJarCache=false
 )
 if [[ -n "$jfr_file" ]]; then
@@ -43,6 +43,6 @@ if [[ -n "$jfr_file" ]]; then
 fi
 
 exec "$java_command" "${java_options[@]}" \
-  -cp "build/performance-classes:build/SweetHome3D.jar:build/Furniture.jar:build/Textures.jar:build/Examples.jar:build/Help.jar:lib/*:lib/java3d-1.6/*" \
+  -cp "build/performance-classes:build/SweetHome3D.jar:build/Furniture.jar:build/Textures.jar:build/Examples.jar:build/Help.jar:lib/java3d-1.6/*:lib/*" \
   com.eteks.sweethome3d.performance.Home3DFpsBenchmark \
   "$home_file" "$seconds" "$warmup_seconds"
