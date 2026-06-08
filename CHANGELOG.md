@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.7.0-beta.2](https://github.com/mjcipriano/sweethome3d/compare/v7.7.0-beta.1...v7.7.0-beta.2) (2026-06-08)
+
+
+### Bug Fixes
+
+* persist model LOD cache in the Home.xml entry ([bcf941f](https://github.com/mjcipriano/sweethome3d/commit/bcf941f00eaabcacbbc4d15bc0a08c500b736d21))
+* persist model LOD cache in the Home.xml entry ([0e9448b](https://github.com/mjcipriano/sweethome3d/commit/0e9448b5a90f54dfa44054528c5a514875ae30ef))
+
 ## [7.7.0-beta.1](https://github.com/mjcipriano/sweethome3d/compare/v7.6.2-beta.1...v7.7.0-beta.1) (2026-06-08)
 
 
