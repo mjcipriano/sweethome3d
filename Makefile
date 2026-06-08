@@ -65,7 +65,8 @@ GL_TEST_EXCLUDES := \
   com/eteks/sweethome3d/junit/BackgroundImageWizardTest \
   com/eteks/sweethome3d/junit/HomeFurniturePanelTest \
   com/eteks/sweethome3d/junit/RoomTest \
-  com/eteks/sweethome3d/junit/HomeControllerTest
+  com/eteks/sweethome3d/junit/HomeControllerTest \
+  com/eteks/sweethome3d/junit/FurnitureVisibility3DTest
 ALL_TEST_SOURCES := $(shell find test -name "*Test.java")
 CORE_TEST_SOURCES := \
   test/com/eteks/sweethome3d/io/HomeContentContextTest.java \
