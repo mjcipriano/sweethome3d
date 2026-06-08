@@ -72,6 +72,7 @@ evidence.
 | 1920x1080 Java 3D off-screen frame benchmark on the legacy Java 3D/JOGL stack | Native crash in `libGLX_mesa.so` while creating the off-screen context | Keep `scene` mode as the safe default; retry after the graphics stack is upgraded |
 | Complete legacy Java 3D JUnit suite on current WSLg/Mesa | JVM terminated in native `libGLX_mesa.so` before JUnit completed | Treat as a scheduled/manual compatibility probe; use `make test-gui` as the required stable GUI suite |
 | OpenJDK 21 runtime vs 17 on the headless benchmarks (task A4) | Interleaved 4-round A/B on the reference home showed no repeatable difference: plan-render warmed median ~15 ms on both; startup cold ~2.16 s on both. Run-to-run variance on the WSL host (e.g. 2.0-3.4 s cold-start swings) swamps any JDK delta. No crashes or regressions on 21 | Keep the pinned OpenJDK 17; do not add a Java 21 dev toolchain without a materially quieter measurement host or a different workload. Bytecode stays at Java 8 either way |
+| Share a `RenderingAttributes` instance across pieces to shrink `RenderBin.findAttributeBin` (the D-task hotspot) | Profiling the reference home's frame render (now possible after the Java 3D 1.6 off-screen fix) confirms `RenderBin.findAttributeBin` is the dominant Java hotspot: 6614 top-of-stack samples, next is 148. It is an O(n*bins) linear search Java 3D runs per render atom over its `AttributeBin` list. Pointing all visible shapes at one shared `RenderingAttributes` did **not** help - samples rose to 15353 and `AttributeBin.equals` appeared - because Java 3D matches bins by **value** (`AttributeBin.equals` over polygon/line/point/rendering attributes), not object identity, and the 435 pieces carry genuinely distinct attribute combinations from their model materials. Batching live attachment cannot reduce it either: the cost is the per-atom bin search during `RenderBin` construction regardless of how many transactions attach the atoms | The hotspot is internal to Java 3D's `RenderBin` (a list scan that should be a hash lookup), so reducing it belongs to the **F1** graphics-stack work (patch/upgrade Java 3D), not an app-level change; geometry merging is blocked by per-piece mutability (the `compile()` regression). Pivot app-level effort to measurable lower-risk wins - D3 scene-update allocations and C1 2D repaint scope |
 | Compile each asynchronously loaded furniture branch before attaching it to the live scene | Compiling shared model geometry caused `RestrictedAccessException`; preserving compiled shared geometry then caused `CapabilityNotSetException` when pickability was initialized. Java 3D requires all mutable capabilities and per-instance state to be established before compilation | Removed. Revisit only as a broader model-instantiation refactor that separates immutable compiled geometry from mutable per-piece nodes |
 | Hand-written vertex-clustering model simplifier | Ran synchronously on every large model load even when disabled, delaying observer notification and leaving white loading boxes visible. It also treated indexed geometry as triangle lists, lost separate normal/texture/color indices and attributes, and converted unsupported topology such as quads, strips, and fans incorrectly | Removed. Any future decimation/LOD work must preserve each geometry topology and vertex attributes, run outside the critical model-delivery path, retain the original model, and include visual-fidelity fixtures plus reference-home FPS measurements |
 
@@ -175,12 +176,16 @@ keeps unsupported geometry at original fidelity. Focused native and persistence
 tests pass; remaining validation is visual inspection and FPS measurement on the
 reference home after generating/saving/reopening the cache. Depends on A3.
 
-JFR captured while opening the reference home identifies
-`RenderBin.findAttributeBin` on Java 3D's render-structure update thread as the
-dominant Java-side CPU hotspot. The next D task should reduce or batch live
-scene attachment while 435 asynchronous furniture models arrive. Do not retry
-per-piece `compile()` until immutable shared geometry and mutable instance
-capabilities are separated.
+JFR confirms `RenderBin.findAttributeBin` is the dominant Java-side CPU hotspot
+when rendering the reference home (6614 top-of-stack samples). It is a linear
+scan Java 3D runs per render atom over its `AttributeBin` list, matched by value.
+Investigation (see Tried And Rejected) showed this is **not** fixable at the app
+level: sharing `RenderingAttributes` made it worse, and batching live attachment
+cannot reduce a per-atom bin search. It belongs to **F1** (patch/upgrade Java 3D
+so `findAttributeBin` is a hash lookup). Do not retry per-piece `compile()` or
+geometry merging until immutable shared geometry and mutable instance
+capabilities are separated. App-level effort should go to **D3** (scene-update
+allocations) and **C1** (2D repaint scope), which are measurable and low-risk.
 
 **Workstream E - Graphics environment tuning** (E1 central Windows auto-tuner
 with kill-switch and stock fallback - **done**: defaults the 3D renderer to
