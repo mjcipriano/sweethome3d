@@ -198,9 +198,16 @@ make benchmark-home-3d \
 
 Set `HOME_3D_JFR=profiles/home-3d.jfr` to record synchronous scene construction
 and model loading. `BENCHMARK_MODE=frame` additionally renders repeated
-1920x1080 off-screen frames, but legacy Java 3D / JOGL may crash in Mesa GLX
-while creating the large off-screen context. Use `make test-local-check` first
-to record the active OpenGL vendor, renderer, and direct-rendering status.
+1920x1080 off-screen frames. This used to crash in `libGLX_mesa` under WSL: the
+dev/test/benchmark classpath listed `lib/*` before `lib/java3d-1.6/*`, so it
+loaded the legacy **Java 3D 1.5.2** jars (GLX-pbuffer off-screen path) instead of
+the **1.6.2a** jars the shipped launchers use (JOGL 2.5 FBO off-screen). Loading
+1.6.2a first - which the Makefile and `scripts/profile-*.sh` now do - makes the
+off-screen `frame` path and previously crashing Java 3D JUnit tests complete
+without a native crash on WSL/Mesa. Some tests excluded by `GL_TEST_EXCLUDES`
+still have ordinary assertion or resource failures and must be triaged before
+they are re-enabled. Use `make test-local-check` first to record the active
+OpenGL vendor, renderer, and direct-rendering status.
 Run this benchmark from the pinned `sweethome3d` Conda environment; its
 standard OpenJDK 17 build is required for stable Java 3D profiling under WSL.
 

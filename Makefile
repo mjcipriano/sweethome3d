@@ -28,9 +28,11 @@ CPSEP := :
 ifeq ($(OS),Windows_NT)
   CPSEP := ;
 endif
-JAVA_LIB_PATH ?= build/native/model-lod:lib/linux/x64:lib/java3d-1.6/linux/amd64:lib/yafaray/linux/x64
+# java3d-1.6 natives first so the JOGL pipeline (1.6.2a) is used, matching the
+# shipped launchers; the legacy lib/*/x64 j3dcore-ogl native then goes unused.
+JAVA_LIB_PATH ?= build/native/model-lod:lib/java3d-1.6/linux/amd64:lib/linux/x64:lib/yafaray/linux/x64
 ifeq ($(OS),Windows_NT)
-  JAVA_LIB_PATH := lib\\windows\\x64;lib\\java3d-1.6\\windows\\amd64;lib\\yafaray\\windows\\x64
+  JAVA_LIB_PATH := lib\\java3d-1.6\\windows\\amd64;lib\\windows\\x64;lib\\yafaray\\windows\\x64
 endif
 
 # Paths
@@ -50,8 +52,8 @@ MODEL_LOD_BENCHMARK_SOURCE := test/com/eteks/sweethome3d/performance/ModelLODGen
 TEST_JARS := libtest/junit-4.13.2.jar libtest/hamcrest-core-1.3.jar
 JUNIT_URL := https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar
 HAMCREST_URL := https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar
-TEST_COMPILE_CP := $(DEV_CLASS_PATH)$(CPSEP)lib/*$(CPSEP)lib/java3d-1.6/*$(CPSEP)libtest/*$(CPSEP)test
-TEST_RUN_CP := $(TEST_CLASSES)$(CPSEP)$(DEV_CLASS_PATH)$(CPSEP)test$(CPSEP)lib/*$(CPSEP)lib/java3d-1.6/*$(CPSEP)libtest/*
+TEST_COMPILE_CP := $(DEV_CLASS_PATH)$(CPSEP)lib/java3d-1.6/*$(CPSEP)lib/*$(CPSEP)libtest/*$(CPSEP)test
+TEST_RUN_CP := $(TEST_CLASSES)$(CPSEP)$(DEV_CLASS_PATH)$(CPSEP)test$(CPSEP)lib/java3d-1.6/*$(CPSEP)lib/*$(CPSEP)libtest/*
 GL_TEST_EXCLUDES := \
   com/eteks/sweethome3d/j3d/ModelLODGeneratorTest \
   com/eteks/sweethome3d/junit/PlanComponentTest \
@@ -167,7 +169,7 @@ run-dev: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
 	  -Duser.language=$(USER_LANG) -Duser.country=$(USER_COUNTRY) -Duser.variant=$(USER_VARIANT) \
 	  -Djava.library.path="$(JAVA_LIB_PATH)" \
 	  -Djogamp.gluegen.UseTempJarCache=false \
-	  -cp "$(DEV_CLASS_PATH)$(CPSEP)lib/*$(CPSEP)lib/java3d-1.6/*$(CPSEP)libtest/jnlp.jar" \
+	  -cp "$(DEV_CLASS_PATH)$(CPSEP)lib/java3d-1.6/*$(CPSEP)lib/*$(CPSEP)libtest/jnlp.jar" \
 	  com.eteks.sweethome3d.SweetHome3D
 
 # Ensure JUnit dependencies are available for tests
@@ -294,7 +296,7 @@ vr-plugin: $(INSTALL_JAR)
 # Build WebXR preview plugin (.sh3p)
 webxr-plugin: $(INSTALL_JAR)
 	@mkdir -p .plugin-build/webxr plugins
-	$(JAVAC) --release 8 -encoding ISO-8859-1 -cp "$(INSTALL_JAR)$(CPSEP)lib/*$(CPSEP)lib/java3d-1.6/*" \
+	$(JAVAC) --release 8 -encoding ISO-8859-1 -cp "$(INSTALL_JAR)$(CPSEP)lib/java3d-1.6/*$(CPSEP)lib/*" \
 	  -d .plugin-build/webxr pluginsrc/com/eteks/sweethome3d/plugin/webxr/WebXRPreviewPlugin.java
 	cp pluginsrc/com/eteks/sweethome3d/plugin/webxr/ApplicationPlugin.properties .plugin-build/webxr/
 	$(JAR) cf plugins/WebXRPreview.sh3p -C .plugin-build/webxr .

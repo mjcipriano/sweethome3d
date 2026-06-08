@@ -22,6 +22,6 @@ if [[ -n "$jfr_file" ]]; then
 fi
 
 exec java "${java_options[@]}" \
-  -cp "build/performance-classes:build/SweetHome3D.jar:build/Furniture.jar:build/Textures.jar:build/Examples.jar:build/Help.jar:lib/*:lib/java3d-1.6/*" \
+  -cp "build/performance-classes:build/SweetHome3D.jar:build/Furniture.jar:build/Textures.jar:build/Examples.jar:build/Help.jar:lib/java3d-1.6/*:lib/*" \
   com.eteks.sweethome3d.performance.HomeLoadBenchmark \
   "$home_file" "$mode" "$iterations"
