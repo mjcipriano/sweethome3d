@@ -1086,13 +1086,17 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     }
 
     // Link scene matching home to universe. Compiling the branch optimizes its
-    // static parts (flattens transforms, merges shapes, builds display lists),
-    // which speeds up rendering of complex homes. Runtime edits still work because
-    // compile() preserves the capabilities already set on the nodes. Set
-    // com.eteks.sweethome3d.j3d.compileScene=false to disable.
+    // static parts (flattens transforms, merges shapes, builds display lists) and
+    // speeds up rendering of complex homes, but only a scene that won't be edited
+    // can be compiled: compiling the live, interactive scene (listenToHomeUpdates)
+    // broke runtime edits - toggling a piece's visibility no longer updated the 3D
+    // view, and the detached "separate window" view rendered nothing. So compile
+    // only the static off-screen scenes (photo, export) used for one-shot images.
+    // Set com.eteks.sweethome3d.j3d.compileScene=false to disable even that.
     BranchGroup sceneTree = createSceneTree(
         displayShadowOnFloor, listenToHomeUpdates, waitForLoading);
-    if (!"false".equalsIgnoreCase(System.getProperty("com.eteks.sweethome3d.j3d.compileScene"))) {
+    if (!listenToHomeUpdates
+        && !"false".equalsIgnoreCase(System.getProperty("com.eteks.sweethome3d.j3d.compileScene"))) {
       sceneTree.compile();
     }
     universe.addBranchGraph(sceneTree);
