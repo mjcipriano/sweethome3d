@@ -321,8 +321,14 @@ the reference home:
 | `compile()` off, display lists on | ~0.25 (4 frames in 16 s) |
 | `compile()` off, display lists off | 8 |
 
-`compile()` is essential (its absence with display lists collapses to ~0.25
-FPS). Two findings then redirected the geometry work:
+`compile()` greatly helped rendering (its absence with display lists collapsed
+to ~0.25 FPS). **However, compiling the live interactive scene broke runtime
+editing** - a piece's Visible toggle stopped updating the 3D view and the
+detached separate-window view rendered nothing - so `compile()` is now applied
+only to static off-screen scenes, never the interactive view (see the ledger).
+The interactive view therefore relies on `j3d.displaylist=false`, LOD, and
+no-antialiasing for speed, plus the pending scene-attachment batching. Two
+findings then redirected the geometry work:
 
 - **By-reference / VBO geometry (task D4) does not apply here.** This Java 3D
   build has no VBO path (no VBO symbols in `j3dcore`/`jogl-all`), the loader
