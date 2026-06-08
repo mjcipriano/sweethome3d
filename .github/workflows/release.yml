@@ -1,9 +1,6 @@
 name: Release
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       version:
@@ -20,6 +17,9 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   prepare:
@@ -127,26 +127,57 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: actions/download-artifact@v4
+      - name: Download Linux artifact (JAR + native libs)
+        uses: actions/download-artifact@v4
         with:
-          pattern: SweetHome3D-*
+          name: SweetHome3D-${{ needs.prepare.outputs.version }}-linux-x64
           path: release
+
+      - name: Download Windows native libs
+        uses: actions/download-artifact@v4
+        with:
+          name: SweetHome3D-${{ needs.prepare.outputs.version }}-windows-x64
+          path: release-windows
+
+      - name: Download macOS native libs
+        uses: actions/download-artifact@v4
+        with:
+          name: SweetHome3D-${{ needs.prepare.outputs.version }}-macos-x64
+          path: release-macos
+
+      - name: Download platform archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: SweetHome3D-${{ needs.prepare.outputs.version }}-*
+          path: release-archives
           merge-multiple: true
 
-      - name: Validate merged executable JAR
-        shell: pwsh
+      - name: Merge platform archives into release
+        shell: bash
         run: |
-          $jars = @(Get-ChildItem release -Filter "SweetHome3D-${{ needs.prepare.outputs.version }}.jar")
-          if ($jars.Count -ne 1) {
-            throw "Expected one merged executable JAR, found $($jars.Count)."
-          }
+          # Copy platform archives (not the JAR or native dirs) into release/
+          find release-archives -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
+            -exec cp {} release/ \;
 
-      - name: Embed all platform model LOD libraries
+      - name: Embed all platform model LOD libraries into universal JAR
         shell: bash
         run: |
           universal_jar="release/SweetHome3D-${{ needs.prepare.outputs.version }}.jar"
-          jar uf "$universal_jar" \
-            -C release native
+          # Merge native dirs from all platforms
+          for plat in release-windows release-macos; do
+            if [ -d "$plat/native" ]; then
+              cp -r "$plat/native"/* release/native/ 2>/dev/null || true
+              # If the dir structure is flat, adjust
+              find "$plat" -path '*/native/*' -type f | while read -r f; do
+                rel="${f#$plat/}"
+                mkdir -p "release/$(dirname "$rel")"
+                cp "$f" "release/$rel"
+              done
+            fi
+          done
+          # Embed native dir into JAR
+          jar uf "$universal_jar" -C release native
+          # Verify all three platform LOD libs are present
           entries="$(jar tf "$universal_jar")"
           for native_entry in \
             native/linux/x64/libsweethome3d_model_lod.so \
@@ -189,9 +220,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          # Upload only files: release/ now also contains a native/ directory
-          # (per-platform model LOD libraries) that is embedded into the universal
-          # JAR above, and `gh release upload` fails on a directory argument.
           mapfile -t release_assets < <(find release -maxdepth 1 -type f)
           gh release upload "${{ needs.prepare.outputs.tag }}" "${release_assets[@]}" \
             --repo "${{ github.repository }}" \
