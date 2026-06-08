@@ -824,14 +824,15 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
                      && doorOrWindowWallThicknessAreasCache.remove(ev.getSource()) != null) {
             revalidate();
           } else if ((HomePieceOfFurniture.Property.X.name().equals(ev.getPropertyName())
-                      || HomePieceOfFurniture.Property.Y.name().equals(ev.getPropertyName()))
+                      || HomePieceOfFurniture.Property.Y.name().equals(ev.getPropertyName())
+                      || HomePieceOfFurniture.Property.ANGLE.name().equals(ev.getPropertyName()))
                      && ev.getSource() instanceof HomePieceOfFurniture
                      && !(ev.getSource() instanceof HomeFurnitureGroup)
                      && !((HomePieceOfFurniture)ev.getSource()).isDoorOrWindow()
                      && ((HomePieceOfFurniture)ev.getSource()).getStaircaseCutOutShape() == null) {
-            // Moving a plain piece only changes its own painted area: repaint just
-            // the union of its previous and new bounds instead of the whole plan
-            repaintPieceOfFurnitureMove((HomePieceOfFurniture)ev.getSource(),
+            // Moving or rotating a plain piece only changes its own painted area:
+            // repaint just the union of its previous and new bounds, not the whole plan
+            repaintPieceOfFurnitureChange((HomePieceOfFurniture)ev.getSource(),
                 ev.getPropertyName(), ev.getOldValue());
           } else {
             revalidate();
@@ -5774,13 +5775,14 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
   }
 
   /**
-   * Repaints only the area covering a piece's previous and new position when it
-   * moves, instead of repainting the whole plan. A plain piece (not a door, window
-   * or staircase that cuts other items) paints only within its own bounds, so a
-   * drag can update just that region. The plan bounds cache is still invalidated so
-   * the scrollable plan size and scroll position stay correct.
+   * Repaints only the area covering a piece's previous and new bounds when it is
+   * moved or rotated, instead of repainting the whole plan. A plain piece (not a
+   * door, window or staircase that cuts other items) paints only within its own
+   * bounds, so a drag or rotation can update just that region. The plan bounds
+   * cache is still invalidated so the scrollable plan size and scroll position
+   * stay correct.
    */
-  private void repaintPieceOfFurnitureMove(HomePieceOfFurniture piece, String propertyName, Object oldValue) {
+  private void repaintPieceOfFurnitureChange(HomePieceOfFurniture piece, String propertyName, Object oldValue) {
     if (!(oldValue instanceof Float)) {
       revalidate();
       return;
@@ -5789,8 +5791,10 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
     HomePieceOfFurniture previousPiece = piece.clone();
     if (HomePieceOfFurniture.Property.X.name().equals(propertyName)) {
       previousPiece.setX((Float)oldValue);
-    } else {
+    } else if (HomePieceOfFurniture.Property.Y.name().equals(propertyName)) {
       previousPiece.setY((Float)oldValue);
+    } else {
+      previousPiece.setAngle((Float)oldValue);
     }
     bounds.add(getItemBounds(null, previousPiece));
     // Keep the scrollable plan size and scroll position correct without a full repaint

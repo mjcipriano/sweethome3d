@@ -196,6 +196,15 @@ public class PlanInteractionBenchmark {
         firstPiece.move(delta, delta);
       }
     });
+    measure("rotate_piece", iterations, plan, image, new Runnable() {
+      private float angle = firstPiece.getAngle();
+      public void run() {
+        home.setSelectedItems(singleSelection);
+        plan.takeDirtyRegion();
+        this.angle += (float)(Math.PI / 12);
+        firstPiece.setAngle(this.angle);
+      }
+    });
     measure("zoom", iterations, plan, image, new Runnable() {
       private boolean zoomIn = true;
       public void run() {
