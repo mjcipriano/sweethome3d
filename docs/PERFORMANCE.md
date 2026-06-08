@@ -356,6 +356,14 @@ every configuration. That residual is raw visible-triangle volume, which only
 geometry decimation / level-of-detail on those oversized models would address;
 it is a larger change and partly a content issue (that model is extreme).
 
+A later native-Windows heap sweep of the same 435-piece home established that
+1 GB is not sufficient: scene construction repeatedly entered
+`OutOfMemoryError: GC overhead limit exceeded`. Two clean 2 GB runs completed at
+9 and 20 FPS. Increasing the heap to 4 GB did not improve performance
+consistently (0 and 21 FPS in matched runs), so 2 GB remains the Windows default
+for both packaged releases and `scripts/run.bat`. This removes the 1 GB failure
+mode without requiring 4 GB on smaller systems.
+
 ## Optimization Rules
 
 1. Capture a baseline before changing a hot path.
