@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.7.0-beta.3](https://github.com/mjcipriano/sweethome3d/compare/v7.7.0-beta.2...v7.7.0-beta.3) (2026-06-08)
+
+
+### Bug Fixes
+
+* don't compile the live interactive 3D scene (restores editing) ([9fa73b7](https://github.com/mjcipriano/sweethome3d/commit/9fa73b770021d6fa25e803c2ed7753dd0a23b58b))
+* don't compile the live interactive 3D scene (restores Visible toggle + separate window) ([cd88968](https://github.com/mjcipriano/sweethome3d/commit/cd8896894f50d7da692911527c5ad7ecd6101e25))
+
 ## [7.7.0-beta.2](https://github.com/mjcipriano/sweethome3d/compare/v7.7.0-beta.1...v7.7.0-beta.2) (2026-06-08)
 
 
