@@ -95,10 +95,12 @@ committed.
 | Model-complexity repair `make test-core` | Passed, 10/10 tests, including the new default Vertices column assertion |
 | Model-complexity repair targeted `FurnitureTableTest` | Passed headlessly, 3/3 tests, including creation and lookup of the Vertices column |
 | Model-complexity repair reference-home load | Passed with 435 furniture items in 1.74 s; confirms the complex 141 MB home still loads after removing eager simplification |
-| Model-complexity repair targeted Java 3D loader test | Blocked locally: WSLg X11/GLX is unavailable, and the read-only `/tmp/.X11-unix` mount is owned by `nobody:nogroup` with mode `0777`; JUnit correctly rejected both tests through the 3D availability assumption |
+| Model-complexity repair Windows GUI suite | Passed 16/16 tests on the native Windows desktop JVM through WSL interop |
+| Model-complexity repair Windows Java 3D loader test | Passed 2/2 tests on Oracle Java 8 with the bundled Windows OpenGL natives |
+| Model-complexity repair native Windows FPS benchmark | Passed on NVIDIA GeForce GTX 1660 Ti, OpenGL 4.6 / driver 596.36. No-warm-up 16 s pass: average 5 FPS, min 1, max 33. After 30 s warm-up: average 11 FPS, min 1, max 38 over 182 frames |
 | `ant -Dversion=7.5.2-beta.8 jarExecutable` | Passed; executable JAR manifest contains `Implementation-Version: 7.5.2-beta.8` |
 | `scripts/verify-release.ps1` locally | Not run; `pwsh` is not installed in the current Conda environment. The equivalent JAR manifest check was verified with `unzip`, and GitHub release packaging will run the PowerShell verifier on hosted runners |
-| Current branch `make test-gui` | Blocked locally because WSLg `DISPLAY=:0` and `xvfb-run` both failed to accept X11 connections; expected to run in CI's Linux/Xvfb job |
+| Current branch Linux `make test-gui` | WSLg/Xvfb socket path is unavailable in this session; native Windows GUI fallback passed 16/16 through WSL interop |
 | Forced-quality warmed FPS comparison | Blocked locally after WSLg stopped accepting `DISPLAY=:0` connections. The speed-profile run above is the only completed warmed WSLg FPS measurement for this branch |
 
 ## Next Work

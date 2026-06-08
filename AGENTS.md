@@ -116,13 +116,18 @@ display-list and antialiasing work.
    `build/performance-classes`, the Java 3D 1.6 jars `lib/java3d-1.6/*.jar` (not
    the legacy `lib/j3dcore.jar`/`vecmath.jar`), the non-3D `lib/*.jar` (batik,
    jeksparser, iText, freehep, sunflow, jmf), the
-   `lib/java3d-1.6/windows/amd64/*.dll` natives, and the `.sh3d` home.
+   `lib/java3d-1.6/windows/amd64/*.dll` JOGL natives,
+   `lib/windows/x64/j3dcore-ogl.dll`, and the `.sh3d` home.
 3. Run a Windows JDK with the natives on `-Djava.library.path` (Java 8 needs no
    `--add-opens`; a Java 11+ JDK needs the same `--add-opens`/`--add-exports` the
    packaged app uses, and enables JFR). The benchmark prints the OpenGL renderer
    (confirming the GPU, e.g. `NVIDIA GeForce GTX 1660 Ti`) and a deterministic
    average FPS from a fixed camera sweep, plus the view-dependent min/max:
    `cmd.exe /c '"C:\Program Files\Java\<jdk>\bin\java.exe" -Xmx2g -Djava.library.path=C:\sh3d-bench\natives -Djogamp.gluegen.UseTempJarCache=false -cp "C:\sh3d-bench\app\*;C:\sh3d-bench\perf;C:\sh3d-bench\j3d\*;C:\sh3d-bench\libs\*" com.eteks.sweethome3d.performance.Home3DFpsBenchmark C:\sh3d-bench\home.sh3d 16'`
+   A Windows executable may also be invoked directly from Bash. Quote every
+   Windows argument containing backslashes so Bash doesn't remove them:
+   `'/mnt/c/Program Files/Java/<jdk>/bin/java.exe' -Xmx2g '-Djava.library.path=C:\sh3d-bench\natives' -Djogamp.gluegen.UseTempJarCache=false -cp 'C:\sh3d-bench\app\*;C:\sh3d-bench\perf;C:\sh3d-bench\j3d\*;C:\sh3d-bench\libs\*' com.eteks.sweethome3d.performance.Home3DFpsBenchmark 'C:\sh3d-bench\home.sh3d' 16 30`
+   The third benchmark argument is the warm-up duration in seconds.
 4. A/B Java 3D properties by prepending them, for example
    `-Dj3d.displaylist=true` or `-Dcom.eteks.sweethome3d.j3d.compileScene=false`.
    Run each two or three times; native frame rate is view-dependent and varies

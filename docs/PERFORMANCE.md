@@ -303,11 +303,13 @@ min/max rolling FPS that shows the view-dependent spread. Procedure:
 2. Stage to a local Windows folder (avoids loading native DLLs over `\\wsl$`):
    the dev resource jars, `build/performance-classes`, the Java 3D 1.6 jars
    (`lib/java3d-1.6/*.jar` - not the 1.5.2 `lib/j3dcore.jar`/`vecmath.jar`), the
-   non-3D `lib/*.jar`, the `lib/java3d-1.6/windows/amd64/*.dll` natives, and the
-   home file.
+   non-3D `lib/*.jar`, the `lib/java3d-1.6/windows/amd64/*.dll` JOGL natives,
+   `lib/windows/x64/j3dcore-ogl.dll`, and the home file.
 3. Run with the Windows JDK and the natives on `-Djava.library.path`. Java 8
    needs no `--add-opens`. Set `JOPTS` to A/B properties such as
-   `-Dcom.eteks.sweethome3d.j3d.compileScene=false`.
+   `-Dcom.eteks.sweethome3d.j3d.compileScene=false`. When invoking `java.exe`
+   directly from Bash, single-quote Windows arguments containing backslashes,
+   including `-Djava.library.path`, the classpath, and the home path.
 
 Findings on a GTX 1660 Ti (OpenGL 4.6, driver 596.36), 1280x800, 16 s sweep of
 the reference home:
