@@ -66,6 +66,31 @@ public class ModelLODTest {
     return file;
   }
 
+  @Test
+  public void testModelLODPersistsThroughXmlHomeEntry() throws Exception {
+    // The application reads the preferred Home.xml entry, so model LODs must round
+    // trip through the XML export/import path, not only the serialized Home entry.
+    File sourceFile = writeTemporaryContent("xml-source-model");
+    File lodFile = writeTemporaryContent("xml-simplified-model");
+    Home home = new Home();
+    home.setModelLOD(new URLContent(sourceFile.toURI().toURL()),
+        new ModelLOD(new URLContent(lodFile.toURI().toURL()), 4000000, 60000));
+    File homeFile = File.createTempFile("model-lod-xml-", ".sh3d");
+    homeFile.deleteOnExit();
+    HomeFileRecorder recorder = new HomeFileRecorder(0, false, null, false, true);
+    recorder.writeHome(home, homeFile.getPath());
+    sourceFile.delete();
+    lodFile.delete();
+
+    Home reopened = recorder.readHome(homeFile.getPath());
+    assertEquals(1, reopened.getModelLODs().size());
+    Map.Entry<Content, ModelLOD> entry = reopened.getModelLODs().entrySet().iterator().next();
+    assertEquals("xml-source-model", readContent(entry.getKey()));
+    assertEquals("xml-simplified-model", readContent(entry.getValue().getContent()));
+    assertEquals(4000000, entry.getValue().getSourceVertexCount());
+    assertEquals(60000, entry.getValue().getVertexCount());
+  }
+
   private String readContent(Content content) throws Exception {
     InputStream in = content.openStream();
     try {

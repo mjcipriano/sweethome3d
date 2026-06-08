@@ -47,6 +47,7 @@ import com.eteks.sweethome3d.model.Compass;
 import com.eteks.sweethome3d.model.Content;
 import com.eteks.sweethome3d.model.DimensionLine;
 import com.eteks.sweethome3d.model.FurnitureCategory;
+import com.eteks.sweethome3d.model.ModelLOD;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomeDoorOrWindow;
 import com.eteks.sweethome3d.model.HomeEnvironment;
@@ -813,6 +814,16 @@ public class HomeXMLHandler extends DefaultHandler {
         this.homeBackgroundImage = backgroundImage;
       } else {
         this.backgroundImage = backgroundImage;
+      }
+    } else if ("modelLOD".equals(name)) {
+      Content model = parseContent(name, attributesMap, "model");
+      Content modelLODContent = parseContent(name, attributesMap, "content");
+      if (model != null && modelLODContent != null) {
+        Integer sourceVertexCount = parseOptionalInteger(attributesMap, "sourceVertexCount");
+        Integer vertexCount = parseOptionalInteger(attributesMap, "vertexCount");
+        this.home.setModelLOD(model, new ModelLOD(modelLODContent,
+            sourceVertexCount != null ? sourceVertexCount.intValue() : 0,
+            vertexCount != null ? vertexCount.intValue() : 0));
       }
     } else if ("property".equals(name)) {
       if (this.homeElementName != null) {
