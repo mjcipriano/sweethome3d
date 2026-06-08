@@ -189,6 +189,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh release upload "${{ needs.prepare.outputs.tag }}" release/* \
+          # Upload only files: release/ now also contains a native/ directory
+          # (per-platform model LOD libraries) that is embedded into the universal
+          # JAR above, and `gh release upload` fails on a directory argument.
+          mapfile -t release_assets < <(find release -maxdepth 1 -type f)
+          gh release upload "${{ needs.prepare.outputs.tag }}" "${release_assets[@]}" \
             --repo "${{ github.repository }}" \
             --clobber
