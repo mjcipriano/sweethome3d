@@ -9,7 +9,7 @@ measurements remain in `docs/PERFORMANCE.md`.
 
 - Updated: 2026-06-08
 - Checkpoint branch: `fix/model-complexity-feedback`
-- Pull request: pending
+- Pull request: <https://github.com/mjcipriano/sweethome3d/pull/36>
 - Target: restore usable model-complexity diagnostics and remove the unsafe
   load-time model simplifier that delayed or corrupted 3D model display.
 - Reference workload:
