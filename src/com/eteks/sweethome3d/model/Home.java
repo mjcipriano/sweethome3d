@@ -46,7 +46,7 @@ public class Home implements Serializable, Cloneable {
    * in <code>Home</code> class or in one of the classes that it uses,
    * this number is increased.
    */
-  public static final long CURRENT_VERSION = 7400;
+  public static final long CURRENT_VERSION = 7401;
 
   private static final String  HOME_TOP_CAMERA_ID         = "camera-homeTopCamera";
   private static final String  HOME_OBSERVER_CAMERA_ID    = "observerCamera-homeObserverCamera";
@@ -165,6 +165,7 @@ public class Home implements Serializable, Cloneable {
         HomePieceOfFurniture.SortableProperty.WIDTH,
         HomePieceOfFurniture.SortableProperty.DEPTH,
         HomePieceOfFurniture.SortableProperty.HEIGHT,
+        HomePieceOfFurniture.SortableProperty.VERTICES,
         HomePieceOfFurniture.SortableProperty.VISIBLE});
     this.furnitureVisiblePropertyNames = new ArrayList<String>();
     for (HomePieceOfFurniture.SortableProperty property : this.furnitureVisibleProperties) {
@@ -224,6 +225,20 @@ public class Home implements Serializable, Cloneable {
         for (HomePieceOfFurniture.SortableProperty furnitureVisibleProperty : this.furnitureVisibleProperties) {
           this.furnitureVisiblePropertyNames.add(furnitureVisibleProperty.name());
         }
+      }
+      if (this.version < 7401
+          && !this.furnitureVisiblePropertyNames.contains(
+              HomePieceOfFurniture.SortableProperty.VERTICES.name())) {
+        this.furnitureVisiblePropertyNames = new ArrayList<String>(this.furnitureVisiblePropertyNames);
+        this.furnitureVisibleProperties = new ArrayList<HomePieceOfFurniture.SortableProperty>(
+            this.furnitureVisibleProperties);
+        int visibleIndex = this.furnitureVisiblePropertyNames.indexOf(
+            HomePieceOfFurniture.SortableProperty.VISIBLE.name());
+        int insertionIndex = visibleIndex >= 0 ? visibleIndex : this.furnitureVisiblePropertyNames.size();
+        this.furnitureVisiblePropertyNames.add(
+            insertionIndex, HomePieceOfFurniture.SortableProperty.VERTICES.name());
+        this.furnitureVisibleProperties.add(
+            insertionIndex, HomePieceOfFurniture.SortableProperty.VERTICES);
       }
 
       // Ensure all wall have an height
@@ -403,6 +418,7 @@ public class Home implements Serializable, Cloneable {
           HomePieceOfFurniture.SortableProperty.WIDTH,
           HomePieceOfFurniture.SortableProperty.DEPTH,
           HomePieceOfFurniture.SortableProperty.HEIGHT,
+          HomePieceOfFurniture.SortableProperty.VERTICES,
           HomePieceOfFurniture.SortableProperty.COLOR,
           HomePieceOfFurniture.SortableProperty.MOVABLE,
           HomePieceOfFurniture.SortableProperty.DOOR_OR_WINDOW,

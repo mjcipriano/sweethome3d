@@ -7,11 +7,11 @@ measurements remain in `docs/PERFORMANCE.md`.
 
 ## Current Checkpoint
 
-- Updated: 2026-06-07
-- Checkpoint branch: `perf/3d-view-version-release`
-- Pull request: <https://github.com/mjcipriano/sweethome3d/pull/27>
-- Target: align the About dialog with packaged release versions, improve WSLg
-  rendering defaults, and publish a testable prerelease.
+- Updated: 2026-06-08
+- Checkpoint branch: `fix/model-complexity-feedback`
+- Pull request: pending
+- Target: restore usable model-complexity diagnostics and remove the unsafe
+  load-time model simplifier that delayed or corrupted 3D model display.
 - Reference workload:
   `example-files/2025-11-27-House-Layout-v3.sh3d`
 - Reference workload shape: 141 MB, 435 furniture items, 162 walls, 47 rooms,
@@ -46,10 +46,11 @@ approved. The `example-files/` directory is ignored.
 | 3D bounds cache (D1) | Audit `ModelManager` model load/clone/bounds caching. Found inner `WeakHashMap<Transform3D, BoundingBox>` in `transformedModelNodeBounds` broken: `computeBounds` creates fresh `Transform3D` keys each call, and WeakHashMap silently evicts entries when keys are only weakly reachable, making the cache a permanent miss. Replaced inner map with `HashMap` - outer map remains `WeakHashMap<Content, ...>` so eviction still works at the Content level when models are GC'd. | Build and tests pass; magnitude TBD on the reference workload (435 pieces, 148 models); small home (7 pieces) shows no measurable delta | merged PR #25 |
 | 3D scene update allocations (D3) | Replaced 14 `Arrays.asList(new T[]{x})` call sites in `HomeComponent3D` property-change listeners (furniture, room, polyline, dimension line, label) with `Collections.singletonList(x)`, avoiding a temporary array and ArrayList allocation per interaction event. Removed unused `java.util.Arrays` import. | Build and tests pass; per-event allocation savings are small and do not address steady-state frame rate | merged PR #25 |
 | Native NVIDIA FPS loop + frame-rate root cause | Established a native-Windows measurement loop from WSL (Windows JDK via `cmd.exe` interop, staged jars+natives on `C:`), added a deterministic swap counter (`HomeComponent3D.getRenderedFrameCount`) and made `Home3DFpsBenchmark` measure frames over a fixed camera sweep | On a real GTX 1660 Ti (OpenGL 4.6): `compile()` is ~40x (0.25 -> ~10 FPS avg) and essential, but the frame rate is view-dependent and still ~1 FPS facing the high-poly models. Display-list toggling has no effect, so heavy model geometry is not GPU-resident; the home is dominated by huge models (37 MB DAE, 5-7 MB trees), not textures. Next: by-reference/VBO geometry (D4) | merged PR #29 |
-| 3D display lists (D4 redirected) | Investigated D4 (by-reference/VBO) with the native loop and found it does not apply: no VBO path in this Java 3D build, loader geometry is by-copy/read-only (display-list eligible), and the bottleneck is CPU-side scene traversal, not GPU residency. Measured that display lists are a net loss for this complex home, so `GraphicsEnvironmentConfiguration` sets `j3d.displaylist=false` on the speed path (override `-Dj3d.displaylist=true`) | Native GTX 1660 Ti: ~11 -> ~18 FPS average (~40-60%, noisy) and removes the ~0.25 FPS display-list-without-compile failure mode; rendering is identical (vertex arrays). Heavy-view minimum stays ~1 FPS - that residual is the 37 MB model's raw triangle volume, needing decimation/LOD, not a rendering toggle. Tests pass | _pending_ |
-| Release/About version | Put `Implementation-Version` in both application JAR manifests, prefer it in `SweetHome3D.getVersion()`, pass the release version into native launchers, and verify the executable JAR manifest during packaging | Removes the hard-coded `7.5` About fallback from packaged releases and makes artifact verification fail when the displayed and published versions diverge | current branch |
-| WSLg rendering default and FPS measurement | Apply the existing speed rendering profile on WSLg as well as Windows, and add a configurable warm-up period to the real-view FPS benchmark | WSLg correctly selects the D3D12 NVIDIA renderer and speed profile. The complex reference home still averaged about 1 FPS after a 30 s warm-up, proving this profile alone does not solve the primary 3D-view bottleneck | current branch |
-| Model simplification (D4) | Add optional vertex-clustering simplification for large 3D models. Controlled via system property `com.eteks.sweethome3d.j3d.simplifyModels` (default false) and threshold `com.eteks.sweethome3d.j3d.modelSimplificationThreshold` (default 50000 vertices). Toggle via Help > "Simplify large 3D models" checkbox menu item. Simplification uses spatial hash grid vertex clustering: vertices within the same cell are merged, normals/texcoords averaged, degenerate triangles dropped. Simplified models are precomputed and cached at load time for instant live toggling. Furniture table shows vertex count with color coding (green/black/orange/red) and simplified/original counts when active. Menu items use Actions to survive menu state refresh. | Build, 9/9 core tests, 15/15 GUI tests, 3D benchmark pass on Xvfb. Vertex reduction and frame-rate impact TBD on the reference workload | _pending_ |
+| 3D display lists (D4 redirected) | Investigated D4 (by-reference/VBO) with the native loop and found it does not apply: no VBO path in this Java 3D build, loader geometry is by-copy/read-only (display-list eligible), and the bottleneck is CPU-side scene traversal, not GPU residency. Measured that display lists are a net loss for this complex home, so `GraphicsEnvironmentConfiguration` sets `j3d.displaylist=false` on the speed path (override `-Dj3d.displaylist=true`) | Native GTX 1660 Ti: ~11 -> ~18 FPS average (~40-60%, noisy) and removes the ~0.25 FPS display-list-without-compile failure mode; rendering is identical (vertex arrays). Heavy-view minimum stays ~1 FPS - that residual is the 37 MB model's raw triangle volume, needing decimation/LOD, not a rendering toggle. Tests pass | merged PR #30 |
+| Release/About version | Put `Implementation-Version` in both application JAR manifests, prefer it in `SweetHome3D.getVersion()`, pass the release version into native launchers, and verify the executable JAR manifest during packaging | Removes the hard-coded `7.5` About fallback from packaged releases and makes artifact verification fail when the displayed and published versions diverge | merged PR #27 |
+| WSLg rendering default and FPS measurement | Apply the existing speed rendering profile on WSLg as well as Windows, and add a configurable warm-up period to the real-view FPS benchmark | WSLg correctly selects the D3D12 NVIDIA renderer and speed profile. The complex reference home still averaged about 1 FPS after a 30 s warm-up, proving this profile alone does not solve the primary 3D-view bottleneck | merged PR #27 |
+| Model complexity diagnostics | Make Vertices a default furniture-table column for new and existing homes, wire it into the display-property menu, repaint when asynchronous model counts arrive, localize its heading, and avoid invalid sorting state | Large models are visibly identified without changing their geometry. Counts remain diagnostic only until a topology-safe LOD implementation is available | current branch |
+| Release automation | Restore the `main` push trigger required by the existing release-please job | Qualifying merged changes once again create or update a release PR; merging that PR builds and attaches platform artifacts | current branch |
 
 ## Tried And Rejected
 
@@ -64,6 +65,7 @@ evidence.
 | Complete legacy Java 3D JUnit suite on current WSLg/Mesa | JVM terminated in native `libGLX_mesa.so` before JUnit completed | Treat as a scheduled/manual compatibility probe; use `make test-gui` as the required stable GUI suite |
 | OpenJDK 21 runtime vs 17 on the headless benchmarks (task A4) | Interleaved 4-round A/B on the reference home showed no repeatable difference: plan-render warmed median ~15 ms on both; startup cold ~2.16 s on both. Run-to-run variance on the WSL host (e.g. 2.0-3.4 s cold-start swings) swamps any JDK delta. No crashes or regressions on 21 | Keep the pinned OpenJDK 17; do not add a Java 21 dev toolchain without a materially quieter measurement host or a different workload. Bytecode stays at Java 8 either way |
 | Compile each asynchronously loaded furniture branch before attaching it to the live scene | Compiling shared model geometry caused `RestrictedAccessException`; preserving compiled shared geometry then caused `CapabilityNotSetException` when pickability was initialized. Java 3D requires all mutable capabilities and per-instance state to be established before compilation | Removed. Revisit only as a broader model-instantiation refactor that separates immutable compiled geometry from mutable per-piece nodes |
+| Hand-written vertex-clustering model simplifier | Ran synchronously on every large model load even when disabled, delaying observer notification and leaving white loading boxes visible. It also treated indexed geometry as triangle lists, lost separate normal/texture/color indices and attributes, and converted unsupported topology such as quads, strips, and fans incorrectly | Removed. Any future decimation/LOD work must preserve each geometry topology and vertex attributes, run outside the critical model-delivery path, retain the original model, and include visual-fidelity fixtures plus reference-home FPS measurements |
 
 Generated `hs_err_pid*.log` files are diagnostic artifacts and must not be
 committed.
@@ -89,6 +91,11 @@ committed.
 | D1/D3 branch 3D benchmark (Xvfb, test home) | Passed; scene creation 222 ms (7-piece home); reference home not available |
 | Warmed WSLg FPS benchmark, speed profile, reference home | Passed on D3D12 / NVIDIA GTX 1660 Ti; 30 s warm-up + 15 s measurement; average 1 FPS, min 0, max 3, 916 samples |
 | Current branch `make test-core` | Passed, 9/9 tests, including `SweetHome3DVersionTest` for manifest fallback and explicit launcher version override |
+| Model-complexity repair production build | Passed on OpenJDK 17 |
+| Model-complexity repair `make test-core` | Passed, 10/10 tests, including the new default Vertices column assertion |
+| Model-complexity repair targeted `FurnitureTableTest` | Passed headlessly, 3/3 tests, including creation and lookup of the Vertices column |
+| Model-complexity repair reference-home load | Passed with 435 furniture items in 1.74 s; confirms the complex 141 MB home still loads after removing eager simplification |
+| Model-complexity repair targeted Java 3D loader test | Blocked locally: WSLg X11/GLX is unavailable, and the read-only `/tmp/.X11-unix` mount is owned by `nobody:nogroup` with mode `0777`; JUnit correctly rejected both tests through the 3D availability assumption |
 | `ant -Dversion=7.5.2-beta.8 jarExecutable` | Passed; executable JAR manifest contains `Implementation-Version: 7.5.2-beta.8` |
 | `scripts/verify-release.ps1` locally | Not run; `pwsh` is not installed in the current Conda environment. The equivalent JAR manifest check was verified with `unzip`, and GitHub release packaging will run the PowerShell verifier on hosted runners |
 | Current branch `make test-gui` | Blocked locally because WSLg `DISPLAY=:0` and `xvfb-run` both failed to accept X11 connections; expected to run in CI's Linux/Xvfb job |
@@ -142,15 +149,13 @@ allocations in scene updates - **in progress**: replaced 14 `Arrays.asList(new
 T[]{x})` calls with `Collections.singletonList(x)` in HomeComponent3D
 property-change listeners, avoiding temporary array/ArrayList per event. Next:
 audit `HomePieceOfFurniture3D.update()` and related Object3DBranch subclasses
-for larger allocation wins in the scene-graph rebuild path; D4 GPU-friendly
-geometry construction - **in progress**: added optional vertex-clustering
-simplification for large models (spatial hash grid, vertex merging, degenerate
-triangle removal). Controlled via `com.eteks.sweethome3d.j3d.simplifyModels`
-and threshold system properties, with a Help > "Simplify large 3D models"
-checkbox menu item. Simplification is applied during cloneNode, keeping
-full-resolution models in cache for live toggling. Vertex reduction and
-frame-rate impact TBD on the reference workload). Depends on
-A3.
+for larger allocation wins in the scene-graph rebuild path; D4 topology-safe
+decimation/LOD - **pending redesign**. The hand-written vertex-clustering
+implementation was removed because it blocked model delivery and corrupted
+unsupported geometry. The next implementation must preserve indexed attributes
+and primitive topology, generate lower-detail geometry asynchronously or
+offline, keep the original model available, and validate visual fidelity before
+measuring heavy-view FPS on the reference home. Depends on A3.
 
 JFR captured while opening the reference home identifies
 `RenderBin.findAttributeBin` on Java 3D's render-structure update thread as the

@@ -83,6 +83,11 @@ public class FurnitureTableTest extends TestCase {
     // Check home furniture count equals table row count
     assertEquals("Different furniture count in home and table",
         home.getFurniture().size(), table.getRowCount());
+    assertTrue("Vertices should be visible by default",
+        home.getFurnitureVisiblePropertyNames().contains(
+            HomePieceOfFurniture.SortableProperty.VERTICES.name()));
+    assertNotNull("Vertices column is missing",
+        table.getColumn(HomePieceOfFurniture.SortableProperty.VERTICES));
 
     // 4. Check the displayed depth in table are different in French and US version
     for (int row = 0, n = table.getRowCount(); row < n; row++) {

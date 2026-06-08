@@ -283,6 +283,7 @@ public class HomeController implements Controller {
     homeView.setEnabled(HomeView.ActionType.DISPLAY_HOME_FURNITURE_ANGLE, true);
     homeView.setEnabled(HomeView.ActionType.DISPLAY_HOME_FURNITURE_LEVEL, true);
     homeView.setEnabled(HomeView.ActionType.DISPLAY_HOME_FURNITURE_MODEL_SIZE, true);
+    homeView.setEnabled(HomeView.ActionType.DISPLAY_HOME_FURNITURE_VERTICES, true);
     homeView.setEnabled(HomeView.ActionType.DISPLAY_HOME_FURNITURE_COLOR, true);
     homeView.setEnabled(HomeView.ActionType.DISPLAY_HOME_FURNITURE_TEXTURE, true);
     homeView.setEnabled(HomeView.ActionType.DISPLAY_HOME_FURNITURE_MOVABLE, true);

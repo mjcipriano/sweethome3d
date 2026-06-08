@@ -44,9 +44,22 @@ public class ModelManagerTest extends TestCase {
   }
 
   public void testDAELoader() throws IOException {
-    BranchGroup model = ModelManager.getInstance().loadModel(
-        new URLContent(ModelManagerTest.class.getResource("resources/test.dae")));
-    assertTrue("Model shouldn't be empty", getShapesCount(model) > 0);
+    final URLContent content =
+        new URLContent(ModelManagerTest.class.getResource("resources/test.dae"));
+    final BranchGroup [] model = new BranchGroup [1];
+    ModelManager.getInstance().loadModel(content, true, new ModelManager.ModelObserver() {
+        public void modelUpdated(BranchGroup modelRoot) {
+          model [0] = modelRoot;
+        }
+
+        public void modelError(Exception ex) {
+          fail("Model load failed: " + ex);
+        }
+      });
+    assertNotNull("Model wasn't loaded", model [0]);
+    assertTrue("Model shouldn't be empty", getShapesCount(model [0]) > 0);
+    assertTrue("Model vertex count wasn't recorded",
+        ModelManager.getInstance().getModelVertexCount(content) > 0);
   }
 
   public void testOBJLoader() throws IOException {

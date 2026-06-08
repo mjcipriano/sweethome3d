@@ -758,6 +758,7 @@ public class FurnitureController implements Controller {
               HomePieceOfFurniture.SortableProperty.ANGLE.name(),
               HomePieceOfFurniture.SortableProperty.LEVEL.name(),
               HomePieceOfFurniture.SortableProperty.MODEL_SIZE.name(),
+              HomePieceOfFurniture.SortableProperty.VERTICES.name(),
               HomePieceOfFurniture.SortableProperty.COLOR.name(),
               HomePieceOfFurniture.SortableProperty.TEXTURE.name(),
               HomePieceOfFurniture.SortableProperty.MOVABLE.name(),
