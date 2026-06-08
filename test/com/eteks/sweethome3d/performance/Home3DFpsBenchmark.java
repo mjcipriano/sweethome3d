@@ -49,10 +49,15 @@ public class Home3DFpsBenchmark {
     final int seconds = args.length >= 2 ? Integer.parseInt(args[1]) : 15;
     final int warmupSeconds = args.length == 3 ? Integer.parseInt(args[2]) : 0;
 
+    // The XML home entry does not yet persist model LODs, so allow reading the
+    // serialized Home entry (preferXmlEntry=false) to exercise a generated LOD
+    // cache while validating its frame-rate effect.
+    boolean preferXmlEntry = !"false".equalsIgnoreCase(
+        System.getProperty("benchmark.preferXmlEntry"));
     final Home home = smoke
         ? createSmokeHome()
         : new HomeFileRecorder(
-            0, false, null, false, true).readHome(homeFile.getPath());
+            0, false, null, false, preferXmlEntry).readHome(homeFile.getPath());
     final UserPreferences preferences = new DefaultUserPreferences();
     System.out.println(smoke ? "scene=synthetic-smoke" : "file=" + homeFile);
     System.out.println("furniture=" + home.getFurniture().size()

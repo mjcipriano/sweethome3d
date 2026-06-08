@@ -52,6 +52,8 @@ approved. The `example-files/` directory is ignored.
 | Model complexity diagnostics | Make Vertices a default furniture-table column for new and existing homes, wire it into the display-property menu, repaint when asynchronous model counts arrive, localize its heading, and avoid invalid sorting state | Large models are visibly identified without changing their geometry. Counts remain diagnostic only until a topology-safe LOD implementation is available | current branch |
 | Persistent topology-safe model LOD | Generate simplified OBJ caches asynchronously after furniture import or from `3D view > Generate model LOD cache`; persist original-to-LOD content mappings in `.sh3d`; use meshoptimizer per shape after rebuilding indices from complete position/normal/UV tuples; retain original/unsupported geometry; embed native libraries in platform and universal release JARs | Native simplification, home clone, embedded-content save/reopen, core tests, GUI tests, and embedded-native extraction pass. The complex reference-home generation/visual/FPS run is still pending because the current sandbox couldn't connect to WSLg or Xvfb and display escalation was unavailable | current branch |
 | Release automation | Restore the `main` push trigger required by the existing release-please job | Qualifying merged changes once again create or update a release PR; merging that PR builds and attaches platform artifacts | current branch |
+| Release asset upload | Upload only files from `release/` (`find -maxdepth 1 -type f`) so the embedded `native/` directory no longer breaks `gh release upload` | Unblocked publishing 7.7.0-beta.1, which had failed with "read release/native: is a directory" | merged PR #40 |
+| Model LOD frame-rate validation (D4) | Generated the LOD cache for the reference home and A/B-measured it on a real GTX 1660 Ti via the native loop (`benchmark.preferXmlEntry=false` to read the serialized Home, then `useModelLODs` on vs off on the same home) | LOD gives a consistent ~30-40% average FPS gain (~6.5 -> ~9 FPS, higher peaks; every LOD-on run beat every LOD-off run). It is not a full fix: the heavy-view minimum stays ~1-2 FPS (CPU scene-traversal bound, and several models barely simplify under topology-safe simplification) | _pending_ |
 
 ## Tried And Rejected
 
@@ -110,6 +112,17 @@ committed.
 | Reference-home LOD generation/persistence benchmark | Pending: both direct `DISPLAY=:0` and private Xvfb failed to connect in the restricted sandbox; display escalation was unavailable |
 
 ## Next Work
+
+**Known blocker - model LOD cache is not persisted.** The `.sh3d` reader prefers
+the `Home.xml` entry, but the XML export/import path does not serialize
+`Home.modelLODs` (the whole `io/` package has no `ModelLOD` reference). Generated
+LODs survive only in the legacy serialized `Home` entry, so a saved home reopened
+the normal way comes back with zero LODs, and the persistent-LOD feature delivers
+nothing to users. Reproduce with `make benchmark-model-lod` (its reopen
+assertion fails: "Expected N persisted LODs, found 0"). Fix by writing and
+reading `modelLODs` in `HomeXMLExporter`/`HomeXMLHandler` (each entry references
+the source model content and the LOD content, plus vertex counts). This must land
+before the LOD work provides any real-world benefit.
 
 Start future work from updated `main`. Use a new `perf/<scope>` branch per
 task rather than continuing on a merged checkpoint branch. The backlog below is
