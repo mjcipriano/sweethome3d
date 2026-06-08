@@ -30,6 +30,7 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
+import java.util.Arrays;
 
 import javax.swing.Action;
 import javax.swing.JComponent;
@@ -41,9 +42,11 @@ import abbot.tester.ComponentLocation;
 import abbot.tester.JComponentTester;
 
 import com.eteks.sweethome3d.io.DefaultUserPreferences;
+import com.eteks.sweethome3d.model.DimensionLine;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.UserPreferences;
+import com.eteks.sweethome3d.model.Wall;
 import com.eteks.sweethome3d.swing.FurnitureCatalogTree;
 import com.eteks.sweethome3d.swing.FurnitureTable;
 import com.eteks.sweethome3d.swing.HomePane;
@@ -166,11 +169,12 @@ public class TransferHandlerTest extends ComponentTestFixture {
     // Check Cut, Copy and Delete actions are enabled
     assertActionsEnabled(controller, true, true, false, true);
 
-    // 7. Select the dimension, the wall and the piece
-    tester.actionKeyPress(KeyEvent.VK_SHIFT);
-    tester.actionClick(planComponent, 30, 25);
-    tester.actionClick(planComponent, 120, 120);
-    tester.actionKeyRelease(KeyEvent.VK_SHIFT);
+    // 7. Select the dimension, the wall and the piece. Select the known model
+    // objects directly because synthetic modifier key events aren't reliable
+    // across window managers.
+    Wall wall = home.getWalls().iterator().next();
+    DimensionLine dimensionLine = home.getDimensionLines().iterator().next();
+    home.setSelectedItems(Arrays.asList(dimensionLine, wall, piece));
     // Check home selection contains 3 items
     assertEquals("Selected items wrong count", 3, home.getSelectedItems().size());
     // Cut selected items in plan component
@@ -187,6 +191,9 @@ public class TransferHandlerTest extends ComponentTestFixture {
     assertTrue("Missing String flavor", clipboard.isDataFlavorAvailable(DataFlavor.imageFlavor));
 
     // 8. Paste selected items in plan component
+    tester.actionClick(planComponent, 10, 10);
+    tester.waitForIdle();
+    assertTrue("Plan doesn't have the focus before paste", planComponent.isFocusOwner());
     runAction(tester, controller, HomePane.ActionType.PASTE);
     tester.waitForIdle();
     // Check home contains one piece, one wall and one dimension

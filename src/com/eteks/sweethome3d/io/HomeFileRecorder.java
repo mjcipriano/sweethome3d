@@ -314,9 +314,16 @@ public class HomeFileRecorder implements HomeRecorder {
     try {
       File homeFile = new File(name);
       if (homeFile.isFile()) {
-        homeInputStream = new DefaultHomeInputStream(homeFile, ContentRecording.INCLUDE_ALL_CONTENT,
-            this.preferXmlEntry ? getHomeXMLHandler() : null,
-            this.preferences, this.preferPreferencesContent);
+        if (isZipFile(homeFile)) {
+          homeInputStream = new DefaultHomeInputStream(homeFile, ContentRecording.INCLUDE_ALL_CONTENT,
+              this.preferXmlEntry ? getHomeXMLHandler() : null,
+              this.preferences, this.preferPreferencesContent);
+        } else {
+          homeInputStream = new DefaultHomeInputStream(new FileInputStream(homeFile),
+              ContentRecording.INCLUDE_ALL_CONTENT,
+              this.preferXmlEntry ? getHomeXMLHandler() : null,
+              this.preferences, this.preferPreferencesContent);
+        }
       } else {
         InputStream in;
         if (this.acceptUrl) {
@@ -348,6 +355,21 @@ public class HomeFileRecorder implements HomeRecorder {
         }
       } catch (IOException ex) {
         throw new RecorderException("Can't close file " + name, ex);
+      }
+    }
+  }
+
+  /**
+   * Returns <code>true</code> if <code>file</code> starts with a ZIP prefix.
+   */
+  private boolean isZipFile(File file) throws IOException {
+    InputStream in = null;
+    try {
+      in = new FileInputStream(file);
+      return in.read() == 'P' && in.read() == 'K';
+    } finally {
+      if (in != null) {
+        in.close();
       }
     }
   }

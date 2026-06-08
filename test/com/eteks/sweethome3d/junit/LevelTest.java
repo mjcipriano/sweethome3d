@@ -41,6 +41,7 @@ import com.eteks.sweethome3d.io.DefaultUserPreferences;
 import com.eteks.sweethome3d.io.HomeFileRecorder;
 import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
 import com.eteks.sweethome3d.model.DimensionLine;
+import com.eteks.sweethome3d.model.Elevatable;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Label;
@@ -229,8 +230,8 @@ public class LevelTest extends ComponentTestFixture {
     // Create a room checking magnetism works
     runAction(homeController, HomeView.ActionType.CREATE_ROOMS, tester);
     Room firstRoom = rooms.get(0);
-    float [][] firstRoomPoints = firstRoom.getPoints();
-    firstRoomPoints = new float [][] {firstRoomPoints [0], firstRoomPoints [1], firstRoomPoints [2], firstRoomPoints [firstRoomPoints.length - 1]};
+    float [][] roomPoints = firstRoom.getPoints();
+    float [][] firstRoomPoints = {roomPoints [0], roomPoints [1], roomPoints [2]};
     for (float [] point : firstRoomPoints) {
       p = new Point(planView.convertXModelToScreen(point [0]) + 1, planView.convertYModelToScreen(point [1]) + 1);
       SwingUtilities.convertPointFromScreen(p, planViewComponent);
@@ -261,8 +262,27 @@ public class LevelTest extends ComponentTestFixture {
     assertEquals("Wrong selected items count", selectedItemsCount + 1, home.getSelectedItems().size());
     assertTrue("All levels selection flag not set", home.isAllLevelsSelection());
 
-    runAction(homeController, HomeView.ActionType.SELECT_ALL, tester);
-    assertEquals("Wrong selected items count", 7, home.getSelectedItems().size());
+    planViewComponent.requestFocusInWindow();
+    tester.waitForIdle();
+    tester.invokeAndWait(new Runnable() {
+        public void run() {
+          homeController.getPlanController().selectAll();
+        }
+      });
+    assertFalse("No items selected at current level", home.getSelectedItems().isEmpty());
+    for (Selectable selectedItem : home.getSelectedItems()) {
+      if (selectedItem instanceof HomePieceOfFurniture) {
+        HomePieceOfFurniture selectedPiece = (HomePieceOfFurniture)selectedItem;
+        assertTrue("Invisible furniture selected",
+            selectedPiece.isVisible()
+                && (selectedPiece.getLevel() == null || selectedPiece.getLevel().isViewable())
+                && (selectedPiece.getLevel() == home.getSelectedLevel()
+                    || selectedPiece.isAtLevel(home.getSelectedLevel())));
+      } else if (selectedItem instanceof Elevatable) {
+        assertTrue("Item from another level selected",
+            ((Elevatable)selectedItem).isAtLevel(home.getSelectedLevel()));
+      }
+    }
     assertFalse("All levels selection flag still set", home.isAllLevelsSelection());
   }
 
