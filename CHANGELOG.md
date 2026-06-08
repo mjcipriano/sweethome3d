@@ -1,5 +1,19 @@
 # Changelog
 
+## [7.6.2-beta.1](https://github.com/mjcipriano/sweethome3d/compare/v7.6.0-beta.1...v7.6.2-beta.1) (2026-06-08)
+
+
+### Features
+
+* vertex count feedback + menu fix + load-time simplification ([9877760](https://github.com/mjcipriano/sweethome3d/commit/98777600adf79f84bf639e8c762e98b05658bbd4))
+* vertex count feedback, menu fix, load-time simplification ([6bcaf66](https://github.com/mjcipriano/sweethome3d/commit/6bcaf66f37fa325a703f63f2d67c081735f22b84))
+
+
+### Bug Fixes
+
+* restore model complexity feedback ([86bd098](https://github.com/mjcipriano/sweethome3d/commit/86bd09857476655c154b7ee3da742a5a7c24d6b7))
+* restore model complexity feedback ([9fa57c4](https://github.com/mjcipriano/sweethome3d/commit/9fa57c4ebd77096b68642b65318d6893f7d72b48))
+
 ## [7.6.0-beta.1](https://github.com/mjcipriano/sweethome3d/compare/v7.5.4-beta.1...v7.6.0-beta.1) (2026-06-07)
 
 
