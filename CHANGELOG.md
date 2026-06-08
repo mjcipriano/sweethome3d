@@ -1,5 +1,12 @@
 # Changelog
 
+## [7.7.0-beta.1](https://github.com/mjcipriano/sweethome3d/compare/v7.6.2-beta.1...v7.7.0-beta.1) (2026-06-08)
+
+
+### Features
+
+* add persistent model LOD caches ([37784f5](https://github.com/mjcipriano/sweethome3d/commit/37784f5409032bd5cc4eba633daa2c7bcc916b80))
+
 ## [7.6.2-beta.1](https://github.com/mjcipriano/sweethome3d/compare/v7.6.0-beta.1...v7.6.2-beta.1) (2026-06-08)
 
 
