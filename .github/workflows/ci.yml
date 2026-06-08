@@ -1,28 +1,11 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
-      - "chore/**"
-      - "ci/**"
-      - "feat/**"
-      - "fix/**"
-      - "perf/**"
-    # Skip CI for documentation-only pushes. A push that also touches code
-    # still runs because the filter only skips when every changed file matches.
-    # version.txt is lowercase and intentionally not matched, so release and
-    # version changes keep running CI.
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
   pull_request:
     paths-ignore:
       - "docs/**"
       - "**/*.md"
   workflow_dispatch:
-  schedule:
-    - cron: "23 5 * * 1"
 
 permissions:
   contents: read
@@ -40,7 +23,7 @@ jobs:
         os:
           - ubuntu-latest
           - windows-latest
-          - macos-15-intel
+          # - macos-15-intel  # temporarily disabled to conserve Actions minutes
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -57,8 +40,6 @@ jobs:
           if ($IsLinux) {
             sudo apt-get update
             sudo apt-get install -y ant xvfb libgl1
-          } elseif ($IsMacOS) {
-            brew install ant
           } else {
             choco install ant make --no-progress -y
           }
@@ -105,7 +86,7 @@ jobs:
 
   java3d-compatibility:
     name: Legacy Java 3D compatibility probe
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 90
