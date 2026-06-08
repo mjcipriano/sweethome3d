@@ -30,6 +30,7 @@ import com.eteks.sweethome3d.model.CollectionEvent;
 import com.eteks.sweethome3d.model.CollectionListener;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomeObject;
+import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Label;
 import com.eteks.sweethome3d.model.Wall;
 import com.eteks.sweethome3d.tools.URLContent;
@@ -41,6 +42,11 @@ import junit.framework.TestCase;
  * @author Emmanuel Puybaret
  */
 public class HomeTest extends TestCase {
+  public void testDefaultFurnitureColumnsIncludeVertices() {
+    assertTrue(new Home().getFurnitureVisiblePropertyNames().contains(
+        HomePieceOfFurniture.SortableProperty.VERTICES.name()));
+  }
+
   public void testHomeWalls() {
     // Create a home and a wall listener that updates lists when notified
     Home home = new Home();

@@ -152,6 +152,7 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
   private int                    furnitureInformationRow;
   private Popup                  furnitureInformationPopup;
   private AWTEventListener       informationPopupRemovalListener;
+  private PropertyChangeListener modelVertexCountListener;
   private final boolean          reorderingEnabled;
 
   /**
@@ -200,6 +201,8 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
     addFocusListener(home);
     addHomeListener(home, controller);
     addUserPreferencesListener(preferences);
+    this.modelVertexCountListener = new ModelVertexCountChangeListener(this);
+    ModelManager.getInstance().addModelVertexCountListener(this.modelVertexCountListener);
 
     if (OperatingSystem.isJavaVersionGreaterOrEqual("1.6")) {
       try {
@@ -212,6 +215,29 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
       } catch (Exception ex) {
         // Shouldn't happen
         ex.printStackTrace();
+      }
+    }
+  }
+
+  private static class ModelVertexCountChangeListener implements PropertyChangeListener {
+    private WeakReference<FurnitureTable> furnitureTable;
+
+    ModelVertexCountChangeListener(FurnitureTable furnitureTable) {
+      this.furnitureTable = new WeakReference<FurnitureTable>(furnitureTable);
+    }
+
+    public void propertyChange(PropertyChangeEvent ev) {
+      final FurnitureTable table = this.furnitureTable.get();
+      if (table == null) {
+        ModelManager.getInstance().removeModelVertexCountListener(this);
+      } else if (EventQueue.isDispatchThread()) {
+        table.repaint();
+      } else {
+        EventQueue.invokeLater(new Runnable() {
+            public void run() {
+              table.repaint();
+            }
+          });
       }
     }
   }
@@ -782,7 +808,8 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
           if (!ev.isPopupTrigger() && SwingUtilities.isLeftMouseButton(ev)) {
             int columnIndex = getTableHeader().columnAtPoint(ev.getPoint());
             Object columnIdentifier = getColumnModel().getColumn(columnIndex).getIdentifier();
-            if (columnIdentifier instanceof HomePieceOfFurniture.SortableProperty) {
+            if (columnIdentifier instanceof HomePieceOfFurniture.SortableProperty
+                && columnIdentifier != HomePieceOfFurniture.SortableProperty.VERTICES) {
               controller.sortFurniture(((HomePieceOfFurniture.SortableProperty)columnIdentifier).name());
             } else if (columnIdentifier instanceof ObjectProperty) {
               controller.sortFurniture(((ObjectProperty)columnIdentifier).getName());
@@ -1521,7 +1548,7 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
           case MODEL_SIZE :
             return preferences.getLocalizedString(FurnitureTable.class, "modelSizeColumn");
           case VERTICES :
-            return "Vertices";
+            return preferences.getLocalizedString(FurnitureTable.class, "verticesColumn");
           case COLOR :
             return preferences.getLocalizedString(FurnitureTable.class, "colorColumn");
           case TEXTURE :
@@ -2162,23 +2189,13 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
           setHorizontalAlignment(JLabel.RIGHT);
           JLabel label = (JLabel)super.getTableCellRendererComponent(
               table, "", isSelected, hasFocus, row, column);
+          label.setToolTipText(null);
           if (vertexCount > 0) {
             if (this.integerFormat == null) {
               this.integerFormat = NumberFormat.getIntegerInstance();
             }
             String text = this.integerFormat.format(vertexCount);
-            boolean simplified = ModelManager.getInstance().isSimplifyModelsEnabled()
-                && vertexCount > ModelManager.getInstance().getModelSimplificationThreshold();
-            if (simplified) {
-              int simplifiedCount = ModelManager.getInstance().getModelSimplifiedVertexCount(content);
-              if (simplifiedCount < vertexCount) {
-                text = this.integerFormat.format(simplifiedCount) + " / " + text;
-                label.setToolTipText("Simplified from " + this.integerFormat.format(vertexCount)
-                    + " to " + this.integerFormat.format(simplifiedCount) + " vertices");
-              }
-            } else {
-              label.setToolTipText(this.integerFormat.format(vertexCount) + " vertices");
-            }
+            label.setToolTipText(this.integerFormat.format(vertexCount) + " vertices");
             label.setText(text);
             // Color-code: green (< 10000), black (10k-50k), orange (50k-200k), red (> 200k)
             if (!isSelected) {
@@ -2192,16 +2209,10 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
                 label.setForeground(Color.RED);
               }
             }
+          } else if (!isSelected) {
+            label.setForeground(table.getForeground());
           }
           return label;
-        }
-
-        private int estimateSimplifiedVertexCount(int originalCount, int threshold) {
-          if (originalCount <= threshold) {
-            return originalCount;
-          }
-          double ratio = Math.pow((double)threshold / originalCount, 1.0 / 3.0);
-          return Math.max(threshold, (int)(originalCount * ratio * ratio));
         }
       };
     }
@@ -3021,6 +3032,10 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
               };
           }
         }
+      }
+      if (furnitureComparator == null) {
+        furnitureComparator = HomePieceOfFurniture.getFurnitureComparator(
+            HomePieceOfFurniture.SortableProperty.NAME);
       }
       if (home.isFurnitureDescendingSorted()) {
         furnitureComparator = Collections.reverseOrder(furnitureComparator);

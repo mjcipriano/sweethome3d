@@ -177,7 +177,6 @@ import javax.swing.text.JTextComponent;
 import com.eteks.sweethome3d.j3d.Ground3D;
 import com.eteks.sweethome3d.j3d.OBJWriter;
 import com.eteks.sweethome3d.j3d.Object3DBranchFactory;
-import com.eteks.sweethome3d.j3d.ModelManager;
 import com.eteks.sweethome3d.model.BackgroundImage;
 import com.eteks.sweethome3d.model.Camera;
 import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
@@ -445,6 +444,8 @@ public class HomePane extends JRootPane implements HomeView {
         furnitureController, "toggleFurnitureVisibleProperty", HomePieceOfFurniture.SortableProperty.LEVEL.name());
     createAction(ActionType.DISPLAY_HOME_FURNITURE_MODEL_SIZE, preferences,
         furnitureController, "toggleFurnitureVisibleProperty", HomePieceOfFurniture.SortableProperty.MODEL_SIZE.name());
+    createAction(ActionType.DISPLAY_HOME_FURNITURE_VERTICES, preferences,
+        furnitureController, "toggleFurnitureVisibleProperty", HomePieceOfFurniture.SortableProperty.VERTICES.name());
     createAction(ActionType.DISPLAY_HOME_FURNITURE_COLOR, preferences,
         furnitureController, "toggleFurnitureVisibleProperty", HomePieceOfFurniture.SortableProperty.COLOR.name());
     createAction(ActionType.DISPLAY_HOME_FURNITURE_TEXTURE, preferences,
@@ -1337,24 +1338,6 @@ public class HomePane extends JRootPane implements HomeView {
     JMenuItem renderingInformationMenuItem = new JMenuItem(renderingInformationAction);
     helpMenu.add(renderingInformationMenuItem);
 
-    // Model simplification toggle for 3D performance
-    final JCheckBoxMenuItem simplifyModelsMenuItem = new JCheckBoxMenuItem(
-        new AbstractAction("Simplify large 3D models") {
-          {
-            putValue(SELECTED_KEY, ModelManager.getInstance().isSimplifyModelsEnabled());
-          }
-          public void actionPerformed(ActionEvent ev) {
-            boolean enabled = (Boolean)getValue(SELECTED_KEY);
-            ModelManager.getInstance().setSimplifyModelsEnabled(enabled);
-            ModelManager.getInstance().clearModelCache();
-            View view3D = controller.getHomeController3D().getView();
-            if (view3D instanceof HomeComponent3D) {
-              ((HomeComponent3D)view3D).rebuildAllObjects();
-            }
-          }
-        });
-    helpMenu.add(simplifyModelsMenuItem);
-
     // Add menus to menu bar
     JMenuBar menuBar = new JMenuBar();
     menuBar.add(fileMenu);
@@ -1767,6 +1750,8 @@ public class HomePane extends JRootPane implements HomeView {
         displayPropertyActions, HomePieceOfFurniture.SortableProperty.LEVEL.name());
     addActionToMap(ActionType.DISPLAY_HOME_FURNITURE_MODEL_SIZE,
         displayPropertyActions, HomePieceOfFurniture.SortableProperty.MODEL_SIZE.name());
+    addActionToMap(ActionType.DISPLAY_HOME_FURNITURE_VERTICES,
+        displayPropertyActions, HomePieceOfFurniture.SortableProperty.VERTICES.name());
     addActionToMap(ActionType.DISPLAY_HOME_FURNITURE_COLOR,
         displayPropertyActions, HomePieceOfFurniture.SortableProperty.COLOR.name());
     addActionToMap(ActionType.DISPLAY_HOME_FURNITURE_TEXTURE,
