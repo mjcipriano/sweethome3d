@@ -58,7 +58,7 @@ make build       # Compile application/resource JARs
 make model-lod-native  # Build the meshoptimizer native LOD library
 make jar         # Build install/SweetHome3D-7.5.jar
 make test-core   # Deterministic model/platform tests; no display required
-make test-gui    # Swing/controller tests; display required, Java 3D excluded
+make test-gui    # Swing/controller tests; display required, known failing Java 3D tests excluded
 make test-local-check  # Verify local X11 and GLX support
 make test-wsl-gpu BENCHMARK_HOME=<file.sh3d>  # WSLg D3D12 Java 3D smoke test
 make test-local  # Complete suite on Linux or WSL

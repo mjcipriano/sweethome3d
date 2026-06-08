@@ -302,25 +302,25 @@ public class HomeControllerTest extends TestCase {
     this.preferences.setUnit(LengthUnit.CENTIMETER);
     // Check displayed values in table
     assertFurnitureFirstRowEquals(this.furnitureTable, piece.getName(),
-        piece.getWidth(), piece.getDepth(), piece.getHeight(), piece.isVisible());
+        piece.getWidth(), piece.getDepth(), piece.getHeight(), piece, piece.isVisible());
 
     // 2. Make name property invisible
     runAction(HomePane.ActionType.DISPLAY_HOME_FURNITURE_NAME);
     // Check displayed values in table doesn't contain piece name
     assertFurnitureFirstRowEquals(this.furnitureTable,
-        piece.getWidth(), piece.getDepth(), piece.getHeight(), piece.isVisible());
+        piece.getWidth(), piece.getDepth(), piece.getHeight(), piece, piece.isVisible());
 
     // 3. Make y property visible
     runAction(HomePane.ActionType.DISPLAY_HOME_FURNITURE_Y);
     // Check displayed values in table contains piece ordinate after piece depth
     assertFurnitureFirstRowEquals(this.furnitureTable,
-        piece.getWidth(), piece.getDepth(), piece.getHeight(), piece.getY(), piece.isVisible());
+        piece.getWidth(), piece.getDepth(), piece.getHeight(), piece.getY(), piece, piece.isVisible());
 
     // 4. Make name property visible again
     runAction(HomePane.ActionType.DISPLAY_HOME_FURNITURE_NAME);
     // Check displayed values in table contains piece name in first position
     assertFurnitureFirstRowEquals(this.furnitureTable, piece.getName(),
-        piece.getWidth(), piece.getDepth(), piece.getHeight(), piece.getY(), piece.isVisible());
+        piece.getWidth(), piece.getDepth(), piece.getHeight(), piece.getY(), piece, piece.isVisible());
 
     // 5. Change visible properties order and list
     this.furnitureController.setFurnitureVisiblePropertyNames(
@@ -655,7 +655,11 @@ public class HomeControllerTest extends TestCase {
     for (int column = 0, n = table.getColumnCount(); column < n; column++) {
       Component cellRendererComponent = table.getCellRenderer(0, column).
           getTableCellRendererComponent(table, table.getValueAt(0, column), false, false, 0, column);
-      if (values [column] instanceof Number) {
+      if (table.getColumnModel().getColumn(column).getIdentifier()
+          == HomePieceOfFurniture.SortableProperty.VERTICES) {
+        assertSame("Wrong furniture at vertices column", values [column], table.getValueAt(0, column));
+        assertTrue("Vertices renderer isn't a label", cellRendererComponent instanceof JLabel);
+      } else if (values [column] instanceof Number) {
         assertEquals("Wrong value at column " + column,
             this.preferences.getLengthUnit().getFormat().format(values [column]),
             ((JLabel)cellRendererComponent).getText());

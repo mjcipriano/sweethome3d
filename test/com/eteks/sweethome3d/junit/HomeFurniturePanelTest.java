@@ -113,6 +113,8 @@ public class HomeFurniturePanelTest extends ComponentTestFixture {
     assertEquals("Wrong X", new Float(piece1.getX()), xSpinner.getValue());
     assertNull("Wrong Y", ySpinner.getValue());
     // Edit values
+    tester.actionFocus(nameTextField);
+    nameTextField.selectAll();
     tester.waitForIdle();
     assertTrue("Name text field doesn't have focus", nameTextField.hasFocus());
     // Check text field is selected when it gains focus
