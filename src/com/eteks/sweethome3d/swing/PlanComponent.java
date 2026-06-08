@@ -823,6 +823,16 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
                          || HomeDoorOrWindow.Property.CUT_OUT_SHAPE.name().equals(ev.getPropertyName()))
                      && doorOrWindowWallThicknessAreasCache.remove(ev.getSource()) != null) {
             revalidate();
+          } else if ((HomePieceOfFurniture.Property.X.name().equals(ev.getPropertyName())
+                      || HomePieceOfFurniture.Property.Y.name().equals(ev.getPropertyName()))
+                     && ev.getSource() instanceof HomePieceOfFurniture
+                     && !(ev.getSource() instanceof HomeFurnitureGroup)
+                     && !((HomePieceOfFurniture)ev.getSource()).isDoorOrWindow()
+                     && ((HomePieceOfFurniture)ev.getSource()).getStaircaseCutOutShape() == null) {
+            // Moving a plain piece only changes its own painted area: repaint just
+            // the union of its previous and new bounds instead of the whole plan
+            repaintPieceOfFurnitureMove((HomePieceOfFurniture)ev.getSource(),
+                ev.getPropertyName(), ev.getOldValue());
           } else {
             revalidate();
           }
@@ -5758,6 +5768,37 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
     int yMin = convertYModelToPixel((float)selectionBounds.getMinY());
     int xMax = convertXModelToPixel((float)selectionBounds.getMaxX());
     int yMax = convertYModelToPixel((float)selectionBounds.getMaxY());
+    int margin = SELECTION_INDICATOR_PIXEL_MARGIN;
+    repaint(xMin - margin, yMin - margin,
+        xMax - xMin + 2 * margin, yMax - yMin + 2 * margin);
+  }
+
+  /**
+   * Repaints only the area covering a piece's previous and new position when it
+   * moves, instead of repainting the whole plan. A plain piece (not a door, window
+   * or staircase that cuts other items) paints only within its own bounds, so a
+   * drag can update just that region. The plan bounds cache is still invalidated so
+   * the scrollable plan size and scroll position stay correct.
+   */
+  private void repaintPieceOfFurnitureMove(HomePieceOfFurniture piece, String propertyName, Object oldValue) {
+    if (!(oldValue instanceof Float)) {
+      revalidate();
+      return;
+    }
+    Rectangle2D bounds = getItemBounds(null, piece);
+    HomePieceOfFurniture previousPiece = piece.clone();
+    if (HomePieceOfFurniture.Property.X.name().equals(propertyName)) {
+      previousPiece.setX((Float)oldValue);
+    } else {
+      previousPiece.setY((Float)oldValue);
+    }
+    bounds.add(getItemBounds(null, previousPiece));
+    // Keep the scrollable plan size and scroll position correct without a full repaint
+    invalidate(true);
+    int xMin = convertXModelToPixel((float)bounds.getMinX());
+    int yMin = convertYModelToPixel((float)bounds.getMinY());
+    int xMax = convertXModelToPixel((float)bounds.getMaxX());
+    int yMax = convertYModelToPixel((float)bounds.getMaxY());
     int margin = SELECTION_INDICATOR_PIXEL_MARGIN;
     repaint(xMin - margin, yMin - margin,
         xMax - xMin + 2 * margin, yMax - yMin + 2 * margin);

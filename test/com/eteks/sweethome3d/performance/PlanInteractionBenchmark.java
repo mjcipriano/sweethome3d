@@ -24,6 +24,7 @@ import javax.swing.SwingUtilities;
 import com.eteks.sweethome3d.io.DefaultUserPreferences;
 import com.eteks.sweethome3d.io.HomeFileRecorder;
 import com.eteks.sweethome3d.model.Home;
+import com.eteks.sweethome3d.model.HomeFurnitureGroup;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Level;
 import com.eteks.sweethome3d.model.Selectable;
@@ -137,7 +138,18 @@ public class PlanInteractionBenchmark {
     final BufferedImage image = imageHolder [0];
     final float baseScale = getScale(plan);
 
-    final HomePieceOfFurniture firstPiece = levelFurniture.get(0);
+    // Drag a plain piece (not a door/window or staircase, which also repaint the
+    // wall/room they cut), so the move measures the common furniture-drag case.
+    HomePieceOfFurniture plainPiece = levelFurniture.get(0);
+    for (HomePieceOfFurniture piece : levelFurniture) {
+      if (!piece.isDoorOrWindow()
+          && piece.getStaircaseCutOutShape() == null
+          && !(piece instanceof HomeFurnitureGroup)) {
+        plainPiece = piece;
+        break;
+      }
+    }
+    final HomePieceOfFurniture firstPiece = plainPiece;
     final List<Selectable> singleSelection =
         Collections.<Selectable>singletonList(firstPiece);
     final List<Selectable> allSelection = new ArrayList<Selectable>(levelFurniture);
