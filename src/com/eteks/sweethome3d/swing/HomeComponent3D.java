@@ -2142,10 +2142,9 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
         public void mouseWheelMoved(MouseWheelEvent ev) {
           if (isEnabled()
               && !controller.isEditingState()) {
-            // Mouse wheel changes camera location, scaled by the user's zoom speed
-            float zoomSpeed = preferences != null ? preferences.getMouseWheelZoomSpeed() : 1f;
-            float delta = -2.5f * zoomSpeed * ev.getWheelRotation();
-            // Multiply delta by 5 if shift is down to zoom faster
+            // Mouse wheel changes camera location
+            float delta = -2.5f * ev.getWheelRotation();
+            // Multiply delta by 10 if shift is down
             if (ev.isShiftDown()) {
               delta *= 5;
             }

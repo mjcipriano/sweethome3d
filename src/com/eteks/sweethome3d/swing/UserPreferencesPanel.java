@@ -131,8 +131,6 @@ public class UserPreferencesPanel extends JPanel implements DialogView {
   private JCheckBox        autoSaveDelayForRecoveryCheckBox;
   private JSpinner         autoSaveDelayForRecoverySpinner;
   private JLabel           autoSaveDelayForRecoveryUnitLabel;
-  private JLabel           mouseWheelZoomSpeedLabel;
-  private JSpinner         mouseWheelZoomSpeedSpinner;
   private JButton          resetDisplayedActionTipsButton;
   private String           dialogTitle;
 
@@ -810,28 +808,6 @@ public class UserPreferencesPanel extends JPanel implements DialogView {
       controller.addPropertyChangeListener(UserPreferencesController.Property.AUTO_SAVE_FOR_RECOVERY_ENABLED, listener);
     }
 
-    if (controller.isPropertyEditable(UserPreferencesController.Property.MOUSE_WHEEL_ZOOM_SPEED)
-        && !no3D) {
-      // Create mouse wheel zoom speed label and spinner bound to controller MOUSE_WHEEL_ZOOM_SPEED property
-      this.mouseWheelZoomSpeedLabel = new JLabel(preferences.getLocalizedString(
-          UserPreferencesPanel.class, "mouseWheelZoomSpeedLabel.text"));
-      // Speed is a multiplier expressed as a percentage (100 % keeps the historical step)
-      final SpinnerNumberModel mouseWheelZoomSpeedSpinnerModel = new SpinnerNumberModel(100, 25, 1000, 25);
-      this.mouseWheelZoomSpeedSpinner = new AutoCommitSpinner(mouseWheelZoomSpeedSpinnerModel);
-      mouseWheelZoomSpeedSpinnerModel.setValue(Math.round(controller.getMouseWheelZoomSpeed() * 100));
-      mouseWheelZoomSpeedSpinnerModel.addChangeListener(new ChangeListener() {
-          public void stateChanged(ChangeEvent ev) {
-            controller.setMouseWheelZoomSpeed(((Number)mouseWheelZoomSpeedSpinnerModel.getValue()).floatValue() / 100);
-          }
-        });
-      controller.addPropertyChangeListener(UserPreferencesController.Property.MOUSE_WHEEL_ZOOM_SPEED,
-          new PropertyChangeListener() {
-            public void propertyChange(PropertyChangeEvent ev) {
-              mouseWheelZoomSpeedSpinnerModel.setValue(Math.round(controller.getMouseWheelZoomSpeed() * 100));
-            }
-          });
-    }
-
     this.resetDisplayedActionTipsButton = new JButton(new ResourceAction.ButtonAction(
         new ResourceAction(preferences, UserPreferencesPanel.class, "RESET_DISPLAYED_ACTION_TIPS", true) {
           @Override
@@ -1327,22 +1303,12 @@ public class UserPreferencesPanel extends JPanel implements DialogView {
           GridBagConstraints.HORIZONTAL, rightComponentInsets, 0, 0));
     }
 
-    if (this.mouseWheelZoomSpeedLabel != null) {
-      // Twenty-first row
-      add(this.mouseWheelZoomSpeedLabel, new GridBagConstraints(
-          0, 20, 1, 1, 0, 0, labelAlignment,
-          GridBagConstraints.NONE, labelInsets, 0, 0));
-      add(this.mouseWheelZoomSpeedSpinner, new GridBagConstraints(
-          1, 20, 1, 1, 0, 0, GridBagConstraints.LINE_START,
-          GridBagConstraints.HORIZONTAL, rightComponentInsets, 0, 0));
-    }
-
     // Last row
     if (this.resetDisplayedActionTipsButton.getText() != null
         && this.resetDisplayedActionTipsButton.getText().length() > 0) {
       // Display reset button only if its text isn't empty
       add(this.resetDisplayedActionTipsButton, new GridBagConstraints(
-          0, 21, 3, 1, 0, 0, GridBagConstraints.CENTER,
+          0, 20, 3, 1, 0, 0, GridBagConstraints.CENTER,
           GridBagConstraints.NONE, new Insets(0, 0, 0, 0), 0, 0));
     }
   }

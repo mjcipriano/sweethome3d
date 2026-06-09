@@ -39,7 +39,7 @@ public class UserPreferencesController implements Controller {
       FURNITURE_VIEWED_FROM_TOP, FURNITURE_MODEL_ICON_SIZE, ROOM_FLOOR_COLORED_OR_TEXTURED, WALL_PATTERN, NEW_WALL_PATTERN,
       NEW_WALL_THICKNESS, NEW_WALL_HEIGHT, NEW_FLOOR_THICKNESS, FURNITURE_CATALOG_VIEWED_IN_TREE,
       NAVIGATION_PANEL_VISIBLE, EDITING_IN_3D_VIEW_ENABLED, AERIAL_VIEW_CENTERED_ON_SELECTION_ENABLED, OBSERVER_CAMERA_SELECTED_AT_CHANGE,
-      CHECK_UPDATES_ENABLED, AUTO_SAVE_DELAY_FOR_RECOVERY, AUTO_SAVE_FOR_RECOVERY_ENABLED, MOUSE_WHEEL_ZOOM_SPEED}
+      CHECK_UPDATES_ENABLED, AUTO_SAVE_DELAY_FOR_RECOVERY, AUTO_SAVE_FOR_RECOVERY_ENABLED}
 
   private final UserPreferences         preferences;
   private final ViewFactory             viewFactory;
@@ -71,7 +71,6 @@ public class UserPreferencesController implements Controller {
   private boolean                       checkUpdatesEnabled;
   private int                           autoSaveDelayForRecovery;
   private boolean                       autoSaveForRecoveryEnabled;
-  private float                         mouseWheelZoomSpeed;
 
   /**
    * Creates the controller of user preferences view.
@@ -159,7 +158,6 @@ public class UserPreferencesController implements Controller {
     setCheckUpdatesEnabled(this.preferences.isCheckUpdatesEnabled());
     setAutoSaveDelayForRecovery(this.preferences.getAutoSaveDelayForRecovery());
     setAutoSaveForRecoveryEnabled(this.preferences.getAutoSaveDelayForRecovery() > 0);
-    setMouseWheelZoomSpeed(this.preferences.getMouseWheelZoomSpeed());
   }
 
   /**
@@ -635,25 +633,6 @@ public class UserPreferencesController implements Controller {
   }
 
   /**
-   * Sets the edited mouse wheel zoom speed multiplier.
-   */
-  public void setMouseWheelZoomSpeed(float mouseWheelZoomSpeed) {
-    if (mouseWheelZoomSpeed != this.mouseWheelZoomSpeed) {
-      float oldMouseWheelZoomSpeed = this.mouseWheelZoomSpeed;
-      this.mouseWheelZoomSpeed = mouseWheelZoomSpeed;
-      this.propertyChangeSupport.firePropertyChange(Property.MOUSE_WHEEL_ZOOM_SPEED.name(),
-          oldMouseWheelZoomSpeed, mouseWheelZoomSpeed);
-    }
-  }
-
-  /**
-   * Returns the edited mouse wheel zoom speed multiplier.
-   */
-  public float getMouseWheelZoomSpeed() {
-    return this.mouseWheelZoomSpeed;
-  }
-
-  /**
    * Checks if some updates are available.
    * @since 4.0
    */
@@ -714,6 +693,5 @@ public class UserPreferencesController implements Controller {
     this.preferences.setCheckUpdatesEnabled(isCheckUpdatesEnabled());
     this.preferences.setAutoSaveDelayForRecovery(isAutoSaveForRecoveryEnabled()
         ? getAutoSaveDelayForRecovery() : 0);
-    this.preferences.setMouseWheelZoomSpeed(getMouseWheelZoomSpeed());
   }
 }
