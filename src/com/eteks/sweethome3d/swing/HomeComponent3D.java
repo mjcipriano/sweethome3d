@@ -1989,12 +1989,6 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
                 && !ev.isPopupTrigger()) {
               if (controller.isEditingState()) {
                 controller.moveMouse(ev.getX(), ev.getY());
-              } else if (SwingUtilities.isMiddleMouseButton(ev)
-                  && !Boolean.getBoolean("com.eteks.sweethome3d.interpretMiddleButtonAsLeftButtonWithAltKey")) {
-                // Middle button drag pans the view so the user can frame an
-                // off-center part of the home (and the aerial view no longer
-                // snaps back to the home center)
-                controller.panCamera(ev.getX() - this.xLastMouseMove, ev.getY() - this.yLastMouseMove);
               } else if (ev.isAltDown()
                   || (SwingUtilities.isMiddleMouseButton(ev)
                       && Boolean.getBoolean("com.eteks.sweethome3d.interpretMiddleButtonAsLeftButtonWithAltKey"))) {
