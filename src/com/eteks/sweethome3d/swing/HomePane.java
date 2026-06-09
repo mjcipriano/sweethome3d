@@ -5599,16 +5599,11 @@ public class HomePane extends JRootPane implements HomeView {
    * Sets the visibility of all selected furniture items in the given furniture view.
    */
   private void setSelectedFurnitureVisible(JComponent furnitureView, boolean visible) {
-    if (furnitureView instanceof FurnitureTable) {
-      FurnitureTable table = (FurnitureTable)furnitureView;
-      int [] selectedRows = table.getSelectedRows();
-      if (selectedRows.length > 0) {
-        for (int row : selectedRows) {
-          Object value = table.getValueAt(row, 0);
-          if (value instanceof HomePieceOfFurniture) {
-            setPieceVisible((HomePieceOfFurniture)value, visible);
-          }
-        }
+    // The furniture table selection mirrors the home selection; getValueAt returns
+    // display values, not pieces, so read the selected pieces from the home.
+    for (Selectable item : this.home.getSelectedItems()) {
+      if (item instanceof HomePieceOfFurniture) {
+        setPieceVisible((HomePieceOfFurniture)item, visible);
       }
     }
   }
