@@ -96,7 +96,7 @@ $jpackageArgs = @(
   "--app-version", $appVersion,
   "--vendor", "Space Mushrooms",
   "--description", "Interior design application",
-  "--java-options", "-Xmx2g",
+  "--java-options", "-XX:MaxRAMPercentage=50.0",
   "--java-options", "--add-opens=java.desktop/java.awt=ALL-UNNAMED",
   "--java-options", "--add-opens=java.desktop/sun.awt=ALL-UNNAMED",
   "--java-options", "--add-opens=java.desktop/com.apple.eio=ALL-UNNAMED",
