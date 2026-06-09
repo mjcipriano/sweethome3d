@@ -28,6 +28,7 @@ import java.awt.KeyboardFocusManager;
 import java.awt.Polygon;
 import java.awt.RenderingHints;
 import java.awt.Shape;
+import java.awt.Window;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.geom.Area;
@@ -72,6 +73,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JSplitPane;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.LookAndFeel;
 import javax.swing.UIManager;
 import javax.swing.border.Border;
 import javax.swing.plaf.basic.BasicSplitPaneDivider;
@@ -587,8 +589,17 @@ public class SweetHome3D extends HomeApplication {
    */
   private void initLookAndFeel() {
     try {
-      // Apply current system look and feel if swing.defaultlaf isn't defined
-      UIManager.setLookAndFeel(System.getProperty("swing.defaultlaf", UIManager.getSystemLookAndFeelClassName()));
+      // Apply current system look and feel if swing.defaultlaf isn't defined,
+      // defaulting to the modern FlatLaf when it's on the classpath. The choice
+      // is set by class name (no compile-time dependency) and can be overridden
+      // with -Dcom.eteks.sweethome3d.lookAndFeel=light|dark|system (or the
+      // standard -Dswing.defaultlaf=...).
+      try {
+        applyLookAndFeelClass(getConfiguredLookAndFeelClassName());
+      } catch (Throwable ex) {
+        // FlatLaf not available or failed to load: fall back to the system look and feel
+        UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+      }
       // Change default titled borders under Mac OS X 10.5
       if (OperatingSystem.isMacOSXLeopardOrSuperior()) {
         UIManager.put("TitledBorder.border", UIManager.getBorder("TitledBorder.aquaVariant"));
@@ -625,9 +636,76 @@ public class SweetHome3D extends HomeApplication {
           });
       }
       SwingTools.updateSwingResourceLanguage(getUserPreferences());
+
+      // Re-apply the look and feel when the user changes the theme in preferences
+      getUserPreferences().addPropertyChangeListener(UserPreferences.Property.LOOK_AND_FEEL,
+          new PropertyChangeListener() {
+            public void propertyChange(PropertyChangeEvent ev) {
+              EventQueue.invokeLater(new Runnable() {
+                  public void run() {
+                    updateLookAndFeel();
+                  }
+                });
+            }
+          });
     } catch (Exception ex) {
       // Too bad keep current look and feel
     }
+  }
+
+  /**
+   * Returns the Swing look and feel class name to apply, resolved from
+   * (in order) the {@code swing.defaultlaf} system property, the
+   * {@code com.eteks.sweethome3d.lookAndFeel} system property, then the user
+   * preference theme ("light", "dark" or "system"), defaulting to the modern
+   * light FlatLaf.
+   */
+  private String getConfiguredLookAndFeelClassName() {
+    String lookAndFeelClassName = System.getProperty("swing.defaultlaf");
+    if (lookAndFeelClassName == null) {
+      String theme = System.getProperty("com.eteks.sweethome3d.lookAndFeel");
+      if (theme == null) {
+        theme = getUserPreferences().getLookAndFeel();
+      }
+      if (theme == null || "light".equalsIgnoreCase(theme)) {
+        lookAndFeelClassName = "com.formdev.flatlaf.FlatLightLaf";
+      } else if ("dark".equalsIgnoreCase(theme)) {
+        lookAndFeelClassName = "com.formdev.flatlaf.FlatDarkLaf";
+      }
+      // "system"/"false" leave the class name null to use the platform look and feel
+    }
+    if (lookAndFeelClassName == null) {
+      lookAndFeelClassName = UIManager.getSystemLookAndFeelClassName();
+    }
+    return lookAndFeelClassName;
+  }
+
+  /**
+   * Applies the configured look and feel and refreshes every open window so a
+   * theme change in preferences takes effect immediately.
+   */
+  private void updateLookAndFeel() {
+    try {
+      applyLookAndFeelClass(getConfiguredLookAndFeelClassName());
+    } catch (Throwable ex) {
+      // Keep the current look and feel if the requested one can't be applied
+      return;
+    }
+    for (Window window : Window.getWindows()) {
+      SwingUtilities.updateComponentTreeUI(window);
+    }
+  }
+
+  /**
+   * Applies the look and feel of the given class name, loading it with this
+   * application's class loader so that FlatLaf - bundled as an extension jar in
+   * the executable - is found even when the thread context class loader isn't
+   * the one that holds the extension jars.
+   */
+  private void applyLookAndFeelClass(String lookAndFeelClassName) throws Exception {
+    LookAndFeel lookAndFeel = (LookAndFeel)
+        Class.forName(lookAndFeelClassName, true, getClass().getClassLoader()).newInstance();
+    UIManager.setLookAndFeel(lookAndFeel);
   }
 
   /**

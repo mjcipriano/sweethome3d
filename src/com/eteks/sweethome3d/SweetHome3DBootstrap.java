@@ -60,6 +60,7 @@ public class SweetHome3DBootstrap {
         "iText-2.1.7.jar",
         "freehep-vectorgraphics-svg-2.1.1c.jar",
         "sunflow-0.07.3i.jar",
+        "flatlaf-3.5.4.jar", // Modern Swing look and feel
         "jmf.jar",
         "jnlp.jar"}));
     String yafarayPluginsFolder = null;
@@ -252,6 +253,7 @@ public class SweetHome3DBootstrap {
         "jmpapps.util",
         "org.sunflow",
         "org.apache.batik",
+        "com.formdev.flatlaf",
         "com.eteks.parser"};
     String applicationClassName = "com.eteks.sweethome3d.SweetHome3D";
     File cacheFolder = new File(System.getProperty("java.io.tmpdir"));
