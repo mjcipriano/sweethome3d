@@ -4079,8 +4079,13 @@ public class HomePane extends JRootPane implements HomeView {
           if (item instanceof JMenu) {
             setMenuItemsEnabled((JMenu)item, enabled);
           } else if (item != null) {
+            // Some menu items (e.g. the Display 3D view toggle) are driven by a
+            // listener rather than an Action; getAction() is null for those, so
+            // re-enable them directly instead of throwing and aborting the loop,
+            // which would leave every later menu (Tools, Help) stuck disabled.
+            Action action = item.getAction();
             item.setEnabled(enabled
-                ? item.getAction().isEnabled()
+                ? action == null || action.isEnabled()
                 : false);
           }
         }
