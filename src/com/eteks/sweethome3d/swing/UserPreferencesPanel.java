@@ -88,6 +88,8 @@ public class UserPreferencesPanel extends JPanel implements DialogView {
   private JComboBox        unitComboBox;
   private JLabel           currencyLabel;
   private JComboBox        currencyComboBox;
+  private JLabel           lookAndFeelLabel;
+  private JComboBox        lookAndFeelComboBox;
   private JCheckBox        valueAddedTaxCheckBox;
   private JLabel           furnitureCatalogViewLabel;
   private JRadioButton     treeRadioButton;
@@ -246,6 +248,39 @@ public class UserPreferencesPanel extends JPanel implements DialogView {
           new PropertyChangeListener() {
             public void propertyChange(PropertyChangeEvent ev) {
               unitComboBox.setSelectedItem(controller.getUnit());
+            }
+          });
+    }
+
+    if (controller.isPropertyEditable(UserPreferencesController.Property.LOOK_AND_FEEL)) {
+      // Create theme label and combo box bound to controller LOOK_AND_FEEL property
+      this.lookAndFeelLabel = new JLabel(SwingTools.getLocalizedLabelText(preferences,
+          UserPreferencesPanel.class, "lookAndFeelLabel.text"));
+      this.lookAndFeelComboBox = new JComboBox(new String [] {"light", "dark", "system"});
+      final Map<String, String> lookAndFeelTexts = new HashMap<String, String>();
+      lookAndFeelTexts.put("light", preferences.getLocalizedString(
+          UserPreferencesPanel.class, "lookAndFeelComboBox.light.text"));
+      lookAndFeelTexts.put("dark", preferences.getLocalizedString(
+          UserPreferencesPanel.class, "lookAndFeelComboBox.dark.text"));
+      lookAndFeelTexts.put("system", preferences.getLocalizedString(
+          UserPreferencesPanel.class, "lookAndFeelComboBox.system.text"));
+      this.lookAndFeelComboBox.setRenderer(new DefaultListCellRenderer() {
+          @Override
+          public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected,
+                                                        boolean cellHasFocus) {
+            return super.getListCellRendererComponent(list, lookAndFeelTexts.get(value), index, isSelected, cellHasFocus);
+          }
+        });
+      this.lookAndFeelComboBox.setSelectedItem(controller.getLookAndFeel());
+      this.lookAndFeelComboBox.addItemListener(new ItemListener() {
+          public void itemStateChanged(ItemEvent ev) {
+            controller.setLookAndFeel((String)lookAndFeelComboBox.getSelectedItem());
+          }
+        });
+      controller.addPropertyChangeListener(UserPreferencesController.Property.LOOK_AND_FEEL,
+          new PropertyChangeListener() {
+            public void propertyChange(PropertyChangeEvent ev) {
+              lookAndFeelComboBox.setSelectedItem(controller.getLookAndFeel());
             }
           });
     }
@@ -1303,12 +1338,22 @@ public class UserPreferencesPanel extends JPanel implements DialogView {
           GridBagConstraints.HORIZONTAL, rightComponentInsets, 0, 0));
     }
 
+    if (this.lookAndFeelLabel != null) {
+      // Twenty-first row
+      add(this.lookAndFeelLabel, new GridBagConstraints(
+          0, 20, 1, 1, 0, 0, labelAlignment,
+          GridBagConstraints.NONE, labelInsets, 0, 0));
+      add(this.lookAndFeelComboBox, new GridBagConstraints(
+          1, 20, 2, 1, 0, 0, GridBagConstraints.LINE_START,
+          GridBagConstraints.NONE, rightComponentInsets, 0, 0));
+    }
+
     // Last row
     if (this.resetDisplayedActionTipsButton.getText() != null
         && this.resetDisplayedActionTipsButton.getText().length() > 0) {
       // Display reset button only if its text isn't empty
       add(this.resetDisplayedActionTipsButton, new GridBagConstraints(
-          0, 20, 3, 1, 0, 0, GridBagConstraints.CENTER,
+          0, 21, 3, 1, 0, 0, GridBagConstraints.CENTER,
           GridBagConstraints.NONE, new Insets(0, 0, 0, 0), 0, 0));
     }
   }

@@ -56,7 +56,8 @@ public abstract class UserPreferences {
                         NEW_WALL_THICKNESS, NEW_WALL_HEIGHT, NEW_WALL_SIDEBOARD_THICKNESS, NEW_WALL_SIDEBOARD_HEIGHT, NEW_ROOM_FLOOR_COLOR, NEW_FLOOR_THICKNESS,
                         RECENT_HOMES, IGNORED_ACTION_TIP, FURNITURE_CATALOG_VIEWED_IN_TREE, NAVIGATION_PANEL_VISIBLE,
                         AERIAL_VIEW_CENTERED_ON_SELECTION_ENABLED, OBSERVER_CAMERA_SELECTED_AT_CHANGE, EDITING_IN_3D_VIEW_ENABLED, CHECK_UPDATES_ENABLED,
-                        UPDATES_MINIMUM_DATE, AUTO_SAVE_DELAY_FOR_RECOVERY, AUTO_COMPLETION_STRINGS, RECENT_COLORS, RECENT_TEXTURES, HOME_EXAMPLES, PHOTO_RENDERER}
+                        UPDATES_MINIMUM_DATE, AUTO_SAVE_DELAY_FOR_RECOVERY, AUTO_COMPLETION_STRINGS, RECENT_COLORS, RECENT_TEXTURES, HOME_EXAMPLES, PHOTO_RENDERER,
+                        LOOK_AND_FEEL}
 
   public static final String FURNITURE_LIBRARY_TYPE = "Furniture library";
   public static final String TEXTURES_LIBRARY_TYPE  = "Textures library";
@@ -109,6 +110,7 @@ public abstract class UserPreferences {
   private boolean          magnetismEnabled    = true;
   private boolean          rulersVisible       = true;
   private boolean          gridVisible         = true;
+  private String           lookAndFeel         = "light";
   private String           defaultFontName;
   private boolean          drawingModeEnabled;
   private boolean          furnitureViewedFromTop;
@@ -796,6 +798,29 @@ public abstract class UserPreferences {
       String oldName = this.defaultFontName;
       this.defaultFontName = defaultFontName;
       this.propertyChangeSupport.firePropertyChange(Property.DEFAULT_FONT_NAME.name(), oldName, defaultFontName);
+    }
+  }
+
+  /**
+   * Returns the requested user interface theme: <code>"light"</code> or
+   * <code>"dark"</code> for the modern flat look, or <code>"system"</code> for
+   * the classic platform look. Never <code>null</code>.
+   */
+  public String getLookAndFeel() {
+    return this.lookAndFeel;
+  }
+
+  /**
+   * Sets the user interface theme and fires a <code>PropertyChangeEvent</code>.
+   * Accepted values are <code>"light"</code>, <code>"dark"</code> and
+   * <code>"system"</code>.
+   */
+  public void setLookAndFeel(String lookAndFeel) {
+    if (lookAndFeel != null
+        && !lookAndFeel.equals(this.lookAndFeel)) {
+      String oldLookAndFeel = this.lookAndFeel;
+      this.lookAndFeel = lookAndFeel;
+      this.propertyChangeSupport.firePropertyChange(Property.LOOK_AND_FEEL.name(), oldLookAndFeel, lookAndFeel);
     }
   }
 

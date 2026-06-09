@@ -39,7 +39,7 @@ public class UserPreferencesController implements Controller {
       FURNITURE_VIEWED_FROM_TOP, FURNITURE_MODEL_ICON_SIZE, ROOM_FLOOR_COLORED_OR_TEXTURED, WALL_PATTERN, NEW_WALL_PATTERN,
       NEW_WALL_THICKNESS, NEW_WALL_HEIGHT, NEW_FLOOR_THICKNESS, FURNITURE_CATALOG_VIEWED_IN_TREE,
       NAVIGATION_PANEL_VISIBLE, EDITING_IN_3D_VIEW_ENABLED, AERIAL_VIEW_CENTERED_ON_SELECTION_ENABLED, OBSERVER_CAMERA_SELECTED_AT_CHANGE,
-      CHECK_UPDATES_ENABLED, AUTO_SAVE_DELAY_FOR_RECOVERY, AUTO_SAVE_FOR_RECOVERY_ENABLED}
+      CHECK_UPDATES_ENABLED, AUTO_SAVE_DELAY_FOR_RECOVERY, AUTO_SAVE_FOR_RECOVERY_ENABLED, LOOK_AND_FEEL}
 
   private final UserPreferences         preferences;
   private final ViewFactory             viewFactory;
@@ -59,6 +59,7 @@ public class UserPreferencesController implements Controller {
   private boolean                       magnetismEnabled;
   private boolean                       rulersVisible;
   private boolean                       gridVisible;
+  private String                        lookAndFeel;
   private String                        defaultFontName;
   private boolean                       furnitureViewedFromTop;
   private int                           furnitureModelIconSize;
@@ -144,6 +145,7 @@ public class UserPreferencesController implements Controller {
     setMagnetismEnabled(this.preferences.isMagnetismEnabled());
     setRulersVisible(this.preferences.isRulersVisible());
     setGridVisible(this.preferences.isGridVisible());
+    setLookAndFeel(this.preferences.getLookAndFeel());
     setDefaultFontName(this.preferences.getDefaultFontName());
     setFurnitureViewedFromTop(this.preferences.isFurnitureViewedFromTop());
     setFurnitureModelIconSize(this.preferences.getFurnitureModelIconSize());
@@ -424,6 +426,25 @@ public class UserPreferencesController implements Controller {
   }
 
   /**
+   * Sets the edited user interface theme ("light", "dark" or "system").
+   */
+  public void setLookAndFeel(String lookAndFeel) {
+    if (lookAndFeel != null
+        && !lookAndFeel.equals(this.lookAndFeel)) {
+      String oldLookAndFeel = this.lookAndFeel;
+      this.lookAndFeel = lookAndFeel;
+      this.propertyChangeSupport.firePropertyChange(Property.LOOK_AND_FEEL.name(), oldLookAndFeel, lookAndFeel);
+    }
+  }
+
+  /**
+   * Returns the edited user interface theme ("light", "dark" or "system").
+   */
+  public String getLookAndFeel() {
+    return this.lookAndFeel;
+  }
+
+  /**
    * Sets how furniture should be displayed in plan.
    */
   public void setFurnitureViewedFromTop(boolean furnitureViewedFromTop) {
@@ -681,6 +702,7 @@ public class UserPreferencesController implements Controller {
     this.preferences.setMagnetismEnabled(isMagnetismEnabled());
     this.preferences.setRulersVisible(isRulersVisible());
     this.preferences.setGridVisible(isGridVisible());
+    this.preferences.setLookAndFeel(getLookAndFeel());
     this.preferences.setDefaultFontName(getDefaultFontName());
     this.preferences.setFurnitureViewedFromTop(isFurnitureViewedFromTop());
     this.preferences.setFurnitureModelIconSize(getFurnitureModelIconSize());
