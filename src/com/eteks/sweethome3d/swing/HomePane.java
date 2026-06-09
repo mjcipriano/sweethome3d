@@ -139,6 +139,7 @@ import javax.swing.JPopupMenu;
 import javax.swing.JRadioButtonMenuItem;
 import javax.swing.JRootPane;
 import javax.swing.JScrollPane;
+import javax.swing.JSlider;
 import javax.swing.JSeparator;
 import javax.swing.JSplitPane;
 import javax.swing.JTable;
@@ -1349,6 +1350,25 @@ public class HomePane extends JRootPane implements HomeView {
     preview3DMenu.add(displayView3DMenuItem);
     addToggleActionToMenu(ActionType.DISPLAY_ALL_LEVELS, true, preview3DMenu);
     addToggleActionToMenu(ActionType.DISPLAY_SELECTED_LEVEL, true, preview3DMenu);
+    // Toggle that temporarily shows the original high detail models in the 3D
+    // view for the pieces displayed with reduced detail
+    final JCheckBoxMenuItem showFullDetailMenuItem = new JCheckBoxMenuItem(
+        preferences.getLocalizedString(HomePane.class, "showFullDetailInView"));
+    showFullDetailMenuItem.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          setModelLODsUsedInView(!showFullDetailMenuItem.isSelected());
+        }
+      });
+    preview3DMenu.addMenuListener(new MenuListener() {
+        public void menuSelected(MenuEvent ev) {
+          showFullDetailMenuItem.setSelected(!isModelLODsUsedInView());
+        }
+        public void menuDeselected(MenuEvent ev) {
+        }
+        public void menuCanceled(MenuEvent ev) {
+        }
+      });
+    preview3DMenu.add(showFullDetailMenuItem);
     addActionToMenu(ActionType.MODIFY_3D_ATTRIBUTES, preview3DMenu);
     preview3DMenu.addSeparator();
     addActionToMenu(ActionType.CREATE_PHOTO, preview3DMenu);
@@ -3275,6 +3295,32 @@ public class HomePane extends JRootPane implements HomeView {
           }
         });
       furnitureViewPopup.add(visibleOffItem);
+      // Reduced detail (low poly) toggles for the 3D view
+      furnitureViewPopup.addSeparator();
+      JMenuItem reducedDetailItem = new JMenuItem(
+          this.preferences.getLocalizedString(HomePane.class, "reduceDetailInView"));
+      reducedDetailItem.addActionListener(new ActionListener() {
+          public void actionPerformed(ActionEvent ev) {
+            setSelectedFurnitureReducedDetailInView(true);
+          }
+        });
+      furnitureViewPopup.add(reducedDetailItem);
+      JMenuItem fullDetailItem = new JMenuItem(
+          this.preferences.getLocalizedString(HomePane.class, "fullDetailInView"));
+      fullDetailItem.addActionListener(new ActionListener() {
+          public void actionPerformed(ActionEvent ev) {
+            setSelectedFurnitureReducedDetailInView(false);
+          }
+        });
+      furnitureViewPopup.add(fullDetailItem);
+      JMenuItem reduceModelDetailItem = new JMenuItem(
+          this.preferences.getLocalizedString(HomePane.class, "reduceModelDetail"));
+      reduceModelDetailItem.addActionListener(new ActionListener() {
+          public void actionPerformed(ActionEvent ev) {
+            reduceSelectedFurnitureModelDetail();
+          }
+        });
+      furnitureViewPopup.add(reduceModelDetailItem);
       SwingTools.hideDisabledMenuItems(furnitureViewPopup);
       furnitureView.setComponentPopupMenu(furnitureViewPopup);
 
@@ -5503,10 +5549,9 @@ public class HomePane extends JRootPane implements HomeView {
    * Caution !!! This method may be called from an other thread than EDT.
    */
   public void exportToOBJ(String objFile) throws RecorderException {
-    View view3D = this.controller.getHomeController3D().getView();
-    Object3DFactory object3dFactory = view3D instanceof HomeComponent3D
-        ? ((HomeComponent3D)view3D).getObject3DFactory()
-        : new Object3DBranchFactory();
+    // Export the original high detail models, never the reduced viewport LODs
+    Object3DBranchFactory object3dFactory = new Object3DBranchFactory(this.preferences);
+    object3dFactory.setUseModelLODs(false);
     exportToOBJ(objFile, object3dFactory);
   }
 
@@ -5535,6 +5580,16 @@ public class HomePane extends JRootPane implements HomeView {
   private void generateModelLODs(Collection<HomePieceOfFurniture> furniture, final boolean showStatus) {
     final Set<Content> models = new HashSet<Content>();
     collectLODModels(furniture, models);
+    generateModelLODs(models, null, showStatus);
+  }
+
+  /**
+   * Generates LOD models for the given <code>models</code>. A non-null
+   * <code>targetRatio</code> (0&nbsp;&lt;&nbsp;ratio&nbsp;&le;&nbsp;1) forces a
+   * manual reduction level and regenerates even existing LODs; a null ratio uses
+   * the automatic level and skips models below the size threshold.
+   */
+  private void generateModelLODs(Set<Content> models, final Float targetRatio, final boolean showStatus) {
     if (models.isEmpty()) {
       if (showStatus) {
         JOptionPane.showMessageDialog(this,
@@ -5573,7 +5628,9 @@ public class HomePane extends JRootPane implements HomeView {
           ModelLODGenerator generator = new ModelLODGenerator();
           for (final Content model : queuedModels) {
             try {
-              final ModelLOD modelLOD = generator.generate(model);
+              final ModelLOD modelLOD = targetRatio != null
+                  ? generator.generate(model, targetRatio.floatValue())
+                  : generator.generate(model);
               if (modelLOD != null) {
                 EventQueue.invokeLater(new Runnable() {
                     public void run() {
@@ -5679,6 +5736,112 @@ public class HomePane extends JRootPane implements HomeView {
       }
     }
     piece.setVisible(visible);
+  }
+
+  /**
+   * Returns <code>true</code> if the 3D view currently displays reduced models
+   * for the pieces opted into reduced detail.
+   */
+  private boolean isModelLODsUsedInView() {
+    View view3D = this.controller.getHomeController3D().getView();
+    return !(view3D instanceof HomeComponent3D)
+        || ((HomeComponent3D)view3D).isModelLODsUsedInView();
+  }
+
+  /**
+   * Sets whether the 3D view displays reduced models for opted-in pieces (the
+   * default) or always shows the original high detail models.
+   */
+  private void setModelLODsUsedInView(boolean used) {
+    View view3D = this.controller.getHomeController3D().getView();
+    if (view3D instanceof HomeComponent3D) {
+      ((HomeComponent3D)view3D).setModelLODsUsedInView(used);
+    }
+  }
+
+  /**
+   * Returns the leaf pieces of the selected furniture, descending into groups.
+   */
+  private List<HomePieceOfFurniture> getSelectedLeafPieces() {
+    List<HomePieceOfFurniture> pieces = new ArrayList<HomePieceOfFurniture>();
+    for (Selectable item : this.home.getSelectedItems()) {
+      if (item instanceof HomePieceOfFurniture) {
+        collectLeafPieces((HomePieceOfFurniture)item, pieces);
+      }
+    }
+    return pieces;
+  }
+
+  private void collectLeafPieces(HomePieceOfFurniture piece, List<HomePieceOfFurniture> pieces) {
+    if (piece instanceof HomeFurnitureGroup) {
+      for (HomePieceOfFurniture child : ((HomeFurnitureGroup)piece).getFurniture()) {
+        collectLeafPieces(child, pieces);
+      }
+    } else {
+      pieces.add(piece);
+    }
+  }
+
+  /**
+   * Sets whether the selected furniture is displayed with reduced detail (low
+   * poly) in the 3D view. When turning reduced detail on, the reduced model is
+   * auto-generated for any model that doesn't have one yet. The original model
+   * is always kept for rendering and exports.
+   */
+  private void setSelectedFurnitureReducedDetailInView(boolean reduced) {
+    Set<Content> modelsToGenerate = new HashSet<Content>();
+    for (HomePieceOfFurniture piece : getSelectedLeafPieces()) {
+      piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, reduced ? "true" : null);
+      Content model = piece.getModel();
+      if (reduced && model != null && this.home.getModelLOD(model) == null) {
+        modelsToGenerate.add(model);
+      }
+    }
+    if (!modelsToGenerate.isEmpty()) {
+      generateModelLODs(modelsToGenerate, null, false);
+    }
+  }
+
+  /**
+   * Asks for a reduction level then regenerates the reduced model of the
+   * selected furniture at that level and opts those pieces into reduced detail.
+   */
+  private void reduceSelectedFurnitureModelDetail() {
+    List<HomePieceOfFurniture> pieces = getSelectedLeafPieces();
+    final Set<Content> models = new HashSet<Content>();
+    for (HomePieceOfFurniture piece : pieces) {
+      if (piece.getModel() != null) {
+        models.add(piece.getModel());
+      }
+    }
+    if (models.isEmpty()) {
+      return;
+    }
+    if (!ModelLODGenerator.isAvailable()) {
+      JOptionPane.showMessageDialog(this,
+          "Model LOD generation requires the native sweethome3d_model_lod library.",
+          "Reduce model detail", JOptionPane.ERROR_MESSAGE);
+      return;
+    }
+    // Percentage of the model detail kept in the 3D view (smaller = lighter)
+    JSlider detailSlider = new JSlider(5, 75, 25);
+    detailSlider.setMajorTickSpacing(10);
+    detailSlider.setMinorTickSpacing(5);
+    detailSlider.setPaintTicks(true);
+    detailSlider.setPaintLabels(true);
+    JPanel detailPanel = new JPanel(new BorderLayout(0, 5));
+    detailPanel.add(new JLabel(this.preferences.getLocalizedString(
+        HomePane.class, "reduceModelDetailDialog.message")), BorderLayout.NORTH);
+    detailPanel.add(detailSlider, BorderLayout.CENTER);
+    if (SwingTools.showConfirmDialog(this, detailPanel,
+            this.preferences.getLocalizedString(HomePane.class, "reduceModelDetailDialog.title"),
+            detailSlider) == JOptionPane.OK_OPTION) {
+      float targetRatio = detailSlider.getValue() / 100f;
+      for (HomePieceOfFurniture piece : pieces) {
+        piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, "true");
+      }
+      generateModelLODs(models, Float.valueOf(targetRatio), false);
+    }
   }
 
   /**

@@ -1,5 +1,5 @@
 /*
- * Object3DBranchFactory.java 8 févr. 2011
+ * Object3DBranchFactory.java 8 fï¿½vr. 2011
  *
  * Sweet Home 3D, Copyright (c) 2024 Space Mushrooms <info@sweethome3d.com>
  *
@@ -37,6 +37,7 @@ import com.eteks.sweethome3d.viewcontroller.Object3DFactory;
 public class Object3DBranchFactory implements Object3DFactory {
   private UserPreferences preferences;
   private Object          context;
+  private boolean         useModelLODs = true;
 
   public Object3DBranchFactory() {
     this(null);
@@ -53,6 +54,23 @@ public class Object3DBranchFactory implements Object3DFactory {
 
   public boolean isDrawingModeEnabled() {
     return this.preferences != null && this.preferences.isDrawingModeEnabled();
+  }
+
+  /**
+   * Returns <code>true</code> if the pieces created by this factory may display
+   * a reduced (low poly) model for pieces opted into reduced detail.
+   */
+  public boolean isUseModelLODs() {
+    return this.useModelLODs;
+  }
+
+  /**
+   * Sets whether the pieces created by this factory may display reduced models.
+   * Rendering and export factories set this to <code>false</code> so the
+   * original high detail model is always used.
+   */
+  public void setUseModelLODs(boolean useModelLODs) {
+    this.useModelLODs = useModelLODs;
   }
 
   /**
@@ -74,7 +92,7 @@ public class Object3DBranchFactory implements Object3DFactory {
    */
   public Object createObject3D(Home home, Selectable item, UserPreferences preferences, Object context, boolean waitForLoading) {
     if (item instanceof HomePieceOfFurniture) {
-      return new HomePieceOfFurniture3D((HomePieceOfFurniture)item, home, preferences, context, !isDrawingModeEnabled(), waitForLoading);
+      return new HomePieceOfFurniture3D((HomePieceOfFurniture)item, home, preferences, context, !isDrawingModeEnabled(), waitForLoading, this.useModelLODs);
     } else if (item instanceof Wall) {
       return new Wall3D((Wall)item, home, preferences, context, !isDrawingModeEnabled(), waitForLoading);
     } else if (item instanceof Room) {

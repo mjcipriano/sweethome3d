@@ -59,7 +59,7 @@ import com.eteks.sweethome3d.viewcontroller.Object3DFactory;
 /**
  * A renderer able to create a photo realistic image of a home.
  * @author Emmanuel Puybaret
- * @author Frédéric Mantegazza (Sun location algorithm)
+ * @author Frï¿½dï¿½ric Mantegazza (Sun location algorithm)
  */
 public abstract class AbstractPhotoRenderer {
   public enum Quality {LOW, HIGH}
@@ -273,7 +273,7 @@ public abstract class AbstractPhotoRenderer {
 
   /**
    * Returns sun direction at a given <code>time</code>.
-   * @author Frédéric Mantegazza
+   * @author Frï¿½dï¿½ric Mantegazza
    */
   float [] getSunDirection(Compass compass, long time) {
     float elevation = compass.getSunElevation(time);
@@ -532,6 +532,11 @@ public abstract class AbstractPhotoRenderer {
    * Default factory for photo creation with no ceiling for rooms when top camera is used.
    */
   static class PhotoObject3DFactory extends Object3DBranchFactory {
+    public PhotoObject3DFactory() {
+      // Always render the original high detail model, never a reduced LOD
+      setUseModelLODs(false);
+    }
+
     @Override
     public boolean isDrawingModeEnabled() {
       return false;

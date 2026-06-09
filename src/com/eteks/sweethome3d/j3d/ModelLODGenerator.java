@@ -95,9 +95,32 @@ public class ModelLODGenerator {
   }
 
   /**
-   * Generates an LOD for {@code model}, returning {@code null} below the threshold.
+   * Clamps a requested simplification ratio to the range the simplifier supports.
+   * A ratio of 1 keeps every vertex, a smaller ratio keeps fewer; values outside
+   * [0.02, 0.95] are pulled back into that range.
+   */
+  public static float normalizeTargetRatio(float targetRatio) {
+    return Math.min(0.95f, Math.max(0.02f, targetRatio));
+  }
+
+  /**
+   * Generates an LOD for {@code model} with an automatic reduction level,
+   * returning {@code null} below the vertex threshold.
    */
   public ModelLOD generate(final Content model) throws IOException {
+    return generate(model, null);
+  }
+
+  /**
+   * Generates an LOD for {@code model} reduced to about {@code targetRatio} of
+   * its vertices (0&nbsp;&lt;&nbsp;ratio&nbsp;&le;&nbsp;1). This manual override
+   * always attempts a reduction, ignoring the automatic vertex threshold.
+   */
+  public ModelLOD generate(final Content model, float targetRatio) throws IOException {
+    return generate(model, Float.valueOf(targetRatio));
+  }
+
+  private ModelLOD generate(final Content model, Float targetRatioOverride) throws IOException {
     if (!nativeAvailable) {
       throw new IOException("The model LOD native library isn't available");
     }
@@ -118,12 +141,17 @@ public class ModelLODGenerator {
     }
 
     int sourceVertexCount = ModelManager.getInstance().getModelVertexCount(model);
-    if (sourceVertexCount <= DEFAULT_VERTEX_THRESHOLD) {
-      return null;
+    float targetRatio;
+    if (targetRatioOverride != null) {
+      // Manual reduction level: always attempt a reduction
+      targetRatio = normalizeTargetRatio(targetRatioOverride.floatValue());
+    } else {
+      // Automatic level: only simplify models above the threshold
+      if (sourceVertexCount <= DEFAULT_VERTEX_THRESHOLD) {
+        return null;
+      }
+      targetRatio = normalizeTargetRatio((float)DEFAULT_TARGET_VERTICES / sourceVertexCount);
     }
-
-    float targetRatio = Math.min(0.75f,
-        Math.max(0.02f, (float)DEFAULT_TARGET_VERTICES / sourceVertexCount));
     BranchGroup simplifiedModel = (BranchGroup)loadedModel [0].cloneTree(true);
     int simplifiedVertices = simplifyNode(simplifiedModel, targetRatio);
     if (simplifiedVertices <= 0 || simplifiedVertices >= sourceVertexCount) {
