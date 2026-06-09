@@ -330,18 +330,6 @@ public class HomeController3D implements Controller {
   }
 
   /**
-   * Pans the camera according to a mouse drag expressed in screen pixels.
-   * In the aerial view this shifts the point the camera turns around so the
-   * user can frame an off-center part of the home; in the observer view it
-   * moves the observer sideways and vertically.
-   * @param dxPixels the horizontal drag in pixels (positive towards the right)
-   * @param dyPixels the vertical drag in pixels (positive towards the bottom)
-   */
-  public void panCamera(float dxPixels, float dyPixels) {
-    this.cameraState.panCamera(dxPixels, dyPixels);
-  }
-
-  /**
    * Rotates home camera yaw angle of <code>delta</code> radians.
    * @param delta  the value in rad that the camera should turn around yaw axis
    */
@@ -470,9 +458,6 @@ public class HomeController3D implements Controller {
     public void elevateCamera(float delta) {
     }
 
-    public void panCamera(float dxPixels, float dyPixels) {
-    }
-
     public void rotateCameraYaw(float delta) {
     }
 
@@ -557,10 +542,6 @@ public class HomeController3D implements Controller {
     }
 
     public void elevateCamera(float delta) {
-      this.cameraMoved = true;
-    }
-
-    public void panCamera(float dxPixels, float dyPixels) {
       this.cameraMoved = true;
     }
 
@@ -852,11 +833,6 @@ public class HomeController3D implements Controller {
     private boolean     aerialViewCenteredOnSelectionEnabled;
     private boolean     previousSelectionEmpty;
     private float       distanceToCenterWithSelection = -1;
-    // Offset added to the home bounds center so the user can pan the point the
-    // aerial camera turns around; kept across home updates so the view doesn't
-    // snap back to the center while editing.
-    private float       aerialViewCenterShiftX;
-    private float       aerialViewCenterShiftY;
 
     private PropertyChangeListener objectChangeListener = new PropertyChangeListener() {
         public void propertyChange(PropertyChangeEvent ev) {
@@ -969,33 +945,9 @@ public class HomeController3D implements Controller {
       }
     }
 
-    /**
-     * Returns the X coordinate of the point the aerial camera turns around,
-     * i.e. the home bounds center shifted by the current pan offset.
-     */
-    private float getAerialViewCenterX() {
-      return (this.aerialViewBoundsLowerPoint [0] + this.aerialViewBoundsUpperPoint [0]) / 2 + this.aerialViewCenterShiftX;
-    }
-
-    /**
-     * Returns the Y coordinate of the point the aerial camera turns around.
-     */
-    private float getAerialViewCenterY() {
-      return (this.aerialViewBoundsLowerPoint [1] + this.aerialViewBoundsUpperPoint [1]) / 2 + this.aerialViewCenterShiftY;
-    }
-
-    /**
-     * Returns the Z coordinate of the point the aerial camera turns around.
-     */
-    private float getAerialViewCenterZ() {
-      return (this.aerialViewBoundsLowerPoint [2] + this.aerialViewBoundsUpperPoint [2]) / 2;
-    }
-
     @Override
     public void enter() {
       this.topCamera = home.getCamera();
-      this.aerialViewCenterShiftX = 0;
-      this.aerialViewCenterShiftY = 0;
       this.previousSelectionEmpty = home.getSelectedItems().isEmpty();
       this.aerialViewCenteredOnSelectionEnabled = preferences.isAerialViewCenteredOnSelectionEnabled();
       updateCameraFromHomeBounds(false, false);
@@ -1069,9 +1021,9 @@ public class HomeController3D implements Controller {
      * Returns the distance between the current camera location and home bounds center.
      */
     private float getCameraToAerialViewCenterDistance() {
-      return (float)Math.sqrt(Math.pow(getAerialViewCenterX() - this.topCamera.getX(), 2)
-          + Math.pow(getAerialViewCenterY() - this.topCamera.getY(), 2)
-          + Math.pow(getAerialViewCenterZ() - this.topCamera.getZ(), 2));
+      return (float)Math.sqrt(Math.pow((this.aerialViewBoundsLowerPoint [0] + this.aerialViewBoundsUpperPoint [0]) / 2 - this.topCamera.getX(), 2)
+          + Math.pow((this.aerialViewBoundsLowerPoint [1] + this.aerialViewBoundsUpperPoint [1]) / 2 - this.topCamera.getY(), 2)
+          + Math.pow((this.aerialViewBoundsLowerPoint [2] + this.aerialViewBoundsUpperPoint [2]) / 2 - this.topCamera.getZ(), 2));
     }
 
     /**
@@ -1308,30 +1260,12 @@ public class HomeController3D implements Controller {
         distanceToCenter = Math.min(distanceToCenter, 3 * this.minDistanceToAerialViewCenter);
       }
       double distanceToCenterAtGroundLevel = distanceToCenter * Math.cos(this.topCamera.getPitch());
-      this.topCamera.setX(getAerialViewCenterX()
+      this.topCamera.setX((this.aerialViewBoundsLowerPoint [0] + this.aerialViewBoundsUpperPoint [0]) / 2
           + (float)(Math.sin(this.topCamera.getYaw()) * distanceToCenterAtGroundLevel));
-      this.topCamera.setY(getAerialViewCenterY()
+      this.topCamera.setY((this.aerialViewBoundsLowerPoint [1] + this.aerialViewBoundsUpperPoint [1]) / 2
           - (float)(Math.cos(this.topCamera.getYaw()) * distanceToCenterAtGroundLevel));
-      this.topCamera.setZ(getAerialViewCenterZ()
+      this.topCamera.setZ((this.aerialViewBoundsLowerPoint [2] + this.aerialViewBoundsUpperPoint [2]) / 2
           + (float)Math.sin(this.topCamera.getPitch()) * distanceToCenter);
-    }
-
-    @Override
-    public void panCamera(float dxPixels, float dyPixels) {
-      super.panCamera(dxPixels, dyPixels);
-      float distanceToCenter = getCameraToAerialViewCenterDistance();
-      // Scale the pan with the distance to the center so it feels the same at
-      // every zoom level (farther camera pans more ground per pixel).
-      float worldPerPixel = distanceToCenter * 0.0025f;
-      float yaw = this.topCamera.getYaw();
-      double cos = Math.cos(yaw);
-      double sin = Math.sin(yaw);
-      // Move the turn-around point opposite to the drag so the home follows the
-      // cursor: screen-right is (cos, sin) and screen-up is (-sin, cos) on the
-      // ground plane (dyPixels grows towards the bottom of the screen).
-      this.aerialViewCenterShiftX -= (float)(worldPerPixel * (dxPixels * cos + dyPixels * sin));
-      this.aerialViewCenterShiftY -= (float)(worldPerPixel * (dxPixels * sin - dyPixels * cos));
-      placeCameraAt(distanceToCenter, false);
     }
 
     @Override
@@ -1341,9 +1275,9 @@ public class HomeController3D implements Controller {
       double distanceToCenterAtGroundLevel = getCameraToAerialViewCenterDistance() * Math.cos(this.topCamera.getPitch());
       // Change camera yaw and location so user turns around home
       this.topCamera.setYaw(newYaw);
-      this.topCamera.setX(getAerialViewCenterX()
+      this.topCamera.setX((this.aerialViewBoundsLowerPoint [0] + this.aerialViewBoundsUpperPoint [0]) / 2
           + (float)(Math.sin(newYaw) * distanceToCenterAtGroundLevel));
-      this.topCamera.setY(getAerialViewCenterY()
+      this.topCamera.setY((this.aerialViewBoundsLowerPoint [1] + this.aerialViewBoundsUpperPoint [1]) / 2
           - (float)(Math.cos(newYaw) * distanceToCenterAtGroundLevel));
     }
 
@@ -1359,11 +1293,11 @@ public class HomeController3D implements Controller {
       double distanceToCenterAtGroundLevel = distanceToCenter * Math.cos(newPitch);
       // Change camera pitch
       this.topCamera.setPitch(newPitch);
-      this.topCamera.setX(getAerialViewCenterX()
+      this.topCamera.setX((this.aerialViewBoundsLowerPoint [0] + this.aerialViewBoundsUpperPoint [0]) / 2
           + (float)(Math.sin(this.topCamera.getYaw()) * distanceToCenterAtGroundLevel));
-      this.topCamera.setY(getAerialViewCenterY()
+      this.topCamera.setY((this.aerialViewBoundsLowerPoint [1] + this.aerialViewBoundsUpperPoint [1]) / 2
           - (float)(Math.cos(this.topCamera.getYaw()) * distanceToCenterAtGroundLevel));
-      this.topCamera.setZ(getAerialViewCenterZ()
+      this.topCamera.setZ((this.aerialViewBoundsLowerPoint [2] + this.aerialViewBoundsUpperPoint [2]) / 2
           + (float)(distanceToCenter * Math.sin(newPitch)));
     }
 
@@ -1517,15 +1451,6 @@ public class HomeController3D implements Controller {
       selectCamera();
     }
 
-    @Override
-    public void panCamera(float dxPixels, float dyPixels) {
-      super.panCamera(dxPixels, dyPixels);
-      // For the observer, panning strafes sideways and changes elevation
-      // (dyPixels grows towards the bottom of the screen, so drag down moves down).
-      moveCameraSideways(dxPixels);
-      elevateCamera(dyPixels);
-    }
-
     private void updateCameraMinimumElevation() {
       observerCamera.setZ(Math.max(observerCamera.getZ(), getMinimumElevation()));
     }
@@ -1550,7 +1475,7 @@ public class HomeController3D implements Controller {
     public void rotateCameraPitch(float delta) {
       super.rotateCameraPitch(delta);
       float newPitch = this.observerCamera.getPitch() + delta;
-      // Check new angle is between -90ï¿½ and 90ï¿½
+      // Check new angle is between -90° and 90°
       newPitch = Math.min(Math.max(-(float)Math.PI / 2, newPitch), (float)Math.PI / 2);;
       this.observerCamera.setPitch(newPitch);
       selectCamera();
@@ -1560,7 +1485,7 @@ public class HomeController3D implements Controller {
     public void modifyFieldOfView(float delta) {
       super.modifyFieldOfView(delta);
       float newFieldOfView = this.observerCamera.getFieldOfView() + delta;
-      // Check new angle is between 2ï¿½ and 120ï¿½
+      // Check new angle is between 2° and 120°
       newFieldOfView = (float)Math.min(Math.max(Math.toRadians(2), newFieldOfView), Math.toRadians(120));
       this.observerCamera.setFieldOfView(newFieldOfView);
       selectCamera();

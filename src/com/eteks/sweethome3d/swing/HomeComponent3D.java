@@ -1989,12 +1989,6 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
                 && !ev.isPopupTrigger()) {
               if (controller.isEditingState()) {
                 controller.moveMouse(ev.getX(), ev.getY());
-              } else if (SwingUtilities.isMiddleMouseButton(ev)
-                  && !Boolean.getBoolean("com.eteks.sweethome3d.interpretMiddleButtonAsLeftButtonWithAltKey")) {
-                // Middle button drag pans the view so the user can frame an
-                // off-center part of the home (and the aerial view no longer
-                // snaps back to the home center)
-                controller.panCamera(ev.getX() - this.xLastMouseMove, ev.getY() - this.yLastMouseMove);
               } else if (ev.isAltDown()
                   || (SwingUtilities.isMiddleMouseButton(ev)
                       && Boolean.getBoolean("com.eteks.sweethome3d.interpretMiddleButtonAsLeftButtonWithAltKey"))) {
@@ -2142,10 +2136,9 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
         public void mouseWheelMoved(MouseWheelEvent ev) {
           if (isEnabled()
               && !controller.isEditingState()) {
-            // Mouse wheel changes camera location, scaled by the user's zoom speed
-            float zoomSpeed = preferences != null ? preferences.getMouseWheelZoomSpeed() : 1f;
-            float delta = -2.5f * zoomSpeed * ev.getWheelRotation();
-            // Multiply delta by 5 if shift is down to zoom faster
+            // Mouse wheel changes camera location
+            float delta = -2.5f * ev.getWheelRotation();
+            // Multiply delta by 10 if shift is down
             if (ev.isShiftDown()) {
               delta *= 5;
             }

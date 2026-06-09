@@ -115,7 +115,6 @@ public class FileUserPreferences extends UserPreferences {
   private static final String CHECK_UPDATES_ENABLED                     = "checkUpdatesEnabled";
   private static final String UPDATES_MINIMUM_DATE                      = "updatesMinimumDate";
   private static final String AUTO_SAVE_DELAY_FOR_RECOVERY              = "autoSaveDelayForRecovery";
-  private static final String MOUSE_WHEEL_ZOOM_SPEED                    = "mouseWheelZoomSpeed";
   private static final String AUTO_COMPLETION_PROPERTY                  = "autoCompletionProperty#";
   private static final String AUTO_COMPLETION_STRINGS                   = "autoCompletionStrings#";
   private static final String RECENT_COLORS                             = "recentColors";
@@ -362,8 +361,6 @@ public class FileUserPreferences extends UserPreferences {
     }
     setAutoSaveDelayForRecovery(preferences.getInt(AUTO_SAVE_DELAY_FOR_RECOVERY,
         defaultPreferences.getAutoSaveDelayForRecovery()));
-    setMouseWheelZoomSpeed(preferences.getFloat(MOUSE_WHEEL_ZOOM_SPEED,
-        defaultPreferences.getMouseWheelZoomSpeed()));
     // Read recent colors list
     String [] recentColors = preferences.get(RECENT_COLORS, "").split(",");
     List<Integer> recentColorsList = new ArrayList<Integer>(recentColors.length);
@@ -1008,7 +1005,6 @@ public class FileUserPreferences extends UserPreferences {
       preferences.putLong(UPDATES_MINIMUM_DATE, updatesMinimumDate);
     }
     preferences.putInt(AUTO_SAVE_DELAY_FOR_RECOVERY, getAutoSaveDelayForRecovery());
-    preferences.putFloat(MOUSE_WHEEL_ZOOM_SPEED, getMouseWheelZoomSpeed());
     // Write recent homes list
     int i = 1;
     for (Iterator<String> it = getRecentHomes().iterator(); it.hasNext() && i <= getRecentHomesMaxCount(); i ++) {
