@@ -261,6 +261,8 @@ public class HomePane extends JRootPane implements HomeView {
   private TransferHandler       furnitureTransferHandler;
   private TransferHandler       planTransferHandler;
   private TransferHandler       view3DTransferHandler;
+  private JSplitPane            planView3DSplitPane;
+  private int                   lastView3DDividerLocation;
   private boolean               transferHandlerEnabled;
   private MouseInputAdapter     furnitureCatalogDragAndDropListener;
   private boolean               clipboardEmpty = true;
@@ -1325,6 +1327,26 @@ public class HomePane extends JRootPane implements HomeView {
     if (attachDetach3DViewMenuItem != null) {
       preview3DMenu.add(attachDetach3DViewMenuItem);
     }
+    // Toggle that collapses/restores the plan/3D split: collapsing disposes the 3D
+    // universe and stops updating it, so editing is faster when 3D isn't needed.
+    final JCheckBoxMenuItem displayView3DMenuItem = new JCheckBoxMenuItem(
+        preferences.getLocalizedString(HomePane.class, "displayView3D"));
+    displayView3DMenuItem.setSelected(true);
+    displayView3DMenuItem.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          setView3DPaneVisible(displayView3DMenuItem.isSelected());
+        }
+      });
+    preview3DMenu.addMenuListener(new MenuListener() {
+        public void menuSelected(MenuEvent ev) {
+          displayView3DMenuItem.setSelected(isView3DPaneVisible());
+        }
+        public void menuDeselected(MenuEvent ev) {
+        }
+        public void menuCanceled(MenuEvent ev) {
+        }
+      });
+    preview3DMenu.add(displayView3DMenuItem);
     addToggleActionToMenu(ActionType.DISPLAY_ALL_LEVELS, true, preview3DMenu);
     addToggleActionToMenu(ActionType.DISPLAY_SELECTED_LEVEL, true, preview3DMenu);
     addActionToMenu(ActionType.MODIFY_3D_ATTRIBUTES, preview3DMenu);
@@ -3640,6 +3662,7 @@ public class HomePane extends JRootPane implements HomeView {
         }
 
         planView3DPane = planView3DSplitPane;
+        this.planView3DSplitPane = planView3DSplitPane;
       } else {
         planView3DPane = view3D;
       }
@@ -5598,6 +5621,39 @@ public class HomePane extends JRootPane implements HomeView {
   /**
    * Sets the visibility of all selected furniture items in the given furniture view.
    */
+  /**
+   * Returns whether the 3D view pane is currently shown (not collapsed).
+   */
+  private boolean isView3DPaneVisible() {
+    return this.planView3DSplitPane == null
+        || this.planView3DSplitPane.getBottomComponent() == null
+        || this.planView3DSplitPane.getBottomComponent().getHeight() > 0;
+  }
+
+  /**
+   * Shows or collapses the 3D view pane. Collapsing it to a zero-height 3D view
+   * makes {@code HomeComponent3D} dispose its universe and stop listening to home
+   * changes, so editing no longer updates the 3D scene; restoring it rebuilds the
+   * scene from the current home.
+   */
+  private void setView3DPaneVisible(boolean visible) {
+    final JSplitPane splitPane = this.planView3DSplitPane;
+    if (splitPane == null) {
+      return;
+    }
+    if (visible) {
+      int location = this.lastView3DDividerLocation > 0
+          ? this.lastView3DDividerLocation
+          : splitPane.getHeight() / 2;
+      splitPane.setDividerLocation(location);
+    } else {
+      if (isView3DPaneVisible()) {
+        this.lastView3DDividerLocation = splitPane.getDividerLocation();
+      }
+      splitPane.setDividerLocation(1.0);
+    }
+  }
+
   private void setSelectedFurnitureVisible(JComponent furnitureView, boolean visible) {
     // The furniture table selection mirrors the home selection; getValueAt returns
     // display values, not pieces, so read the selected pieces from the home.
