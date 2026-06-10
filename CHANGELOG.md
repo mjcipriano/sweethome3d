@@ -1,5 +1,14 @@
 # Changelog
 
+## [7.14.0](https://github.com/mjcipriano/sweethome3d/compare/v7.13.0...v7.14.0) (2026-06-10)
+
+
+### Features
+
+* AI design assistant phase 3 - modify/delete, agentic loop, streaming ([cc5408b](https://github.com/mjcipriano/sweethome3d/commit/cc5408bfec38c04a13dc35264468c9692c6e3e85))
+* **ai:** phase 3a - modify and delete existing items ([2d3712c](https://github.com/mjcipriano/sweethome3d/commit/2d3712c9cdf86eb01fa9e8d6484d316e81cd6f57))
+* **ai:** phase 3b/3c - agentic multi-step loop and streaming replies ([8275c35](https://github.com/mjcipriano/sweethome3d/commit/8275c35c756799168f38fd34d88918b1cf6eeda7))
+
 ## [7.8.0-beta.3](https://github.com/mjcipriano/sweethome3d/compare/v7.7.0-beta.3...v7.8.0-beta.3) (2026-06-08)
 
 
