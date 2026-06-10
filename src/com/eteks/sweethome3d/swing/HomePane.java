@@ -4899,7 +4899,15 @@ public class HomePane extends JRootPane implements HomeView {
         + "  - Add a door in the middle of the south wall.\n"
         + "  - Add a 2m wide window centered on the front wall.\n"
         + "  - Select the kitchen.\n\n"
-        + "More edit abilities (move, rotate, recolor, reduce detail) are coming.";
+        + "Change what already exists:\n"
+        + "  - Move the selected sofa 50 cm to the left.\n"
+        + "  - Rotate the dining table by 90 degrees.\n"
+        + "  - Make the coffee table 120 cm wide.\n"
+        + "  - Paint the selected chair #336699.\n"
+        + "  - Hide the current object.\n"
+        + "  - Rename this room to Office.\n"
+        + "  - Delete all the chairs.\n\n"
+        + "Reduce-detail (LOD) editing and multi-step planning are coming next.";
     JTextArea textArea = new JTextArea(examples);
     textArea.setEditable(false);
     textArea.setOpaque(false);

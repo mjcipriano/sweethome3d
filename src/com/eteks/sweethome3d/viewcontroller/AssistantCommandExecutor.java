@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import javax.swing.undo.AbstractUndoableEdit;
 import javax.swing.undo.UndoableEditSupport;
 
 import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
@@ -52,7 +53,8 @@ public class AssistantCommandExecutor {
     if (commands == null || commands.isEmpty()) {
       return null;
     }
-    int [] tally = new int [5]; // furniture, doors/windows, rooms, walls, not found
+    // furniture, doors/windows, rooms, walls, modified items, deleted items
+    int [] tally = new int [6];
     List<String> notFound = new ArrayList<String>();
     UndoableEditSupport undoSupport = this.homeController.getUndoableEditSupport();
     undoSupport.beginUpdate();
@@ -79,8 +81,276 @@ public class AssistantCommandExecutor {
       addWall(command, tally);
     } else if ("select".equals(action)) {
       select(command);
+    } else if ("move".equals(action) || "rotate".equals(action) || "resize".equals(action)
+        || "set_color".equals(action) || "set_elevation".equals(action)
+        || "set_visible".equals(action) || "rename".equals(action)) {
+      modify(action, command, tally);
+    } else if ("delete".equals(action) || "remove".equals(action)) {
+      delete(command, tally);
     }
     // Unknown actions are ignored so a single bad command doesn't break a turn
+  }
+
+  /**
+   * Applies a property change (move/rotate/resize/recolor/...) to the items the
+   * command targets, posting a single snapshot-based undoable edit so the change
+   * is reverted with the rest of the turn.
+   */
+  private void modify(String action, AssistantCommand command, int [] tally) {
+    List<Selectable> targets = resolveTargets(command);
+    if (targets.isEmpty()) {
+      return;
+    }
+    List<ItemState> before = captureStates(targets);
+    int changed = 0;
+    for (Selectable item : targets) {
+      if (applyModification(action, command, item)) {
+        changed++;
+      }
+    }
+    if (changed > 0) {
+      List<ItemState> after = captureStates(targets);
+      this.homeController.getUndoableEditSupport().postEdit(
+          new AssistantModificationUndoableEdit(before, after));
+      tally [4] += changed;
+    }
+  }
+
+  private boolean applyModification(String action, AssistantCommand command, Selectable item) {
+    if ("move".equals(action)) {
+      return moveItem(command, item);
+    } else if ("rotate".equals(action)) {
+      return rotateItem(command, item);
+    } else if ("resize".equals(action)) {
+      return resizeItem(command, item);
+    } else if ("set_color".equals(action)) {
+      if (item instanceof HomePieceOfFurniture) {
+        Integer color = parseColor(command.getString("color"));
+        if (color != null) {
+          ((HomePieceOfFurniture)item).setColor(color);
+          return true;
+        }
+      }
+    } else if ("set_elevation".equals(action)) {
+      if (item instanceof HomePieceOfFurniture && command.has("elevation")) {
+        ((HomePieceOfFurniture)item).setElevation((float)command.getDouble("elevation", 0));
+        return true;
+      }
+    } else if ("set_visible".equals(action)) {
+      if (item instanceof HomePieceOfFurniture && command.has("visible")) {
+        ((HomePieceOfFurniture)item).setVisible(command.getBoolean("visible", true));
+        return true;
+      }
+    } else if ("rename".equals(action)) {
+      String name = command.getString("name");
+      if (name != null) {
+        if (item instanceof HomePieceOfFurniture) {
+          ((HomePieceOfFurniture)item).setName(name);
+          return true;
+        } else if (item instanceof Room) {
+          ((Room)item).setName(name);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private boolean moveItem(AssistantCommand command, Selectable item) {
+    if (command.has("dx") || command.has("dy")) {
+      item.move((float)command.getDouble("dx", 0), (float)command.getDouble("dy", 0));
+      return true;
+    } else if (item instanceof HomePieceOfFurniture && (command.has("x") || command.has("y"))) {
+      HomePieceOfFurniture piece = (HomePieceOfFurniture)item;
+      piece.setX((float)command.getDouble("x", piece.getX()));
+      piece.setY((float)command.getDouble("y", piece.getY()));
+      return true;
+    }
+    return false;
+  }
+
+  private boolean rotateItem(AssistantCommand command, Selectable item) {
+    if (!(item instanceof HomePieceOfFurniture)) {
+      return false;
+    }
+    HomePieceOfFurniture piece = (HomePieceOfFurniture)item;
+    if (command.has("by")) {
+      piece.setAngle(piece.getAngle() + (float)Math.toRadians(command.getDouble("by", 0)));
+      return true;
+    } else if (command.has("angle")) {
+      piece.setAngle((float)Math.toRadians(command.getDouble("angle", 0)));
+      return true;
+    }
+    return false;
+  }
+
+  private boolean resizeItem(AssistantCommand command, Selectable item) {
+    boolean changed = false;
+    if (item instanceof HomePieceOfFurniture) {
+      HomePieceOfFurniture piece = (HomePieceOfFurniture)item;
+      double width = command.getDouble("width", Double.NaN);
+      if (!Double.isNaN(width) && width > 0) {
+        piece.setWidth((float)width);
+        changed = true;
+      }
+      double depth = command.getDouble("depth", Double.NaN);
+      if (!Double.isNaN(depth) && depth > 0) {
+        piece.setDepth((float)depth);
+        changed = true;
+      }
+      double height = command.getDouble("height", Double.NaN);
+      if (!Double.isNaN(height) && height > 0) {
+        piece.setHeight((float)height);
+        changed = true;
+      }
+    } else if (item instanceof Wall) {
+      Wall wall = (Wall)item;
+      double thickness = command.getDouble("thickness", Double.NaN);
+      if (!Double.isNaN(thickness) && thickness > 0) {
+        wall.setThickness((float)thickness);
+        changed = true;
+      }
+      double height = command.getDouble("height", Double.NaN);
+      if (!Double.isNaN(height) && height > 0) {
+        wall.setHeight(Float.valueOf((float)height));
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  private void delete(AssistantCommand command, int [] tally) {
+    List<Selectable> targets = resolveTargets(command);
+    if (targets.isEmpty()) {
+      return;
+    }
+    this.homeController.getPlanController().deleteItems(targets);
+    tally [5] += targets.size();
+  }
+
+  /**
+   * Resolves the items a command targets, by stable id (<code>F#</code>/<code>W#</code>/
+   * <code>R#</code> matching {@link HomeAssistantContext}), by the literal
+   * <code>selection</code> target, or by name (the <code>names</code> field).
+   */
+  private List<Selectable> resolveTargets(AssistantCommand command) {
+    List<Selectable> targets = new ArrayList<Selectable>();
+    List<String> tokens = new ArrayList<String>();
+    String singleId = command.getString("id");
+    if (singleId != null) {
+      tokens.add(singleId);
+    }
+    tokens.addAll(command.getStringList("ids"));
+    String target = command.getString("target");
+    if (target != null) {
+      tokens.add(target);
+    }
+    boolean selectionRequested = false;
+    for (String token : tokens) {
+      if (token == null) {
+        continue;
+      }
+      String trimmed = token.trim();
+      if (trimmed.equalsIgnoreCase("selection") || trimmed.equalsIgnoreCase("selected")) {
+        selectionRequested = true;
+      } else {
+        Selectable item = resolveId(trimmed);
+        if (item != null && !targets.contains(item)) {
+          targets.add(item);
+        }
+      }
+    }
+    if (selectionRequested) {
+      for (Selectable item : this.home.getSelectedItems()) {
+        if (!targets.contains(item)) {
+          targets.add(item);
+        }
+      }
+    }
+    List<String> names = command.getStringList("names");
+    if (!names.isEmpty()) {
+      for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+        if (piece.getName() != null && containsName(names, piece.getName()) && !targets.contains(piece)) {
+          targets.add(piece);
+        }
+      }
+      for (Room room : this.home.getRooms()) {
+        if (room.getName() != null && containsName(names, room.getName()) && !targets.contains(room)) {
+          targets.add(room);
+        }
+      }
+    }
+    return targets;
+  }
+
+  /**
+   * Resolves a single <code>F#</code>/<code>W#</code>/<code>R#</code> id to the item
+   * at that 1-based index in the home's furniture, walls or rooms, or <code>null</code>.
+   * The ordering matches the ids shown by {@link HomeAssistantContext}.
+   */
+  private Selectable resolveId(String token) {
+    if (token.length() < 2) {
+      return null;
+    }
+    char type = Character.toUpperCase(token.charAt(0));
+    int index;
+    try {
+      index = Integer.parseInt(token.substring(1).trim()) - 1;
+    } catch (NumberFormatException ex) {
+      return null;
+    }
+    if (index < 0) {
+      return null;
+    }
+    if (type == 'F') {
+      List<HomePieceOfFurniture> furniture = this.home.getFurniture();
+      if (index < furniture.size()) {
+        return furniture.get(index);
+      }
+    } else if (type == 'W') {
+      List<Wall> walls = new ArrayList<Wall>(this.home.getWalls());
+      if (index < walls.size()) {
+        return walls.get(index);
+      }
+    } else if (type == 'R') {
+      List<Room> rooms = this.home.getRooms();
+      if (index < rooms.size()) {
+        return rooms.get(index);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Parses a color given as <code>#RRGGBB</code>, <code>0xRRGGBB</code> or a decimal
+   * integer into an RGB {@link Integer}, or <code>null</code> if it can't be parsed.
+   */
+  static Integer parseColor(String text) {
+    if (text == null) {
+      return null;
+    }
+    String value = text.trim();
+    int radix = 10;
+    if (value.startsWith("#")) {
+      value = value.substring(1);
+      radix = 16;
+    } else if (value.startsWith("0x") || value.startsWith("0X")) {
+      value = value.substring(2);
+      radix = 16;
+    }
+    try {
+      return Integer.valueOf((int)(Long.parseLong(value, radix) & 0xFFFFFF));
+    } catch (NumberFormatException ex) {
+      return null;
+    }
+  }
+
+  private static List<ItemState> captureStates(List<Selectable> items) {
+    List<ItemState> states = new ArrayList<ItemState>(items.size());
+    for (Selectable item : items) {
+      states.add(ItemState.capture(item));
+    }
+    return states;
   }
 
   private void addFurniture(AssistantCommand command, boolean doorOrWindow,
@@ -216,14 +486,35 @@ public class AssistantCommandExecutor {
     addPart(parts, tally [1], "door/window", "doors/windows");
     addPart(parts, tally [2], "room", "rooms");
     addPart(parts, tally [3], "wall", "walls");
-    StringBuilder summary = new StringBuilder();
+    List<String> clauses = new ArrayList<String>();
     if (!parts.isEmpty()) {
-      summary.append("Applied changes: added ");
+      StringBuilder added = new StringBuilder("added ");
       for (int i = 0; i < parts.size(); i++) {
         if (i > 0) {
-          summary.append(i == parts.size() - 1 ? " and " : ", ");
+          added.append(i == parts.size() - 1 ? " and " : ", ");
         }
-        summary.append(parts.get(i));
+        added.append(parts.get(i));
+      }
+      clauses.add(added.toString());
+    }
+    if (tally [4] == 1) {
+      clauses.add("modified 1 item");
+    } else if (tally [4] > 1) {
+      clauses.add("modified " + tally [4] + " items");
+    }
+    if (tally [5] == 1) {
+      clauses.add("deleted 1 item");
+    } else if (tally [5] > 1) {
+      clauses.add("deleted " + tally [5] + " items");
+    }
+    StringBuilder summary = new StringBuilder();
+    if (!clauses.isEmpty()) {
+      summary.append("Applied changes: ");
+      for (int i = 0; i < clauses.size(); i++) {
+        if (i > 0) {
+          summary.append(i == clauses.size() - 1 ? " and " : ", ");
+        }
+        summary.append(clauses.get(i));
       }
       summary.append(". Use Edit > Undo to revert.");
     }
@@ -253,5 +544,123 @@ public class AssistantCommandExecutor {
       builder.append('"').append(values.get(i)).append('"');
     }
     return builder.toString();
+  }
+
+  /**
+   * A snapshot of the mutable geometry and appearance of a single home item,
+   * used to undo and redo the property changes the assistant makes.
+   */
+  private static final class ItemState {
+    private final Selectable item;
+    // Furniture
+    private float     x, y, angle, width, depth, height, elevation;
+    private Integer   color;
+    private boolean   visible;
+    // Wall
+    private float     xStart, yStart, xEnd, yEnd, thickness;
+    private Float     wallHeight;
+    // Room
+    private float [][] points;
+    // Furniture or room
+    private String    name;
+
+    private ItemState(Selectable item) {
+      this.item = item;
+    }
+
+    static ItemState capture(Selectable item) {
+      ItemState state = new ItemState(item);
+      if (item instanceof HomePieceOfFurniture) {
+        HomePieceOfFurniture piece = (HomePieceOfFurniture)item;
+        state.x = piece.getX();
+        state.y = piece.getY();
+        state.angle = piece.getAngle();
+        state.width = piece.getWidth();
+        state.depth = piece.getDepth();
+        state.height = piece.getHeight();
+        state.elevation = piece.getElevation();
+        state.color = piece.getColor();
+        state.visible = piece.isVisible();
+        state.name = piece.getName();
+      } else if (item instanceof Wall) {
+        Wall wall = (Wall)item;
+        state.xStart = wall.getXStart();
+        state.yStart = wall.getYStart();
+        state.xEnd = wall.getXEnd();
+        state.yEnd = wall.getYEnd();
+        state.thickness = wall.getThickness();
+        state.wallHeight = wall.getHeight();
+      } else if (item instanceof Room) {
+        Room room = (Room)item;
+        state.name = room.getName();
+        state.points = room.getPoints();
+      }
+      return state;
+    }
+
+    void restore() {
+      if (this.item instanceof HomePieceOfFurniture) {
+        HomePieceOfFurniture piece = (HomePieceOfFurniture)this.item;
+        piece.setX(this.x);
+        piece.setY(this.y);
+        piece.setAngle(this.angle);
+        piece.setWidth(this.width);
+        piece.setDepth(this.depth);
+        piece.setHeight(this.height);
+        piece.setElevation(this.elevation);
+        piece.setColor(this.color);
+        piece.setVisible(this.visible);
+        piece.setName(this.name);
+      } else if (this.item instanceof Wall) {
+        Wall wall = (Wall)this.item;
+        wall.setXStart(this.xStart);
+        wall.setYStart(this.yStart);
+        wall.setXEnd(this.xEnd);
+        wall.setYEnd(this.yEnd);
+        wall.setThickness(this.thickness);
+        wall.setHeight(this.wallHeight);
+      } else if (this.item instanceof Room) {
+        Room room = (Room)this.item;
+        room.setName(this.name);
+        if (this.points != null) {
+          room.setPoints(this.points);
+        }
+      }
+    }
+  }
+
+  /**
+   * Reverts or replays the assistant's property changes by restoring the
+   * before/after {@link ItemState snapshots} captured around them.
+   */
+  private static final class AssistantModificationUndoableEdit extends AbstractUndoableEdit {
+    private final List<ItemState> before;
+    private final List<ItemState> after;
+
+    AssistantModificationUndoableEdit(List<ItemState> before, List<ItemState> after) {
+      this.before = before;
+      this.after = after;
+    }
+
+    @Override
+    public void undo() {
+      super.undo();
+      for (ItemState state : this.before) {
+        state.restore();
+      }
+    }
+
+    @Override
+    public void redo() {
+      super.redo();
+      for (ItemState state : this.after) {
+        state.restore();
+      }
+    }
+
+    @Override
+    public String getPresentationName() {
+      return "AI assistant edit";
+    }
   }
 }

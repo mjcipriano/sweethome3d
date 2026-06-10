@@ -11,7 +11,7 @@
 package com.eteks.sweethome3d.viewcontroller;
 
 import java.text.NumberFormat;
-import java.util.Collection;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -31,6 +31,9 @@ import com.eteks.sweethome3d.model.Wall;
  * @author Sweet Home 3D
  */
 public class HomeAssistantContext {
+  /** Upper bound on the number of furniture items listed individually in the brief. */
+  private static final int MAX_LISTED_FURNITURE = 80;
+
   private HomeAssistantContext() {
     // Utility class
   }
@@ -70,22 +73,36 @@ public class HomeAssistantContext {
         .append(format.format(totalRoomArea / 10000)).append(" m2");
     if (!rooms.isEmpty()) {
       brief.append(":\n");
-      for (Room room : rooms) {
+      for (int i = 0; i < rooms.size(); i++) {
+        Room room = rooms.get(i);
         String name = room.getName();
-        brief.append("    - ").append(name != null && name.length() > 0 ? name : "Unnamed room")
+        brief.append("    - R").append(i + 1).append(' ')
+            .append(name != null && name.length() > 0 ? name : "Unnamed room")
             .append(": ").append(format.format(room.getArea() / 10000)).append(" m2\n");
       }
     } else {
       brief.append('\n');
     }
 
-    Collection<Wall> walls = home.getWalls();
+    List<Wall> walls = new ArrayList<Wall>(home.getWalls());
     float totalWallLength = 0;
     for (Wall wall : walls) {
       totalWallLength += wall.getLength();
     }
     brief.append("- Walls (").append(walls.size()).append("), total length ")
-        .append(format.format(totalWallLength / 100)).append(" m\n");
+        .append(format.format(totalWallLength / 100)).append(" m");
+    if (!walls.isEmpty()) {
+      brief.append(":\n");
+      for (int i = 0; i < walls.size(); i++) {
+        Wall wall = walls.get(i);
+        brief.append("    - W").append(i + 1).append(" (")
+            .append(format.format(wall.getXStart())).append(", ").append(format.format(wall.getYStart()))
+            .append(") to (").append(format.format(wall.getXEnd())).append(", ")
+            .append(format.format(wall.getYEnd())).append(") cm\n");
+      }
+    } else {
+      brief.append('\n');
+    }
 
     int[] counts = new int[3]; // total, visible, groups
     long[] heaviest = new long[1];
@@ -100,6 +117,28 @@ public class HomeAssistantContext {
     if (heaviestName[0] != null) {
       brief.append("- Largest 3D model by file size: ").append(heaviestName[0])
           .append(" (").append(format.format(heaviest[0] / 1024.0 / 1024.0)).append(" MB)\n");
+    }
+
+    List<HomePieceOfFurniture> topFurniture = home.getFurniture();
+    if (!topFurniture.isEmpty()) {
+      brief.append("- Furniture items (id at x,y cm, facing deg, width x depth cm):\n");
+      int limit = Math.min(topFurniture.size(), MAX_LISTED_FURNITURE);
+      for (int i = 0; i < limit; i++) {
+        HomePieceOfFurniture piece = topFurniture.get(i);
+        String name = piece.getName() != null ? piece.getName() : "Unnamed";
+        brief.append("    - F").append(i + 1).append(" \"").append(name).append("\" at (")
+            .append(format.format(piece.getX())).append(", ").append(format.format(piece.getY()))
+            .append(") cm, facing ").append(Math.round(Math.toDegrees(piece.getAngle())))
+            .append(" deg, ").append(format.format(piece.getWidth())).append(" x ")
+            .append(format.format(piece.getDepth())).append(" cm");
+        if (!piece.isVisible()) {
+          brief.append(" (hidden)");
+        }
+        brief.append('\n');
+      }
+      if (topFurniture.size() > limit) {
+        brief.append("    ... and ").append(topFurniture.size() - limit).append(" more\n");
+      }
     }
 
     List<Selectable> selectedItems = home.getSelectedItems();
@@ -146,6 +185,17 @@ public class HomeAssistantContext {
         + "  {\"action\":\"add_room\",\"name\":\"<name>\",\"points\":[[x,y],[x,y],[x,y],...]}\n"
         + "  {\"action\":\"add_wall\",\"x1\":N,\"y1\":N,\"x2\":N,\"y2\":N,\"thickness\":N,\"height\":N}\n"
         + "  {\"action\":\"select\",\"names\":[\"<item name>\"]}\n"
+        + "To MODIFY items that already exist, reference them by the id shown in the project "
+        + "summary (F# furniture, W# walls, R# rooms), by \"target\":\"selection\", or by name. "
+        + "Editing commands (omit a field to leave it unchanged):\n"
+        + "  {\"action\":\"move\",\"id\":\"F1\",\"dx\":N,\"dy\":N}  (relative; or \"x\":N,\"y\":N for an absolute position)\n"
+        + "  {\"action\":\"rotate\",\"id\":\"F1\",\"angle\":N}  (absolute degrees; or \"by\":N to add to the current angle)\n"
+        + "  {\"action\":\"resize\",\"id\":\"F1\",\"width\":N,\"depth\":N,\"height\":N}\n"
+        + "  {\"action\":\"set_color\",\"id\":\"F1\",\"color\":\"#RRGGBB\"}\n"
+        + "  {\"action\":\"set_elevation\",\"id\":\"F1\",\"elevation\":N}\n"
+        + "  {\"action\":\"set_visible\",\"id\":\"F1\",\"visible\":true}\n"
+        + "  {\"action\":\"rename\",\"id\":\"F1\",\"name\":\"<new name>\"}\n"
+        + "  {\"action\":\"delete\",\"ids\":[\"F1\",\"W2\"]}  (or \"target\":\"selection\")\n"
         + "Use real catalog item names where possible. If the user only asks a question, "
         + "reply normally in plain text without any JSON.";
   }
