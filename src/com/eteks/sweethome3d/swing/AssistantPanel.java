@@ -39,7 +39,10 @@ import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.viewcontroller.AssistantClient;
 import com.eteks.sweethome3d.viewcontroller.AssistantClient.ChatMessage;
 import com.eteks.sweethome3d.viewcontroller.AssistantClient.Provider;
+import com.eteks.sweethome3d.viewcontroller.AssistantCommandExecutor;
+import com.eteks.sweethome3d.viewcontroller.AssistantCommandParser;
 import com.eteks.sweethome3d.viewcontroller.HomeAssistantContext;
+import com.eteks.sweethome3d.viewcontroller.HomeController;
 
 /**
  * A simple chat panel for the AI design assistant. It sends the user's questions
@@ -50,23 +53,24 @@ import com.eteks.sweethome3d.viewcontroller.HomeAssistantContext;
  * @author Sweet Home 3D
  */
 public class AssistantPanel extends JPanel {
-  private static final String SYSTEM_PROMPT =
+  private static final String ROLE_PROMPT =
       "You are a helpful interior design assistant embedded in Sweet Home 3D. "
-      + "Answer the user's questions about their home design project clearly and "
-      + "concisely. When useful, refer to the rooms, walls and furniture below. "
-      + "Here is the current project:\n\n";
+      + "Answer the user's questions about their home design project clearly and concisely. ";
 
-  private final Home                home;
-  private final UserPreferences     preferences;
-  private final List<ChatMessage>   conversation = AssistantClient.newConversation();
-  private final JTextArea           transcriptArea;
-  private final JTextField          inputField;
-  private final JButton             sendButton;
+  private final Home                       home;
+  private final UserPreferences            preferences;
+  private final AssistantCommandExecutor   commandExecutor;
+  private final List<ChatMessage>          conversation = AssistantClient.newConversation();
+  private final JTextArea                  transcriptArea;
+  private final JTextField                 inputField;
+  private final JButton                    sendButton;
 
-  public AssistantPanel(Home home, UserPreferences preferences) {
+  public AssistantPanel(Home home, UserPreferences preferences, HomeController homeController) {
     super(new BorderLayout(0, 8));
     this.home = home;
     this.preferences = preferences;
+    this.commandExecutor = homeController != null
+        ? new AssistantCommandExecutor(home, preferences, homeController) : null;
     setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
     this.transcriptArea = new JTextArea(18, 50);
@@ -123,7 +127,12 @@ public class AssistantPanel extends JPanel {
     setBusy(true);
     appendLine("Assistant is thinking...");
 
-    final String systemPrompt = SYSTEM_PROMPT + HomeAssistantContext.describeHome(this.home);
+    StringBuilder systemPromptBuilder = new StringBuilder(ROLE_PROMPT);
+    if (this.commandExecutor != null) {
+      systemPromptBuilder.append(HomeAssistantContext.getCommandProtocol());
+    }
+    systemPromptBuilder.append("\n\nCurrent project:\n").append(HomeAssistantContext.describeHome(this.home));
+    final String systemPrompt = systemPromptBuilder.toString();
     final AssistantClient client = createClient();
     new Thread("Sweet Home 3D assistant") {
         @Override
@@ -137,13 +146,24 @@ public class AssistantPanel extends JPanel {
                 + "\n(Check the provider settings.)";
             error = true;
           }
-          final String replyText = reply;
+          final String rawReply = reply;
           final boolean failed = error;
           EventQueue.invokeLater(new Runnable() {
               public void run() {
-                replaceThinkingLine(failed ? replyText : "Assistant: " + replyText);
-                if (!failed) {
-                  conversation.add(new ChatMessage("assistant", replyText));
+                if (failed) {
+                  replaceThinkingLine(rawReply);
+                } else {
+                  conversation.add(new ChatMessage("assistant", rawReply));
+                  // Apply any edit commands the assistant returned
+                  AssistantCommandParser parsed = AssistantCommandParser.parse(rawReply);
+                  String displayText = parsed.getReply() != null && parsed.getReply().length() > 0
+                      ? parsed.getReply() : rawReply;
+                  String summary = null;
+                  if (commandExecutor != null && !parsed.getCommands().isEmpty()) {
+                    summary = commandExecutor.execute(parsed.getCommands());
+                  }
+                  replaceThinkingLine("Assistant: " + displayText
+                      + (summary != null ? "\n[" + summary + "]" : ""));
                 }
                 setBusy(false);
                 inputField.requestFocusInWindow();
