@@ -91,6 +91,34 @@ public class ModelLODTest {
     assertEquals(60000, entry.getValue().getVertexCount());
   }
 
+  @Test
+  public void testReducedDetailOptInPersistsInHomeFile() throws Exception {
+    // The per-piece reduced-detail opt-in is stored as a piece property and must
+    // survive a save/reload so the viewport keeps showing the reduced model.
+    Content model = new URLContent(writeTemporaryContent("tree-model").toURI().toURL());
+    Content icon = new URLContent(writeTemporaryContent("tree-icon").toURI().toURL());
+    Home home = new Home();
+    com.eteks.sweethome3d.model.HomePieceOfFurniture optedIn =
+        new com.eteks.sweethome3d.model.HomePieceOfFurniture(
+            new com.eteks.sweethome3d.model.CatalogPieceOfFurniture("tree", icon, model, 100, 100, 200, true, false));
+    optedIn.setProperty(ModelLOD.LOW_POLY_PROPERTY, "true");
+    home.addPieceOfFurniture(optedIn);
+    com.eteks.sweethome3d.model.HomePieceOfFurniture untouched =
+        new com.eteks.sweethome3d.model.HomePieceOfFurniture(
+            new com.eteks.sweethome3d.model.CatalogPieceOfFurniture("rock", icon, model, 50, 50, 50, true, false));
+    home.addPieceOfFurniture(untouched);
+
+    File homeFile = File.createTempFile("low-poly-optin-", ".sh3d");
+    homeFile.deleteOnExit();
+    HomeFileRecorder recorder = new HomeFileRecorder();
+    recorder.writeHome(home, homeFile.getPath());
+
+    Home reopened = recorder.readHome(homeFile.getPath());
+    assertEquals(2, reopened.getFurniture().size());
+    assertEquals("true", reopened.getFurniture().get(0).getProperty(ModelLOD.LOW_POLY_PROPERTY));
+    assertEquals(null, reopened.getFurniture().get(1).getProperty(ModelLOD.LOW_POLY_PROPERTY));
+  }
+
   private String readContent(Content content) throws Exception {
     InputStream in = content.openStream();
     try {

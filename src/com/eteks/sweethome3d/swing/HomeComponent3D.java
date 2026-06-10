@@ -170,6 +170,7 @@ import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.HomeTexture;
 import com.eteks.sweethome3d.model.Label;
 import com.eteks.sweethome3d.model.Level;
+import com.eteks.sweethome3d.model.ModelLOD;
 import com.eteks.sweethome3d.model.Polyline;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Selectable;
@@ -3420,7 +3421,9 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
               || HomePieceOfFurniture.Property.MODEL_MIRRORED.name().equals(propertyName)
               || HomePieceOfFurniture.Property.MODEL_FLAGS.name().equals(propertyName)
               || HomePieceOfFurniture.Property.MODEL_TRANSFORMATIONS.name().equals(propertyName)
-              || HomePieceOfFurniture.Property.STAIRCASE_CUT_OUT_SHAPE.name().equals(propertyName)) {
+              || HomePieceOfFurniture.Property.STAIRCASE_CUT_OUT_SHAPE.name().equals(propertyName)
+              || ModelLOD.LOW_POLY_PROPERTY.equals(propertyName)) {
+            // The last property swaps a piece between its reduced and original model
             updatePieceOfFurnitureGeometry(updatedPiece, null, null);
           } else if (HomeDoorOrWindow.Property.CUT_OUT_SHAPE.name().equals(propertyName)
               || HomeDoorOrWindow.Property.WALL_CUT_OUT_ON_BOTH_SIDES.name().equals(propertyName)
@@ -3893,6 +3896,30 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    */
   public Object3DFactory getObject3DFactory() {
     return this.object3dFactory;
+  }
+
+  /**
+   * Returns <code>true</code> if this 3D view may display reduced (low poly)
+   * models for the pieces opted into reduced detail.
+   */
+  public boolean isModelLODsUsedInView() {
+    return !(this.object3dFactory instanceof Object3DBranchFactory)
+        || ((Object3DBranchFactory)this.object3dFactory).isUseModelLODs();
+  }
+
+  /**
+   * Sets whether this 3D view displays reduced models for opted-in pieces (the
+   * default) or always shows the original high detail models. Changing the value
+   * rebuilds the furniture so the change is visible immediately.
+   */
+  public void setModelLODsUsedInView(boolean used) {
+    if (this.object3dFactory instanceof Object3DBranchFactory
+        && ((Object3DBranchFactory)this.object3dFactory).isUseModelLODs() != used) {
+      ((Object3DBranchFactory)this.object3dFactory).setUseModelLODs(used);
+      if (this.home != null) {
+        updateObjects(getHomeObjects(HomePieceOfFurniture.class));
+      }
+    }
   }
 
   /**

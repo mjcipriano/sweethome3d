@@ -115,6 +115,10 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
     SELECTION_BOX_GEOMETRY.setCoordinateIndices(0, new int [] {0, 1, 2, 3, 0, 4, 5, 6, 7, 4, 0, 4, 1, 5, 2, 6, 3, 7, 4, 6, 5, 7});
   }
 
+  // Whether reduced (low poly) models may be displayed for opted-in pieces;
+  // false for the rendering and export scenes that always use the original model
+  private boolean useModelLODs = true;
+
   /**
    * Creates the 3D piece matching the given home <code>piece</code>.
    */
@@ -141,7 +145,24 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
                                 Object context,
                                 boolean ignoreDrawingMode,
                                 boolean waitModelAndTextureLoadingEnd) {
+    this(piece, home, preferences, context, ignoreDrawingMode, waitModelAndTextureLoadingEnd, true);
+  }
+
+  /**
+   * Creates the 3D piece matching the given home <code>piece</code>.
+   * @param useModelLODs <code>true</code> to display a reduced model for pieces
+   *            opted into reduced detail; rendering and export scenes pass
+   *            <code>false</code> to always use the original model.
+   */
+  public HomePieceOfFurniture3D(HomePieceOfFurniture piece,
+                                Home home,
+                                UserPreferences preferences,
+                                Object context,
+                                boolean ignoreDrawingMode,
+                                boolean waitModelAndTextureLoadingEnd,
+                                boolean useModelLODs) {
     super(piece, home, preferences, context);
+    this.useModelLODs = useModelLODs;
 
     // Allow piece branch to be removed from its parent
     setCapability(BranchGroup.ALLOW_DETACH);
@@ -271,12 +292,7 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
   }
 
   private Content getDisplayedModel(HomePieceOfFurniture piece) {
-    Home home = getHome();
-    ModelLOD modelLOD = home != null
-        && !"false".equalsIgnoreCase(System.getProperty("com.eteks.sweethome3d.j3d.useModelLODs"))
-            ? home.getModelLOD(piece.getModel())
-            : null;
-    return modelLOD != null ? modelLOD.getContent() : piece.getModel();
+    return ModelLOD.getDisplayedModel(piece, getHome(), this.useModelLODs);
   }
 
   /**
