@@ -62,6 +62,32 @@ public class AssistantCommand {
   }
 
   /**
+   * Returns the boolean value of the given parameter, or <code>defaultValue</code>.
+   * Accepts JSON booleans as well as the strings <code>"true"</code>/<code>"false"</code>.
+   */
+  public boolean getBoolean(String name, boolean defaultValue) {
+    Object value = this.parameters.get(name);
+    if (value instanceof Boolean) {
+      return ((Boolean)value).booleanValue();
+    } else if (value instanceof String) {
+      String text = ((String)value).trim();
+      if ("true".equalsIgnoreCase(text)) {
+        return true;
+      } else if ("false".equalsIgnoreCase(text)) {
+        return false;
+      }
+    }
+    return defaultValue;
+  }
+
+  /**
+   * Returns <code>true</code> if the given parameter is present (even if null).
+   */
+  public boolean has(String name) {
+    return this.parameters.containsKey(name);
+  }
+
+  /**
    * Returns the list of strings of the given parameter, never <code>null</code>.
    */
   public List<String> getStringList(String name) {
