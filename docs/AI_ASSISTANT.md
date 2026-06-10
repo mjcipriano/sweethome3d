@@ -75,6 +75,48 @@ Requested as one phase with three workstreams, built in dependency order:
   multi-step loop. Remaining polish: rich Markdown rendering in the transcript
   (currently a wrapped `JTextArea`).
 
+### Phase 4 - grounded, reliable, deeper edits (PLANNED)
+
+The next increment focuses on making edits land on the right items and reach the
+features that make Sweet Home 3D distinctive. Build in dependency order:
+
+- **4a - catalog grounding.** Today `add_furniture`/`add_door_or_window` look up
+  the model's free-text `name` by substring against the catalog, which fails when
+  the model guesses a name the catalog doesn't use (the most common edit failure).
+  Give the model the catalog vocabulary: list the furniture categories and a
+  capped set of representative item names in the brief, and/or add a
+  `search_catalog` query the agentic loop (3b) can issue and observe before
+  committing to an `add`. Report unmatched names back so the model can retry.
+  Tighten `findCatalogPiece` (token overlap / category hints) accordingly.
+- **4b - reduce-detail (LOD) editing.** Surface the repository's marquee
+  optimization - per-piece reduced-detail models (`ModelLODGenerator`,
+  `HomePieceOfFurniture` LOD fields) - to the assistant: a `reduce_detail` /
+  `restore_detail` command targeting items by id, `selection`, or "all heavy
+  models", reusing the existing undoable LOD path. Ties the assistant to the
+  performance work (`docs/OPTIMIZATION_PROGRESS.md`) and answers the existing
+  "which models should I reduce?" question with an action.
+- **4c - deeper geometry & appearance.** `duplicate`, `group`/`ungroup`,
+  `set_texture`/material on furniture and walls, wall endpoint moves
+  (`move_wall_point`), and room vertex edits - all through the same
+  snapshot-based undoable turn. Add per-turn safety limits (max commands,
+  coordinate sanity vs. plan bounds) so a bad reply can't make a huge mess.
+
+### Backlog / later
+
+- **Native tool/function calling.** Use Anthropic `tool_use` and OpenAI `tools`
+  so commands arrive as structured arguments instead of JSON-in-prose, removing
+  the tolerant text parsing and improving reliability.
+- **Markdown transcript.** Replace the `JTextArea` with an HTML-rendering view
+  and light Markdown formatting (the 3c polish item).
+- **Conversation management.** "New chat" / clear, and optional save/restore of
+  the transcript with the home.
+- **Vision.** Send a rendered plan/3D snapshot to multimodal endpoints so the
+  model can "see" the layout it is editing.
+- **Cost & model feedback.** Show token usage / model name and surface provider
+  errors (rate limits, bad key) more clearly than the current generic message.
+- **Multi-level awareness.** Let the assistant target and report per `Level`,
+  not just the selected level.
+
 ## Testing
 
 ```bash
