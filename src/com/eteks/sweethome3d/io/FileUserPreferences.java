@@ -101,6 +101,10 @@ public class FileUserPreferences extends UserPreferences {
   private static final String RULERS_VISIBLE                            = "rulersVisible";
   private static final String GRID_VISIBLE                              = "gridVisible";
   private static final String LOOK_AND_FEEL                             = "lookAndFeel";
+  private static final String ASSISTANT_PROVIDER                        = "assistantProvider";
+  private static final String ASSISTANT_API_URL                        = "assistantApiUrl";
+  private static final String ASSISTANT_API_KEY                        = "assistantApiKey";
+  private static final String ASSISTANT_MODEL                          = "assistantModel";
   private static final String DEFAULT_FONT_NAME                         = "defaultFontName";
   private static final String FURNITURE_VIEWED_FROM_TOP                 = "furnitureViewedFromTop";
   private static final String FURNITURE_MODEL_ICON_SIZE                 = "furnitureModelIconSize";
@@ -319,6 +323,10 @@ public class FileUserPreferences extends UserPreferences {
     setRulersVisible(preferences.getBoolean(RULERS_VISIBLE, defaultPreferences.isRulersVisible()));
     setGridVisible(preferences.getBoolean(GRID_VISIBLE, defaultPreferences.isGridVisible()));
     setLookAndFeel(preferences.get(LOOK_AND_FEEL, defaultPreferences.getLookAndFeel()));
+    setAssistantProvider(preferences.get(ASSISTANT_PROVIDER, defaultPreferences.getAssistantProvider()));
+    setAssistantApiUrl(preferences.get(ASSISTANT_API_URL, defaultPreferences.getAssistantApiUrl()));
+    setAssistantApiKey(preferences.get(ASSISTANT_API_KEY, defaultPreferences.getAssistantApiKey()));
+    setAssistantModel(preferences.get(ASSISTANT_MODEL, defaultPreferences.getAssistantModel()));
     setDefaultFontName(preferences.get(DEFAULT_FONT_NAME,  defaultPreferences.getDefaultFontName()));
     setFurnitureViewedFromTop(preferences.getBoolean(FURNITURE_VIEWED_FROM_TOP,
         defaultPreferences.isFurnitureViewedFromTop()));
@@ -977,6 +985,10 @@ public class FileUserPreferences extends UserPreferences {
     preferences.putBoolean(RULERS_VISIBLE, isRulersVisible());
     preferences.putBoolean(GRID_VISIBLE, isGridVisible());
     preferences.put(LOOK_AND_FEEL, getLookAndFeel());
+    preferences.put(ASSISTANT_PROVIDER, getAssistantProvider());
+    preferences.put(ASSISTANT_API_URL, getAssistantApiUrl());
+    preferences.put(ASSISTANT_API_KEY, getAssistantApiKey());
+    preferences.put(ASSISTANT_MODEL, getAssistantModel());
     String defaultFontName = getDefaultFontName();
     if (defaultFontName == null) {
       preferences.remove(DEFAULT_FONT_NAME);

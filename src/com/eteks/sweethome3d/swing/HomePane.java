@@ -1395,6 +1395,14 @@ public class HomePane extends JRootPane implements HomeView {
       };
     JMenuItem renderingInformationMenuItem = new JMenuItem(renderingInformationAction);
     helpMenu.add(renderingInformationMenuItem);
+    // AI design assistant (multi-provider, configured in its settings)
+    Action assistantAction = new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "designAssistant")) {
+        public void actionPerformed(ActionEvent ev) {
+          showAssistantDialog();
+        }
+      };
+    helpMenu.add(new JMenuItem(assistantAction));
 
     // Add menus to menu bar
     JMenuBar menuBar = new JMenuBar();
@@ -4846,6 +4854,19 @@ public class HomePane extends JRootPane implements HomeView {
     } finally {
       framesPerSecondTimer.stop();
     }
+  }
+
+  /**
+   * Displays the AI design assistant chat in a non-modal dialog.
+   */
+  private void showAssistantDialog() {
+    AssistantPanel assistantPanel = new AssistantPanel(this.home, this.preferences);
+    JDialog assistantDialog = new JDialog(SwingUtilities.getWindowAncestor(this),
+        this.preferences.getLocalizedString(HomePane.class, "designAssistant"));
+    assistantDialog.add(assistantPanel);
+    assistantDialog.pack();
+    assistantDialog.setLocationRelativeTo(this);
+    assistantDialog.setVisible(true);
   }
 
   /**
