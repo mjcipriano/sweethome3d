@@ -277,8 +277,10 @@ that version regardless of the commit types. Use a prerelease suffix
 (`-beta.N`) for test builds. This is the usual mechanism for shipping testable
 performance prereleases.
 
-After qualifying commits (or a `Release-As:` footer) reach `main`, the Release
-workflow opens or updates a release PR. Merging that PR creates the version tag and GitHub release, then
+The Release workflow runs automatically on every push to `main`. After
+qualifying commits (or a `Release-As:` footer) reach `main`, release-please
+opens or updates a release PR. Merging that PR (another push to `main`) creates
+the version tag and GitHub release, then
 builds and attaches the Windows, Linux, macOS, executable JAR, and checksum
 artifacts. `version.txt` is the canonical version; release-please also updates
 the annotated values in `Makefile` and `build.xml`. Packaged JAR manifests and
