@@ -1,6 +1,12 @@
 name: Release
 
 on:
+  # Automated release: release-please opens/updates a release PR from the
+  # conventional commits on main, and merging that PR (another push to main)
+  # creates the tag, GitHub release and platform build assets.
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       version:
