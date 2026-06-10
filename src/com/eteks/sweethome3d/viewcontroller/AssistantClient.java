@@ -10,9 +10,11 @@
  */
 package com.eteks.sweethome3d.viewcontroller;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -36,6 +38,14 @@ public class AssistantClient {
     OPENAI_COMPATIBLE,
     /** Anthropic messages protocol. */
     ANTHROPIC
+  }
+
+  /**
+   * Receives incremental text as a streamed reply arrives.
+   */
+  public interface StreamHandler {
+    /** Called for each chunk of assistant text as it streams in. */
+    void onText(String chunk);
   }
 
   /**
@@ -113,6 +123,116 @@ public class AssistantClient {
   }
 
   /**
+   * Sends a request asking for a streamed reply, forwarding each text chunk to
+   * <code>handler</code> as it arrives, and returns the full accumulated reply.
+   * Falls back to the meaning of {@link #sendMessage} if <code>handler</code> is
+   * <code>null</code>.
+   * @throws IOException if the request fails or the response can't be read
+   */
+  public String sendMessageStreaming(String systemPrompt, List<ChatMessage> conversation,
+                                     StreamHandler handler) throws IOException {
+    if (handler == null) {
+      return sendMessage(systemPrompt, conversation);
+    }
+    String endpoint = getEndpoint();
+    HttpURLConnection connection = (HttpURLConnection)new URL(endpoint).openConnection();
+    connection.setRequestMethod("POST");
+    connection.setConnectTimeout(15000);
+    connection.setReadTimeout(600000);
+    connection.setDoOutput(true);
+    connection.setRequestProperty("Content-Type", "application/json");
+    connection.setRequestProperty("Accept", "text/event-stream");
+    if (this.provider == Provider.ANTHROPIC) {
+      connection.setRequestProperty("x-api-key", this.apiKey);
+      connection.setRequestProperty("anthropic-version", "2023-06-01");
+    } else if (this.apiKey.length() > 0) {
+      connection.setRequestProperty("Authorization", "Bearer " + this.apiKey);
+    }
+
+    byte [] body = buildRequestBody(systemPrompt, conversation, true).getBytes("UTF-8");
+    OutputStream out = connection.getOutputStream();
+    try {
+      out.write(body);
+    } finally {
+      out.close();
+    }
+
+    int status = connection.getResponseCode();
+    if (status >= 400) {
+      String error = readStream(connection.getErrorStream());
+      throw new IOException("Assistant request failed (HTTP " + status + "): " + error);
+    }
+
+    StringBuilder full = new StringBuilder();
+    BufferedReader reader =
+        new BufferedReader(new InputStreamReader(connection.getInputStream(), "UTF-8"));
+    try {
+      String line;
+      while ((line = reader.readLine()) != null) {
+        if (!line.startsWith("data:")) {
+          continue;
+        }
+        String data = line.substring("data:".length()).trim();
+        if (data.length() == 0 || "[DONE]".equals(data)) {
+          continue;
+        }
+        String chunk = parseStreamDelta(this.provider, data);
+        if (chunk != null && chunk.length() > 0) {
+          full.append(chunk);
+          handler.onText(chunk);
+        }
+      }
+    } finally {
+      reader.close();
+    }
+    return full.toString();
+  }
+
+  /**
+   * Extracts the incremental text from one server-sent-event <code>data:</code>
+   * payload, for the given provider, or <code>null</code> if the event carries no
+   * text (e.g. a start/stop or usage event).
+   */
+  public static String parseStreamDelta(Provider provider, String data) {
+    Object parsed;
+    try {
+      parsed = JSONParser.parse(data);
+    } catch (IllegalArgumentException ex) {
+      return null;
+    }
+    if (!(parsed instanceof Map)) {
+      return null;
+    }
+    Map<?, ?> root = (Map<?, ?>)parsed;
+    if (provider == Provider.ANTHROPIC) {
+      // {"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}
+      Object delta = root.get("delta");
+      if (delta instanceof Map) {
+        Object text = ((Map<?, ?>)delta).get("text");
+        if (text != null) {
+          return text.toString();
+        }
+      }
+    } else {
+      // {"choices":[{"delta":{"content":"..."}}]}
+      Object choices = root.get("choices");
+      if (choices instanceof List && !((List<?>)choices).isEmpty()) {
+        Object first = ((List<?>)choices).get(0);
+        if (first instanceof Map) {
+          Object delta = ((Map<?, ?>)first).get("delta");
+          if (delta instanceof Map) {
+            Object content = ((Map<?, ?>)delta).get("content");
+            if (content != null) {
+              return content.toString();
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
    * Returns the full endpoint URL of the configured provider.
    */
   public String getEndpoint() {
@@ -131,18 +251,26 @@ public class AssistantClient {
    * Builds the JSON request body for the configured provider.
    */
   public String buildRequestBody(String systemPrompt, List<ChatMessage> conversation) {
+    return buildRequestBody(systemPrompt, conversation, false);
+  }
+
+  /**
+   * Builds the JSON request body, optionally requesting a streamed response.
+   */
+  public String buildRequestBody(String systemPrompt, List<ChatMessage> conversation, boolean stream) {
     StringBuilder body = new StringBuilder();
     body.append('{');
     body.append("\"model\":").append(JSONParser.toJSONString(this.model)).append(',');
     if (this.provider == Provider.ANTHROPIC) {
       body.append("\"max_tokens\":").append(this.maxTokens).append(',');
+      body.append("\"stream\":").append(stream).append(',');
       if (systemPrompt != null) {
         body.append("\"system\":").append(JSONParser.toJSONString(systemPrompt)).append(',');
       }
       body.append("\"messages\":");
       appendMessages(body, null, conversation);
     } else {
-      body.append("\"stream\":false,");
+      body.append("\"stream\":").append(stream).append(',');
       body.append("\"messages\":");
       appendMessages(body, systemPrompt, conversation);
     }

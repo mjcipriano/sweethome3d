@@ -23,6 +23,7 @@ import java.util.List;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
@@ -39,6 +40,7 @@ import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.viewcontroller.AssistantClient;
 import com.eteks.sweethome3d.viewcontroller.AssistantClient.ChatMessage;
 import com.eteks.sweethome3d.viewcontroller.AssistantClient.Provider;
+import com.eteks.sweethome3d.viewcontroller.AssistantCommand;
 import com.eteks.sweethome3d.viewcontroller.AssistantCommandExecutor;
 import com.eteks.sweethome3d.viewcontroller.AssistantCommandParser;
 import com.eteks.sweethome3d.viewcontroller.HomeAssistantContext;
@@ -57,6 +59,9 @@ public class AssistantPanel extends JPanel {
       "You are a helpful interior design assistant embedded in Sweet Home 3D. "
       + "Answer the user's questions about their home design project clearly and concisely. ";
 
+  /** Maximum number of model round-trips for one user request, to bound the agentic loop. */
+  private static final int MAX_ASSISTANT_STEPS = 5;
+
   private final Home                       home;
   private final UserPreferences            preferences;
   private final AssistantCommandExecutor   commandExecutor;
@@ -64,6 +69,9 @@ public class AssistantPanel extends JPanel {
   private final JTextArea                  transcriptArea;
   private final JTextField                 inputField;
   private final JButton                    sendButton;
+  private final JCheckBox                  previewEditsCheckBox;
+  /** Offset where the current assistant response starts, for streaming updates; -1 if none. */
+  private int                              responseStartOffset = -1;
 
   public AssistantPanel(Home home, UserPreferences preferences, HomeController homeController) {
     super(new BorderLayout(0, 8));
@@ -90,7 +98,13 @@ public class AssistantPanel extends JPanel {
     buttons.add(this.sendButton, BorderLayout.CENTER);
     buttons.add(settingsButton, BorderLayout.EAST);
     inputPanel.add(buttons, BorderLayout.EAST);
-    add(inputPanel, BorderLayout.SOUTH);
+
+    this.previewEditsCheckBox = new JCheckBox("Preview edits before applying");
+    this.previewEditsCheckBox.setEnabled(this.commandExecutor != null);
+    JPanel southPanel = new JPanel(new BorderLayout(0, 4));
+    southPanel.add(this.previewEditsCheckBox, BorderLayout.NORTH);
+    southPanel.add(inputPanel, BorderLayout.CENTER);
+    add(southPanel, BorderLayout.SOUTH);
 
     ActionListener sendListener = new ActionListener() {
         public void actionPerformed(ActionEvent ev) {
@@ -125,52 +139,179 @@ public class AssistantPanel extends JPanel {
     appendLine("You: " + question);
     this.conversation.add(new ChatMessage("user", question));
     setBusy(true);
-    appendLine("Assistant is thinking...");
 
-    StringBuilder systemPromptBuilder = new StringBuilder(ROLE_PROMPT);
-    if (this.commandExecutor != null) {
-      systemPromptBuilder.append(HomeAssistantContext.getCommandProtocol());
-    }
-    systemPromptBuilder.append("\n\nCurrent project:\n").append(HomeAssistantContext.describeHome(this.home));
-    final String systemPrompt = systemPromptBuilder.toString();
     final AssistantClient client = createClient();
     new Thread("Sweet Home 3D assistant") {
         @Override
         public void run() {
-          String reply;
-          boolean error = false;
           try {
-            reply = client.sendMessage(systemPrompt, conversation);
-          } catch (final Exception ex) {
-            reply = "Couldn't reach the assistant: " + ex.getMessage()
-                + "\n(Check the provider settings.)";
-            error = true;
-          }
-          final String rawReply = reply;
-          final boolean failed = error;
-          EventQueue.invokeLater(new Runnable() {
-              public void run() {
-                if (failed) {
-                  replaceThinkingLine(rawReply);
-                } else {
-                  conversation.add(new ChatMessage("assistant", rawReply));
-                  // Apply any edit commands the assistant returned
-                  AssistantCommandParser parsed = AssistantCommandParser.parse(rawReply);
-                  String displayText = parsed.getReply() != null && parsed.getReply().length() > 0
-                      ? parsed.getReply() : rawReply;
-                  String summary = null;
-                  if (commandExecutor != null && !parsed.getCommands().isEmpty()) {
-                    summary = commandExecutor.execute(parsed.getCommands());
-                  }
-                  replaceThinkingLine("Assistant: " + displayText
-                      + (summary != null ? "\n[" + summary + "]" : ""));
+            runConversation(client);
+          } finally {
+            EventQueue.invokeLater(new Runnable() {
+                public void run() {
+                  setBusy(false);
+                  inputField.requestFocusInWindow();
                 }
-                setBusy(false);
-                inputField.requestFocusInWindow();
-              }
-            });
+              });
+          }
         }
       }.start();
+  }
+
+  /**
+   * Runs the assistant turn on the calling (worker) thread, looping while the
+   * model keeps issuing edit commands so it can carry out a multi-step request.
+   * After each step the applied changes are fed back with a refreshed project
+   * brief, up to {@link #MAX_ASSISTANT_STEPS} steps. Network calls happen here,
+   * off the event dispatch thread; reading and editing the home is marshalled
+   * back onto it.
+   */
+  private void runConversation(AssistantClient client) {
+    for (int step = 1; step <= MAX_ASSISTANT_STEPS; step++) {
+      final String systemPrompt = buildSystemPrompt();
+      runOnDispatchThread(new Runnable() {
+          public void run() {
+            beginResponse();
+          }
+        });
+      String reply;
+      try {
+        reply = client.sendMessageStreaming(systemPrompt, this.conversation,
+            new AssistantClient.StreamHandler() {
+              public void onText(final String chunk) {
+                EventQueue.invokeLater(new Runnable() {
+                    public void run() {
+                      appendChunk(chunk);
+                    }
+                  });
+              }
+            });
+      } catch (final Exception ex) {
+        final String message = "Couldn't reach the assistant: " + ex.getMessage()
+            + "\n(Check the provider settings.)";
+        runOnDispatchThread(new Runnable() {
+            public void run() {
+              finalizeResponse(message);
+            }
+          });
+        return;
+      }
+      final String rawReply = reply;
+      this.conversation.add(new ChatMessage("assistant", rawReply));
+      final TurnResult result = new TurnResult();
+      runOnDispatchThread(new Runnable() {
+          public void run() {
+            applyTurn(rawReply, result);
+          }
+        });
+      // Stop once the model answers with no further edits, or nothing was applied
+      // (including a previewed edit the user declined)
+      if (!result.hadCommands || result.summary == null) {
+        return;
+      }
+      if (step < MAX_ASSISTANT_STEPS) {
+        this.conversation.add(new ChatMessage("user",
+            "Applied: " + result.summary
+            + "\nIf the request is now fully complete, reply with a brief confirmation and no "
+            + "commands; otherwise issue the next commands. The refreshed project is in the system message."));
+      } else {
+        runOnDispatchThread(new Runnable() {
+            public void run() {
+              appendLine("[Reached the " + MAX_ASSISTANT_STEPS + "-step limit; stopping. "
+                  + "Ask again to continue.]");
+            }
+          });
+      }
+    }
+  }
+
+  /**
+   * Parses one model reply (already streamed into the transcript), and applies
+   * any edit commands, optionally after a confirmation. Must run on the event
+   * dispatch thread. Fills <code>result</code> with what happened.
+   */
+  private void applyTurn(String rawReply, TurnResult result) {
+    AssistantCommandParser parsed = AssistantCommandParser.parse(rawReply);
+    String displayText = parsed.getReply() != null && parsed.getReply().length() > 0
+        ? parsed.getReply() : rawReply;
+    boolean hasCommands = this.commandExecutor != null && !parsed.getCommands().isEmpty();
+    String footer = null;
+    if (hasCommands) {
+      if (this.previewEditsCheckBox.isSelected() && !confirmEdits(parsed.getCommands())) {
+        footer = "Edit cancelled.";
+        // Leave result.hadCommands false so the multi-step loop stops
+      } else {
+        result.hadCommands = true;
+        result.summary = this.commandExecutor.execute(parsed.getCommands());
+        footer = result.summary;
+      }
+    }
+    finalizeResponse(displayText + (footer != null ? "\n[" + footer + "]" : ""));
+  }
+
+  /**
+   * Asks the user to confirm the edits the assistant wants to make, returning
+   * <code>true</code> to proceed.
+   */
+  private boolean confirmEdits(List<AssistantCommand> commands) {
+    StringBuilder message = new StringBuilder("Apply ")
+        .append(commands.size()).append(commands.size() == 1 ? " change?" : " changes?").append('\n');
+    for (AssistantCommand command : commands) {
+      message.append("\n  - ").append(command.getAction().replace('_', ' '));
+      String name = command.getString("name");
+      String id = command.getString("id");
+      if (id != null) {
+        message.append(" ").append(id);
+      } else if (name != null) {
+        message.append(" \"").append(name).append('"');
+      }
+    }
+    return JOptionPane.showConfirmDialog(SwingUtilities.getWindowAncestor(this),
+        message.toString(), "Apply assistant edits?",
+        JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE) == JOptionPane.OK_OPTION;
+  }
+
+  /**
+   * Builds the system prompt (role, command protocol and current project brief).
+   * Reads the home, so it is evaluated on the event dispatch thread.
+   */
+  private String buildSystemPrompt() {
+    final StringBuilder builder = new StringBuilder(ROLE_PROMPT);
+    runOnDispatchThread(new Runnable() {
+        public void run() {
+          if (commandExecutor != null) {
+            builder.append(HomeAssistantContext.getCommandProtocol());
+          }
+          builder.append("\n\nCurrent project:\n").append(HomeAssistantContext.describeHome(home));
+        }
+      });
+    return builder.toString();
+  }
+
+  /**
+   * Runs <code>runnable</code> on the event dispatch thread and waits for it,
+   * whether called from the EDT or a worker thread.
+   */
+  private static void runOnDispatchThread(Runnable runnable) {
+    if (EventQueue.isDispatchThread()) {
+      runnable.run();
+    } else {
+      try {
+        EventQueue.invokeAndWait(runnable);
+      } catch (InterruptedException ex) {
+        Thread.currentThread().interrupt();
+      } catch (java.lang.reflect.InvocationTargetException ex) {
+        throw new RuntimeException(ex.getCause());
+      }
+    }
+  }
+
+  /**
+   * Outcome of applying one model reply, shared between the worker and the EDT.
+   */
+  private static final class TurnResult {
+    private boolean hadCommands;
+    private String  summary;
   }
 
   private AssistantClient createClient() {
@@ -185,14 +326,38 @@ public class AssistantPanel extends JPanel {
     this.transcriptArea.setCaretPosition(this.transcriptArea.getDocument().getLength());
   }
 
-  private void replaceThinkingLine(String line) {
-    String text = this.transcriptArea.getText();
-    int index = text.lastIndexOf("Assistant is thinking...");
-    if (index >= 0) {
-      this.transcriptArea.replaceRange(line, index, index + "Assistant is thinking...".length());
+  /**
+   * Starts a fresh assistant response region, remembering where it begins so the
+   * streamed text can be replaced with the finalized reply.
+   */
+  private void beginResponse() {
+    this.transcriptArea.append("\n");
+    this.responseStartOffset = this.transcriptArea.getDocument().getLength();
+    this.transcriptArea.append("Assistant: ");
+    this.transcriptArea.setCaretPosition(this.transcriptArea.getDocument().getLength());
+  }
+
+  /**
+   * Appends a streamed chunk to the current assistant response.
+   */
+  private void appendChunk(String chunk) {
+    this.transcriptArea.append(chunk);
+    this.transcriptArea.setCaretPosition(this.transcriptArea.getDocument().getLength());
+  }
+
+  /**
+   * Replaces the streamed assistant response with its finalized text (the parsed
+   * reply plus any applied-changes footer).
+   */
+  private void finalizeResponse(String text) {
+    int end = this.transcriptArea.getDocument().getLength();
+    if (this.responseStartOffset >= 0 && this.responseStartOffset <= end) {
+      this.transcriptArea.replaceRange("Assistant: " + text, this.responseStartOffset, end);
     } else {
-      appendLine(line);
+      appendLine("Assistant: " + text);
     }
+    this.responseStartOffset = -1;
+    this.transcriptArea.append("\n");
     this.transcriptArea.setCaretPosition(this.transcriptArea.getDocument().getLength());
   }
 

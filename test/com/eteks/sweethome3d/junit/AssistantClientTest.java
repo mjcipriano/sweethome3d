@@ -72,4 +72,31 @@ public class AssistantClientTest {
         "{\"content\":[{\"type\":\"text\",\"text\":\"Hello!\"}]}");
     assertEquals("Hello!", reply);
   }
+
+  @Test
+  public void testStreamRequestAndDeltaParsing() {
+    AssistantClient openai = new AssistantClient(Provider.OPENAI_COMPATIBLE,
+        "http://local/v1", "", "qwen");
+    assertTrue(openai.buildRequestBody(null,
+        AssistantClient.newConversation(), true).contains("\"stream\":true"));
+
+    // OpenAI-compatible streaming delta
+    assertEquals("Hel", AssistantClient.parseStreamDelta(Provider.OPENAI_COMPATIBLE,
+        "{\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}"));
+    // A role-only opening delta carries no text
+    assertEquals(null, AssistantClient.parseStreamDelta(Provider.OPENAI_COMPATIBLE,
+        "{\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}"));
+
+    AssistantClient anthropic = new AssistantClient(Provider.ANTHROPIC,
+        "https://api.anthropic.com/v1", "sk-test", "claude-opus-4-8");
+    assertTrue(anthropic.buildRequestBody("ctx",
+        AssistantClient.newConversation(), true).contains("\"stream\":true"));
+
+    // Anthropic streaming delta
+    assertEquals("lo", AssistantClient.parseStreamDelta(Provider.ANTHROPIC,
+        "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"lo\"}}"));
+    // A message_start event carries no text
+    assertEquals(null, AssistantClient.parseStreamDelta(Provider.ANTHROPIC,
+        "{\"type\":\"message_start\",\"message\":{\"role\":\"assistant\"}}"));
+  }
 }

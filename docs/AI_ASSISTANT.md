@@ -45,26 +45,35 @@ undoable turn. Context includes the current selection so relative placement
 works. Tests: parser (plain/JSON/fenced) and executor (add room + walls, one
 undo reverts the turn).
 
-### Phase 3 - modify existing homes, agentic, streaming (IN PROGRESS)
+### Phase 3 - modify existing homes, agentic, streaming (DONE, pending release)
 
 Requested as one phase with three workstreams, built in dependency order:
 
-- **3a - modify/delete (CRUD).** Lets the assistant act on items that already
-  exist, not just add new ones. New commands: `move`, `rotate`, `resize`,
+- **3a - modify/delete (CRUD). DONE.** The assistant can act on items that
+  already exist, not just add new ones. Commands: `move`, `rotate`, `resize`,
   `set_color`, `set_elevation`, `set_visible`, `rename`, `delete`. Targeting:
   existing items are referenced by a stable per-turn id exposed in the context
-  (`F1` furniture, `W1` walls, `R1` rooms), by name, or by the literal
-  `selection`. Property changes post a custom undoable edit that snapshots the
-  affected items' before/after state; deletes reuse `PlanController.deleteItems`.
-  `HomeAssistantContext` lists each item with its id and current geometry.
-- **3b - agentic multi-step loop.** After a turn's commands are applied, the
-  updated project brief + a short result summary are fed back and the model is
-  re-invoked, up to a small iteration cap, until it returns no further commands.
-  Provider-agnostic (no native tool-calling required); the cap and a stop signal
-  prevent runaway loops.
-- **3c - streaming + chat UX.** Token streaming (SSE) for both providers, a
-  proper transcript rendering, and a preview/confirmation step before edits are
-  applied.
+  (`F1` furniture, `W1` walls, `R1` rooms), by `"target":"selection"`, or by the
+  `names` field. Property changes post a snapshot-based undoable edit
+  (`ItemState` before/after); deletes reuse `PlanController.deleteItems`. The
+  whole turn stays one undo. `HomeAssistantContext` lists each room (R#), wall
+  (W#) and furniture item (F#, with position/angle/size); furniture is capped at
+  80 listed items.
+- **3b - agentic multi-step loop. DONE.** `AssistantPanel.runConversation`
+  loops: after a turn's commands are applied it feeds back the applied-changes
+  summary (with a refreshed project brief in the system prompt) and re-invokes
+  the model, up to `MAX_ASSISTANT_STEPS` (5), stopping when the model returns no
+  further commands. Provider-agnostic; network runs off the EDT, home reads/edits
+  are marshalled onto it with `invokeAndWait`.
+- **3c - streaming + chat UX. DONE.** `AssistantClient.sendMessageStreaming`
+  reads server-sent events for both providers (`parseStreamDelta` is unit-tested
+  for the OpenAI `choices[].delta.content` and Anthropic `content_block_delta`
+  shapes) and forwards chunks to a `StreamHandler`; the panel streams them into
+  the transcript and replaces the streamed text with the finalized reply +
+  applied-changes footer. A "Preview edits before applying" checkbox shows a
+  confirmation listing the commands before any edit runs; declining stops the
+  multi-step loop. Remaining polish: rich Markdown rendering in the transcript
+  (currently a wrapped `JTextArea`).
 
 ## Testing
 
