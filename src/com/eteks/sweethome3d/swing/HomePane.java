@@ -1403,6 +1403,13 @@ public class HomePane extends JRootPane implements HomeView {
         }
       };
     helpMenu.add(new JMenuItem(assistantAction));
+    Action assistantExamplesAction = new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "assistantExamples")) {
+        public void actionPerformed(ActionEvent ev) {
+          showAssistantExamplesDialog();
+        }
+      };
+    helpMenu.add(new JMenuItem(assistantExamplesAction));
 
     // Add menus to menu bar
     JMenuBar menuBar = new JMenuBar();
@@ -4860,13 +4867,47 @@ public class HomePane extends JRootPane implements HomeView {
    * Displays the AI design assistant chat in a non-modal dialog.
    */
   private void showAssistantDialog() {
-    AssistantPanel assistantPanel = new AssistantPanel(this.home, this.preferences);
+    AssistantPanel assistantPanel = new AssistantPanel(this.home, this.preferences, this.controller);
     JDialog assistantDialog = new JDialog(SwingUtilities.getWindowAncestor(this),
         this.preferences.getLocalizedString(HomePane.class, "designAssistant"));
     assistantDialog.add(assistantPanel);
     assistantDialog.pack();
     assistantDialog.setLocationRelativeTo(this);
     assistantDialog.setVisible(true);
+  }
+
+  /**
+   * Shows example prompts the design assistant currently understands. Keep this
+   * list in sync with the commands handled by AssistantCommandExecutor.
+   */
+  private void showAssistantExamplesDialog() {
+    String examples =
+        "The design assistant reads your current home and selection, and can answer\n"
+        + "questions or make edits. After an edit, use Edit > Undo to revert it.\n"
+        + "Tip: select an object first when you say \"this\" or \"the current object\".\n\n"
+        + "Ask questions:\n"
+        + "  - What is the total floor area, and how many rooms?\n"
+        + "  - List the rooms and their areas.\n"
+        + "  - Which 3D models are the heaviest, and which should I reduce?\n\n"
+        + "Make edits:\n"
+        + "  - Add a chair to the right of the current object.\n"
+        + "  - Place a tree 2 meters in front of the selected piece.\n"
+        + "  - Add a square room connected to this room that is 100 sq ft,\n"
+        + "    with 2 doors and 2 windows in appropriate places.\n"
+        + "  - Create a 4m by 3m bedroom next to the living room.\n"
+        + "  - Add a wall from (0,0) to (400,0).\n"
+        + "  - Add a door in the middle of the south wall.\n"
+        + "  - Add a 2m wide window centered on the front wall.\n"
+        + "  - Select the kitchen.\n\n"
+        + "More edit abilities (move, rotate, recolor, reduce detail) are coming.";
+    JTextArea textArea = new JTextArea(examples);
+    textArea.setEditable(false);
+    textArea.setOpaque(false);
+    JScrollPane scrollPane = new JScrollPane(textArea);
+    scrollPane.setPreferredSize(new Dimension(520, 360));
+    JOptionPane.showMessageDialog(this, scrollPane,
+        this.preferences.getLocalizedString(HomePane.class, "assistantExamples"),
+        JOptionPane.INFORMATION_MESSAGE);
   }
 
   /**

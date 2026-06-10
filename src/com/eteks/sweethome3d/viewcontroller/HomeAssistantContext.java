@@ -20,6 +20,7 @@ import com.eteks.sweethome3d.model.HomeFurnitureGroup;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Level;
 import com.eteks.sweethome3d.model.Room;
+import com.eteks.sweethome3d.model.Selectable;
 import com.eteks.sweethome3d.model.Wall;
 
 /**
@@ -100,7 +101,53 @@ public class HomeAssistantContext {
       brief.append("- Largest 3D model by file size: ").append(heaviestName[0])
           .append(" (").append(format.format(heaviest[0] / 1024.0 / 1024.0)).append(" MB)\n");
     }
+
+    List<Selectable> selectedItems = home.getSelectedItems();
+    if (!selectedItems.isEmpty()) {
+      brief.append("- Current selection (").append(selectedItems.size()).append("):\n");
+      for (Selectable item : selectedItems) {
+        if (item instanceof HomePieceOfFurniture) {
+          HomePieceOfFurniture piece = (HomePieceOfFurniture)item;
+          String name = piece.getName() != null ? piece.getName() : "Unnamed piece";
+          brief.append("    - furniture \"").append(name).append("\" at (")
+              .append(format.format(piece.getX())).append(", ").append(format.format(piece.getY()))
+              .append(") cm, facing ").append(Math.round(Math.toDegrees(piece.getAngle())))
+              .append(" deg, size ").append(format.format(piece.getWidth())).append(" x ")
+              .append(format.format(piece.getDepth())).append(" cm\n");
+        } else if (item instanceof Room) {
+          Room room = (Room)item;
+          String name = room.getName() != null ? room.getName() : "Unnamed room";
+          brief.append("    - room \"").append(name).append("\", area ")
+              .append(format.format(room.getArea() / 10000)).append(" m2\n");
+        } else if (item instanceof Wall) {
+          Wall wall = (Wall)item;
+          brief.append("    - wall from (").append(format.format(wall.getXStart())).append(", ")
+              .append(format.format(wall.getYStart())).append(") to (")
+              .append(format.format(wall.getXEnd())).append(", ").append(format.format(wall.getYEnd()))
+              .append(") cm\n");
+        }
+      }
+    }
     return brief.toString();
+  }
+
+  /**
+   * Returns the instructions describing how the assistant must reply to make
+   * edits: a JSON command protocol with a centimeter coordinate system.
+   */
+  public static String getCommandProtocol() {
+    return "To MODIFY the home, reply with ONLY a JSON object of the form "
+        + "{\"reply\": \"<short message to the user>\", \"commands\": [ ... ]}. "
+        + "Coordinates are in centimeters (x increases to the right, y increases downward) and "
+        + "angles are in degrees clockwise. Compute positions relative to the current selection "
+        + "when the user refers to it. Supported commands (omit a field to use its default):\n"
+        + "  {\"action\":\"add_furniture\",\"name\":\"<catalog item, e.g. Chair, Tree, Box>\",\"x\":N,\"y\":N,\"angle\":N,\"width\":N,\"depth\":N,\"elevation\":N}\n"
+        + "  {\"action\":\"add_door_or_window\",\"name\":\"Door\",\"x\":N,\"y\":N,\"angle\":N}\n"
+        + "  {\"action\":\"add_room\",\"name\":\"<name>\",\"points\":[[x,y],[x,y],[x,y],...]}\n"
+        + "  {\"action\":\"add_wall\",\"x1\":N,\"y1\":N,\"x2\":N,\"y2\":N,\"thickness\":N,\"height\":N}\n"
+        + "  {\"action\":\"select\",\"names\":[\"<item name>\"]}\n"
+        + "Use real catalog item names where possible. If the user only asks a question, "
+        + "reply normally in plain text without any JSON.";
   }
 
   private static void countFurniture(List<HomePieceOfFurniture> furniture, int[] counts,
