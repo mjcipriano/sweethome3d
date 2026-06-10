@@ -57,7 +57,7 @@ public abstract class UserPreferences {
                         RECENT_HOMES, IGNORED_ACTION_TIP, FURNITURE_CATALOG_VIEWED_IN_TREE, NAVIGATION_PANEL_VISIBLE,
                         AERIAL_VIEW_CENTERED_ON_SELECTION_ENABLED, OBSERVER_CAMERA_SELECTED_AT_CHANGE, EDITING_IN_3D_VIEW_ENABLED, CHECK_UPDATES_ENABLED,
                         UPDATES_MINIMUM_DATE, AUTO_SAVE_DELAY_FOR_RECOVERY, AUTO_COMPLETION_STRINGS, RECENT_COLORS, RECENT_TEXTURES, HOME_EXAMPLES, PHOTO_RENDERER,
-                        LOOK_AND_FEEL}
+                        LOOK_AND_FEEL, ASSISTANT_PROVIDER, ASSISTANT_API_URL, ASSISTANT_API_KEY, ASSISTANT_MODEL}
 
   public static final String FURNITURE_LIBRARY_TYPE = "Furniture library";
   public static final String TEXTURES_LIBRARY_TYPE  = "Textures library";
@@ -111,6 +111,10 @@ public abstract class UserPreferences {
   private boolean          rulersVisible       = true;
   private boolean          gridVisible         = true;
   private String           lookAndFeel         = "light";
+  private String           assistantProvider   = "openai";
+  private String           assistantApiUrl     = "http://localhost:1234/v1";
+  private String           assistantApiKey     = "";
+  private String           assistantModel      = "";
   private String           defaultFontName;
   private boolean          drawingModeEnabled;
   private boolean          furnitureViewedFromTop;
@@ -821,6 +825,69 @@ public abstract class UserPreferences {
       String oldLookAndFeel = this.lookAndFeel;
       this.lookAndFeel = lookAndFeel;
       this.propertyChangeSupport.firePropertyChange(Property.LOOK_AND_FEEL.name(), oldLookAndFeel, lookAndFeel);
+    }
+  }
+
+  /**
+   * Returns the AI design assistant provider protocol: <code>"openai"</code> for
+   * an OpenAI-compatible endpoint (OpenRouter, DeepSeek, LM Studio, Ollama...) or
+   * <code>"anthropic"</code> for the Anthropic API.
+   */
+  public String getAssistantProvider() {
+    return this.assistantProvider;
+  }
+
+  public void setAssistantProvider(String assistantProvider) {
+    if (assistantProvider != null && !assistantProvider.equals(this.assistantProvider)) {
+      String oldValue = this.assistantProvider;
+      this.assistantProvider = assistantProvider;
+      this.propertyChangeSupport.firePropertyChange(Property.ASSISTANT_PROVIDER.name(), oldValue, assistantProvider);
+    }
+  }
+
+  /**
+   * Returns the base URL of the AI assistant API (e.g.
+   * <code>http://localhost:1234/v1</code> for a local LM Studio server).
+   */
+  public String getAssistantApiUrl() {
+    return this.assistantApiUrl;
+  }
+
+  public void setAssistantApiUrl(String assistantApiUrl) {
+    if (assistantApiUrl != null && !assistantApiUrl.equals(this.assistantApiUrl)) {
+      String oldValue = this.assistantApiUrl;
+      this.assistantApiUrl = assistantApiUrl;
+      this.propertyChangeSupport.firePropertyChange(Property.ASSISTANT_API_URL.name(), oldValue, assistantApiUrl);
+    }
+  }
+
+  /**
+   * Returns the API key for the AI assistant (may be empty for local servers).
+   */
+  public String getAssistantApiKey() {
+    return this.assistantApiKey;
+  }
+
+  public void setAssistantApiKey(String assistantApiKey) {
+    if (assistantApiKey != null && !assistantApiKey.equals(this.assistantApiKey)) {
+      String oldValue = this.assistantApiKey;
+      this.assistantApiKey = assistantApiKey;
+      this.propertyChangeSupport.firePropertyChange(Property.ASSISTANT_API_KEY.name(), oldValue, assistantApiKey);
+    }
+  }
+
+  /**
+   * Returns the model name requested from the AI assistant provider.
+   */
+  public String getAssistantModel() {
+    return this.assistantModel;
+  }
+
+  public void setAssistantModel(String assistantModel) {
+    if (assistantModel != null && !assistantModel.equals(this.assistantModel)) {
+      String oldValue = this.assistantModel;
+      this.assistantModel = assistantModel;
+      this.propertyChangeSupport.firePropertyChange(Property.ASSISTANT_MODEL.name(), oldValue, assistantModel);
     }
   }
 
