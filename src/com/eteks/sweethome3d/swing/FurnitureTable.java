@@ -123,6 +123,7 @@ import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomeFurnitureGroup;
 import com.eteks.sweethome3d.model.HomeMaterial;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
+import com.eteks.sweethome3d.model.ModelLOD;
 import com.eteks.sweethome3d.model.HomeTexture;
 import com.eteks.sweethome3d.model.LengthUnit;
 import com.eteks.sweethome3d.model.Level;
@@ -154,6 +155,7 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
   private AWTEventListener       informationPopupRemovalListener;
   private PropertyChangeListener modelVertexCountListener;
   private final boolean          reorderingEnabled;
+  private Home                   home;
 
   /**
    * Creates a table that displays furniture of <code>home</code>.
@@ -174,6 +176,7 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
   public FurnitureTable(Home home, UserPreferences preferences,
                         FurnitureController controller) {
     this.preferences = preferences;
+    this.home = home;
     boolean reorderingEnabled = true;
     try {
       reorderingEnabled = Boolean.parseBoolean(System.getProperty("com.eteks.sweethome3d.furnitureTableReorderingEnabled", "true"));
@@ -808,8 +811,12 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
           if (!ev.isPopupTrigger() && SwingUtilities.isLeftMouseButton(ev)) {
             int columnIndex = getTableHeader().columnAtPoint(ev.getPoint());
             Object columnIdentifier = getColumnModel().getColumn(columnIndex).getIdentifier();
-            if (columnIdentifier instanceof HomePieceOfFurniture.SortableProperty
-                && columnIdentifier != HomePieceOfFurniture.SortableProperty.VERTICES) {
+            if (columnIdentifier instanceof HomePieceOfFurniture.SortableProperty) {
+              if (columnIdentifier == HomePieceOfFurniture.SortableProperty.VERTICES) {
+                // Vertex counts live in ModelManager; cache them on the pieces so
+                // the model layer comparator can sort by them
+                cacheModelVertexCounts(home.getFurniture());
+              }
               controller.sortFurniture(((HomePieceOfFurniture.SortableProperty)columnIdentifier).name());
             } else if (columnIdentifier instanceof ObjectProperty) {
               controller.sortFurniture(((ObjectProperty)columnIdentifier).getName());
@@ -817,6 +824,22 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
           }
         }
       });
+  }
+
+  /**
+   * Caches each piece's model vertex count (known by {@link ModelManager}) onto
+   * the piece so the model layer can sort the furniture by vertex count. Models
+   * not loaded yet are left without a count and sort as the smallest.
+   */
+  private void cacheModelVertexCounts(List<HomePieceOfFurniture> furniture) {
+    for (HomePieceOfFurniture piece : furniture) {
+      if (piece instanceof HomeFurnitureGroup) {
+        cacheModelVertexCounts(((HomeFurnitureGroup)piece).getFurniture());
+      } else if (piece.getModel() != null) {
+        int count = ModelManager.getInstance().getModelVertexCount(piece.getModel());
+        piece.setModelVertexCount(count > 0 ? Integer.valueOf(count) : null);
+      }
+    }
   }
 
   /**
@@ -1316,8 +1339,10 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
    */
   private static class FurnitureTableColumnModel extends DefaultTableColumnModel {
     private Map<String,TableColumn> availableColumns;
+    private final Home              home;
 
     public FurnitureTableColumnModel(final Home home, final UserPreferences preferences) {
+      this.home = home;
       createAvailableColumns(home, preferences);
       updateModelColumns(home.getFurnitureVisiblePropertyNames(), preferences);
       addHomeListener(home, preferences);
@@ -2195,7 +2220,17 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
               this.integerFormat = NumberFormat.getIntegerInstance();
             }
             String text = this.integerFormat.format(vertexCount);
-            label.setToolTipText(this.integerFormat.format(vertexCount) + " vertices");
+            String toolTip = this.integerFormat.format(vertexCount) + " vertices";
+            // Show the reduced vertex count for pieces displayed with reduced detail
+            ModelLOD modelLOD = home != null && content != null ? home.getModelLOD(content) : null;
+            if (modelLOD != null && piece != null && ModelLOD.isReducedDetailInView(piece)) {
+              int reducedCount = modelLOD.getVertexCount();
+              text += " \u2192 " + this.integerFormat.format(reducedCount);
+              int reductionPercent = Math.round(100f * (vertexCount - reducedCount) / vertexCount);
+              toolTip += ", reduced to " + this.integerFormat.format(reducedCount)
+                  + " (" + reductionPercent + "% fewer) in the 3D view";
+            }
+            label.setToolTipText(toolTip);
             label.setText(text);
             // Color-code: green (< 10000), black (10k-50k), orange (50k-200k), red (> 200k)
             if (!isSelected) {

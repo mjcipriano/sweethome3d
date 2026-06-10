@@ -89,6 +89,7 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.security.AccessControlException;
 import java.text.DecimalFormat;
+import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -135,6 +136,7 @@ import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JProgressBar;
 import javax.swing.JPopupMenu;
 import javax.swing.JRadioButtonMenuItem;
 import javax.swing.JRootPane;
@@ -5620,10 +5622,29 @@ public class HomePane extends JRootPane implements HomeView {
       return;
     }
 
+    // Show non-modal progress feedback so the user knows the LOD engine is busy
+    final int totalModels = queuedModels.size();
+    final JProgressBar progressBar = new JProgressBar(0, totalModels);
+    progressBar.setStringPainted(true);
+    final JLabel progressLabel = new JLabel(this.preferences.getLocalizedString(
+        HomePane.class, "generateModelLODsProgress.label"));
+    JPanel progressPanel = new JPanel(new BorderLayout(0, 8));
+    progressPanel.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 16));
+    progressPanel.add(progressLabel, BorderLayout.NORTH);
+    progressPanel.add(progressBar, BorderLayout.CENTER);
+    final JDialog progressDialog = new JDialog(SwingUtilities.getWindowAncestor(this),
+        this.preferences.getLocalizedString(HomePane.class, "generateModelLODsProgress.title"));
+    progressDialog.add(progressPanel);
+    progressDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+    progressDialog.pack();
+    progressDialog.setLocationRelativeTo(this);
+    progressDialog.setVisible(true);
+
     Thread generatorThread = new Thread("Sweet Home 3D model LOD generator") {
         @Override
         public void run() {
           final int [] generatedCount = {0};
+          final int [] processedCount = {0};
           final Exception [] lastError = {null};
           ModelLODGenerator generator = new ModelLODGenerator();
           for (final Content model : queuedModels) {
@@ -5643,8 +5664,21 @@ public class HomePane extends JRootPane implements HomeView {
               lastError [0] = ex;
             } finally {
               generatingModelLODs.remove(model);
+              final int processed = ++processedCount [0];
+              EventQueue.invokeLater(new Runnable() {
+                  public void run() {
+                    progressBar.setValue(processed);
+                    progressLabel.setText(preferences.getLocalizedString(
+                        HomePane.class, "generateModelLODsProgress.message", processed, totalModels));
+                  }
+                });
             }
           }
+          EventQueue.invokeLater(new Runnable() {
+              public void run() {
+                progressDialog.dispose();
+              }
+            });
           if (showStatus) {
             EventQueue.invokeLater(new Runnable() {
                 public void run() {
@@ -5823,20 +5857,35 @@ public class HomePane extends JRootPane implements HomeView {
           "Reduce model detail", JOptionPane.ERROR_MESSAGE);
       return;
     }
-    // Percentage of the model detail kept in the 3D view (smaller = lighter)
-    JSlider detailSlider = new JSlider(5, 75, 25);
-    detailSlider.setMajorTickSpacing(10);
-    detailSlider.setMinorTickSpacing(5);
-    detailSlider.setPaintTicks(true);
-    detailSlider.setPaintLabels(true);
+    // Logarithmic slider so the whole 0.1% - 75% range is easy to dial in: the
+    // position maps to a kept-detail percentage of MIN_PERCENT * (MAX/MIN)^(pos/1000)
+    final double minPercent = 0.1;
+    final double maxPercent = 75;
+    final JSlider detailSlider = new JSlider(0, 1000,
+        (int)Math.round(1000 * Math.log(25 / minPercent) / Math.log(maxPercent / minPercent)));
+    final NumberFormat percentFormat = NumberFormat.getNumberInstance();
+    percentFormat.setMaximumFractionDigits(2);
+    final JLabel valueLabel = new JLabel();
+    valueLabel.setHorizontalAlignment(JLabel.CENTER);
+    final double[] sliderRatio = {0};
+    ChangeListener detailListener = new ChangeListener() {
+        public void stateChanged(ChangeEvent ev) {
+          double percent = minPercent * Math.pow(maxPercent / minPercent, detailSlider.getValue() / 1000.0);
+          sliderRatio[0] = percent / 100;
+          valueLabel.setText(percentFormat.format(percent) + " %");
+        }
+      };
+    detailSlider.addChangeListener(detailListener);
+    detailListener.stateChanged(null);
     JPanel detailPanel = new JPanel(new BorderLayout(0, 5));
     detailPanel.add(new JLabel(this.preferences.getLocalizedString(
         HomePane.class, "reduceModelDetailDialog.message")), BorderLayout.NORTH);
     detailPanel.add(detailSlider, BorderLayout.CENTER);
+    detailPanel.add(valueLabel, BorderLayout.SOUTH);
     if (SwingTools.showConfirmDialog(this, detailPanel,
             this.preferences.getLocalizedString(HomePane.class, "reduceModelDetailDialog.title"),
             detailSlider) == JOptionPane.OK_OPTION) {
-      float targetRatio = detailSlider.getValue() / 100f;
+      float targetRatio = (float)sliderRatio[0];
       for (HomePieceOfFurniture piece : pieces) {
         piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, "true");
       }

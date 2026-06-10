@@ -231,6 +231,19 @@ public class HomePieceOfFurniture extends HomeObject implements PieceOfFurniture
           }
         }
       });
+    SORTABLE_PROPERTY_COMPARATORS.put(SortableProperty.VERTICES, new Comparator<HomePieceOfFurniture>() {
+        public int compare(HomePieceOfFurniture piece1, HomePieceOfFurniture piece2) {
+          Integer count1 = piece1.getModelVertexCount();
+          Integer count2 = piece2.getModelVertexCount();
+          if (count1 == null) {
+            return count2 == null ? 0 : -1;
+          } else if (count2 == null) {
+            return 1;
+          } else {
+            return count1.compareTo(count2);
+          }
+        }
+      });
     SORTABLE_PROPERTY_COMPARATORS.put(SortableProperty.LEVEL, new Comparator<HomePieceOfFurniture>() {
         public int compare(HomePieceOfFurniture piece1, HomePieceOfFurniture piece2) {
           return HomePieceOfFurniture.compare(piece1.getLevel(), piece2.getLevel());
@@ -329,6 +342,7 @@ public class HomePieceOfFurniture extends HomeObject implements PieceOfFurniture
   private Content                planIcon;
   private Content                model;
   private Long                   modelSize;
+  private transient Integer      modelVertexCount;
   private float                  width;
   private float                  widthInPlan;
   private float                  depth;
@@ -1044,6 +1058,23 @@ public class HomePieceOfFurniture extends HomeObject implements PieceOfFurniture
    */
   public Long getModelSize() {
     return this.modelSize;
+  }
+
+  /**
+   * Returns the cached number of vertices of this piece's 3D model, or
+   * <code>null</code> if it isn't known yet. This transient value is set by the
+   * user interface from {@code ModelManager} to allow sorting by vertex count;
+   * it isn't persisted.
+   */
+  public Integer getModelVertexCount() {
+    return this.modelVertexCount;
+  }
+
+  /**
+   * Sets the cached number of vertices of this piece's 3D model.
+   */
+  public void setModelVertexCount(Integer modelVertexCount) {
+    this.modelVertexCount = modelVertexCount;
   }
 
   /**

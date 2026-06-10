@@ -18,9 +18,10 @@ public class ModelLODGeneratorTest {
   @Test
   public void testTargetRatioIsClamped() {
     assertEquals(0.5f, ModelLODGenerator.normalizeTargetRatio(0.5f), 1e-6);
-    // Below the minimum and above the maximum are pulled into [0.02, 0.95].
-    assertEquals(0.02f, ModelLODGenerator.normalizeTargetRatio(0f), 1e-6);
-    assertEquals(0.02f, ModelLODGenerator.normalizeTargetRatio(-1f), 1e-6);
+    // Below the minimum and above the maximum are pulled into [0.001, 0.95].
+    assertEquals(0.001f, ModelLODGenerator.normalizeTargetRatio(0f), 1e-6);
+    assertEquals(0.001f, ModelLODGenerator.normalizeTargetRatio(-1f), 1e-6);
+    assertEquals(0.001f, ModelLODGenerator.normalizeTargetRatio(0.0005f), 1e-6);
     assertEquals(0.95f, ModelLODGenerator.normalizeTargetRatio(1f), 1e-6);
     assertEquals(0.95f, ModelLODGenerator.normalizeTargetRatio(10f), 1e-6);
   }
