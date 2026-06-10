@@ -100,7 +100,8 @@ public class ModelLODGenerator {
    * [0.02, 0.95] are pulled back into that range.
    */
   public static float normalizeTargetRatio(float targetRatio) {
-    return Math.min(0.95f, Math.max(0.02f, targetRatio));
+    // Allow very aggressive reductions (down to 0.1% of the vertices)
+    return Math.min(0.95f, Math.max(0.001f, targetRatio));
   }
 
   /**

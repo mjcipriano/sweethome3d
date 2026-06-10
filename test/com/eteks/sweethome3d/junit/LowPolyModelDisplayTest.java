@@ -70,6 +70,28 @@ public class LowPolyModelDisplayTest {
   }
 
   @Test
+  public void testFurnitureSortsByCachedVertexCount() throws Exception {
+    Content model = new URLContent(new File("tree.obj").toURI().toURL());
+    HomePieceOfFurniture big = newPiece(model);
+    big.setModelVertexCount(Integer.valueOf(300000));
+    HomePieceOfFurniture small = newPiece(model);
+    small.setModelVertexCount(Integer.valueOf(1000));
+    HomePieceOfFurniture medium = newPiece(model);
+    medium.setModelVertexCount(Integer.valueOf(50000));
+    HomePieceOfFurniture unknown = newPiece(model); // no cached count yet
+
+    java.util.List<HomePieceOfFurniture> pieces =
+        new java.util.ArrayList<HomePieceOfFurniture>(java.util.Arrays.asList(big, small, medium, unknown));
+    java.util.Collections.sort(pieces,
+        HomePieceOfFurniture.getFurnitureComparator(HomePieceOfFurniture.SortableProperty.VERTICES));
+
+    assertSame("Unknown vertex count sorts first", unknown, pieces.get(0));
+    assertSame("Smallest vertex count next", small, pieces.get(1));
+    assertSame(medium, pieces.get(2));
+    assertSame("Largest vertex count sorts last", big, pieces.get(3));
+  }
+
+  @Test
   public void testOriginalModelUsedWhenNoLodOrGloballyDisabled() throws Exception {
     Content model = new URLContent(new File("tree.obj").toURI().toURL());
     Home home = new Home();
