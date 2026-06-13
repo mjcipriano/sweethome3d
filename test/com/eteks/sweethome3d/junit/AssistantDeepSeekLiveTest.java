@@ -15,6 +15,7 @@ import org.junit.Assume;
 import org.junit.Test;
 
 import com.eteks.sweethome3d.model.Home;
+import com.eteks.sweethome3d.model.ModelLOD;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.UserPreferences;
@@ -130,6 +131,50 @@ public class AssistantDeepSeekLiveTest {
       executor.execute(commands);
       assertEquals("Sofa moved 50 cm right: " + reply, 150f, sofa.getX(), 1f);
       assertEquals("Sofa kept its y position: " + reply, 200f, sofa.getY(), 1f);
+    } finally {
+      restoreNo3D(previousNo3D);
+    }
+  }
+
+  /**
+   * The model must use reduce_detail (phase 4b) when asked to speed up the 3D
+   * view, targeting the piece whose reduced model is available.
+   */
+  @Test
+  public void testReduceDetailCommand() throws Exception {
+    AssistantClient client = createClientOrSkip();
+    String previousNo3D = System.getProperty("com.eteks.sweethome3d.no3D");
+    System.setProperty("com.eteks.sweethome3d.no3D", "true");
+    try {
+      Home home = new Home();
+      UserPreferences preferences = createCatalogPreferences();
+      ViewFactory viewFactory = new SwingViewFactory();
+      HomeController homeController = new HomeController(home, preferences, viewFactory);
+      AssistantCommandExecutor executor =
+          new AssistantCommandExecutor(home, preferences, homeController);
+
+      // F1: a heavy tree with a generated reduced model
+      HomePieceOfFurniture tree = new HomePieceOfFurniture(
+          executor.findCatalogPiece("Sofa", false));
+      tree.setName("Big tree");
+      tree.setModelSize(Long.valueOf(20 * 1024 * 1024));
+      home.addPieceOfFurniture(tree);
+      home.setModelLOD(tree.getModel(), new ModelLOD(
+          new com.eteks.sweethome3d.tools.URLContent(
+              new java.io.File("tree-lod.obj").toURI().toURL()), 500000, 25000));
+
+      String systemPrompt = HomeAssistantContext.buildSystemPrompt(home, preferences, true);
+      List<ChatMessage> conversation = AssistantClient.newConversation();
+      conversation.add(new ChatMessage("user",
+          "The 3D view is slow. Reduce the detail of the heavy models to speed it up."));
+      String reply = client.sendMessage(systemPrompt, conversation);
+      System.out.println("[live] DeepSeek reduce-detail reply: " + reply);
+
+      List<AssistantCommand> commands = AssistantCommandParser.parse(reply).getCommands();
+      assertFalse("Reply contains commands: " + reply, commands.isEmpty());
+      executor.execute(commands);
+      assertTrue("Tree switched to reduced detail: " + reply,
+          ModelLOD.isReducedDetailInView(tree));
     } finally {
       restoreNo3D(previousNo3D);
     }

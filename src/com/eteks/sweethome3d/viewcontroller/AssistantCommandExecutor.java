@@ -21,6 +21,7 @@ import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
 import com.eteks.sweethome3d.model.FurnitureCategory;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
+import com.eteks.sweethome3d.model.ModelLOD;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Selectable;
 import com.eteks.sweethome3d.model.UserPreferences;
@@ -105,8 +106,9 @@ public class AssistantCommandExecutor {
       select(command);
     } else if ("move".equals(action) || "rotate".equals(action) || "resize".equals(action)
         || "set_color".equals(action) || "set_elevation".equals(action)
-        || "set_visible".equals(action) || "rename".equals(action)) {
-      modify(action, command, tally);
+        || "set_visible".equals(action) || "rename".equals(action)
+        || "reduce_detail".equals(action) || "restore_detail".equals(action)) {
+      modify(action, command, tally, notes);
     } else if ("delete".equals(action) || "remove".equals(action)) {
       delete(command, tally);
     }
@@ -151,17 +153,29 @@ public class AssistantCommandExecutor {
    * command targets, posting a single snapshot-based undoable edit so the change
    * is reverted with the rest of the turn.
    */
-  private void modify(String action, AssistantCommand command, int [] tally) {
-    List<Selectable> targets = resolveTargets(command);
+  private void modify(String action, AssistantCommand command, int [] tally, List<String> notes) {
+    boolean detailAction = "reduce_detail".equals(action) || "restore_detail".equals(action);
+    List<Selectable> targets;
+    if (detailAction && "all".equalsIgnoreCase(String.valueOf(command.getString("target")))) {
+      // "all" is only honored for the reversible detail toggles
+      targets = new ArrayList<Selectable>(this.home.getFurniture());
+    } else {
+      targets = resolveTargets(command);
+    }
     if (targets.isEmpty()) {
       return;
     }
+    List<String> missingReducedModels = new ArrayList<String>();
     List<ItemState> before = captureStates(targets);
     int changed = 0;
     for (Selectable item : targets) {
-      if (applyModification(action, command, item)) {
+      if (applyModification(action, command, item, missingReducedModels)) {
         changed++;
       }
+    }
+    if (!missingReducedModels.isEmpty()) {
+      notes.add("No reduced model exists yet for " + join(missingReducedModels)
+          + "; run 3D view > Generate model LOD cache, save, then ask again");
     }
     if (changed > 0) {
       List<ItemState> after = captureStates(targets);
@@ -171,8 +185,29 @@ public class AssistantCommandExecutor {
     }
   }
 
-  private boolean applyModification(String action, AssistantCommand command, Selectable item) {
-    if ("move".equals(action)) {
+  private boolean applyModification(String action, AssistantCommand command, Selectable item,
+                                    List<String> missingReducedModels) {
+    if ("reduce_detail".equals(action)) {
+      if (item instanceof HomePieceOfFurniture) {
+        HomePieceOfFurniture piece = (HomePieceOfFurniture)item;
+        if (piece.getModel() != null && this.home.getModelLOD(piece.getModel()) != null) {
+          if (!ModelLOD.isReducedDetailInView(piece)) {
+            piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, "true");
+            return true;
+          }
+        } else {
+          missingReducedModels.add(piece.getName() != null ? piece.getName() : "Unnamed piece");
+        }
+      }
+      return false;
+    } else if ("restore_detail".equals(action)) {
+      if (item instanceof HomePieceOfFurniture
+          && ModelLOD.isReducedDetailInView((HomePieceOfFurniture)item)) {
+        ((HomePieceOfFurniture)item).setProperty(ModelLOD.LOW_POLY_PROPERTY, null);
+        return true;
+      }
+      return false;
+    } else if ("move".equals(action)) {
       return moveItem(command, item);
     } else if ("rotate".equals(action)) {
       return rotateItem(command, item);
@@ -785,6 +820,8 @@ public class AssistantCommandExecutor {
     private float [][] points;
     // Furniture or room
     private String    name;
+    // Furniture reduced-detail flag (ModelLOD.LOW_POLY_PROPERTY)
+    private String    lowPoly;
 
     private ItemState(Selectable item) {
       this.item = item;
@@ -804,6 +841,7 @@ public class AssistantCommandExecutor {
         state.color = piece.getColor();
         state.visible = piece.isVisible();
         state.name = piece.getName();
+        state.lowPoly = piece.getProperty(ModelLOD.LOW_POLY_PROPERTY);
       } else if (item instanceof Wall) {
         Wall wall = (Wall)item;
         state.xStart = wall.getXStart();
@@ -833,6 +871,7 @@ public class AssistantCommandExecutor {
         piece.setColor(this.color);
         piece.setVisible(this.visible);
         piece.setName(this.name);
+        piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, this.lowPoly);
       } else if (this.item instanceof Wall) {
         Wall wall = (Wall)this.item;
         wall.setXStart(this.xStart);

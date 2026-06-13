@@ -1,6 +1,7 @@
 package com.eteks.sweethome3d.junit;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -15,6 +16,8 @@ import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
 import com.eteks.sweethome3d.model.Content;
 import com.eteks.sweethome3d.model.FurnitureCategory;
 import com.eteks.sweethome3d.model.Home;
+import com.eteks.sweethome3d.model.HomePieceOfFurniture;
+import com.eteks.sweethome3d.model.ModelLOD;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.model.Wall;
@@ -23,6 +26,7 @@ import com.eteks.sweethome3d.tools.URLContent;
 import com.eteks.sweethome3d.viewcontroller.AssistantCommand;
 import com.eteks.sweethome3d.viewcontroller.AssistantCommandExecutor;
 import com.eteks.sweethome3d.viewcontroller.AssistantCommandParser;
+import com.eteks.sweethome3d.viewcontroller.HomeAssistantContext;
 import com.eteks.sweethome3d.viewcontroller.HomeController;
 import com.eteks.sweethome3d.viewcontroller.ViewFactory;
 
@@ -179,6 +183,69 @@ public class AssistantCommandExecutorTest {
       assertEquals("Turn stops at the 30-command limit",
           wallsBefore + 30, home.getWalls().size());
       assertTrue(summary, summary.contains("turn limit"));
+    } finally {
+      if (previousNo3D == null) {
+        System.clearProperty("com.eteks.sweethome3d.no3D");
+      } else {
+        System.setProperty("com.eteks.sweethome3d.no3D", previousNo3D);
+      }
+    }
+  }
+
+  /**
+   * Verifies the reduce_detail/restore_detail commands toggle the per-piece
+   * low-poly property when a reduced model exists, report pieces without one,
+   * support "target":"all", and revert with a single undo.
+   */
+  @Test
+  public void testReduceAndRestoreDetail() throws Exception {
+    String previousNo3D = System.getProperty("com.eteks.sweethome3d.no3D");
+    System.setProperty("com.eteks.sweethome3d.no3D", "true");
+    try {
+      Home home = new Home();
+      UserPreferences preferences = new DefaultUserPreferences();
+      ViewFactory viewFactory = new SwingViewFactory();
+      HomeController homeController = new HomeController(home, preferences, viewFactory);
+      AssistantCommandExecutor executor =
+          new AssistantCommandExecutor(home, preferences, homeController);
+
+      Content icon = new URLContent(new File("dummy.png").toURI().toURL());
+      Content sofaModel = new URLContent(new File("sofa.obj").toURI().toURL());
+      Content plantModel = new URLContent(new File("plant.obj").toURI().toURL());
+      HomePieceOfFurniture sofa = new HomePieceOfFurniture(
+          new CatalogPieceOfFurniture("Sofa", icon, sofaModel, 200, 90, 80, true, false)); // F1
+      HomePieceOfFurniture plant = new HomePieceOfFurniture(
+          new CatalogPieceOfFurniture("Plant", icon, plantModel, 50, 50, 120, true, false)); // F2
+      home.addPieceOfFurniture(sofa);
+      home.addPieceOfFurniture(plant);
+      // Only the sofa has a generated reduced model
+      Content sofaLOD = new URLContent(new File("sofa-lod.obj").toURI().toURL());
+      home.setModelLOD(sofa.getModel(), new ModelLOD(sofaLOD, 100000, 10000));
+
+      // The brief tells the model which pieces can switch
+      String brief = HomeAssistantContext.describeHome(home);
+      assertTrue(brief, brief.contains("reduced model available"));
+
+      String response = "{\"commands\":[{\"action\":\"reduce_detail\",\"target\":\"all\"}]}";
+      String summary = executor.execute(AssistantCommandParser.parse(response).getCommands());
+      assertNotNull(summary);
+      assertTrue("Sofa switched to reduced detail", ModelLOD.isReducedDetailInView(sofa));
+      assertFalse("Plant has no reduced model", ModelLOD.isReducedDetailInView(plant));
+      assertTrue("Missing reduced model is reported: " + summary,
+          summary.contains("No reduced model exists yet for \"Plant\""));
+      assertTrue(HomeAssistantContext.describeHome(home).contains("reduced detail ON"));
+
+      // A single undo reverts the whole turn
+      homeController.undo();
+      assertFalse("Undo restored full detail", ModelLOD.isReducedDetailInView(sofa));
+
+      // Reduce again, then restore by id
+      executor.execute(AssistantCommandParser.parse(
+          "{\"commands\":[{\"action\":\"reduce_detail\",\"id\":\"F1\"}]}").getCommands());
+      assertTrue(ModelLOD.isReducedDetailInView(sofa));
+      executor.execute(AssistantCommandParser.parse(
+          "{\"commands\":[{\"action\":\"restore_detail\",\"id\":\"F1\"}]}").getCommands());
+      assertFalse(ModelLOD.isReducedDetailInView(sofa));
     } finally {
       if (previousNo3D == null) {
         System.clearProperty("com.eteks.sweethome3d.no3D");
