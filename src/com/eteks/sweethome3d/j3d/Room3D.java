@@ -147,12 +147,12 @@ public class Room3D extends Object3DBranch {
     roomShape.setAppearance(roomAppearance);
     roomAppearance.setCapability(Appearance.ALLOW_TRANSPARENCY_ATTRIBUTES_READ);
     TransparencyAttributes transparencyAttributes = new TransparencyAttributes();
-    transparencyAttributes.setCapability(TransparencyAttributes.ALLOW_VALUE_WRITE);
-    transparencyAttributes.setCapability(TransparencyAttributes.ALLOW_MODE_WRITE);
+    Object3DBranch.setCapabilityInfrequent(transparencyAttributes, TransparencyAttributes.ALLOW_VALUE_WRITE);
+    Object3DBranch.setCapabilityInfrequent(transparencyAttributes, TransparencyAttributes.ALLOW_MODE_WRITE);
     roomAppearance.setTransparencyAttributes(transparencyAttributes);
     roomAppearance.setCapability(Appearance.ALLOW_RENDERING_ATTRIBUTES_READ);
     RenderingAttributes renderingAttributes = new RenderingAttributes();
-    renderingAttributes.setCapability(RenderingAttributes.ALLOW_VISIBLE_WRITE);
+    Object3DBranch.setCapabilityInfrequent(renderingAttributes, RenderingAttributes.ALLOW_VISIBLE_WRITE);
     roomAppearance.setRenderingAttributes(renderingAttributes);
 
     if (outline) {
@@ -160,11 +160,11 @@ public class Room3D extends Object3DBranch {
       roomAppearance.setPolygonAttributes(Object3DBranch.OUTLINE_POLYGON_ATTRIBUTES);
       roomAppearance.setLineAttributes(Object3DBranch.OUTLINE_LINE_ATTRIBUTES);
     } else {
-      roomAppearance.setCapability(Appearance.ALLOW_MATERIAL_WRITE);
+      Object3DBranch.setCapabilityInfrequent(roomAppearance, Appearance.ALLOW_MATERIAL_WRITE);
       roomAppearance.setMaterial(DEFAULT_MATERIAL);
-      roomAppearance.setCapability(Appearance.ALLOW_TEXTURE_WRITE);
+      Object3DBranch.setCapabilityInfrequent(roomAppearance, Appearance.ALLOW_TEXTURE_WRITE);
       roomAppearance.setCapability(Appearance.ALLOW_TEXTURE_READ);
-      roomAppearance.setCapability(Appearance.ALLOW_TEXTURE_ATTRIBUTES_WRITE);
+      Object3DBranch.setCapabilityInfrequent(roomAppearance, Appearance.ALLOW_TEXTURE_ATTRIBUTES_WRITE);
     }
 
     return roomShape;

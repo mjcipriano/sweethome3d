@@ -139,7 +139,7 @@ public class DimensionLine3D extends Object3DBranch {
         lines = new LineArray(7 * 2, IndexedGeometryArray.COORDINATES);
         lines.setCapability(LineArray.ALLOW_COORDINATE_WRITE);
         linesColoringAttributes = new ColoringAttributes();
-        linesColoringAttributes.setCapability(ColoringAttributes.ALLOW_COLOR_WRITE);
+        Object3DBranch.setCapabilityInfrequent(linesColoringAttributes, ColoringAttributes.ALLOW_COLOR_WRITE);
         Appearance mainLinesAppearance = new Appearance();
         mainLinesAppearance.setColoringAttributes(linesColoringAttributes);
         mainLinesAppearance.setLineAttributes(DIMENSION_LINE_ATTRIBUTES);

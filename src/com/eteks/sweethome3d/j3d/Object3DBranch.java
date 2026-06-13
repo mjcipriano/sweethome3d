@@ -348,6 +348,21 @@ public abstract class Object3DBranch extends BranchGroup {
   }
 
   /**
+   * Sets a writable capability on the given object while declaring the writes
+   * infrequent. Java 3D treats every writable capability as frequently changed
+   * by default, which forces its renderer to match attribute bins by object
+   * identity instead of by value; with one rendering-attributes instance per
+   * shape this means no bin ever matches, so inserting each render atom scans
+   * the entire bin list and then grows it - the dominant frame-time cost on
+   * large homes. Sweet Home 3D only writes these capabilities on user actions
+   * (visibility toggles, selection changes), so they are infrequent.
+   */
+  public static void setCapabilityInfrequent(javax.media.j3d.SceneGraphObject object, int capability) {
+    object.setCapability(capability);
+    object.clearCapabilityIsFrequent(capability);
+  }
+
+  /**
    * Returns an appearance for selection shapes.
    */
   protected Appearance getSelectionAppearance() {
@@ -357,7 +372,7 @@ public abstract class Object3DBranch extends BranchGroup {
     selectionAppearance.setLineAttributes(SELECTION_LINE_ATTRIBUTES);
     selectionAppearance.setTransparencyAttributes(SELECTION_TRANSPARENCY_ATTRIBUTES);
     RenderingAttributes renderingAttributes = new RenderingAttributes();
-    renderingAttributes.setCapability(RenderingAttributes.ALLOW_VISIBLE_WRITE);
+    setCapabilityInfrequent(renderingAttributes, RenderingAttributes.ALLOW_VISIBLE_WRITE);
     selectionAppearance.setRenderingAttributes(renderingAttributes);
     selectionAppearance.setCapability(Appearance.ALLOW_RENDERING_ATTRIBUTES_READ);
     return selectionAppearance;

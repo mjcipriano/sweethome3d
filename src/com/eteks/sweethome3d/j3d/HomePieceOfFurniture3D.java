@@ -716,7 +716,7 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
       ((Shape3D)node).setAppearance(outlineAppearance);
       outlineAppearance.setCapability(Appearance.ALLOW_RENDERING_ATTRIBUTES_READ);
       RenderingAttributes renderingAttributes = new RenderingAttributes();
-      renderingAttributes.setCapability(RenderingAttributes.ALLOW_VISIBLE_WRITE);
+      Object3DBranch.setCapabilityInfrequent(renderingAttributes, RenderingAttributes.ALLOW_VISIBLE_WRITE);
       outlineAppearance.setRenderingAttributes(renderingAttributes);
       outlineAppearance.setColoringAttributes(Object3DBranch.OUTLINE_COLORING_ATTRIBUTES);
       outlineAppearance.setPolygonAttributes(Object3DBranch.OUTLINE_POLYGON_ATTRIBUTES);
@@ -1064,7 +1064,7 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
       RenderingAttributes renderingAttributes = appearance.getRenderingAttributes();
       if (renderingAttributes == null) {
         renderingAttributes = new RenderingAttributes();
-        renderingAttributes.setCapability(RenderingAttributes.ALLOW_VISIBLE_WRITE);
+        Object3DBranch.setCapabilityInfrequent(renderingAttributes, RenderingAttributes.ALLOW_VISIBLE_WRITE);
         appearance.setRenderingAttributes(renderingAttributes);
       }
 
@@ -1194,9 +1194,9 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
   private PolygonAttributes createPolygonAttributesWithChangeCapabilities() {
     PolygonAttributes polygonAttributes = new PolygonAttributes();
     polygonAttributes.setCapability(PolygonAttributes.ALLOW_CULL_FACE_READ);
-    polygonAttributes.setCapability(PolygonAttributes.ALLOW_CULL_FACE_WRITE);
+    Object3DBranch.setCapabilityInfrequent(polygonAttributes, PolygonAttributes.ALLOW_CULL_FACE_WRITE);
     polygonAttributes.setCapability(PolygonAttributes.ALLOW_NORMAL_FLIP_READ);
-    polygonAttributes.setCapability(PolygonAttributes.ALLOW_NORMAL_FLIP_WRITE);
+    Object3DBranch.setCapabilityInfrequent(polygonAttributes, PolygonAttributes.ALLOW_NORMAL_FLIP_WRITE);
     return polygonAttributes;
   }
 
@@ -1209,29 +1209,29 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
   private void setAppearanceCapabilities(Appearance appearance) {
     // Allow future material and rendering attributes changes
     appearance.setCapability(Appearance.ALLOW_MATERIAL_READ);
-    appearance.setCapability(Appearance.ALLOW_MATERIAL_WRITE);
+    Object3DBranch.setCapabilityInfrequent(appearance, Appearance.ALLOW_MATERIAL_WRITE);
     Material material = appearance.getMaterial();
     if (material != null) {
       material.setCapability(Material.ALLOW_COMPONENT_READ);
     }
     appearance.setCapability(Appearance.ALLOW_RENDERING_ATTRIBUTES_READ);
-    appearance.setCapability(Appearance.ALLOW_RENDERING_ATTRIBUTES_WRITE);
+    Object3DBranch.setCapabilityInfrequent(appearance, Appearance.ALLOW_RENDERING_ATTRIBUTES_WRITE);
     appearance.setCapability(Appearance.ALLOW_POLYGON_ATTRIBUTES_READ);
-    appearance.setCapability(Appearance.ALLOW_POLYGON_ATTRIBUTES_WRITE);
+    Object3DBranch.setCapabilityInfrequent(appearance, Appearance.ALLOW_POLYGON_ATTRIBUTES_WRITE);
     appearance.setCapability(Appearance.ALLOW_TEXGEN_READ);
-    appearance.setCapability(Appearance.ALLOW_TEXGEN_WRITE);
+    Object3DBranch.setCapabilityInfrequent(appearance, Appearance.ALLOW_TEXGEN_WRITE);
     appearance.setCapability(Appearance.ALLOW_TEXTURE_READ);
-    appearance.setCapability(Appearance.ALLOW_TEXTURE_WRITE);
+    Object3DBranch.setCapabilityInfrequent(appearance, Appearance.ALLOW_TEXTURE_WRITE);
     appearance.setCapability(Appearance.ALLOW_TEXTURE_ATTRIBUTES_READ);
-    appearance.setCapability(Appearance.ALLOW_TEXTURE_ATTRIBUTES_WRITE);
+    Object3DBranch.setCapabilityInfrequent(appearance, Appearance.ALLOW_TEXTURE_ATTRIBUTES_WRITE);
     appearance.setCapability(Appearance.ALLOW_TRANSPARENCY_ATTRIBUTES_READ);
-    appearance.setCapability(Appearance.ALLOW_TRANSPARENCY_ATTRIBUTES_WRITE);
+    Object3DBranch.setCapabilityInfrequent(appearance, Appearance.ALLOW_TRANSPARENCY_ATTRIBUTES_WRITE);
     PolygonAttributes polygonAttributes = appearance.getPolygonAttributes();
     if (polygonAttributes != null) {
       polygonAttributes.setCapability(PolygonAttributes.ALLOW_CULL_FACE_READ);
-      polygonAttributes.setCapability(PolygonAttributes.ALLOW_CULL_FACE_WRITE);
+      Object3DBranch.setCapabilityInfrequent(polygonAttributes, PolygonAttributes.ALLOW_CULL_FACE_WRITE);
       polygonAttributes.setCapability(PolygonAttributes.ALLOW_NORMAL_FLIP_READ);
-      polygonAttributes.setCapability(PolygonAttributes.ALLOW_NORMAL_FLIP_WRITE);
+      Object3DBranch.setCapabilityInfrequent(polygonAttributes, PolygonAttributes.ALLOW_NORMAL_FLIP_WRITE);
     }
   }
 

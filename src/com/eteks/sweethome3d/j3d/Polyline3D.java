@@ -183,7 +183,7 @@ public class Polyline3D extends Object3DBranch {
 
         Appearance appearance = new Appearance();
         appearance.setMaterial(getMaterial(DEFAULT_COLOR, DEFAULT_AMBIENT_COLOR, 0));
-        appearance.setCapability(Appearance.ALLOW_MATERIAL_WRITE);
+        Object3DBranch.setCapabilityInfrequent(appearance, Appearance.ALLOW_MATERIAL_WRITE);
         appearance.setPolygonAttributes(DEFAULT_POLYGON_ATTRIBUTES);
 
         Shape3D shape = new Shape3D(geometry, appearance);

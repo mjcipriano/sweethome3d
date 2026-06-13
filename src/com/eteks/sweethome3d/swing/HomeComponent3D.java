@@ -2660,11 +2660,11 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       TextureAttributes skyBackgroundTextureAttributes = new TextureAttributes();
       skyBackgroundAppearance.setTextureAttributes(skyBackgroundTextureAttributes);
       // Allow sky color and texture to change
-      skyBackgroundAppearance.setCapability(Appearance.ALLOW_TEXTURE_WRITE);
+      Object3DBranch.setCapabilityInfrequent(skyBackgroundAppearance, Appearance.ALLOW_TEXTURE_WRITE);
       skyBackgroundAppearance.setCapability(Appearance.ALLOW_COLORING_ATTRIBUTES_READ);
-      skyBackgroundColoringAttributes.setCapability(ColoringAttributes.ALLOW_COLOR_WRITE);
+      Object3DBranch.setCapabilityInfrequent(skyBackgroundColoringAttributes, ColoringAttributes.ALLOW_COLOR_WRITE);
       skyBackgroundAppearance.setCapability(Appearance.ALLOW_TEXTURE_ATTRIBUTES_READ);
-      skyBackgroundTextureAttributes.setCapability(TextureAttributes.ALLOW_TRANSFORM_WRITE);
+      Object3DBranch.setCapabilityInfrequent(skyBackgroundTextureAttributes, TextureAttributes.ALLOW_TRANSFORM_WRITE);
 
       Geometry topHalfSphereGeometry = createHalfSphereGeometry(true);
       final Shape3D topHalfSphere = new Shape3D(topHalfSphereGeometry, skyBackgroundAppearance);
@@ -2675,7 +2675,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       final RenderingAttributes bottomRenderingAttributes = new RenderingAttributes();
       bottomRenderingAttributes.setVisible(false);
       bottomAppearance.setRenderingAttributes(bottomRenderingAttributes);
-      bottomRenderingAttributes.setCapability(RenderingAttributes.ALLOW_VISIBLE_WRITE);
+      Object3DBranch.setCapabilityInfrequent(bottomRenderingAttributes, RenderingAttributes.ALLOW_VISIBLE_WRITE);
       Shape3D bottomHalfSphere = new Shape3D(createHalfSphereGeometry(false), bottomAppearance);
       backgroundBranch.addChild(bottomHalfSphere);
 
@@ -2691,9 +2691,9 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       final RenderingAttributes groundRenderingAttributes = new RenderingAttributes();
       groundBackgroundAppearance.setRenderingAttributes(groundRenderingAttributes);
       // Allow ground color and texture to change
-      groundBackgroundAppearance.setCapability(Appearance.ALLOW_TEXTURE_WRITE);
-      groundBackgroundAppearance.setCapability(Appearance.ALLOW_MATERIAL_WRITE);
-      groundRenderingAttributes.setCapability(RenderingAttributes.ALLOW_VISIBLE_WRITE);
+      Object3DBranch.setCapabilityInfrequent(groundBackgroundAppearance, Appearance.ALLOW_TEXTURE_WRITE);
+      Object3DBranch.setCapabilityInfrequent(groundBackgroundAppearance, Appearance.ALLOW_MATERIAL_WRITE);
+      Object3DBranch.setCapabilityInfrequent(groundRenderingAttributes, RenderingAttributes.ALLOW_VISIBLE_WRITE);
 
       GeometryInfo geometryInfo = new GeometryInfo (GeometryInfo.QUAD_ARRAY);
       geometryInfo.setCoordinates(new Point3f [] {
