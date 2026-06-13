@@ -55,10 +55,6 @@ import com.eteks.sweethome3d.viewcontroller.HomeController;
  * @author Sweet Home 3D
  */
 public class AssistantPanel extends JPanel {
-  private static final String ROLE_PROMPT =
-      "You are a helpful interior design assistant embedded in Sweet Home 3D. "
-      + "Answer the user's questions about their home design project clearly and concisely. ";
-
   /** Maximum number of model round-trips for one user request, to bound the agentic loop. */
   private static final int MAX_ASSISTANT_STEPS = 5;
 
@@ -272,17 +268,16 @@ public class AssistantPanel extends JPanel {
   }
 
   /**
-   * Builds the system prompt (role, command protocol and current project brief).
-   * Reads the home, so it is evaluated on the event dispatch thread.
+   * Builds the system prompt (role, command protocol, catalog vocabulary and
+   * current project brief). Reads the home, so it is evaluated on the event
+   * dispatch thread.
    */
   private String buildSystemPrompt() {
-    final StringBuilder builder = new StringBuilder(ROLE_PROMPT);
+    final StringBuilder builder = new StringBuilder();
     runOnDispatchThread(new Runnable() {
         public void run() {
-          if (commandExecutor != null) {
-            builder.append(HomeAssistantContext.getCommandProtocol());
-          }
-          builder.append("\n\nCurrent project:\n").append(HomeAssistantContext.describeHome(home));
+          builder.append(HomeAssistantContext.buildSystemPrompt(home, preferences,
+              commandExecutor != null));
         }
       });
     return builder.toString();

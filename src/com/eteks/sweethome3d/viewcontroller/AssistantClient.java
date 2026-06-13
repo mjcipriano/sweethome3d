@@ -69,6 +69,9 @@ public class AssistantClient {
     }
   }
 
+  /** Low sampling temperature: edit commands need precision, not creativity. */
+  private static final String TEMPERATURE = "0.2";
+
   private final Provider provider;
   private final String   apiUrl;
   private final String   apiKey;
@@ -80,7 +83,8 @@ public class AssistantClient {
     this.apiUrl = apiUrl != null ? apiUrl.trim() : "";
     this.apiKey = apiKey != null ? apiKey.trim() : "";
     this.model = model != null ? model.trim() : "";
-    this.maxTokens = 1024;
+    // Large enough that a multi-command JSON reply is never truncated mid-object
+    this.maxTokens = 4096;
   }
 
   /**
@@ -263,6 +267,7 @@ public class AssistantClient {
     body.append("\"model\":").append(JSONParser.toJSONString(this.model)).append(',');
     if (this.provider == Provider.ANTHROPIC) {
       body.append("\"max_tokens\":").append(this.maxTokens).append(',');
+      body.append("\"temperature\":").append(TEMPERATURE).append(',');
       body.append("\"stream\":").append(stream).append(',');
       if (systemPrompt != null) {
         body.append("\"system\":").append(JSONParser.toJSONString(systemPrompt)).append(',');
@@ -270,6 +275,8 @@ public class AssistantClient {
       body.append("\"messages\":");
       appendMessages(body, null, conversation);
     } else {
+      body.append("\"max_tokens\":").append(this.maxTokens).append(',');
+      body.append("\"temperature\":").append(TEMPERATURE).append(',');
       body.append("\"stream\":").append(stream).append(',');
       body.append("\"messages\":");
       appendMessages(body, systemPrompt, conversation);

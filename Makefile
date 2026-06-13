@@ -101,6 +101,7 @@ help:
 	@echo "  make test       - Compile and run the complete JUnit suite."
 	@echo "  make test-core  - Run tests that don't require Java 3D / OpenGL."
 	@echo "  make test-gui   - Run Swing/controller tests without the native Java 3D pipeline."
+	@echo "  make test-assistant-live - Run AI assistant tests against DeepSeek (needs DEEPSEEK_API or .env)."
 	@echo "  make test-local - Run the complete suite through WSLg/X11 or Xvfb."
 	@echo "  make test-local-check - Check the local display and OpenGL setup."
 	@echo "  make test-wsl-gpu BENCHMARK_HOME=<file.sh3d> - Verify WSLg D3D12 Java 3D rendering."
@@ -194,6 +195,13 @@ test-core:
 
 test-gui:
 	$(MAKE) test SKIP_3D_TESTS=1
+
+# Live AI assistant protocol tests against the real DeepSeek API. Opt-in:
+# they need a DEEPSEEK_API key in the environment or a .env file at the repo
+# root, and are skipped (not failed) without one.
+test-assistant-live:
+	$(MAKE) test TEST_SOURCES="test/com/eteks/sweethome3d/junit/AssistantDeepSeekLiveTest.java" \
+	  JAVA_TEST_OPTS="$(JAVA_TEST_OPTS) -Djava.awt.headless=true -Dsweethome3d.liveAssistantTests=true"
 
 test-local:
 	CONDA_ACTIVATE='$(CONDA_ACTIVATE)' TEST_DISPLAY_MODE='$(TEST_DISPLAY_MODE)' \

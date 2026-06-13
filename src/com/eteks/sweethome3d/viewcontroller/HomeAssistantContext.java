@@ -15,12 +15,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
+import com.eteks.sweethome3d.model.FurnitureCatalog;
+import com.eteks.sweethome3d.model.FurnitureCategory;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomeFurnitureGroup;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Level;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Selectable;
+import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.model.Wall;
 
 /**
@@ -33,9 +37,76 @@ import com.eteks.sweethome3d.model.Wall;
 public class HomeAssistantContext {
   /** Upper bound on the number of furniture items listed individually in the brief. */
   private static final int MAX_LISTED_FURNITURE = 80;
+  /** Upper bound on the catalog item names listed per category in the brief. */
+  private static final int MAX_LISTED_CATALOG_PIECES_PER_CATEGORY = 60;
+
+  /** The assistant's role, shared by the chat panel and the live protocol tests. */
+  public static final String ROLE_PROMPT =
+      "You are a helpful interior design assistant embedded in Sweet Home 3D. "
+      + "Answer the user's questions about their home design project clearly and concisely. ";
 
   private HomeAssistantContext() {
     // Utility class
+  }
+
+  /**
+   * Builds the complete system prompt for an assistant request: the role, the
+   * edit command protocol and catalog vocabulary when <code>withCommands</code>
+   * is <code>true</code>, and the current project brief. Reads the home, so call
+   * it on the event dispatch thread in the application.
+   */
+  public static String buildSystemPrompt(Home home, UserPreferences preferences, boolean withCommands) {
+    StringBuilder builder = new StringBuilder(ROLE_PROMPT);
+    if (withCommands) {
+      builder.append(getCommandProtocol());
+      String catalog = describeCatalog(preferences);
+      if (catalog.length() > 0) {
+        builder.append("\n\n").append(catalog);
+      }
+    }
+    builder.append("\n\nCurrent project:\n").append(describeHome(home));
+    return builder.toString();
+  }
+
+  /**
+   * Returns a plain-text list of the furniture catalog's categories and item
+   * names, so the model only uses names that actually resolve, or an empty
+   * string if no catalog is available.
+   */
+  public static String describeCatalog(UserPreferences preferences) {
+    FurnitureCatalog catalog = preferences != null ? preferences.getFurnitureCatalog() : null;
+    if (catalog == null) {
+      return "";
+    }
+    StringBuilder brief = new StringBuilder();
+    for (FurnitureCategory category : catalog.getCategories()) {
+      List<CatalogPieceOfFurniture> pieces = category.getFurniture();
+      if (pieces.isEmpty()) {
+        continue;
+      }
+      if (brief.length() == 0) {
+        brief.append("Furniture catalog (the only valid names for add_furniture and add_door_or_window):\n");
+      }
+      brief.append("- ").append(category.getName()).append(": ");
+      int listed = 0;
+      for (CatalogPieceOfFurniture piece : pieces) {
+        String name = piece.getName();
+        if (name == null || name.length() == 0) {
+          continue;
+        }
+        if (listed >= MAX_LISTED_CATALOG_PIECES_PER_CATEGORY) {
+          brief.append(", ... and more (use search_catalog)");
+          break;
+        }
+        if (listed > 0) {
+          brief.append(", ");
+        }
+        brief.append(name);
+        listed++;
+      }
+      brief.append('\n');
+    }
+    return brief.toString();
   }
 
   /**
@@ -177,11 +248,14 @@ public class HomeAssistantContext {
   public static String getCommandProtocol() {
     return "To MODIFY the home, reply with ONLY a JSON object of the form "
         + "{\"reply\": \"<short message to the user>\", \"commands\": [ ... ]}. "
-        + "Coordinates are in centimeters (x increases to the right, y increases downward) and "
-        + "angles are in degrees clockwise. Compute positions relative to the current selection "
+        + "Coordinates are in centimeters: x increases to the right of the plan, y increases "
+        + "DOWNWARD (toward the bottom of the plan), so \"north\" means -y and \"south\" means +y. "
+        + "Angles are in degrees clockwise; at angle 0 a piece's front faces +y (down). "
+        + "Compute positions relative to the current selection "
         + "when the user refers to it. Supported commands (omit a field to use its default):\n"
-        + "  {\"action\":\"add_furniture\",\"name\":\"<catalog item, e.g. Chair, Tree, Box>\",\"x\":N,\"y\":N,\"angle\":N,\"width\":N,\"depth\":N,\"elevation\":N}\n"
-        + "  {\"action\":\"add_door_or_window\",\"name\":\"Door\",\"x\":N,\"y\":N,\"angle\":N}\n"
+        + "  {\"action\":\"search_catalog\",\"query\":\"<words>\"}  (matches are reported back to you in the next turn)\n"
+        + "  {\"action\":\"add_furniture\",\"name\":\"<exact catalog name>\",\"x\":N,\"y\":N,\"angle\":N,\"width\":N,\"depth\":N,\"elevation\":N}\n"
+        + "  {\"action\":\"add_door_or_window\",\"name\":\"<exact catalog name>\",\"x\":N,\"y\":N,\"angle\":N}\n"
         + "  {\"action\":\"add_room\",\"name\":\"<name>\",\"points\":[[x,y],[x,y],[x,y],...]}\n"
         + "  {\"action\":\"add_wall\",\"x1\":N,\"y1\":N,\"x2\":N,\"y2\":N,\"thickness\":N,\"height\":N}\n"
         + "  {\"action\":\"select\",\"names\":[\"<item name>\"]}\n"
@@ -196,8 +270,15 @@ public class HomeAssistantContext {
         + "  {\"action\":\"set_visible\",\"id\":\"F1\",\"visible\":true}\n"
         + "  {\"action\":\"rename\",\"id\":\"F1\",\"name\":\"<new name>\"}\n"
         + "  {\"action\":\"delete\",\"ids\":[\"F1\",\"W2\"]}  (or \"target\":\"selection\")\n"
-        + "Use real catalog item names where possible. If the user only asks a question, "
-        + "reply normally in plain text without any JSON.";
+        + "Rules:\n"
+        + "- add_furniture and add_door_or_window names MUST be names from the catalog list "
+        + "below. If none of the listed names fits, issue search_catalog alone and wait for its "
+        + "results before adding.\n"
+        + "- Place doors and windows ON a wall: give them the x,y of a point on the wall's "
+        + "center line and the wall's direction as their angle.\n"
+        + "- Use at most 30 commands per reply; coordinates beyond 1000000 cm and sizes beyond "
+        + "100000 cm are rejected.\n"
+        + "- If the user only asks a question, reply normally in plain text without any JSON.";
   }
 
   private static void countFurniture(List<HomePieceOfFurniture> furniture, int[] counts,

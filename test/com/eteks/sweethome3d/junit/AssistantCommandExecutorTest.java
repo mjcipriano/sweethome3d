@@ -1,18 +1,25 @@
 package com.eteks.sweethome3d.junit;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import java.io.File;
 import java.util.List;
 
 import org.junit.Test;
 
 import com.eteks.sweethome3d.io.DefaultUserPreferences;
+import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
+import com.eteks.sweethome3d.model.Content;
+import com.eteks.sweethome3d.model.FurnitureCategory;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.model.Wall;
 import com.eteks.sweethome3d.swing.SwingViewFactory;
+import com.eteks.sweethome3d.tools.URLContent;
 import com.eteks.sweethome3d.viewcontroller.AssistantCommand;
 import com.eteks.sweethome3d.viewcontroller.AssistantCommandExecutor;
 import com.eteks.sweethome3d.viewcontroller.AssistantCommandParser;
@@ -54,6 +61,124 @@ public class AssistantCommandExecutorTest {
       homeController.undo();
       assertEquals("Room reverted", 0, home.getRooms().size());
       assertEquals("Walls reverted", 0, home.getWalls().size());
+    } finally {
+      if (previousNo3D == null) {
+        System.clearProperty("com.eteks.sweethome3d.no3D");
+      } else {
+        System.setProperty("com.eteks.sweethome3d.no3D", previousNo3D);
+      }
+    }
+  }
+
+  /**
+   * Verifies the scored catalog matching used by add_furniture and the
+   * search_catalog command: word matches beat substring matches, plural forms
+   * match, and search results / closest-name suggestions reach the summary the
+   * agentic loop feeds back to the model.
+   */
+  @Test
+  public void testCatalogGroundingAndSearch() throws Exception {
+    String previousNo3D = System.getProperty("com.eteks.sweethome3d.no3D");
+    System.setProperty("com.eteks.sweethome3d.no3D", "true");
+    try {
+      Home home = new Home();
+      UserPreferences preferences = new DefaultUserPreferences();
+      Content icon = new URLContent(new File("dummy.png").toURI().toURL());
+      Content model = new URLContent(new File("dummy.obj").toURI().toURL());
+      FurnitureCategory living = new FurnitureCategory("Living room");
+      preferences.getFurnitureCatalog().add(living,
+          new CatalogPieceOfFurniture("Sofa", icon, model, 200, 90, 80, true, false));
+      preferences.getFurnitureCatalog().add(living,
+          new CatalogPieceOfFurniture("Coffee table", icon, model, 110, 60, 45, true, false));
+      preferences.getFurnitureCatalog().add(living,
+          new CatalogPieceOfFurniture("Round coffee table", icon, model, 90, 90, 45, true, false));
+      FurnitureCategory office = new FurnitureCategory("Office");
+      preferences.getFurnitureCatalog().add(office,
+          new CatalogPieceOfFurniture("Office chair", icon, model, 60, 60, 100, true, false));
+      ViewFactory viewFactory = new SwingViewFactory();
+      HomeController homeController = new HomeController(home, preferences, viewFactory);
+      AssistantCommandExecutor executor =
+          new AssistantCommandExecutor(home, preferences, homeController);
+
+      // Exact and word-based matching (including plural). The default catalog
+      // may also be populated, so queries use the synthetic names.
+      assertEquals("Sofa", executor.findCatalogPiece("sofa", false).getName());
+      assertEquals("Coffee table", executor.findCatalogPiece("coffee table", false).getName());
+      assertEquals("A word match beats a longer name",
+          "Coffee table", executor.findCatalogPiece("coffee", false).getName());
+      assertEquals("Plural matches singular catalog name",
+          "Office chair", executor.findCatalogPiece("office chairs", false).getName());
+      assertNull("No shared word means no match",
+          executor.findCatalogPiece("xyzzy frobnicator", false));
+
+      // search_catalog results are reported in the summary for the agentic loop
+      String response = "{\"commands\":[{\"action\":\"search_catalog\",\"query\":\"coffee table\"}]}";
+      String summary = executor.execute(AssistantCommandParser.parse(response).getCommands());
+      assertNotNull(summary);
+      assertTrue(summary, summary.contains("Catalog search \"coffee table\""));
+      assertTrue(summary, summary.contains("Coffee table"));
+      assertTrue(summary, summary.contains("Round coffee table"));
+
+      // A fuzzy add_furniture name is grounded to the best catalog match
+      response = "{\"commands\":[{\"action\":\"add_furniture\",\"name\":\"round coffee tables\",\"x\":0,\"y\":0}]}";
+      summary = executor.execute(AssistantCommandParser.parse(response).getCommands());
+      assertTrue(summary, summary.contains("added 1 piece of furniture"));
+      assertEquals(1, home.getFurniture().size());
+      assertEquals("Round coffee table", home.getFurniture().get(0).getName());
+
+      response = "{\"commands\":[{\"action\":\"add_furniture\",\"name\":\"xyzzy frobnicator\",\"x\":0,\"y\":0}]}";
+      summary = executor.execute(AssistantCommandParser.parse(response).getCommands());
+      assertNotNull(summary);
+      assertTrue(summary, summary.contains("Couldn't find furniture named"));
+    } finally {
+      if (previousNo3D == null) {
+        System.clearProperty("com.eteks.sweethome3d.no3D");
+      } else {
+        System.setProperty("com.eteks.sweethome3d.no3D", previousNo3D);
+      }
+    }
+  }
+
+  /**
+   * Verifies the per-turn safety limits: nonsense coordinates are rejected with
+   * a note and at most 30 commands of a turn are applied.
+   */
+  @Test
+  public void testSafetyLimits() {
+    String previousNo3D = System.getProperty("com.eteks.sweethome3d.no3D");
+    System.setProperty("com.eteks.sweethome3d.no3D", "true");
+    try {
+      Home home = new Home();
+      UserPreferences preferences = new DefaultUserPreferences();
+      ViewFactory viewFactory = new SwingViewFactory();
+      HomeController homeController = new HomeController(home, preferences, viewFactory);
+      AssistantCommandExecutor executor =
+          new AssistantCommandExecutor(home, preferences, homeController);
+
+      // A wall with a nonsense coordinate is ignored and noted
+      String response = "{\"commands\":["
+          + "{\"action\":\"add_wall\",\"x1\":0,\"y1\":0,\"x2\":99999999,\"y2\":0},"
+          + "{\"action\":\"add_wall\",\"x1\":0,\"y1\":0,\"x2\":400,\"y2\":0}]}";
+      String summary = executor.execute(AssistantCommandParser.parse(response).getCommands());
+      assertEquals("Only the sane wall is added", 1, home.getWalls().size());
+      assertTrue(summary, summary.contains("out-of-range"));
+
+      // A turn with more than 30 commands stops at the limit
+      StringBuilder big = new StringBuilder("{\"commands\":[");
+      for (int i = 0; i < 40; i++) {
+        if (i > 0) {
+          big.append(',');
+        }
+        big.append("{\"action\":\"add_wall\",\"x1\":0,\"y1\":").append(i * 10)
+           .append(",\"x2\":100,\"y2\":").append(i * 10).append('}');
+      }
+      big.append("]}");
+      home.getWalls();
+      int wallsBefore = home.getWalls().size();
+      summary = executor.execute(AssistantCommandParser.parse(big.toString()).getCommands());
+      assertEquals("Turn stops at the 30-command limit",
+          wallsBefore + 30, home.getWalls().size());
+      assertTrue(summary, summary.contains("turn limit"));
     } finally {
       if (previousNo3D == null) {
         System.clearProperty("com.eteks.sweethome3d.no3D");
