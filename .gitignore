@@ -18,7 +18,6 @@ libtest/hamcrest-core-*.jar
 
 # Plugin build artifacts
 .plugin-build/
-plugins/VRPreview.sh3p
 plugins/WebXRPreview.sh3p
 
 # Secrets
