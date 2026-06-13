@@ -75,7 +75,7 @@ Requested as one phase with three workstreams, built in dependency order:
   multi-step loop. Remaining polish: rich Markdown rendering in the transcript
   (currently a wrapped `JTextArea`).
 
-### Phase 4 - grounded, reliable, deeper edits (4a DONE)
+### Phase 4 - grounded, reliable, deeper edits (4a, 4b DONE)
 
 The next increment focuses on making edits land on the right items and reach the
 features that make Sweet Home 3D distinctive. Build in dependency order:
@@ -112,13 +112,18 @@ features that make Sweet Home 3D distinctive. Build in dependency order:
     canned tests are the shared regression gate.** Verified live 2026-06-12:
     DeepSeek (`deepseek-chat`) grounds names to the exact catalog vocabulary
     and issues correct id-targeted relative moves.
-- **4b - reduce-detail (LOD) editing.** Surface the repository's marquee
-  optimization - per-piece reduced-detail models (`ModelLODGenerator`,
-  `HomePieceOfFurniture` LOD fields) - to the assistant: a `reduce_detail` /
-  `restore_detail` command targeting items by id, `selection`, or "all heavy
-  models", reusing the existing undoable LOD path. Ties the assistant to the
-  performance work (`docs/OPTIMIZATION_PROGRESS.md`) and answers the existing
-  "which models should I reduce?" question with an action.
+- **4b - reduce-detail (LOD) editing. DONE.** `reduce_detail` / `restore_detail`
+  commands target pieces by id, `names`, `"target":"selection"` or
+  `"target":"all"` ("all" is honored only for these reversible toggles) and
+  flip the per-piece `ModelLOD.LOW_POLY_PROPERTY` through the same
+  snapshot-based undoable turn (the `ItemState` snapshot now includes the
+  low-poly flag). The brief marks each piece `reduced model available` /
+  `reduced detail ON` and reports models >= 1 MB, so the model knows which
+  pieces are heavy and switchable; pieces without a generated LOD are reported
+  back ("run 3D view > Generate model LOD cache") because LOD *generation*
+  needs Java 3D and stays out of `viewcontroller`. Tests: executor toggle/
+  undo/"all"/missing-LOD note, brief markers, and a live DeepSeek scenario
+  ("the 3D view is slow") that produced a correct targeted `reduce_detail`.
 - **4c - deeper geometry & appearance.** `duplicate`, `group`/`ungroup`,
   `set_texture`/material on furniture and walls, wall endpoint moves
   (`move_wall_point`), and room vertex edits - all through the same

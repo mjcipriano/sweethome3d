@@ -22,6 +22,7 @@ import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomeFurnitureGroup;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Level;
+import com.eteks.sweethome3d.model.ModelLOD;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Selectable;
 import com.eteks.sweethome3d.model.UserPreferences;
@@ -205,6 +206,15 @@ public class HomeAssistantContext {
         if (!piece.isVisible()) {
           brief.append(" (hidden)");
         }
+        Long modelSize = piece.getModelSize();
+        if (modelSize != null && modelSize.longValue() >= 1024 * 1024) {
+          brief.append(", model ").append(format.format(modelSize.longValue() / 1024.0 / 1024.0))
+              .append(" MB");
+        }
+        if (piece.getModel() != null && home.getModelLOD(piece.getModel()) != null) {
+          brief.append(ModelLOD.isReducedDetailInView(piece)
+              ? ", reduced detail ON" : ", reduced model available");
+        }
         brief.append('\n');
       }
       if (topFurniture.size() > limit) {
@@ -270,6 +280,11 @@ public class HomeAssistantContext {
         + "  {\"action\":\"set_visible\",\"id\":\"F1\",\"visible\":true}\n"
         + "  {\"action\":\"rename\",\"id\":\"F1\",\"name\":\"<new name>\"}\n"
         + "  {\"action\":\"delete\",\"ids\":[\"F1\",\"W2\"]}  (or \"target\":\"selection\")\n"
+        + "  {\"action\":\"reduce_detail\",\"ids\":[\"F1\"]}  (or \"target\":\"selection\" or \"all\"; "
+        + "shows the piece's reduced low-poly model in the 3D view to make large scenes faster. "
+        + "Only pieces marked \"reduced model available\" or \"reduced detail ON\" can switch; "
+        + "for others tell the user to run 3D view > Generate model LOD cache first)\n"
+        + "  {\"action\":\"restore_detail\",\"ids\":[\"F1\"]}  (back to full detail; \"selection\"/\"all\" allowed)\n"
         + "Rules:\n"
         + "- add_furniture and add_door_or_window names MUST be names from the catalog list "
         + "below. If none of the listed names fits, issue search_catalog alone and wait for its "
