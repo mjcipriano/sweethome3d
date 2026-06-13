@@ -32,6 +32,9 @@ UTF-8/ASCII.
   and rejected experiments, validation state, and prioritized next work.
 - `docs/AI_ASSISTANT.md`: handoff source of truth for the AI design assistant
   (Help > Design assistant...) — phase ledger, command protocol, and next work.
+- `docs/WEBXR_VR.md`: the WebXR preview plugin (Tools > WebXR Preview...) —
+  viewing a home in a Meta Quest 2/3 or SteamVR headset, and how its
+  HTTP/HTTPS preview server works.
 
 The intended dependency direction is documented and enforced by
 `PackageDependenciesTest`: model is at the bottom; tools, controllers, Swing,

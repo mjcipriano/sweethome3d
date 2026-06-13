@@ -2,16 +2,12 @@ package com.eteks.sweethome3d.plugin.webxr;
 
 import java.awt.Desktop;
 import java.awt.EventQueue;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.lang.reflect.InvocationTargetException;
-import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URL;
-import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -19,8 +15,6 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.JOptionPane;
@@ -46,10 +40,6 @@ import com.eteks.sweethome3d.plugin.PluginAction;
 import com.eteks.sweethome3d.viewcontroller.HomeController3D;
 import com.eteks.sweethome3d.viewcontroller.View;
 import com.eteks.sweethome3d.swing.HomeComponent3D;
-import com.sun.net.httpserver.Headers;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
-import com.sun.net.httpserver.HttpServer;
 import javax.media.j3d.Node;
 
 /**
@@ -208,9 +198,36 @@ public class WebXRPreviewPlugin extends Plugin {
     File exportDir = createExportDir();
     exportHome(exportDir, home);
     File indexFile = writeWebXRHtml(exportDir);
-    HttpServer server = startServer(exportDir);
-    URL url = new URL("http://127.0.0.1:" + server.getAddress().getPort() + "/index.html");
-    openInBrowser(url, indexFile);
+    WebXRPreviewServer server = new WebXRPreviewServer(exportDir);
+    server.start();
+    openInBrowser(new URL(server.getLocalUrl()), indexFile);
+    showConnectInstructions(server);
+  }
+
+  /**
+   * Shows how to reach the preview from a headset on the local network
+   * (Meta Quest 2/3, or any WebXR browser).
+   */
+  private void showConnectInstructions(WebXRPreviewServer server) {
+    StringBuilder message = new StringBuilder("WebXR preview is running.\n\n")
+        .append("Desktop browser: ").append(server.getLocalUrl()).append('\n');
+    List<String> lanUrls = server.getLanUrls();
+    if (lanUrls.isEmpty()) {
+      message.append("\nNo LAN address with https is available, so a headset can't connect.\n")
+          .append("Check that this computer is on the same network as the headset.");
+    } else {
+      message.append("\nOn your headset (Quest 2/3: open the Browser app), go to:\n");
+      for (String url : lanUrls) {
+        message.append("    ").append(url).append('\n');
+      }
+      message.append("\nThe browser will warn about the self-signed certificate once -\n")
+          .append("choose Advanced > Proceed. Then press \"Enter VR\".\n\n")
+          .append("Move with the left stick, scale the model with the right stick,\n")
+          .append("and press the left grip to recenter on the floor.\n\n")
+          .append("SteamVR/PC headsets: open the desktop URL above in Chrome or Edge\n")
+          .append("with the headset connected (WebXR uses the active OpenXR runtime).");
+    }
+    showInfo(message.toString());
   }
 
   private File createExportDir() throws IOException {
@@ -255,97 +272,9 @@ public class WebXRPreviewPlugin extends Plugin {
     return index;
   }
 
-  private HttpServer startServer(final File root) throws IOException {
-    InetSocketAddress address = new InetSocketAddress("127.0.0.1", 0);
-    final HttpServer server = HttpServer.create(address, 0);
-    final String rootPath = root.getCanonicalPath();
-    server.createContext("/", new HttpHandler() {
-      public void handle(HttpExchange exchange) throws IOException {
-        String path = exchange.getRequestURI().getPath();
-        if (path == null || "/".equals(path)) {
-          path = "/index.html";
-        }
-        path = path.replace('\\', '/');
-        if (path.startsWith("/")) {
-          path = path.substring(1);
-        }
-        File target = new File(root, path);
-        String canonical = target.getCanonicalPath();
-        if (!canonical.startsWith(rootPath)) {
-          sendNotFound(exchange);
-          return;
-        }
-        if (!target.exists() || target.isDirectory()) {
-          sendNotFound(exchange);
-          return;
-        }
-        byte[] data = readAllBytes(target);
-        Headers headers = exchange.getResponseHeaders();
-        String contentType = guessContentType(target.getName());
-        if (contentType != null) {
-          headers.set("Content-Type", contentType);
-        }
-        exchange.sendResponseHeaders(200, data.length);
-        OutputStream body = exchange.getResponseBody();
-        body.write(data);
-        body.close();
-      }
-    });
-    ExecutorService executor = Executors.newCachedThreadPool();
-    server.setExecutor(executor);
-    server.start();
-    Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
-      public void run() {
-        server.stop(0);
-      }
-    }));
-    return server;
-  }
 
-  private void sendNotFound(HttpExchange exchange) throws IOException {
-    byte[] data = "Not Found".getBytes(StandardCharsets.UTF_8);
-    exchange.sendResponseHeaders(404, data.length);
-    OutputStream body = exchange.getResponseBody();
-    body.write(data);
-    body.close();
-  }
 
-  private String guessContentType(String name) {
-    String lower = name.toLowerCase(Locale.US);
-    if (lower.endsWith(".html") || lower.endsWith(".htm")) {
-      return "text/html; charset=utf-8";
-    } else if (lower.endsWith(".js")) {
-      return "application/javascript; charset=utf-8";
-    } else if (lower.endsWith(".css")) {
-      return "text/css; charset=utf-8";
-    } else if (lower.endsWith(".mtl") || lower.endsWith(".obj") || lower.endsWith(".txt")) {
-      return "text/plain; charset=utf-8";
-    } else if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
-      return "image/jpeg";
-    } else if (lower.endsWith(".png")) {
-      return "image/png";
-    }
-    String probe = URLConnection.guessContentTypeFromName(name);
-    return probe;
-  }
 
-  private byte[] readAllBytes(File file) throws IOException {
-    FileInputStream in = null;
-    try {
-      in = new FileInputStream(file);
-      ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-      byte[] chunk = new byte[8192];
-      int read;
-      while ((read = in.read(chunk)) != -1) {
-        buffer.write(chunk, 0, read);
-      }
-      return buffer.toByteArray();
-    } finally {
-      if (in != null) {
-        in.close();
-      }
-    }
-  }
 
   private void openInBrowser(URL url, File indexFile) {
     boolean opened = false;

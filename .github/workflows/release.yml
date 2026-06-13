@@ -109,12 +109,21 @@ jobs:
         shell: pwsh
         run: ./scripts/verify-release.ps1 -Version "${{ needs.prepare.outputs.version }}" -ArtifactDirectory release
 
+      - name: Build WebXR preview plugin
+        if: matrix.platform == 'linux-x64'
+        shell: bash
+        run: |
+          make webxr-plugin
+          cp plugins/WebXRPreview.sh3p \
+            "release/SweetHome3D-${{ needs.prepare.outputs.version }}-WebXRPreview.sh3p"
+
       - uses: actions/upload-artifact@v4
         with:
           name: SweetHome3D-${{ needs.prepare.outputs.version }}-${{ matrix.platform }}
           path: |
             release/SweetHome3D-${{ needs.prepare.outputs.version }}-${{ matrix.platform }}.*
             release/SweetHome3D-${{ needs.prepare.outputs.version }}.jar
+            release/SweetHome3D-${{ needs.prepare.outputs.version }}-WebXRPreview.sh3p
             release/native/**
           if-no-files-found: error
           retention-days: 14

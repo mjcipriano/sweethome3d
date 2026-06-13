@@ -52,8 +52,10 @@ MODEL_LOD_BENCHMARK_SOURCE := test/com/eteks/sweethome3d/performance/ModelLODGen
 TEST_JARS := libtest/junit-4.13.2.jar libtest/hamcrest-core-1.3.jar
 JUNIT_URL := https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar
 HAMCREST_URL := https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar
-TEST_COMPILE_CP := $(DEV_CLASS_PATH)$(CPSEP)lib/java3d-1.6/*$(CPSEP)lib/*$(CPSEP)libtest/*$(CPSEP)test
-TEST_RUN_CP := $(TEST_CLASSES)$(CPSEP)$(DEV_CLASS_PATH)$(CPSEP)test$(CPSEP)lib/java3d-1.6/*$(CPSEP)lib/*$(CPSEP)libtest/*
+# pluginsrc is included so tests can cover plugin classes (e.g. the WebXR
+# preview server); javac compiles their sources from the classpath on demand
+TEST_COMPILE_CP := $(DEV_CLASS_PATH)$(CPSEP)lib/java3d-1.6/*$(CPSEP)lib/*$(CPSEP)libtest/*$(CPSEP)test$(CPSEP)pluginsrc
+TEST_RUN_CP := $(TEST_CLASSES)$(CPSEP)$(DEV_CLASS_PATH)$(CPSEP)test$(CPSEP)lib/java3d-1.6/*$(CPSEP)lib/*$(CPSEP)libtest/*$(CPSEP)pluginsrc
 GL_TEST_EXCLUDES := \
   com/eteks/sweethome3d/junit/PlanComponentTest \
   com/eteks/sweethome3d/junit/OBJWriterTest \
@@ -95,7 +97,6 @@ help:
 	@echo "  make jar        - Build the distributable $(INSTALL_JAR)."
 	@echo "  make run        - Run the distributable jar (builds it first)."
 	@echo "  make run-dev    - Run from local classes/jars without repackaging."
-	@echo "  make vr-plugin  - Build plugins/VRPreview.sh3p (legacy VR preview)."
 	@echo "  make webxr-plugin - Build plugins/WebXRPreview.sh3p (WebXR OBJ preview)."
 	@echo "  make run-webxr-preview [VR_HOME_FILE=<file.sh3d>] - Build plugin and launch app with WebXR plugin."
 	@echo "  make test       - Compile and run the complete JUnit suite."
@@ -282,22 +283,16 @@ benchmark-startup: $(MAIN_JAR) $(DEV_RESOURCE_JARS)
 clean:
 	rm -rf build $(INSTALL_JAR) $(TEST_CLASSES) $(PERFORMANCE_CLASSES)
 
-# Build legacy VR preview plugin (.sh3p)
-vr-plugin: $(INSTALL_JAR)
-	@mkdir -p .plugin-build/vr plugins
-	$(JAVAC) -encoding ISO-8859-1 -cp "$(INSTALL_JAR)" \
-	  -d .plugin-build/vr src/com/eteks/sweethome3d/plugin/vr/VRPreviewPlugin.java
-	cp src/com/eteks/sweethome3d/plugin/vr/ApplicationPlugin.properties .plugin-build/vr/
-	jar cf plugins/VRPreview.sh3p -C .plugin-build/vr .
-	rm -rf .plugin-build/vr
-	@echo "Plugin built at plugins/VRPreview.sh3p"
-
 # Build WebXR preview plugin (.sh3p)
 webxr-plugin: $(INSTALL_JAR)
 	@mkdir -p .plugin-build/webxr plugins
 	$(JAVAC) --release 8 -encoding ISO-8859-1 -cp "$(INSTALL_JAR)$(CPSEP)lib/java3d-1.6/*$(CPSEP)lib/*" \
-	  -d .plugin-build/webxr pluginsrc/com/eteks/sweethome3d/plugin/webxr/WebXRPreviewPlugin.java
+	  -d .plugin-build/webxr \
+	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/WebXRPreviewPlugin.java \
+	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/WebXRPreviewServer.java
 	cp pluginsrc/com/eteks/sweethome3d/plugin/webxr/ApplicationPlugin.properties .plugin-build/webxr/
+	cp pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-keystore.p12 \
+	  .plugin-build/webxr/com/eteks/sweethome3d/plugin/webxr/
 	$(JAR) cf plugins/WebXRPreview.sh3p -C .plugin-build/webxr .
 	rm -rf .plugin-build/webxr
 	@echo "Plugin built at plugins/WebXRPreview.sh3p"
