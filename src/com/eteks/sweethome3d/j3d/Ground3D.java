@@ -113,12 +113,12 @@ public class Ground3D extends Object3DBranch {
     this.depth = depth;
 
     Appearance groundAppearance = new Appearance();
-    groundAppearance.setCapability(Appearance.ALLOW_MATERIAL_WRITE);
-    groundAppearance.setCapability(Appearance.ALLOW_TEXTURE_WRITE);
-    groundAppearance.setCapability(Appearance.ALLOW_TEXTURE_ATTRIBUTES_WRITE);
+    Object3DBranch.setCapabilityInfrequent(groundAppearance, Appearance.ALLOW_MATERIAL_WRITE);
+    Object3DBranch.setCapabilityInfrequent(groundAppearance, Appearance.ALLOW_TEXTURE_WRITE);
+    Object3DBranch.setCapabilityInfrequent(groundAppearance, Appearance.ALLOW_TEXTURE_ATTRIBUTES_WRITE);
     groundAppearance.setCapability(Appearance.ALLOW_TRANSPARENCY_ATTRIBUTES_READ);
     TransparencyAttributes transparencyAttributes = new TransparencyAttributes();
-    transparencyAttributes.setCapability(TransparencyAttributes.ALLOW_MODE_WRITE);
+    Object3DBranch.setCapabilityInfrequent(transparencyAttributes, TransparencyAttributes.ALLOW_MODE_WRITE);
     groundAppearance.setTransparencyAttributes(transparencyAttributes);
 
     final Shape3D groundShape = new Shape3D();
@@ -133,9 +133,9 @@ public class Ground3D extends Object3DBranch {
     backgroundImageAppearance.setTextureAttributes(MODULATE_TEXTURE_ATTRIBUTES);
     backgroundImageAppearance.setTexCoordGeneration(new TexCoordGeneration(TexCoordGeneration.OBJECT_LINEAR,
         TexCoordGeneration.TEXTURE_COORDINATE_2, new Vector4f(1, 0, 0, .5f), new Vector4f(0, 1, -1, .5f)));
-    backgroundImageAppearance.setCapability(Appearance.ALLOW_TEXTURE_WRITE);
+    Object3DBranch.setCapabilityInfrequent(backgroundImageAppearance, Appearance.ALLOW_TEXTURE_WRITE);
     RenderingAttributes renderingAttributes = new RenderingAttributes();
-    renderingAttributes.setCapability(RenderingAttributes.ALLOW_VISIBLE_WRITE);
+    Object3DBranch.setCapabilityInfrequent(renderingAttributes, RenderingAttributes.ALLOW_VISIBLE_WRITE);
     backgroundImageAppearance.setRenderingAttributes(renderingAttributes);
     backgroundImageAppearance.setCapability(Appearance.ALLOW_RENDERING_ATTRIBUTES_READ);
 

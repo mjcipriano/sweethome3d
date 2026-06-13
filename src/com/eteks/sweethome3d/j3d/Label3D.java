@@ -254,7 +254,7 @@ public class Label3D extends Object3DBranch {
           appearance.setTransparencyAttributes(DEFAULT_TRANSPARENCY_ATTRIBUTES);
           appearance.setTexCoordGeneration(new TexCoordGeneration(TexCoordGeneration.OBJECT_LINEAR,
               TexCoordGeneration.TEXTURE_COORDINATE_2, new Vector4f(1, 0, 0, .5f), new Vector4f(0, 1, -1, .5f)));
-          appearance.setCapability(Appearance.ALLOW_TEXTURE_WRITE);
+          Object3DBranch.setCapabilityInfrequent(appearance, Appearance.ALLOW_TEXTURE_WRITE);
 
           // Do not share box geometry or cleaning up the universe after an offscreen rendering may cause some bugs
           Box box = new Box(0.5f, 0f, 0.5f, Box.GEOMETRY_NOT_SHARED | Box.GENERATE_NORMALS, appearance);
