@@ -75,19 +75,38 @@ Requested as one phase with three workstreams, built in dependency order:
   multi-step loop. Remaining polish: rich Markdown rendering in the transcript
   (currently a wrapped `JTextArea`).
 
-### Phase 4 - grounded, reliable, deeper edits (PLANNED)
+### Phase 4 - grounded, reliable, deeper edits (4a DONE)
 
 The next increment focuses on making edits land on the right items and reach the
 features that make Sweet Home 3D distinctive. Build in dependency order:
 
-- **4a - catalog grounding.** Today `add_furniture`/`add_door_or_window` look up
-  the model's free-text `name` by substring against the catalog, which fails when
-  the model guesses a name the catalog doesn't use (the most common edit failure).
-  Give the model the catalog vocabulary: list the furniture categories and a
-  capped set of representative item names in the brief, and/or add a
-  `search_catalog` query the agentic loop (3b) can issue and observe before
-  committing to an `add`. Report unmatched names back so the model can retry.
-  Tighten `findCatalogPiece` (token overlap / category hints) accordingly.
+- **4a - catalog grounding. DONE.**
+  - `HomeAssistantContext.describeCatalog` lists every furniture category and up
+    to 60 item names per category in the system prompt;
+    `HomeAssistantContext.buildSystemPrompt` (shared by `AssistantPanel` and the
+    live tests) assembles role + protocol + catalog + project brief.
+  - New `search_catalog` command (`{"action":"search_catalog","query":"..."}`):
+    its matches are appended to the applied-changes summary, which the agentic
+    loop (3b) already feeds back, so the model can search then add.
+  - `findCatalogPiece` is now scored token matching (exact > all-words-present >
+    substring > partial word overlap; plural "s" ignored; concise names
+    preferred) instead of first-substring-wins. Unmatched `add_furniture` names
+    report the 3 closest catalog names back to the model for self-correction.
+  - Per-turn safety limits (the 4c item, pulled forward): max 30 commands per
+    turn, coordinates beyond 1,000,000 cm and sizes beyond 100,000 cm rejected
+    with a note in the summary. The protocol text documents the coordinate
+    system (y down, north = -y; angle 0 faces +y) and door-on-wall placement.
+  - `AssistantClient` now sends `max_tokens` 4096 (1024 could truncate
+    multi-command JSON) and `temperature` 0.2 on both provider protocols.
+  - Tests: scored matching, search summary, suggestions and safety limits in
+    `AssistantCommandExecutorTest`; catalog brief/prompt in
+    `HomeAssistantContextTest`; and **live end-to-end tests against DeepSeek**
+    (`AssistantDeepSeekLiveTest`, `make test-assistant-live`) — opt-in via
+    `-Dsweethome3d.liveAssistantTests=true`, key from `DEEPSEEK_API` env var or
+    a git-ignored `.env` at the repo root; skipped via JUnit assumptions
+    otherwise so CI and the offline suites are unaffected. Verified 2026-06-12:
+    DeepSeek (`deepseek-chat`) grounds names to the exact catalog vocabulary
+    and issues correct id-targeted relative moves.
 - **4b - reduce-detail (LOD) editing.** Surface the repository's marquee
   optimization - per-piece reduced-detail models (`ModelLODGenerator`,
   `HomePieceOfFurniture` LOD fields) - to the assistant: a `reduce_detail` /
@@ -126,6 +145,7 @@ make test TEST_SOURCES="\
   test/com/eteks/sweethome3d/junit/AssistantCommandExecutorTest.java \
   test/com/eteks/sweethome3d/junit/AssistantClientTest.java \
   test/com/eteks/sweethome3d/junit/HomeAssistantContextTest.java"
+make test-assistant-live   # real DeepSeek round-trips; needs DEEPSEEK_API or .env
 ```
 
 `make test-gui` is required for `AssistantPanel` changes (Swing). Two unrelated

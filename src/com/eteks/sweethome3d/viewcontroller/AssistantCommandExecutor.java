@@ -35,6 +35,15 @@ import com.eteks.sweethome3d.model.Wall;
  * @author Sweet Home 3D
  */
 public class AssistantCommandExecutor {
+  /** Upper bound on the commands applied in one turn, so a bad reply can't make a huge mess. */
+  static final int   MAX_COMMANDS_PER_TURN = 30;
+  /** Coordinates beyond this magnitude (10 km in cm) are considered nonsense and rejected. */
+  static final float MAX_COORDINATE_CM = 1000000f;
+  /** Sizes beyond this magnitude (1 km in cm) are considered nonsense and rejected. */
+  static final float MAX_SIZE_CM = 100000f;
+  /** Maximum number of matches reported for one search_catalog command. */
+  private static final int MAX_SEARCH_RESULTS = 8;
+
   private final Home            home;
   private final UserPreferences preferences;
   private final HomeController  homeController;
@@ -48,6 +57,8 @@ public class AssistantCommandExecutor {
   /**
    * Runs the given <code>commands</code> as a single undoable change and returns
    * a short human-readable summary, or <code>null</code> if nothing was applied.
+   * The summary also carries catalog search results and skipped-command notes so
+   * the agentic loop can feed them back to the model.
    */
   public String execute(List<AssistantCommand> commands) {
     if (commands == null || commands.isEmpty()) {
@@ -56,29 +67,40 @@ public class AssistantCommandExecutor {
     // furniture, doors/windows, rooms, walls, modified items, deleted items
     int [] tally = new int [6];
     List<String> notFound = new ArrayList<String>();
+    List<String> notes = new ArrayList<String>();
     UndoableEditSupport undoSupport = this.homeController.getUndoableEditSupport();
     undoSupport.beginUpdate();
     try {
+      int applied = 0;
       for (AssistantCommand command : commands) {
-        applyCommand(command, tally, notFound);
+        if (++applied > MAX_COMMANDS_PER_TURN) {
+          notes.add("Stopped after " + MAX_COMMANDS_PER_TURN
+              + " commands (turn limit); " + (commands.size() - MAX_COMMANDS_PER_TURN)
+              + " commands were ignored");
+          break;
+        }
+        applyCommand(command, tally, notFound, notes);
       }
     } finally {
       undoSupport.endUpdate();
     }
-    return buildSummary(tally, notFound);
+    return buildSummary(tally, notFound, notes);
   }
 
-  private void applyCommand(AssistantCommand command, int [] tally, List<String> notFound) {
+  private void applyCommand(AssistantCommand command, int [] tally, List<String> notFound,
+                            List<String> notes) {
     String action = command.getAction();
-    if ("add_furniture".equals(action)) {
-      addFurniture(command, false, tally, notFound);
+    if ("search_catalog".equals(action) || "find_furniture".equals(action)) {
+      searchCatalogCommand(command, notes);
+    } else if ("add_furniture".equals(action)) {
+      addFurniture(command, false, tally, notFound, notes);
     } else if ("add_door_or_window".equals(action) || "add_door".equals(action)
         || "add_window".equals(action)) {
-      addFurniture(command, true, tally, notFound);
+      addFurniture(command, true, tally, notFound, notes);
     } else if ("add_room".equals(action)) {
-      addRoom(command, tally);
+      addRoom(command, tally, notes);
     } else if ("add_wall".equals(action)) {
-      addWall(command, tally);
+      addWall(command, tally, notes);
     } else if ("select".equals(action)) {
       select(command);
     } else if ("move".equals(action) || "rotate".equals(action) || "resize".equals(action)
@@ -89,6 +111,39 @@ public class AssistantCommandExecutor {
       delete(command, tally);
     }
     // Unknown actions are ignored so a single bad command doesn't break a turn
+  }
+
+  /**
+   * Runs a <code>search_catalog</code> command and records its matches as a note,
+   * which the multi-step loop reports back to the model.
+   */
+  private void searchCatalogCommand(AssistantCommand command, List<String> notes) {
+    String query = command.getString("query");
+    if (query == null) {
+      query = command.getString("name");
+    }
+    if (query == null || query.trim().length() == 0) {
+      return;
+    }
+    List<CatalogMatch> matches = searchCatalog(query, false, MAX_SEARCH_RESULTS);
+    StringBuilder note = new StringBuilder("Catalog search \"").append(query.trim()).append("\": ");
+    if (matches.isEmpty()) {
+      note.append("no matches");
+    } else {
+      for (int i = 0; i < matches.size(); i++) {
+        if (i > 0) {
+          note.append(", ");
+        }
+        CatalogMatch match = matches.get(i);
+        note.append('"').append(match.piece.getName()).append('"')
+            .append(" (").append(match.categoryName);
+        if (match.piece.isDoorOrWindow()) {
+          note.append(", door/window");
+        }
+        note.append(')');
+      }
+    }
+    notes.add(note.toString());
   }
 
   /**
@@ -158,12 +213,22 @@ public class AssistantCommandExecutor {
 
   private boolean moveItem(AssistantCommand command, Selectable item) {
     if (command.has("dx") || command.has("dy")) {
-      item.move((float)command.getDouble("dx", 0), (float)command.getDouble("dy", 0));
+      double dx = command.getDouble("dx", 0);
+      double dy = command.getDouble("dy", 0);
+      if (!coordinateSane(dx) || !coordinateSane(dy)) {
+        return false;
+      }
+      item.move((float)dx, (float)dy);
       return true;
     } else if (item instanceof HomePieceOfFurniture && (command.has("x") || command.has("y"))) {
       HomePieceOfFurniture piece = (HomePieceOfFurniture)item;
-      piece.setX((float)command.getDouble("x", piece.getX()));
-      piece.setY((float)command.getDouble("y", piece.getY()));
+      double x = command.getDouble("x", piece.getX());
+      double y = command.getDouble("y", piece.getY());
+      if (!coordinateSane(x) || !coordinateSane(y)) {
+        return false;
+      }
+      piece.setX((float)x);
+      piece.setY((float)y);
       return true;
     }
     return false;
@@ -189,29 +254,29 @@ public class AssistantCommandExecutor {
     if (item instanceof HomePieceOfFurniture) {
       HomePieceOfFurniture piece = (HomePieceOfFurniture)item;
       double width = command.getDouble("width", Double.NaN);
-      if (!Double.isNaN(width) && width > 0) {
+      if (!Double.isNaN(width) && width > 0 && sizeSane(width)) {
         piece.setWidth((float)width);
         changed = true;
       }
       double depth = command.getDouble("depth", Double.NaN);
-      if (!Double.isNaN(depth) && depth > 0) {
+      if (!Double.isNaN(depth) && depth > 0 && sizeSane(depth)) {
         piece.setDepth((float)depth);
         changed = true;
       }
       double height = command.getDouble("height", Double.NaN);
-      if (!Double.isNaN(height) && height > 0) {
+      if (!Double.isNaN(height) && height > 0 && sizeSane(height)) {
         piece.setHeight((float)height);
         changed = true;
       }
     } else if (item instanceof Wall) {
       Wall wall = (Wall)item;
       double thickness = command.getDouble("thickness", Double.NaN);
-      if (!Double.isNaN(thickness) && thickness > 0) {
+      if (!Double.isNaN(thickness) && thickness > 0 && sizeSane(thickness)) {
         wall.setThickness((float)thickness);
         changed = true;
       }
       double height = command.getDouble("height", Double.NaN);
-      if (!Double.isNaN(height) && height > 0) {
+      if (!Double.isNaN(height) && height > 0 && sizeSane(height)) {
         wall.setHeight(Float.valueOf((float)height));
         changed = true;
       }
@@ -354,30 +419,41 @@ public class AssistantCommandExecutor {
   }
 
   private void addFurniture(AssistantCommand command, boolean doorOrWindow,
-                            int [] tally, List<String> notFound) {
+                            int [] tally, List<String> notFound, List<String> notes) {
     String name = command.getString("name");
     if (name == null || name.trim().length() == 0) {
       return;
     }
     CatalogPieceOfFurniture catalogPiece = findCatalogPiece(name, doorOrWindow);
     if (catalogPiece == null) {
-      notFound.add(name);
+      notFound.add(describeUnmatchedName(name));
+      return;
+    }
+    double x = command.getDouble("x", Double.NaN);
+    double y = command.getDouble("y", Double.NaN);
+    double width = command.getDouble("width", Double.NaN);
+    double depth = command.getDouble("depth", Double.NaN);
+    double elevation = command.getDouble("elevation", Double.NaN);
+    if (!coordinateSane(x) || !coordinateSane(y)
+        || !sizeSane(width) || !sizeSane(depth) || !sizeSane(elevation)) {
+      notes.add("Ignored add_furniture \"" + name + "\" with out-of-range values");
       return;
     }
     HomePieceOfFurniture piece =
         this.homeController.getFurnitureController().createHomePieceOfFurniture(catalogPiece);
-    piece.setX((float)command.getDouble("x", piece.getX()));
-    piece.setY((float)command.getDouble("y", piece.getY()));
+    if (!Double.isNaN(x)) {
+      piece.setX((float)x);
+    }
+    if (!Double.isNaN(y)) {
+      piece.setY((float)y);
+    }
     piece.setAngle((float)Math.toRadians(command.getDouble("angle", 0)));
-    double width = command.getDouble("width", Double.NaN);
     if (!Double.isNaN(width) && width > 0) {
       piece.setWidth((float)width);
     }
-    double depth = command.getDouble("depth", Double.NaN);
     if (!Double.isNaN(depth) && depth > 0) {
       piece.setDepth((float)depth);
     }
-    double elevation = command.getDouble("elevation", Double.NaN);
     if (!Double.isNaN(elevation)) {
       piece.setElevation((float)elevation);
     }
@@ -390,10 +466,35 @@ public class AssistantCommandExecutor {
     }
   }
 
-  private void addRoom(AssistantCommand command, int [] tally) {
+  /**
+   * Describes a furniture name that didn't match the catalog, with the closest
+   * catalog names so the model can retry with a real one.
+   */
+  private String describeUnmatchedName(String name) {
+    List<CatalogMatch> closest = searchCatalog(name, false, 3);
+    if (closest.isEmpty()) {
+      return name;
+    }
+    StringBuilder description = new StringBuilder(name).append(" (closest catalog names: ");
+    for (int i = 0; i < closest.size(); i++) {
+      if (i > 0) {
+        description.append(", ");
+      }
+      description.append('\'').append(closest.get(i).piece.getName()).append('\'');
+    }
+    return description.append(')').toString();
+  }
+
+  private void addRoom(AssistantCommand command, int [] tally, List<String> notes) {
     List<float []> points = command.getPoints("points");
     if (points.size() < 3) {
       return;
+    }
+    for (float [] point : points) {
+      if (!coordinateSane(point [0]) || !coordinateSane(point [1])) {
+        notes.add("Ignored add_room with out-of-range points");
+        return;
+      }
     }
     Room room = new Room(points.toArray(new float [points.size()][]));
     String name = command.getString("name");
@@ -405,12 +506,17 @@ public class AssistantCommandExecutor {
     tally [2]++;
   }
 
-  private void addWall(AssistantCommand command, int [] tally) {
+  private void addWall(AssistantCommand command, int [] tally, List<String> notes) {
     float xStart = (float)command.getDouble("x1", Double.NaN);
     float yStart = (float)command.getDouble("y1", Double.NaN);
     float xEnd = (float)command.getDouble("x2", Double.NaN);
     float yEnd = (float)command.getDouble("y2", Double.NaN);
     if (Float.isNaN(xStart) || Float.isNaN(yStart) || Float.isNaN(xEnd) || Float.isNaN(yEnd)) {
+      return;
+    }
+    if (!coordinateSane(xStart) || !coordinateSane(yStart)
+        || !coordinateSane(xEnd) || !coordinateSane(yEnd)) {
+      notes.add("Ignored add_wall with out-of-range coordinates");
       return;
     }
     float thickness = (float)command.getDouble("thickness", this.preferences.getNewWallThickness());
@@ -419,6 +525,16 @@ public class AssistantCommandExecutor {
     wall.setLevel(this.home.getSelectedLevel());
     this.homeController.getPlanController().addWalls(Collections.singletonList(wall));
     tally [3]++;
+  }
+
+  /** Returns <code>true</code> if the value is absent (NaN) or a plausible plan coordinate. */
+  private static boolean coordinateSane(double value) {
+    return Double.isNaN(value) || Math.abs(value) <= MAX_COORDINATE_CM;
+  }
+
+  /** Returns <code>true</code> if the value is absent (NaN) or a plausible size/elevation. */
+  private static boolean sizeSane(double value) {
+    return Double.isNaN(value) || Math.abs(value) <= MAX_SIZE_CM;
   }
 
   private void select(AssistantCommand command) {
@@ -452,13 +568,28 @@ public class AssistantCommandExecutor {
   }
 
   /**
-   * Returns the first catalog piece whose name matches <code>query</code>
-   * (exact match preferred, then a substring match), optionally restricted to
-   * doors and windows, or <code>null</code>.
+   * Returns the catalog piece whose name best matches <code>query</code>,
+   * optionally restricted to doors and windows, or <code>null</code> if nothing
+   * matches at all.
    */
-  CatalogPieceOfFurniture findCatalogPiece(String query, boolean doorOrWindow) {
+  public CatalogPieceOfFurniture findCatalogPiece(String query, boolean doorOrWindow) {
+    List<CatalogMatch> matches = searchCatalog(query, doorOrWindow, 1);
+    return matches.isEmpty() ? null : matches.get(0).piece;
+  }
+
+  /**
+   * Searches the furniture catalog for pieces matching <code>query</code>,
+   * best match first. Matching is scored: an exact name beats a name containing
+   * every query word, which beats substring and partial word matches; plural
+   * "s" suffixes are ignored when comparing words.
+   */
+  public List<CatalogMatch> searchCatalog(String query, boolean doorOrWindow, int maxResults) {
+    List<CatalogMatch> matches = new ArrayList<CatalogMatch>();
+    if (query == null || this.preferences.getFurnitureCatalog() == null) {
+      return matches;
+    }
     String normalizedQuery = query.trim().toLowerCase();
-    CatalogPieceOfFurniture substringMatch = null;
+    List<String> queryTokens = tokenize(normalizedQuery);
     for (FurnitureCategory category : this.preferences.getFurnitureCatalog().getCategories()) {
       for (CatalogPieceOfFurniture piece : category.getFurniture()) {
         if (doorOrWindow && !piece.isDoorOrWindow()) {
@@ -468,19 +599,104 @@ public class AssistantCommandExecutor {
         if (name == null) {
           continue;
         }
-        String normalizedName = name.toLowerCase();
-        if (normalizedName.equals(normalizedQuery)) {
-          return piece;
-        } else if (substringMatch == null
-            && (normalizedName.contains(normalizedQuery) || normalizedQuery.contains(normalizedName))) {
-          substringMatch = piece;
+        int score = scoreMatch(name.toLowerCase(), normalizedQuery, queryTokens);
+        if (score > 0) {
+          matches.add(new CatalogMatch(piece, category.getName(), score));
         }
       }
     }
-    return substringMatch;
+    Collections.sort(matches);
+    if (matches.size() > maxResults) {
+      return new ArrayList<CatalogMatch>(matches.subList(0, maxResults));
+    }
+    return matches;
   }
 
-  private String buildSummary(int [] tally, List<String> notFound) {
+  /**
+   * Scores how well a catalog piece <code>name</code> matches a query, both
+   * already lower-case; 0 means no match. Word comparisons ignore a plural "s".
+   */
+  static int scoreMatch(String name, String query, List<String> queryTokens) {
+    if (name.equals(query)) {
+      return 1000;
+    }
+    List<String> nameTokens = tokenize(name);
+    int matched = 0;
+    for (String queryToken : queryTokens) {
+      for (String nameToken : nameTokens) {
+        if (tokensEqual(queryToken, nameToken)) {
+          matched++;
+          break;
+        }
+      }
+    }
+    int score;
+    if (!queryTokens.isEmpty() && matched == queryTokens.size()) {
+      // Every query word appears in the name ("table" matches "Round table")
+      score = 500;
+    } else if (name.contains(query)) {
+      score = 400;
+    } else if (query.contains(name)) {
+      score = 350;
+    } else if (matched > 0) {
+      score = 100 + (200 * matched) / queryTokens.size();
+    } else {
+      return 0;
+    }
+    // Prefer concise names: "Door" beats "Sliding door" for the query "door"
+    return score - Math.min(nameTokens.size(), 50);
+  }
+
+  private static boolean tokensEqual(String token1, String token2) {
+    return token1.equals(token2)
+        || singular(token1).equals(singular(token2));
+  }
+
+  private static String singular(String token) {
+    return token.length() > 3 && token.endsWith("s")
+        ? token.substring(0, token.length() - 1) : token;
+  }
+
+  /** Splits lower-case text into alphanumeric word tokens. */
+  static List<String> tokenize(String text) {
+    List<String> tokens = new ArrayList<String>();
+    int start = -1;
+    for (int i = 0; i <= text.length(); i++) {
+      boolean wordChar = i < text.length() && Character.isLetterOrDigit(text.charAt(i));
+      if (wordChar && start < 0) {
+        start = i;
+      } else if (!wordChar && start >= 0) {
+        tokens.add(text.substring(start, i));
+        start = -1;
+      }
+    }
+    return tokens;
+  }
+
+  /**
+   * A scored catalog search result, ordered best match first.
+   */
+  public static final class CatalogMatch implements Comparable<CatalogMatch> {
+    final CatalogPieceOfFurniture piece;
+    final String                  categoryName;
+    final int                     score;
+
+    CatalogMatch(CatalogPieceOfFurniture piece, String categoryName, int score) {
+      this.piece = piece;
+      this.categoryName = categoryName;
+      this.score = score;
+    }
+
+    public int compareTo(CatalogMatch other) {
+      if (this.score != other.score) {
+        return other.score - this.score;
+      }
+      // Deterministic order between equal scores
+      return this.piece.getName().compareTo(other.piece.getName());
+    }
+  }
+
+  private String buildSummary(int [] tally, List<String> notFound, List<String> notes) {
     List<String> parts = new ArrayList<String>();
     addPart(parts, tally [0], "piece of furniture", "pieces of furniture");
     addPart(parts, tally [1], "door/window", "doors/windows");
@@ -523,6 +739,12 @@ public class AssistantCommandExecutor {
         summary.append('\n');
       }
       summary.append("Couldn't find furniture named: ").append(join(notFound)).append('.');
+    }
+    for (String note : notes) {
+      if (summary.length() > 0) {
+        summary.append('\n');
+      }
+      summary.append(note).append('.');
     }
     return summary.length() > 0 ? summary.toString() : null;
   }
