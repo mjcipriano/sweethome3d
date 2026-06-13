@@ -100,11 +100,16 @@ features that make Sweet Home 3D distinctive. Build in dependency order:
     multi-command JSON) and `temperature` 0.2 on both provider protocols.
   - Tests: scored matching, search summary, suggestions and safety limits in
     `AssistantCommandExecutorTest`; catalog brief/prompt in
-    `HomeAssistantContextTest`; and **live end-to-end tests against DeepSeek**
-    (`AssistantDeepSeekLiveTest`, `make test-assistant-live`) — opt-in via
-    `-Dsweethome3d.liveAssistantTests=true`, key from `DEEPSEEK_API` env var or
-    a git-ignored `.env` at the repo root; skipped via JUnit assumptions
-    otherwise so CI and the offline suites are unaffected. Verified 2026-06-12:
+    `HomeAssistantContextTest`; **`AssistantCannedProtocolTest`** runs the whole
+    pipeline (request building, HTTP round-trip, parsing, execution) against a
+    local mock chat-completions server returning canned replies captured from a
+    real DeepSeek session, so the regular suites validate end-to-end behavior
+    with **no network and no API key**. `AssistantDeepSeekLiveTest`
+    (`make test-assistant-live`) is the optional live re-validation: opt-in via
+    `-Dsweethome3d.liveAssistantTests=true`, key from the `DEEPSEEK_API` env var
+    or a git-ignored `.env` at the repo root, skipped via JUnit assumptions
+    otherwise. **The key stays local: never commit it, never wire it into CI;
+    canned tests are the shared regression gate.** Verified live 2026-06-12:
     DeepSeek (`deepseek-chat`) grounds names to the exact catalog vocabulary
     and issues correct id-targeted relative moves.
 - **4b - reduce-detail (LOD) editing.** Surface the repository's marquee

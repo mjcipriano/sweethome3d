@@ -14,16 +14,11 @@ import java.util.List;
 import org.junit.Assume;
 import org.junit.Test;
 
-import com.eteks.sweethome3d.io.DefaultUserPreferences;
-import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
-import com.eteks.sweethome3d.model.Content;
-import com.eteks.sweethome3d.model.FurnitureCategory;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.swing.SwingViewFactory;
-import com.eteks.sweethome3d.tools.URLContent;
 import com.eteks.sweethome3d.viewcontroller.AssistantClient;
 import com.eteks.sweethome3d.viewcontroller.AssistantClient.ChatMessage;
 import com.eteks.sweethome3d.viewcontroller.AssistantClient.Provider;
@@ -141,20 +136,8 @@ public class AssistantDeepSeekLiveTest {
   }
 
   private static UserPreferences createCatalogPreferences() throws Exception {
-    UserPreferences preferences = new DefaultUserPreferences();
-    Content icon = new URLContent(new File("dummy.png").toURI().toURL());
-    Content model = new URLContent(new File("dummy.obj").toURI().toURL());
-    FurnitureCategory living = new FurnitureCategory("Living room");
-    preferences.getFurnitureCatalog().add(living,
-        new CatalogPieceOfFurniture("Sofa", icon, model, 200, 90, 80, true, false));
-    preferences.getFurnitureCatalog().add(living,
-        new CatalogPieceOfFurniture("Coffee table", icon, model, 110, 60, 45, true, false));
-    FurnitureCategory office = new FurnitureCategory("Office");
-    preferences.getFurnitureCatalog().add(office,
-        new CatalogPieceOfFurniture("Desk", icon, model, 140, 70, 75, true, false));
-    preferences.getFurnitureCatalog().add(office,
-        new CatalogPieceOfFurniture("Office chair", icon, model, 60, 60, 100, true, false));
-    return preferences;
+    // Same synthetic catalog as the canned (offline) variant of these tests
+    return AssistantCannedProtocolTest.createCatalogPreferences();
   }
 
   private static AssistantClient createClientOrSkip() {
