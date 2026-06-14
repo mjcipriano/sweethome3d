@@ -1,5 +1,23 @@
 # Changelog
 
+## [7.15.0](https://github.com/mjcipriano/sweethome3d/compare/v7.14.0...v7.15.0) (2026-06-13)
+
+
+### Features
+
+* **ai:** phase 4a - catalog grounding, search_catalog and safety limits ([e5eb49e](https://github.com/mjcipriano/sweethome3d/commit/e5eb49ec0e70536170eb43ee6ec03114e028dc68))
+* **ai:** phase 4a - catalog grounding, search_catalog and safety limits ([d307f8c](https://github.com/mjcipriano/sweethome3d/commit/d307f8ccc59622016cac2de0e69011b7f23b47fc))
+* **ai:** phase 4b - reduce_detail/restore_detail commands ([0bdc750](https://github.com/mjcipriano/sweethome3d/commit/0bdc7504639dbafd610b3098118feffa9c4ca3e4))
+* **ai:** phase 4b - reduce_detail/restore_detail commands ([faf5bef](https://github.com/mjcipriano/sweethome3d/commit/faf5bef08dd0ede635ace0d35ad95abd2c40582e))
+* **vr:** Quest 2 / SteamVR access to the WebXR preview plugin ([cc53ea5](https://github.com/mjcipriano/sweethome3d/commit/cc53ea566b3f54b18cc1c51d03d61feaea17563a))
+* **vr:** Quest 2 / SteamVR access to the WebXR preview plugin ([d59be75](https://github.com/mjcipriano/sweethome3d/commit/d59be75f00918c74fc1ed873ff225d05d5e111ba))
+
+
+### Performance Improvements
+
+* **3d:** declare writable appearance capabilities infrequent to fix render-bin scans ([dc7fbee](https://github.com/mjcipriano/sweethome3d/commit/dc7fbee32843d8de195cf949ede15b0446b839db))
+* **3d:** declare writable appearance capabilities infrequent to fix render-bin scans ([6dd1dc6](https://github.com/mjcipriano/sweethome3d/commit/6dd1dc6deba80cc2ad6e0d4796bc27a8b206d74c))
+
 ## [7.14.0](https://github.com/mjcipriano/sweethome3d/compare/v7.13.0...v7.14.0) (2026-06-10)
 
 
