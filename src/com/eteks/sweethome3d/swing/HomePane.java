@@ -226,6 +226,7 @@ import com.eteks.sweethome3d.viewcontroller.ContentManager;
 import com.eteks.sweethome3d.viewcontroller.ExportableView;
 import com.eteks.sweethome3d.viewcontroller.FurnitureController;
 import com.eteks.sweethome3d.viewcontroller.HomeController;
+import com.eteks.sweethome3d.viewcontroller.HomeMCPHandler;
 import com.eteks.sweethome3d.viewcontroller.HomeController3D;
 import com.eteks.sweethome3d.viewcontroller.HomeView;
 import com.eteks.sweethome3d.viewcontroller.Object3DFactory;
@@ -1416,6 +1417,14 @@ public class HomePane extends JRootPane implements HomeView {
         }
       };
     helpMenu.add(new JMenuItem(assistantExamplesAction));
+    // Local MCP server letting Claude read and edit this home
+    Action mcpServerAction = new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "mcpServer")) {
+        public void actionPerformed(ActionEvent ev) {
+          showMCPServerDialog();
+        }
+      };
+    helpMenu.add(new JMenuItem(mcpServerAction));
 
     // Add menus to menu bar
     JMenuBar menuBar = new JMenuBar();
@@ -4900,6 +4909,116 @@ public class HomePane extends JRootPane implements HomeView {
       });
     this.assistantDialog = dialog;
     dialog.setVisible(true);
+  }
+
+  private HomeMCPServer  mcpServer;
+  private HomeMCPHandler mcpHandler;
+
+  /**
+   * Displays a dialog to start or stop the local MCP server that lets an MCP
+   * client such as Claude read and edit this home, and shows how to connect to it.
+   */
+  private void showMCPServerDialog() {
+    if (this.mcpHandler == null) {
+      this.mcpHandler = new HomeMCPHandler(this.home, this.preferences, this.controller,
+          this.controller != null ? this.controller.getVersion() : null);
+    }
+    final JLabel statusLabel = new JLabel();
+    final JTextArea commandArea = new JTextArea(4, 48);
+    commandArea.setEditable(false);
+    commandArea.setLineWrap(true);
+    commandArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, commandArea.getFont().getSize()));
+    final JButton startStopButton = new JButton();
+    final JButton copyButton = new JButton("Copy command");
+    final JCheckBox editingCheckBox = new JCheckBox("Allow changes to this home (each one can be undone)",
+        this.mcpHandler.isEditingAllowed());
+    editingCheckBox.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          mcpHandler.setEditingAllowed(editingCheckBox.isSelected());
+        }
+      });
+    final Runnable updater = new Runnable() {
+        public void run() {
+          boolean running = mcpServer != null && mcpServer.isRunning();
+          if (running) {
+            statusLabel.setText("Running at " + mcpServer.getUrl() + " (this computer only)");
+            commandArea.setText("claude mcp add --transport http sweethome3d " + mcpServer.getUrl()
+                + " --header \"Authorization: Bearer " + mcpServer.getToken() + "\"");
+          } else {
+            statusLabel.setText("Stopped");
+            commandArea.setText("Start the server to get the command that connects Claude Code to this home.");
+          }
+          commandArea.setCaretPosition(0);
+          copyButton.setEnabled(running);
+          startStopButton.setText(running ? "Stop server" : "Start server");
+        }
+      };
+    startStopButton.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          if (mcpServer != null && mcpServer.isRunning()) {
+            stopMCPServer();
+          } else {
+            try {
+              startMCPServer();
+            } catch (IOException ex) {
+              JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(startStopButton),
+                  "Couldn't start the MCP server: " + ex.getMessage(),
+                  preferences.getLocalizedString(HomePane.class, "mcpServer"), JOptionPane.ERROR_MESSAGE);
+            }
+          }
+          updater.run();
+        }
+      });
+    copyButton.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
+              new StringSelection(commandArea.getText()), null);
+        }
+      });
+    updater.run();
+
+    JPanel buttonsPanel = new JPanel(new FlowLayout(FlowLayout.LEADING, 6, 0));
+    buttonsPanel.add(startStopButton);
+    buttonsPanel.add(copyButton);
+    JPanel northPanel = new JPanel(new BorderLayout(0, 6));
+    northPanel.add(new JLabel("<html>Lets Claude (or another MCP client on this computer) read this home,<br>"
+        + "search the furniture catalog and edit the home.</html>"), BorderLayout.NORTH);
+    northPanel.add(statusLabel, BorderLayout.CENTER);
+    northPanel.add(editingCheckBox, BorderLayout.SOUTH);
+    JPanel panel = new JPanel(new BorderLayout(0, 8));
+    panel.add(northPanel, BorderLayout.NORTH);
+    panel.add(new JScrollPane(commandArea), BorderLayout.CENTER);
+    panel.add(buttonsPanel, BorderLayout.SOUTH);
+    JOptionPane.showMessageDialog(this, panel,
+        this.preferences.getLocalizedString(HomePane.class, "mcpServer").replace("...", ""),
+        JOptionPane.PLAIN_MESSAGE);
+  }
+
+  /**
+   * Starts the MCP server of this home, stopped when its window is closed.
+   */
+  private void startMCPServer() throws IOException {
+    String token = HomeMCPServer.getOrCreateToken(OperatingSystem.getDefaultApplicationFolder());
+    HomeMCPServer server = new HomeMCPServer(this.mcpHandler, token, HomeMCPServer.getConfiguredPort());
+    server.start();
+    this.mcpServer = server;
+    final Window window = SwingUtilities.getWindowAncestor(this);
+    if (window != null) {
+      window.addWindowListener(new WindowAdapter() {
+          @Override
+          public void windowClosed(WindowEvent ev) {
+            window.removeWindowListener(this);
+            stopMCPServer();
+          }
+        });
+    }
+  }
+
+  private void stopMCPServer() {
+    if (this.mcpServer != null) {
+      this.mcpServer.stop();
+      this.mcpServer = null;
+    }
   }
 
   /**
