@@ -24,6 +24,7 @@ import java.util.Map;
 import javax.media.j3d.BranchGroup;
 import javax.media.j3d.Geometry;
 import javax.media.j3d.GeometryArray;
+import javax.media.j3d.IndexedGeometryArray;
 import javax.media.j3d.Group;
 import javax.media.j3d.Link;
 import javax.media.j3d.Node;
@@ -160,10 +161,15 @@ public class ModelLODGenerator {
       targetRatio = normalizeTargetRatio((float)DEFAULT_TARGET_VERTICES / sourceVertexCount);
     }
     BranchGroup simplifiedModel = (BranchGroup)loadedModel [0].cloneTree(true);
+    // Count the vertices drawn before and after the simplification in the same
+    // unit (triangle corners), as simplified geometry is indexed whereas loaded
+    // models generally aren't
+    int sourceDrawnVertices = countDrawnVertices(simplifiedModel);
     int simplifiedVertices = simplifyNode(simplifiedModel, targetRatio);
-    if (simplifiedVertices <= 0 || simplifiedVertices >= sourceVertexCount) {
+    if (simplifiedVertices <= 0 || simplifiedVertices >= sourceDrawnVertices) {
       return null;
     }
+    sourceVertexCount = sourceDrawnVertices;
 
     File zipFile = File.createTempFile("sweethome3d-lod-", ".zip");
     zipFile.deleteOnExit();
@@ -173,6 +179,37 @@ public class ModelLODGenerator {
     Content lodContent = new TemporaryURLContent(
         new URL("jar:" + zipFile.toURI().toURL() + "!/" + entryName));
     return new ModelLOD(lodContent, sourceVertexCount, simplifiedVertices);
+  }
+
+  /**
+   * Returns the count of vertices drawn for the given geometry: its indices
+   * when it's indexed, its vertices otherwise.
+   */
+  private static int getDrawnVertexCount(GeometryArray geometry) {
+    return geometry instanceof IndexedGeometryArray
+        ? ((IndexedGeometryArray)geometry).getIndexCount()
+        : geometry.getVertexCount();
+  }
+
+  private int countDrawnVertices(Node node) {
+    int vertexCount = 0;
+    if (node instanceof Group) {
+      Enumeration<?> children = ((Group)node).getAllChildren();
+      while (children.hasMoreElements()) {
+        vertexCount += countDrawnVertices((Node)children.nextElement());
+      }
+    } else if (node instanceof Link) {
+      vertexCount += countDrawnVertices(((Link)node).getSharedGroup());
+    } else if (node instanceof Shape3D) {
+      Shape3D shape = (Shape3D)node;
+      for (int i = 0; i < shape.numGeometries(); i++) {
+        Geometry geometry = shape.getGeometry(i);
+        if (geometry instanceof GeometryArray) {
+          vertexCount += getDrawnVertexCount((GeometryArray)geometry);
+        }
+      }
+    }
+    return vertexCount;
   }
 
   private int simplifyNode(Node node, float targetRatio) {
@@ -192,9 +229,9 @@ public class ModelLODGenerator {
           GeometryArray simplified = simplifyGeometry((GeometryArray)geometry, targetRatio);
           if (simplified != null) {
             shape.setGeometry(simplified, i);
-            vertexCount += simplified.getVertexCount();
+            vertexCount += getDrawnVertexCount(simplified);
           } else {
-            vertexCount += ((GeometryArray)geometry).getVertexCount();
+            vertexCount += getDrawnVertexCount((GeometryArray)geometry);
           }
         }
       }

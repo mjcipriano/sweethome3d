@@ -2586,6 +2586,9 @@ public class HomeController implements Controller {
       try {
         // Clone home to save it safely in a threaded task
         savedHome = this.home.clone();
+        // Don't save the reduced models of deleted furniture. They are kept in the
+        // edited home, where undoing the deletion may still need them
+        savedHome.removeUnusedModelLODs();
       } catch (RuntimeException ex) {
         // If home data is corrupted some way and couldn't be cloned
         // warn the user his home couldn't be saved

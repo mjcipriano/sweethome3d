@@ -55,11 +55,39 @@ public class AssistantCommandExecutor {
   private List<Wall>                 turnWalls;
   private List<Room>                 turnRooms;
   private boolean                    turnUpdateBegun;
+  // Items designated by the ids of the last description given to the model
+  private List<HomePieceOfFurniture> describedFurniture;
+  private List<Wall>                 describedWalls;
+  private List<Room>                 describedRooms;
 
   public AssistantCommandExecutor(Home home, UserPreferences preferences, HomeController homeController) {
     this.home = home;
     this.preferences = preferences;
     this.homeController = homeController;
+  }
+
+  /**
+   * Records the items the ids <code>F#</code>/<code>W#</code>/<code>R#</code>
+   * designate now. Call it when the home is described to the model, so the ids
+   * of its reply still target the items it saw even if the user edits the home
+   * while the request is in flight. The snapshot is used by the next calls to
+   * {@link #execute(List) execute} until it's replaced or
+   * {@linkplain #clearDescribedItems() cleared}.
+   */
+  public void snapshotDescribedItems() {
+    this.describedFurniture = new ArrayList<HomePieceOfFurniture>(this.home.getFurniture());
+    this.describedWalls = new ArrayList<Wall>(this.home.getWalls());
+    this.describedRooms = new ArrayList<Room>(this.home.getRooms());
+  }
+
+  /**
+   * Forgets the snapshot of described items, so ids designate the items of the
+   * home at the time commands are executed.
+   */
+  public void clearDescribedItems() {
+    this.describedFurniture = null;
+    this.describedWalls = null;
+    this.describedRooms = null;
   }
 
   /**
@@ -78,9 +106,12 @@ public class AssistantCommandExecutor {
     List<String> notes = new ArrayList<String>();
     // Ids (F#/W#/R#) designate the items the model saw at the start of the turn,
     // whatever earlier commands of the same turn added or deleted
-    this.turnFurniture = new ArrayList<HomePieceOfFurniture>(this.home.getFurniture());
-    this.turnWalls = new ArrayList<Wall>(this.home.getWalls());
-    this.turnRooms = new ArrayList<Room>(this.home.getRooms());
+    this.turnFurniture = this.describedFurniture != null
+        ? this.describedFurniture : new ArrayList<HomePieceOfFurniture>(this.home.getFurniture());
+    this.turnWalls = this.describedWalls != null
+        ? this.describedWalls : new ArrayList<Wall>(this.home.getWalls());
+    this.turnRooms = this.describedRooms != null
+        ? this.describedRooms : new ArrayList<Room>(this.home.getRooms());
     this.turnUpdateBegun = false;
     try {
       int applied = 0;

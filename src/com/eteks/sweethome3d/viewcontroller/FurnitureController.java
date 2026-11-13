@@ -47,6 +47,7 @@ import com.eteks.sweethome3d.model.ObjectProperty;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.HomeShelfUnit;
 import com.eteks.sweethome3d.model.Level;
+import com.eteks.sweethome3d.model.ModelLOD;
 import com.eteks.sweethome3d.model.Light;
 import com.eteks.sweethome3d.model.PieceOfFurniture;
 import com.eteks.sweethome3d.model.Selectable;
@@ -832,6 +833,63 @@ public class FurnitureController implements Controller {
           this.viewFactory, this.contentManager, this.undoSupport);
       controller.setVisible(visible);
       controller.modifyFurniture();
+    }
+  }
+
+  /**
+   * Sets in one undoable operation whether the given <code>pieces</code> are
+   * displayed with their reduced (low poly) model in the 3D view.
+   */
+  public void setFurnitureReducedDetail(List<HomePieceOfFurniture> pieces, boolean reduced) {
+    String newValue = reduced ? "true" : null;
+    List<HomePieceOfFurniture> modifiedPieces = new ArrayList<HomePieceOfFurniture>();
+    List<String> oldValues = new ArrayList<String>();
+    for (HomePieceOfFurniture piece : pieces) {
+      String oldValue = piece.getProperty(ModelLOD.LOW_POLY_PROPERTY);
+      if (reduced != "true".equalsIgnoreCase(oldValue)) {
+        modifiedPieces.add(piece);
+        oldValues.add(oldValue);
+        piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, newValue);
+      }
+    }
+    if (!modifiedPieces.isEmpty() && this.undoSupport != null) {
+      this.undoSupport.postEdit(new FurnitureReducedDetailUndoableEdit(this.preferences,
+          modifiedPieces.toArray(new HomePieceOfFurniture [modifiedPieces.size()]),
+          oldValues.toArray(new String [oldValues.size()]), newValue));
+    }
+  }
+
+  /**
+   * Undoable edit for the reduced detail display of furniture.
+   */
+  private static class FurnitureReducedDetailUndoableEdit extends LocalizedUndoableEdit {
+    private final HomePieceOfFurniture [] pieces;
+    private final String []               oldValues;
+    private final String                  newValue;
+
+    public FurnitureReducedDetailUndoableEdit(UserPreferences preferences,
+                                              HomePieceOfFurniture [] pieces,
+                                              String [] oldValues, String newValue) {
+      super(preferences, FurnitureController.class, "undoModifyDetailName");
+      this.pieces = pieces;
+      this.oldValues = oldValues;
+      this.newValue = newValue;
+    }
+
+    @Override
+    public void undo() throws CannotUndoException {
+      super.undo();
+      for (int i = 0; i < this.pieces.length; i++) {
+        this.pieces [i].setProperty(ModelLOD.LOW_POLY_PROPERTY, this.oldValues [i]);
+      }
+    }
+
+    @Override
+    public void redo() throws CannotRedoException {
+      super.redo();
+      for (HomePieceOfFurniture piece : this.pieces) {
+        piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, this.newValue);
+      }
     }
   }
 

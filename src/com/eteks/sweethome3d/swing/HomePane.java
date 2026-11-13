@@ -30,6 +30,7 @@ import java.awt.Dialog;
 import java.awt.Dimension;
 import java.awt.EventQueue;
 import java.awt.FocusTraversalPolicy;
+import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Frame;
 import java.awt.Graphics;
@@ -46,6 +47,8 @@ import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Window;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.FlavorEvent;
@@ -5949,8 +5952,9 @@ public class HomePane extends JRootPane implements HomeView {
    */
   private void setSelectedFurnitureReducedDetailInView(boolean reduced) {
     Set<Content> modelsToGenerate = new HashSet<Content>();
-    for (HomePieceOfFurniture piece : getSelectedLeafPieces()) {
-      piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, reduced ? "true" : null);
+    List<HomePieceOfFurniture> pieces = getSelectedLeafPieces();
+    setFurnitureReducedDetail(pieces, reduced);
+    for (HomePieceOfFurniture piece : pieces) {
       Content model = piece.getModel();
       if (reduced && model != null && this.home.getModelLOD(model) == null) {
         modelsToGenerate.add(model);
@@ -5958,6 +5962,20 @@ public class HomePane extends JRootPane implements HomeView {
     }
     if (!modelsToGenerate.isEmpty()) {
       generateModelLODs(modelsToGenerate, null, false);
+    }
+  }
+
+  /**
+   * Switches the reduced detail display of the given pieces with an undoable
+   * edit when a furniture controller is available.
+   */
+  private void setFurnitureReducedDetail(List<HomePieceOfFurniture> pieces, boolean reduced) {
+    if (this.controller != null && this.controller.getFurnitureController() != null) {
+      this.controller.getFurnitureController().setFurnitureReducedDetail(pieces, reduced);
+    } else {
+      for (HomePieceOfFurniture piece : pieces) {
+        piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, reduced ? "true" : null);
+      }
     }
   }
 
@@ -6011,9 +6029,7 @@ public class HomePane extends JRootPane implements HomeView {
             this.preferences.getLocalizedString(HomePane.class, "reduceModelDetailDialog.title"),
             detailSlider) == JOptionPane.OK_OPTION) {
       float targetRatio = (float)sliderRatio[0];
-      for (HomePieceOfFurniture piece : pieces) {
-        piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, "true");
-      }
+      setFurnitureReducedDetail(pieces, true);
       generateModelLODs(models, Float.valueOf(targetRatio), false);
     }
   }

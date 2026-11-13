@@ -10,6 +10,7 @@
  */
 package com.eteks.sweethome3d.junit;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -23,6 +24,7 @@ import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
 import com.eteks.sweethome3d.model.Content;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
+import com.eteks.sweethome3d.model.ModelLOD;
 import com.eteks.sweethome3d.model.Selectable;
 import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.swing.SwingViewFactory;
@@ -66,6 +68,56 @@ public class FurnitureVisibilityUndoTest {
       homeController.redo();
       assertFalse(piece1.isVisible());
       assertFalse(piece2.isVisible());
+    } finally {
+      if (previousNo3D == null) {
+        System.clearProperty("com.eteks.sweethome3d.no3D");
+      } else {
+        System.setProperty("com.eteks.sweethome3d.no3D", previousNo3D);
+      }
+    }
+  }
+
+  @Test
+  public void testReducedDetailIsUndoable() throws Exception {
+    String previousNo3D = System.getProperty("com.eteks.sweethome3d.no3D");
+    System.setProperty("com.eteks.sweethome3d.no3D", "true");
+    try {
+      Home home = new Home();
+      UserPreferences preferences = new DefaultUserPreferences();
+      HomeController homeController = new HomeController(home, preferences, new SwingViewFactory());
+      Content icon = new URLContent(new File("dummy.png").toURI().toURL());
+      Content model = new URLContent(new File("dummy.obj").toURI().toURL());
+      HomePieceOfFurniture piece1 = new HomePieceOfFurniture(
+          new CatalogPieceOfFurniture("Piece 1", icon, model, 50, 50, 50, true, false));
+      HomePieceOfFurniture piece2 = new HomePieceOfFurniture(
+          new CatalogPieceOfFurniture("Piece 2", icon, model, 50, 50, 50, true, false));
+      home.addPieceOfFurniture(piece1);
+      home.addPieceOfFurniture(piece2);
+      piece2.setProperty(ModelLOD.LOW_POLY_PROPERTY, "true");
+      // Undo support is bound to the home once its view exists
+      homeController.getView();
+      assertFalse(home.isModified());
+
+      homeController.getFurnitureController().setFurnitureReducedDetail(
+          Arrays.asList(new HomePieceOfFurniture [] {piece1, piece2}), true);
+      assertTrue(ModelLOD.isReducedDetailInView(piece1));
+      assertTrue(ModelLOD.isReducedDetailInView(piece2));
+      assertTrue("Change marks home as modified", home.isModified());
+
+      homeController.undo();
+      assertFalse(ModelLOD.isReducedDetailInView(piece1));
+      assertTrue("Piece already reduced keeps its state", ModelLOD.isReducedDetailInView(piece2));
+      assertFalse(home.isModified());
+      homeController.redo();
+      assertTrue(ModelLOD.isReducedDetailInView(piece1));
+
+      // Unused reduced models are dropped, used ones kept
+      Content otherModel = new URLContent(new File("other.obj").toURI().toURL());
+      home.setModelLOD(model, new ModelLOD(model, 100, 10));
+      home.setModelLOD(otherModel, new ModelLOD(otherModel, 100, 10));
+      assertEquals(1, home.removeUnusedModelLODs());
+      assertTrue(home.getModelLOD(model) != null);
+      assertTrue(home.getModelLOD(otherModel) == null);
     } finally {
       if (previousNo3D == null) {
         System.clearProperty("com.eteks.sweethome3d.no3D");

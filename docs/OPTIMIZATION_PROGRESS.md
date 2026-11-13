@@ -134,14 +134,19 @@ committed.
 
 ## Next Work
 
-Known follow-ups from the 2026-11-13 review, not done yet: the reduced-detail
-popup actions set `ModelLOD.LOW_POLY_PROPERTY` without an undoable edit or the
-modified flag; `Home.removeModelLOD` has no caller, so LODs of deleted models
-stay in the saved file; LOD vertex counts compare non-indexed source vertices
-with indexed result vertices; the WebXR export and the off-screen/print scenes
-use the live view's LOD-enabled factory; `renderingQuality=speed` also disables
-transparency sorting on native Windows although the Javadoc of
-`GraphicsEnvironmentConfiguration` says WSLg only.
+The follow-ups of the 2026-11-13 review were done the same day: the
+reduced-detail popup actions post an undoable edit
+(`FurnitureController.setFurnitureReducedDetail`); `HomeController.save` drops
+the LODs of models no furniture uses from the saved copy
+(`Home.removeUnusedModelLODs`; the edited home keeps them for Undo); a LOD's
+before/after vertex counts are both counted as drawn vertices; transparency
+sorting is disabled by its own property
+`com.eteks.sweethome3d.j3d.transparencySorting=none`, set automatically on WSLg
+only, so native Windows sorts transparent geometry again (pass the property to
+get the previous speed-over-blending behavior); the `ModelManager` loader pool
+is created under the lock. Left as is on purpose: the WebXR export and the 3D
+view's print use the live view's factory, so pieces the user switched to
+reduced detail are exported and printed as displayed.
 
 Start future work from updated `main`. Use a new `perf/<scope>` branch per
 task rather than continuing on a merged checkpoint branch. The backlog below is

@@ -47,6 +47,7 @@ public class HomeAssistantContextTest {
     assertTrue(brief, brief.contains("5 MB"));
     // Stable ids let the assistant target existing items in phase 3
     assertTrue(brief, brief.contains("R1"));
+    assertTrue(brief, brief.contains("x 0 to 400, y 0 to 300 cm, center (200, 150)"));
     assertTrue(brief, brief.contains("W1"));
     assertTrue(brief, brief.contains("F1"));
   }

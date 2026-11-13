@@ -150,7 +150,26 @@ public class HomeAssistantContext {
         String name = room.getName();
         brief.append("    - R").append(i + 1).append(' ')
             .append(name != null && name.length() > 0 ? name : "Unnamed room")
-            .append(": ").append(format.format(room.getArea() / 10000)).append(" m2\n");
+            .append(": ").append(format.format(room.getArea() / 10000)).append(" m2");
+        // Where the room is, so furniture can be placed inside it
+        float [][] points = room.getPoints();
+        if (points.length > 0) {
+          float minX = Float.POSITIVE_INFINITY;
+          float minY = Float.POSITIVE_INFINITY;
+          float maxX = Float.NEGATIVE_INFINITY;
+          float maxY = Float.NEGATIVE_INFINITY;
+          for (float [] point : points) {
+            minX = Math.min(minX, point [0]);
+            minY = Math.min(minY, point [1]);
+            maxX = Math.max(maxX, point [0]);
+            maxY = Math.max(maxY, point [1]);
+          }
+          brief.append(", x ").append(format.format(minX)).append(" to ").append(format.format(maxX))
+              .append(", y ").append(format.format(minY)).append(" to ").append(format.format(maxY))
+              .append(" cm, center (").append(format.format(room.getXCenter())).append(", ")
+              .append(format.format(room.getYCenter())).append(")");
+        }
+        brief.append('\n');
       }
     } else {
       brief.append('\n');
@@ -258,7 +277,16 @@ public class HomeAssistantContext {
   public static String getCommandProtocol() {
     return "To MODIFY the home, reply with ONLY a JSON object of the form "
         + "{\"reply\": \"<short message to the user>\", \"commands\": [ ... ]}. "
-        + "Coordinates are in centimeters: x increases to the right of the plan, y increases "
+        + getCommandReference()
+        + "\n- If the user only asks a question, reply normally in plain text without any JSON.";
+  }
+
+  /**
+   * Returns the reference of the edit commands (coordinate system, commands and
+   * their rules), shared by the chat protocol and the MCP server.
+   */
+  public static String getCommandReference() {
+    return "Coordinates are in centimeters: x increases to the right of the plan, y increases "
         + "DOWNWARD (toward the bottom of the plan), so \"north\" means -y and \"south\" means +y. "
         + "Angles are in degrees clockwise; at angle 0 a piece's front faces +y (down). "
         + "Compute positions relative to the current selection "
@@ -292,8 +320,7 @@ public class HomeAssistantContext {
         + "- Place doors and windows ON a wall: give them the x,y of a point on the wall's "
         + "center line and the wall's direction as their angle.\n"
         + "- Use at most 30 commands per reply; coordinates beyond 1000000 cm and sizes beyond "
-        + "100000 cm are rejected.\n"
-        + "- If the user only asks a question, reply normally in plain text without any JSON.";
+        + "100000 cm are rejected.";
   }
 
   private static void countFurniture(List<HomePieceOfFurniture> furniture, int[] counts,

@@ -17,6 +17,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
@@ -97,6 +98,7 @@ public class AssistantClient {
    * @throws IOException if the request fails or the response can't be read
    */
   public String sendMessage(String systemPrompt, List<ChatMessage> conversation) throws IOException {
+    checkKeyTransport();
     String endpoint = getEndpoint();
     HttpURLConnection connection = (HttpURLConnection)new URL(endpoint).openConnection();
     connection.setRequestMethod("POST");
@@ -141,6 +143,7 @@ public class AssistantClient {
     if (handler == null) {
       return sendMessage(systemPrompt, conversation);
     }
+    checkKeyTransport();
     String endpoint = getEndpoint();
     HttpURLConnection connection = (HttpURLConnection)new URL(endpoint).openConnection();
     connection.setRequestMethod("POST");
@@ -253,6 +256,55 @@ public class AssistantClient {
    * thread blocked in {@link #sendMessageStreaming} fails with an {@link IOException}.
    * Later requests of this client fail immediately.
    */
+  /**
+   * Refuses to send an API key in clear text over the network: a key is only
+   * sent over HTTPS, or over HTTP to this computer or a private network address.
+   */
+  private void checkKeyTransport() throws IOException {
+    if (this.apiKey.length() > 0 && !isKeyTransportSafe(getEndpoint())) {
+      throw new IOException("The API key won't be sent over an unencrypted connection. "
+          + "Use an https:// API URL, or remove the key for a local server");
+    }
+  }
+
+  /**
+   * Returns <code>true</code> if an API key may be sent to the given endpoint.
+   */
+  public static boolean isKeyTransportSafe(String endpoint) {
+    try {
+      URL url = new URL(endpoint);
+      if ("https".equalsIgnoreCase(url.getProtocol())) {
+        return true;
+      }
+      String host = url.getHost().toLowerCase();
+      if (host.startsWith("[") && host.endsWith("]")) {
+        host = host.substring(1, host.length() - 1);
+      }
+      if (host.equals("localhost") || host.equals("::1") || host.endsWith(".localhost")) {
+        return true;
+      }
+      // Literal IPv4 addresses of the loopback and private ranges
+      String [] parts = host.split("\\.");
+      if (parts.length == 4) {
+        int [] bytes = new int [4];
+        for (int i = 0; i < 4; i++) {
+          bytes [i] = Integer.parseInt(parts [i]);
+          if (bytes [i] < 0 || bytes [i] > 255) {
+            return false;
+          }
+        }
+        return bytes [0] == 127 || bytes [0] == 10
+            || bytes [0] == 192 && bytes [1] == 168
+            || bytes [0] == 172 && bytes [1] >= 16 && bytes [1] <= 31;
+      }
+      return false;
+    } catch (MalformedURLException ex) {
+      return false;
+    } catch (NumberFormatException ex) {
+      return false;
+    }
+  }
+
   public void abort() {
     this.aborted = true;
     HttpURLConnection connection = this.currentConnection;

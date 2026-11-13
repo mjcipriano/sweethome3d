@@ -31,8 +31,10 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The home managed by the application with its furniture and walls.
@@ -2006,6 +2008,36 @@ public class Home implements Serializable, Cloneable {
     ModelLOD oldModelLOD = this.modelLODs.remove(model);
     if (oldModelLOD != null) {
       this.propertyChangeSupport.firePropertyChange(Property.MODEL_LODS.name(), oldModelLOD, null);
+    }
+  }
+
+  /**
+   * Removes the simplified models of the models that no piece of furniture of
+   * this home uses anymore, and returns the count of removed models.
+   */
+  public int removeUnusedModelLODs() {
+    if (this.modelLODs.isEmpty()) {
+      return 0;
+    }
+    Set<Content> usedModels = new HashSet<Content>();
+    collectModels(this.furniture, usedModels);
+    int removedCount = 0;
+    for (Content model : new ArrayList<Content>(this.modelLODs.keySet())) {
+      if (!usedModels.contains(model)) {
+        removeModelLOD(model);
+        removedCount++;
+      }
+    }
+    return removedCount;
+  }
+
+  private static void collectModels(List<HomePieceOfFurniture> furniture, Set<Content> models) {
+    for (HomePieceOfFurniture piece : furniture) {
+      if (piece instanceof HomeFurnitureGroup) {
+        collectModels(((HomeFurnitureGroup)piece).getFurniture(), models);
+      } else if (piece.getModel() != null) {
+        models.add(piece.getModel());
+      }
     }
   }
 

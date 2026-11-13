@@ -1064,9 +1064,10 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
 
     View view = viewer.getView();
     // Sorting transparent geometry by depth is done on the CPU every frame and is
-    // costly on complex scenes. Skip it when rendering is tuned for speed.
+    // costly on complex scenes. It's skipped only where the graphics configuration
+    // (WSLg) or the user asked for it
     view.setTransparencySortingPolicy(
-        "speed".equalsIgnoreCase(System.getProperty(GraphicsEnvironmentConfiguration.RENDERING_QUALITY_PROPERTY))
+        "none".equalsIgnoreCase(System.getProperty(GraphicsEnvironmentConfiguration.TRANSPARENCY_SORTING_PROPERTY))
             ? View.TRANSPARENCY_SORT_NONE
             : View.TRANSPARENCY_SORT_GEOMETRY);
 

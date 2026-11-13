@@ -285,8 +285,10 @@ reversible levers target rendering overhead:
   nodes (verified with `BENCHMARK_MODE=update`). Disable with
   `-Dcom.eteks.sweethome3d.j3d.compileScene=false`.
 - **Transparency sorting.** Sorting transparent geometry by depth runs on the CPU
-  every frame; under `renderingQuality=speed` (the Windows default) the view uses
-  `TRANSPARENCY_SORT_NONE` instead of `TRANSPARENCY_SORT_GEOMETRY`.
+  every frame; with `-Dcom.eteks.sweethome3d.j3d.transparencySorting=none` (the
+  WSLg default) the view uses `TRANSPARENCY_SORT_NONE` instead of
+  `TRANSPARENCY_SORT_GEOMETRY`. Native Windows keeps sorting so overlapping glass
+  blends correctly; pass the property there to trade that for speed.
 
 WSLg now selects the same speed profile automatically. Native Linux and macOS
 keep their previous defaults. Force an A/B run with
