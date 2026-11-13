@@ -145,8 +145,8 @@ extending the executor:
   modified.
 - **Ids are stable within a turn.** `execute` snapshots the furniture, wall and
   room lists; `F#`/`W#`/`R#` resolve against that snapshot and ignore items an
-  earlier command of the turn deleted. (Still open: the home can change while
-  the request is in flight - ids are resolved against the home at apply time.)
+  earlier command of the turn deleted. The snapshot is now taken when the home is described (see the follow-up
+  pass below).
 - **Only undoable targets.** `move` ignores labels, dimension lines, the
   compass and cameras; `delete` counts only what is really deleted.
 - **Value safety.** Non-finite numbers are treated as absent; `add_wall`
@@ -162,9 +162,26 @@ extending the executor:
   request removes the unanswered user message; a declined preview is recorded
   in the conversation.
 
-Not changed: the API key is one clear-text preference reused for whatever
-provider/URL is configured, and the system prompt (catalog included) is rebuilt
-for every step.
+### Follow-up pass and MCP server (2026-11-13, DONE)
+
+- **Ids survive edits made during a request.** `AssistantCommandExecutor.
+  snapshotDescribedItems()` records the items the ids designate when the home
+  is described (`AssistantPanel.buildSystemPrompt`, MCP `get_home`); `execute`
+  resolves `F#`/`W#`/`R#` against that snapshot.
+- **API key.** The settings dialog clears the key as soon as the provider or
+  the API URL changes, so a key is never sent to another service by accident.
+  `AssistantClient` refuses to send a key over plain `http://` except to this
+  computer or a private network address. The key can come from the
+  `SWEETHOME3D_ASSISTANT_API_KEY` environment variable instead of preferences,
+  in which case it is never written to disk. A key typed in the dialog is still
+  stored in clear text in the user preferences (there is no portable OS keychain
+  in the JDK).
+- **Prompt.** The role, protocol and catalog part of the system prompt is built
+  once per request; only the project brief is refreshed at each step. The brief
+  now gives each room's extent and centre in centimeters.
+- **Stop.** The Send button becomes Stop while a request runs.
+- **MCP server.** `Help > Claude MCP server...` exposes the home to Claude and
+  other MCP clients through the same executor: see `docs/MCP_SERVER.md`.
 
 ### Backlog / later
 

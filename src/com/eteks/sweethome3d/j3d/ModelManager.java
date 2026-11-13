@@ -815,8 +815,10 @@ public class ModelManager {
     } else if (!EventQueue.isDispatchThread()) {
       throw new IllegalStateException("Asynchronous call out of Event Dispatch Thread");
     } else {
-      if (this.modelsLoader == null) {
-        this.modelsLoader = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+      synchronized (this.loadedModelNodes) {
+        if (this.modelsLoader == null) {
+          this.modelsLoader = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+        }
       }
       List<ModelObserver> observers = this.loadingModelObservers.get(content);
       if (observers != null) {
@@ -894,12 +896,16 @@ public class ModelManager {
       // Nothing to gain from parallel loading; let the regular path handle it
       return;
     }
-    if (this.modelsLoader == null) {
-      this.modelsLoader = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    ExecutorService modelsLoader;
+    synchronized (this.loadedModelNodes) {
+      if (this.modelsLoader == null) {
+        this.modelsLoader = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+      }
+      modelsLoader = this.modelsLoader;
     }
     List<Future<?>> loadingTasks = new ArrayList<Future<?>>(contentsToLoad.size());
     for (final Content content : contentsToLoad) {
-      loadingTasks.add(this.modelsLoader.submit(new Runnable() {
+      loadingTasks.add(modelsLoader.submit(new Runnable() {
           public void run() {
             try {
               BranchGroup loadedModel = loadModel(content);

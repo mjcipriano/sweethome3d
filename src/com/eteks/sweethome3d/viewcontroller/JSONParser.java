@@ -77,6 +77,59 @@ public class JSONParser {
     return builder.toString();
   }
 
+  /**
+   * Returns the JSON text of the given value: a {@link Map} with string keys, a
+   * {@link List}, a {@link String}, a {@link Number}, a {@link Boolean} or
+   * <code>null</code>. Whole numbers are written without a decimal part.
+   */
+  public static String toJSON(Object value) {
+    StringBuilder builder = new StringBuilder();
+    appendJSON(builder, value);
+    return builder.toString();
+  }
+
+  private static void appendJSON(StringBuilder builder, Object value) {
+    if (value == null) {
+      builder.append("null");
+    } else if (value instanceof Map) {
+      builder.append('{');
+      boolean first = true;
+      for (Map.Entry<?, ?> entry : ((Map<?, ?>)value).entrySet()) {
+        if (!first) {
+          builder.append(',');
+        }
+        first = false;
+        builder.append(toJSONString(String.valueOf(entry.getKey()))).append(':');
+        appendJSON(builder, entry.getValue());
+      }
+      builder.append('}');
+    } else if (value instanceof List) {
+      builder.append('[');
+      boolean first = true;
+      for (Object item : (List<?>)value) {
+        if (!first) {
+          builder.append(',');
+        }
+        first = false;
+        appendJSON(builder, item);
+      }
+      builder.append(']');
+    } else if (value instanceof Number) {
+      double number = ((Number)value).doubleValue();
+      if (Double.isNaN(number) || Double.isInfinite(number)) {
+        builder.append("null");
+      } else if (number == Math.rint(number) && Math.abs(number) < 1E15) {
+        builder.append((long)number);
+      } else {
+        builder.append(number);
+      }
+    } else if (value instanceof Boolean) {
+      builder.append(value.toString());
+    } else {
+      builder.append(toJSONString(value.toString()));
+    }
+  }
+
   private Object parseValue() {
     if (++this.depth > MAX_DEPTH) {
       throw new IllegalArgumentException("JSON nested too deeply");

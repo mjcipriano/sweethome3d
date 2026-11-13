@@ -1,8 +1,11 @@
 package com.eteks.sweethome3d.junit;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -196,6 +199,31 @@ public class AssistantClientTest {
       } finally {
         server.stop(0);
       }
+    }
+  }
+
+  /**
+   * An API key must never leave this computer or a private network in clear text.
+   */
+  @Test
+  public void testApiKeyIsOnlySentOverSafeTransports() throws Exception {
+    assertTrue(AssistantClient.isKeyTransportSafe("https://api.deepseek.com/chat/completions"));
+    assertTrue(AssistantClient.isKeyTransportSafe("http://localhost:1234/v1/chat/completions"));
+    assertTrue(AssistantClient.isKeyTransportSafe("http://127.0.0.1:11434/v1/chat/completions"));
+    assertTrue(AssistantClient.isKeyTransportSafe("http://192.168.1.20:1234/v1/chat/completions"));
+    assertTrue(AssistantClient.isKeyTransportSafe("http://[::1]:1234/v1/chat/completions"));
+    assertFalse(AssistantClient.isKeyTransportSafe("http://api.example.com/v1/chat/completions"));
+    assertFalse(AssistantClient.isKeyTransportSafe("http://8.8.8.8/v1/chat/completions"));
+    assertFalse(AssistantClient.isKeyTransportSafe("http://172.32.0.1/v1/chat/completions"));
+    assertFalse(AssistantClient.isKeyTransportSafe("not a url"));
+
+    AssistantClient client = new AssistantClient(
+        Provider.OPENAI_COMPATIBLE, "http://api.example.com/v1", "secret-key", "model");
+    try {
+      client.sendMessage("system", AssistantClient.newConversation());
+      fail("Key sent in clear text");
+    } catch (IOException ex) {
+      assertTrue(ex.getMessage(), ex.getMessage().contains("unencrypted"));
     }
   }
 }

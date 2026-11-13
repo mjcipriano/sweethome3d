@@ -40,6 +40,8 @@ public class PackageDependenciesTest extends TestCase {
     PackageFilter packageFilter = new PackageFilter();
     // Ignore Java packages
     packageFilter.addPackage("java.*");
+    // JDK HTTP server used by the local MCP server
+    packageFilter.addPackage("com.sun.net.httpserver");
     // Ignore JUnit tests
     packageFilter.addPackage("com.eteks.sweethome3d.junit");
     // The VR preview is packaged as a plugin and may use the public application API.

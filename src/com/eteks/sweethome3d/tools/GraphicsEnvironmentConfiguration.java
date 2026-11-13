@@ -42,6 +42,13 @@ public class GraphicsEnvironmentConfiguration {
    */
   public static final String RENDERING_QUALITY_PROPERTY = "com.eteks.sweethome3d.j3d.renderingQuality";
 
+  /**
+   * Property read by the 3D view to choose how transparent geometry is sorted.
+   * Supported values are {@code geometry} (default, correct blending of
+   * overlapping transparent objects) and {@code none} (faster).
+   */
+  public static final String TRANSPARENCY_SORTING_PROPERTY = "com.eteks.sweethome3d.j3d.transparencySorting";
+
   private static final String AUTO_TUNE_PROPERTY = "com.eteks.sweethome3d.graphics.autoTune";
 
   private GraphicsEnvironmentConfiguration() {
@@ -85,6 +92,13 @@ public class GraphicsEnvironmentConfiguration {
     // ~11 to ~18 FPS and removed that failure mode. Override with
     // -Dj3d.displaylist=true.
     setIfAbsent("j3d.displaylist", "false", verbose);
+
+    if (wsl) {
+      // Sorting transparent geometry on the CPU every frame is especially costly
+      // through Mesa's D3D12 translation layer; native Windows keeps it for
+      // correct blending of windows and glass
+      setIfAbsent(TRANSPARENCY_SORTING_PROPERTY, "none", verbose);
+    }
 
     if (verbose) {
       log("applied " + (windows ? "Windows" : "WSLg") + " graphics speed defaults");

@@ -71,6 +71,12 @@ public class AssistantPanel extends JPanel {
   /** Client of the request in progress, or <code>null</code>; used to cancel it. */
   private volatile AssistantClient         currentClient;
   private volatile boolean                 cancelled;
+  private boolean                          busy;
+  /** Role, command protocol and catalog part of the system prompt of the running request. */
+  private String                           systemPromptPrefix;
+
+  /** Environment variable giving the API key when none is stored in preferences. */
+  public static final String API_KEY_ENVIRONMENT_VARIABLE = "SWEETHOME3D_ASSISTANT_API_KEY";
 
   public AssistantPanel(Home home, UserPreferences preferences, HomeController homeController) {
     super(new BorderLayout(0, 8));
@@ -111,7 +117,16 @@ public class AssistantPanel extends JPanel {
         }
       };
     this.inputField.addActionListener(sendListener);
-    this.sendButton.addActionListener(sendListener);
+    // The Send button stops the request in progress while one is running
+    this.sendButton.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          if (busy) {
+            cancel();
+          } else {
+            send();
+          }
+        }
+      });
     settingsButton.addActionListener(new ActionListener() {
         public void actionPerformed(ActionEvent ev) {
           showSettings();
@@ -140,6 +155,7 @@ public class AssistantPanel extends JPanel {
     setBusy(true);
 
     final AssistantClient client = createClient();
+    this.systemPromptPrefix = null;
     this.cancelled = false;
     this.currentClient = client;
     Thread thread = new Thread("Sweet Home 3D assistant") {
@@ -334,8 +350,26 @@ public class AssistantPanel extends JPanel {
     final StringBuilder builder = new StringBuilder();
     runOnDispatchThread(new Runnable() {
         public void run() {
-          builder.append(HomeAssistantContext.buildSystemPrompt(home, preferences,
-              commandExecutor != null));
+          // The role, protocol and catalog don't change during a request: build
+          // them once, and only refresh the project brief at each step
+          if (systemPromptPrefix == null) {
+            StringBuilder prefix = new StringBuilder(HomeAssistantContext.ROLE_PROMPT);
+            if (commandExecutor != null) {
+              prefix.append(HomeAssistantContext.getCommandProtocol());
+              String catalog = HomeAssistantContext.describeCatalog(preferences);
+              if (catalog.length() > 0) {
+                prefix.append("\n\n").append(catalog);
+              }
+            }
+            systemPromptPrefix = prefix.toString();
+          }
+          builder.append(systemPromptPrefix)
+              .append("\n\nCurrent project:\n").append(HomeAssistantContext.describeHome(home));
+          if (commandExecutor != null) {
+            // Ids of the reply must designate the items described now, even if
+            // the user edits the home while the request is in flight
+            commandExecutor.snapshotDescribedItems();
+          }
         }
       });
     return builder.toString();
@@ -371,8 +405,17 @@ public class AssistantPanel extends JPanel {
   private AssistantClient createClient() {
     Provider provider = "anthropic".equalsIgnoreCase(this.preferences.getAssistantProvider())
         ? Provider.ANTHROPIC : Provider.OPENAI_COMPATIBLE;
+    String apiKey = this.preferences.getAssistantApiKey();
+    if (apiKey == null || apiKey.trim().length() == 0) {
+      // A key given by the environment is never written to the preferences file
+      try {
+        apiKey = System.getenv(API_KEY_ENVIRONMENT_VARIABLE);
+      } catch (SecurityException ex) {
+        apiKey = null;
+      }
+    }
     return new AssistantClient(provider, this.preferences.getAssistantApiUrl(),
-        this.preferences.getAssistantApiKey(), this.preferences.getAssistantModel());
+        apiKey, this.preferences.getAssistantModel());
   }
 
   private void appendLine(String line) {
@@ -416,7 +459,8 @@ public class AssistantPanel extends JPanel {
   }
 
   private void setBusy(boolean busy) {
-    this.sendButton.setEnabled(!busy);
+    this.busy = busy;
+    this.sendButton.setText(busy ? "Stop" : "Send");
     this.inputField.setEnabled(!busy);
   }
 
@@ -425,8 +469,47 @@ public class AssistantPanel extends JPanel {
         "OpenAI-compatible (OpenRouter, DeepSeek, LM Studio, Ollama)", "Anthropic"});
     providerComboBox.setSelectedIndex(
         "anthropic".equalsIgnoreCase(this.preferences.getAssistantProvider()) ? 1 : 0);
-    JTextField urlField = new JTextField(this.preferences.getAssistantApiUrl(), 28);
-    JPasswordField keyField = new JPasswordField(this.preferences.getAssistantApiKey(), 28);
+    final JTextField urlField = new JTextField(this.preferences.getAssistantApiUrl(), 28);
+    final JPasswordField keyField = new JPasswordField(this.preferences.getAssistantApiKey(), 28);
+    // A key belongs to the service it was entered for: clear it as soon as the
+    // provider or the API URL changes, so it isn't sent to another service
+    final String storedKey = this.preferences.getAssistantApiKey();
+    final String storedUrl = this.preferences.getAssistantApiUrl();
+    final int storedProviderIndex = providerComboBox.getSelectedIndex();
+    final Runnable keyUpdater = new Runnable() {
+        private boolean storedService = true;
+
+        public void run() {
+          boolean service = providerComboBox.getSelectedIndex() == storedProviderIndex
+              && urlField.getText().trim().equals(storedUrl != null ? storedUrl.trim() : "");
+          if (service != this.storedService) {
+            this.storedService = service;
+            if (service) {
+              keyField.setText(storedKey);
+            } else if (new String(keyField.getPassword()).equals(storedKey)) {
+              keyField.setText("");
+            }
+          }
+        }
+      };
+    providerComboBox.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          keyUpdater.run();
+        }
+      });
+    urlField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+        public void insertUpdate(javax.swing.event.DocumentEvent ev) {
+          keyUpdater.run();
+        }
+
+        public void removeUpdate(javax.swing.event.DocumentEvent ev) {
+          keyUpdater.run();
+        }
+
+        public void changedUpdate(javax.swing.event.DocumentEvent ev) {
+          keyUpdater.run();
+        }
+      });
     JTextField modelField = new JTextField(this.preferences.getAssistantModel(), 28);
 
     JPanel panel = new JPanel(new GridBagLayout());
