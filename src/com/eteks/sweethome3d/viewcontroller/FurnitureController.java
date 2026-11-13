@@ -824,6 +824,18 @@ public class FurnitureController implements Controller {
   }
 
   /**
+   * Shows or hides all the selected furniture in one undoable operation.
+   */
+  public void setSelectedFurnitureVisible(boolean visible) {
+    if (!Home.getFurnitureSubList(this.home.getSelectedItems()).isEmpty()) {
+      HomeFurnitureController controller = new HomeFurnitureController(this.home, this.preferences,
+          this.viewFactory, this.contentManager, this.undoSupport);
+      controller.setVisible(visible);
+      controller.modifyFurniture();
+    }
+  }
+
+  /**
    * Groups the selected furniture as one piece of furniture.
    */
   public void groupSelectedFurniture() {

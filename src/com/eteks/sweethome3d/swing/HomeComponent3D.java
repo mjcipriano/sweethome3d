@@ -1666,7 +1666,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     }
 
     // Return distance to plane
-    // from https://fr.wikipedia.org/wiki/Distance_d%27un_point_ï¿½_un_plan
+    // from https://fr.wikipedia.org/wiki/Distance_d%27un_point_à_un_plan
     Vector3f vector1 = new Vector3f(boxVertices [index2].x - boxVertices [index1].x,
         boxVertices [index2].y - boxVertices [index1].y,
         boxVertices [index2].z - boxVertices [index1].z);
@@ -1683,7 +1683,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    * Returns the distance between the given <code>point</code> and the line defined by two points.
    */
   private float getDistanceToLine(Point3f point, Point3f point1, Point3f point2) {
-    // From https://fr.wikipedia.org/wiki/Distance_d%27un_point_ï¿½_une_droite#Dans_l.27espace
+    // From https://fr.wikipedia.org/wiki/Distance_d%27un_point_à_une_droite#Dans_l.27espace
     Vector3f lineDirection = new Vector3f(point2.x - point1.x, point2.y - point1.y, point2.z - point1.z);
     Vector3f vector = new Vector3f(point.x - point1.x, point.y - point1.y, point.z - point1.z);
     Vector3f crossProduct = new Vector3f();
@@ -3180,7 +3180,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       // Set com.eteks.sweethome3d.j3d.preloadModels=false to disable this fast path.
       Set<Content> modelContents = new HashSet<Content>();
       for (HomePieceOfFurniture piece : this.home.getFurniture()) {
-        collectModelContents(piece, this.home, modelContents);
+        collectModelContents(piece, this.home, isModelLODsUsedInView(), modelContents);
       }
       ModelManager.getInstance().preloadModels(modelContents);
     }
@@ -3236,15 +3236,17 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    * Adds the model content of the given <code>piece</code> (or of every piece it contains
    * if it's a group) to <code>modelContents</code>, so distinct models can be preloaded.
    */
-  private static void collectModelContents(HomePieceOfFurniture piece, Home home, Set<Content> modelContents) {
+  private static void collectModelContents(HomePieceOfFurniture piece, Home home, boolean useModelLODs,
+                                           Set<Content> modelContents) {
     if (piece instanceof HomeFurnitureGroup) {
       for (HomePieceOfFurniture childPiece : ((HomeFurnitureGroup)piece).getAllFurniture()) {
-        collectModelContents(childPiece, home, modelContents);
+        collectModelContents(childPiece, home, useModelLODs, modelContents);
       }
     } else {
-      com.eteks.sweethome3d.model.ModelLOD modelLOD =
-          home.getModelLOD(piece.getModel());
-      Content model = modelLOD != null ? modelLOD.getContent() : piece.getModel();
+      // Preload the model the piece will really display: its reduced model only
+      // if the piece uses it, otherwise the original one would be loaded later
+      // sequentially and the reduced one for nothing
+      Content model = com.eteks.sweethome3d.model.ModelLOD.getDisplayedModel(piece, home, useModelLODs);
       if (model != null) {
         modelContents.add(model);
       }

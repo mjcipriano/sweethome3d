@@ -183,6 +183,7 @@ import com.eteks.sweethome3d.j3d.Ground3D;
 import com.eteks.sweethome3d.j3d.OBJWriter;
 import com.eteks.sweethome3d.j3d.Object3DBranchFactory;
 import com.eteks.sweethome3d.j3d.ModelLODGenerator;
+import com.eteks.sweethome3d.j3d.ModelManager;
 import com.eteks.sweethome3d.model.BackgroundImage;
 import com.eteks.sweethome3d.model.Camera;
 import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
@@ -273,6 +274,8 @@ public class HomePane extends JRootPane implements HomeView {
   private ActionMap             menuActionMap;
   private List<Action>          pluginActions;
   private final Set<Content>    generatingModelLODs = Collections.synchronizedSet(new HashSet<Content>());
+  // Models for which the automatic generation produced no LOD (too small or not simplifiable)
+  private final Set<Content>    modelsWithoutLOD = Collections.synchronizedSet(new HashSet<Content>());
 
   /**
    * Creates home view associated with its controller.
@@ -4863,17 +4866,37 @@ public class HomePane extends JRootPane implements HomeView {
     }
   }
 
+  private JDialog assistantDialog;
+
   /**
    * Displays the AI design assistant chat in a non-modal dialog.
    */
   private void showAssistantDialog() {
-    AssistantPanel assistantPanel = new AssistantPanel(this.home, this.preferences, this.controller);
-    JDialog assistantDialog = new JDialog(SwingUtilities.getWindowAncestor(this),
+    if (this.assistantDialog != null && this.assistantDialog.isDisplayable()) {
+      // Reuse the open assistant, so two conversations never edit the same home
+      this.assistantDialog.setVisible(true);
+      this.assistantDialog.toFront();
+      return;
+    }
+    final AssistantPanel assistantPanel = new AssistantPanel(this.home, this.preferences, this.controller);
+    final JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(this),
         this.preferences.getLocalizedString(HomePane.class, "designAssistant"));
-    assistantDialog.add(assistantPanel);
-    assistantDialog.pack();
-    assistantDialog.setLocationRelativeTo(this);
-    assistantDialog.setVisible(true);
+    dialog.add(assistantPanel);
+    dialog.pack();
+    dialog.setLocationRelativeTo(this);
+    dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+    // Closing the assistant (or its home window) stops the request in progress
+    dialog.addWindowListener(new WindowAdapter() {
+        @Override
+        public void windowClosed(WindowEvent ev) {
+          assistantPanel.cancel();
+          if (assistantDialog == dialog) {
+            assistantDialog = null;
+          }
+        }
+      });
+    this.assistantDialog = dialog;
+    dialog.setVisible(true);
   }
 
   /**
@@ -5679,9 +5702,19 @@ public class HomePane extends JRootPane implements HomeView {
       return;
     }
 
+    // Automatic generation (at furniture addition) works silently and ignores
+    // the models already known to be too small to deserve a simplified version
+    final boolean automatic = !showStatus && targetRatio == null;
     final List<Content> queuedModels = new ArrayList<Content>();
     synchronized (this.generatingModelLODs) {
       for (Content model : models) {
+        if (automatic) {
+          int vertexCount = ModelManager.getInstance().getModelVertexCount(model);
+          if (this.modelsWithoutLOD.contains(model)
+              || vertexCount > 0 && vertexCount <= ModelLODGenerator.DEFAULT_VERTEX_THRESHOLD) {
+            continue;
+          }
+        }
         if (!this.generatingModelLODs.contains(model)) {
           this.generatingModelLODs.add(model);
           queuedModels.add(model);
@@ -5708,7 +5741,9 @@ public class HomePane extends JRootPane implements HomeView {
     progressDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
     progressDialog.pack();
     progressDialog.setLocationRelativeTo(this);
-    progressDialog.setVisible(true);
+    if (!automatic) {
+      progressDialog.setVisible(true);
+    }
 
     Thread generatorThread = new Thread("Sweet Home 3D model LOD generator") {
         @Override
@@ -5716,6 +5751,7 @@ public class HomePane extends JRootPane implements HomeView {
           final int [] generatedCount = {0};
           final int [] processedCount = {0};
           final Exception [] lastError = {null};
+          try {
           ModelLODGenerator generator = new ModelLODGenerator();
           for (final Content model : queuedModels) {
             try {
@@ -5729,11 +5765,18 @@ public class HomePane extends JRootPane implements HomeView {
                     }
                   });
                 generatedCount [0]++;
+              } else if (targetRatio == null) {
+                modelsWithoutLOD.add(model);
               }
             } catch (Exception ex) {
               lastError [0] = ex;
+            } catch (OutOfMemoryError ex) {
+              // A huge model mustn't prevent the other ones from being simplified
+              lastError [0] = new RuntimeException("Not enough memory to simplify a model");
             } finally {
-              generatingModelLODs.remove(model);
+              synchronized (generatingModelLODs) {
+                generatingModelLODs.remove(model);
+              }
               final int processed = ++processedCount [0];
               EventQueue.invokeLater(new Runnable() {
                   public void run() {
@@ -5744,11 +5787,18 @@ public class HomePane extends JRootPane implements HomeView {
                 });
             }
           }
-          EventQueue.invokeLater(new Runnable() {
-              public void run() {
-                progressDialog.dispose();
-              }
-            });
+          } finally {
+            // Whatever happened, never leave the undismissable progress dialog
+            // on screen or models marked as being generated
+            synchronized (generatingModelLODs) {
+              generatingModelLODs.removeAll(queuedModels);
+            }
+            EventQueue.invokeLater(new Runnable() {
+                public void run() {
+                  progressDialog.dispose();
+                }
+              });
+          }
           if (showStatus) {
             EventQueue.invokeLater(new Runnable() {
                 public void run() {
@@ -5823,9 +5873,14 @@ public class HomePane extends JRootPane implements HomeView {
   private void setSelectedFurnitureVisible(JComponent furnitureView, boolean visible) {
     // The furniture table selection mirrors the home selection; getValueAt returns
     // display values, not pieces, so read the selected pieces from the home.
-    for (Selectable item : this.home.getSelectedItems()) {
-      if (item instanceof HomePieceOfFurniture) {
-        setPieceVisible((HomePieceOfFurniture)item, visible);
+    if (this.controller != null) {
+      // Go through the controller, so the change is undoable and marks the home as modified
+      this.controller.getFurnitureController().setSelectedFurnitureVisible(visible);
+    } else {
+      for (Selectable item : this.home.getSelectedItems()) {
+        if (item instanceof HomePieceOfFurniture) {
+          setPieceVisible((HomePieceOfFurniture)item, visible);
+        }
       }
     }
   }

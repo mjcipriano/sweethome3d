@@ -59,7 +59,7 @@ import com.eteks.sweethome3d.viewcontroller.Object3DFactory;
 /**
  * A renderer able to create a photo realistic image of a home.
  * @author Emmanuel Puybaret
- * @author Frï¿½dï¿½ric Mantegazza (Sun location algorithm)
+ * @author Frédéric Mantegazza (Sun location algorithm)
  */
 public abstract class AbstractPhotoRenderer {
   public enum Quality {LOW, HIGH}
@@ -273,7 +273,7 @@ public abstract class AbstractPhotoRenderer {
 
   /**
    * Returns sun direction at a given <code>time</code>.
-   * @author Frï¿½dï¿½ric Mantegazza
+   * @author Frédéric Mantegazza
    */
   float [] getSunDirection(Compass compass, long time) {
     float elevation = compass.getSunElevation(time);

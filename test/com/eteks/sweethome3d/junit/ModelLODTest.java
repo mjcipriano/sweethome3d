@@ -1,6 +1,7 @@
 package com.eteks.sweethome3d.junit;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 
@@ -50,6 +51,7 @@ public class ModelLODTest {
 
     Home reopened = recorder.readHome(homeFile.getPath());
     assertEquals(1, reopened.getModelLODs().size());
+    assertFalse("A home read with LODs isn't modified", reopened.isModified());
     Map.Entry<Content, ModelLOD> entry = reopened.getModelLODs().entrySet().iterator().next();
     assertEquals("source-model", readContent(entry.getKey()));
     assertEquals("simplified-model", readContent(entry.getValue().getContent()));

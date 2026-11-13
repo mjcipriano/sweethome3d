@@ -5778,9 +5778,9 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
    * Repaints only the area covering a piece's previous and new bounds when it is
    * moved or rotated, instead of repainting the whole plan. A plain piece (not a
    * door, window or staircase that cuts other items) paints only within its own
-   * bounds, so a drag or rotation can update just that region. The plan bounds
-   * cache is still invalidated so the scrollable plan size and scroll position
-   * stay correct.
+   * bounds, so a drag or rotation can update just that region, as long as the
+   * piece stays strictly inside the plan bounds. Otherwise the plan is
+   * revalidated to update its size and scroll position.
    */
   private void repaintPieceOfFurnitureChange(HomePieceOfFurniture piece, String propertyName, Object oldValue) {
     if (!(oldValue instanceof Float)) {
@@ -5797,8 +5797,18 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
       previousPiece.setAngle((Float)oldValue);
     }
     bounds.add(getItemBounds(null, previousPiece));
-    // Keep the scrollable plan size and scroll position correct without a full repaint
-    invalidate(true);
+    Rectangle2D planBounds = getPlanBounds();
+    if (!(bounds.getMinX() > planBounds.getMinX() && bounds.getMinY() > planBounds.getMinY()
+          && bounds.getMaxX() < planBounds.getMaxX() && bounds.getMaxY() < planBounds.getMaxY())) {
+      // The piece reaches the limits of the plan: its move may change the plan
+      // bounds, hence the preferred size, the scroll position and the origin
+      // used to paint every item, which requires the complete update
+      revalidate();
+      return;
+    }
+    // The plan bounds can't change, so there's nothing to invalidate
+    // (invalidating without scheduling a validation would leave this component
+    // invalid and make the later invalidations of plan bounds cache ignored)
     int xMin = convertXModelToPixel((float)bounds.getMinX());
     int yMin = convertYModelToPixel((float)bounds.getMinY());
     int xMax = convertXModelToPixel((float)bounds.getMaxX());
