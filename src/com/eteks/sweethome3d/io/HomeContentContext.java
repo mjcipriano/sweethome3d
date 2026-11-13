@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.InterruptedIOException;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -58,6 +59,9 @@ class HomeContentContext {
   private Set<URLContent>          preferencesContentsCache;
   private boolean                  preferPreferencesContent;
   
+  // Contents of the home listed in its digests manifest, created at the first lookup
+  private Map<String, HomeURLContent> homeContents;
+
   public HomeContentContext(URL homeSource,
                             UserPreferences preferences,
                             boolean preferPreferencesContent) {
@@ -125,8 +129,13 @@ class HomeContentContext {
    * Returns the {@link Content} instance matching the given entry name in home stream.
    */
   public Content lookupContent(String contentEntryName) throws IOException {
-    URL fileURL = new URL("jar:" + this.homeUrl + "!/" + contentEntryName);
-    HomeURLContent urlContent = new HomeURLContent(fileURL);
+    if (this.homeContents == null) {
+      this.homeContents = computeHomeContentDigests();
+    }
+    HomeURLContent urlContent = this.homeContents.get(contentEntryName);
+    if (urlContent == null) {
+      urlContent = new HomeURLContent(new URL("jar:" + this.homeUrl + "!/" + contentEntryName));
+    }
     ContentDigestManager contentDigestManager = ContentDigestManager.getInstance();
     byte [] expectedDigest = this.contentDigests != null
         ? this.contentDigests.get(contentEntryName)
@@ -181,6 +190,32 @@ class HomeContentContext {
       }
     }
     return urlContent;
+  }
+
+  /**
+   * Computes in parallel the digests of the contents listed in the digests
+   * manifest of a local home file, and returns these contents by entry name.
+   * Checking sequentially the digest of each content while the home is parsed
+   * is the main cost of reading a large home; the returned instances are the
+   * ones {@link #lookupContent(String) lookupContent} then uses, so the digests
+   * stay cached as long as the home references its contents.
+   */
+  private Map<String, HomeURLContent> computeHomeContentDigests() throws IOException {
+    Map<String, HomeURLContent> contents = new HashMap<String, HomeURLContent>();
+    if (this.contentDigests != null
+        && this.contentDigests.size() > 1
+        && "file".equalsIgnoreCase(this.homeUrl.getProtocol())) {
+      for (String contentEntryName : this.contentDigests.keySet()) {
+        try {
+          contents.put(contentEntryName,
+              new HomeURLContent(new URL("jar:" + this.homeUrl + "!/" + contentEntryName)));
+        } catch (MalformedURLException ex) {
+          // Let lookupContent handle this entry if it's requested
+        }
+      }
+      ContentDigestManager.getInstance().computeContentDigests(contents.values());
+    }
+    return contents;
   }
 
   /**
