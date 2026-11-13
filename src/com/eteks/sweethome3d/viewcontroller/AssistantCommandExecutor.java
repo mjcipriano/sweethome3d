@@ -59,6 +59,20 @@ public class AssistantCommandExecutor {
   private List<Room>                 turnRooms;
   private boolean                    turnUpdateBegun;
   private final AssistantBuildingCommands buildingCommands;
+  private final AssistantObjectCommands   objectCommands;
+  private ModelSizeProvider               modelSizeProvider;
+  private java.io.File                    attachedImage;
+
+  /**
+   * Measures 3D models for this executor, which can't load any itself.
+   */
+  public interface ModelSizeProvider {
+    /**
+     * Returns the width, depth and height of <code>model</code> in the units
+     * of its file, or <code>null</code> if it contains no shape.
+     */
+    float [] getModelSize(com.eteks.sweethome3d.model.Content model) throws java.io.IOException;
+  }
   // Items designated by the ids of the last description given to the model
   private List<HomePieceOfFurniture> describedFurniture;
   private List<Wall>                 describedWalls;
@@ -69,6 +83,30 @@ public class AssistantCommandExecutor {
     this.preferences = preferences;
     this.homeController = homeController;
     this.buildingCommands = new AssistantBuildingCommands(home, preferences, homeController, this);
+    this.objectCommands = new AssistantObjectCommands(home, preferences, homeController, this);
+  }
+
+  /**
+   * Sets the object that measures the 3D models imported by <code>import_furniture</code>.
+   */
+  public void setModelSizeProvider(ModelSizeProvider modelSizeProvider) {
+    this.modelSizeProvider = modelSizeProvider;
+  }
+
+  ModelSizeProvider getModelSizeProvider() {
+    return this.modelSizeProvider;
+  }
+
+  /**
+   * Sets the picture the user attached to the conversation, which commands
+   * designate with <code>"image":"attached"</code>, or <code>null</code>.
+   */
+  public void setAttachedImage(java.io.File attachedImage) {
+    this.attachedImage = attachedImage;
+  }
+
+  java.io.File getAttachedImage() {
+    return this.attachedImage;
   }
 
   /**
@@ -228,8 +266,8 @@ public class AssistantCommandExecutor {
       modify(action, command, tally, notes);
     } else if ("delete".equals(action) || "remove".equals(action)) {
       delete(command, tally);
-    } else {
-      this.buildingCommands.apply(action, command, tally, notes);
+    } else if (!this.buildingCommands.apply(action, command, tally, notes)) {
+      this.objectCommands.apply(action, command, tally, notes);
     }
     // Unknown actions are ignored so a single bad command doesn't break a turn
   }

@@ -177,7 +177,15 @@ public class AssistantBuildingCommandsTest {
       new HomeFileRecorder().writeHome(this.home, file.getAbsolutePath());
       Home readHome = new HomeFileRecorder().readHome(file.getAbsolutePath());
       assertEquals(1, readHome.getFurniture().size());
-      assertNotNull(readHome.getFurniture().get(0).getModel().openStream());
+      // The model must still be the model, and the icon the icon
+      HomePieceOfFurniture readRoof = readHome.getFurniture().get(0);
+      String modelUrl = ((com.eteks.sweethome3d.tools.URLContent)readRoof.getModel()).getURL().toString();
+      assertTrue(modelUrl, modelUrl.endsWith(".obj"));
+      String iconUrl = ((com.eteks.sweethome3d.tools.URLContent)readRoof.getIcon()).getURL().toString();
+      assertFalse("The icon isn't a part of the model: " + iconUrl,
+          iconUrl.endsWith(".obj") || iconUrl.endsWith(".mtl"));
+      assertFalse(iconUrl.equals(modelUrl));
+      assertNotNull(readRoof.getModel().openStream());
     } finally {
       file.delete();
     }

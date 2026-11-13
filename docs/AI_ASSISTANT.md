@@ -225,9 +225,52 @@ one Undo. Two real Claude Code sessions built a three-room house with doors,
 windows, furniture and a roof through the MCP server on 2026-11-13; their
 remarks produced `next_to`, the per-room roofs and the door check.
 
-Ideas not done: roofs following an arbitrary outline, stairs, splitting a wall
-or cutting an opening without a door model, moving items between levels,
-importing a floor plan image, rendering a 3D picture for MCP clients.
+### Stairs, pictures, imports and Blender (2026-11-13, DONE)
+
+`AssistantObjectCommands`, `AssistantGeneratedModel`, `BlenderSceneScript`;
+tests in `AssistantObjectCommandsTest`.
+
+- **`add_stairs`** - a straight flight generated as a model, from the selected
+  level up to the next one (risers of about 17.5 cm, treads of 25 cm unless a
+  `length` is given). The piece has a staircase cut-out shape, so the floor of
+  the level above is cut open over it. Straight flights only.
+- **`add_picture`** - furniture showing an image file: `panel` (painting,
+  poster, photo, screen; hang it with `elevation`), `box`, or `floor` (a rug).
+  Missing sizes follow the proportions of the image. This is a textured box,
+  not a 3D reconstruction of what the picture shows.
+- **`import_furniture`** - an OBJ, DAE, 3DS, KMZ or ZIP model file of this
+  computer as a new piece. An OBJ or DAE is stored with the material files and
+  images it names, taken only from its own folder. The size comes from `width`
+  / `height` / `depth`, or from a guess of the unit of the file.
+- **`import_texture`** - an image added to the textures catalog (category
+  `Imported`), optionally applied to rooms, walls or furniture.
+- **Pictures in the chat** - the `Picture...` button of the assistant sends an
+  image (shrunk to 1024 px) with the next message, in the OpenAI
+  (`image_url`) or Anthropic (`image`) format; the model must read images.
+  Commands designate the original file with `"image":"attached"`. The protocol
+  tells the model to match a photographed piece with the closest catalog piece,
+  resized and recolored.
+- **Blender export** - `3D view > Export to Blender...` (and the MCP tool
+  `export_blender`) writes `scene.obj` with its materials and textures plus
+  `render_blender.py`, which rebuilds the home in Blender: real size, the
+  camera of the home, the sun at the home's place and time, its lamps, glass
+  materials, a ground and Cycles settings. `blender -b -P render_blender.py`
+  renders `render.png`; options after `--` set samples, size, output, GPU or
+  save a `.blend`. Tested with Blender 5.0 (`bpy` module); written to also
+  work with 3.x and 4.x, which weren't run.
+- **Files** - commands read only image and model files given by an absolute
+  path, check that an image really is one, and never send file contents back
+  to the model.
+
+A generated model keeps its icon in a separate file: a home saves the contents
+of one archive under a single name, so an icon stored next to its model made
+the model point to the icon once the home was saved and reopened (found with
+the built-in renderer; fixed for roofs too, with a save-and-reopen test).
+
+Ideas not done: L and U shaped or spiral stairs, railings, roofs following an
+arbitrary outline, splitting a wall or cutting an opening without a door model,
+moving items between levels, importing a floor plan image, turning a photo into
+a real 3D model (needs an image-to-3D service), PBR materials for Blender.
 
 ### Backlog / later
 

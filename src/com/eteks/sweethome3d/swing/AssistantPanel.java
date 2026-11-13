@@ -11,6 +11,13 @@
 package com.eteks.sweethome3d.swing;
 
 import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.EventQueue;
@@ -21,7 +28,9 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.List;
 
+import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
+import javax.swing.JFileChooser;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -72,6 +81,10 @@ public class AssistantPanel extends JPanel {
   private volatile AssistantClient         currentClient;
   private volatile boolean                 cancelled;
   private boolean                          busy;
+  /** Picture to send with the next message, shrunk for the model, and its file. */
+  private byte []                          pendingImage;
+  private File                             pendingImageFile;
+  private final JButton                    attachButton;
   /** Role, command protocol and catalog part of the system prompt of the running request. */
   private String                           systemPromptPrefix;
 
@@ -84,6 +97,9 @@ public class AssistantPanel extends JPanel {
     this.preferences = preferences;
     this.commandExecutor = homeController != null
         ? new AssistantCommandExecutor(home, preferences, homeController) : null;
+    if (this.commandExecutor != null) {
+      this.commandExecutor.setModelSizeProvider(new AssistantModelSizeProvider());
+    }
     setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
     this.transcriptArea = new JTextArea(18, 50);
@@ -99,7 +115,11 @@ public class AssistantPanel extends JPanel {
     JButton settingsButton = new JButton("Settings...");
     JPanel inputPanel = new JPanel(new BorderLayout(6, 0));
     inputPanel.add(this.inputField, BorderLayout.CENTER);
+    this.attachButton = new JButton("Picture...");
+    this.attachButton.setToolTipText("Attach a picture (a photo of furniture, a texture, a plan) to your next "
+        + "message; the model must be able to read images");
     JPanel buttons = new JPanel(new BorderLayout(6, 0));
+    buttons.add(this.attachButton, BorderLayout.WEST);
     buttons.add(this.sendButton, BorderLayout.CENTER);
     buttons.add(settingsButton, BorderLayout.EAST);
     inputPanel.add(buttons, BorderLayout.EAST);
@@ -127,6 +147,11 @@ public class AssistantPanel extends JPanel {
           }
         }
       });
+    this.attachButton.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          attachPicture();
+        }
+      });
     settingsButton.addActionListener(new ActionListener() {
         public void actionPerformed(ActionEvent ev) {
           showSettings();
@@ -150,8 +175,21 @@ public class AssistantPanel extends JPanel {
       return;
     }
     this.inputField.setText("");
-    appendLine("You: " + question);
-    this.conversation.add(new ChatMessage("user", question));
+    if (this.pendingImage != null) {
+      appendLine("You: " + question + "  [picture: " + this.pendingImageFile.getName() + "]");
+      // Commands designate the last picture with "image":"attached"
+      this.conversation.add(new ChatMessage("user", question
+          + "\n(A picture is attached; commands can use it with \"image\":\"attached\".)",
+          this.pendingImage, "image/jpeg"));
+      if (this.commandExecutor != null) {
+        this.commandExecutor.setAttachedImage(this.pendingImageFile);
+      }
+      this.pendingImage = null;
+      this.attachButton.setText("Picture...");
+    } else {
+      appendLine("You: " + question);
+      this.conversation.add(new ChatMessage("user", question));
+    }
     setBusy(true);
 
     final AssistantClient client = createClient();
@@ -182,6 +220,47 @@ public class AssistantPanel extends JPanel {
       };
     thread.setDaemon(true);
     thread.start();
+  }
+
+  /**
+   * Lets the user choose the picture sent with the next message. The model
+   * gets a copy shrunk to 1024 pixels; commands use the original file.
+   */
+  private void attachPicture() {
+    JFileChooser fileChooser = new JFileChooser();
+    fileChooser.setDialogTitle("Attach a picture");
+    fileChooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+        "Pictures (PNG, JPEG, GIF)", "png", "jpg", "jpeg", "gif"));
+    if (fileChooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+      return;
+    }
+    File file = fileChooser.getSelectedFile();
+    try {
+      BufferedImage image = ImageIO.read(file);
+      if (image == null) {
+        throw new IOException("not a picture");
+      }
+      float scale = Math.min(1f, 1024f / Math.max(image.getWidth(), image.getHeight()));
+      int width = Math.max(1, Math.round(image.getWidth() * scale));
+      int height = Math.max(1, Math.round(image.getHeight() * scale));
+      BufferedImage sentImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+      Graphics2D g2D = sentImage.createGraphics();
+      g2D.setColor(Color.WHITE);
+      g2D.fillRect(0, 0, width, height);
+      g2D.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+      g2D.drawImage(image, 0, 0, width, height, null);
+      g2D.dispose();
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      ImageIO.write(sentImage, "jpg", out);
+      this.pendingImage = out.toByteArray();
+      this.pendingImageFile = file;
+      this.attachButton.setText("Picture \u2713");
+      appendLine("[" + file.getName() + " will be sent with your next message]");
+    } catch (IOException ex) {
+      JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(this),
+          "Couldn't read " + file.getName() + ": " + ex.getMessage(),
+          "Attach a picture", JOptionPane.ERROR_MESSAGE);
+    }
   }
 
   /**
