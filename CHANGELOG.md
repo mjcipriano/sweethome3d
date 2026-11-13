@@ -1,5 +1,30 @@
 # Changelog
 
+## [7.16.0](https://github.com/mjcipriano/sweethome3d/compare/v7.15.0...v7.16.0) (2026-11-13)
+
+
+### Features
+
+* **ai:** local MCP server so Claude can read and edit the open home ([9db997b](https://github.com/mjcipriano/sweethome3d/commit/9db997ba5973ce029a13f88b13cf4c4b824366d0))
+* **ai:** MCP server for Claude, plus the review follow-ups ([3cf4792](https://github.com/mjcipriano/sweethome3d/commit/3cf47920a76941c5e66dc8677e127a25f9b3ec86))
+* **vr:** life-size WebXR walk-through for Quest with collisions, doorways, teleport and levels ([c2e50a7](https://github.com/mjcipriano/sweethome3d/commit/c2e50a757308f6f2f9410e36bb345b789fbef7de))
+* **vr:** life-size WebXR walk-through with wall collisions, doorways, teleport and levels ([f16af55](https://github.com/mjcipriano/sweethome3d/commit/f16af55abc03821696a61a34669d07762b2c91db))
+
+
+### Bug Fixes
+
+* **ai:** harden assistant undo, ids, parsing, streaming and cancellation ([3a2ed00](https://github.com/mjcipriano/sweethome3d/commit/3a2ed0021c6e6380d06ace5ecf934b5249d2891c))
+* **io:** read opened homes from a private copy so saving over them keeps contents ([8b6f7a5](https://github.com/mjcipriano/sweethome3d/commit/8b6f7a583ed71b8940716ba1c6fdc601e476444d))
+* plan repaint validity, LOD robustness, undoable visibility and review cleanups ([a25a984](https://github.com/mjcipriano/sweethome3d/commit/a25a984a6e8ec8b75f619d7581ce4459623da08d))
+* save-over content corruption, faster home loading, assistant and WebXR hardening ([fa6bfc6](https://github.com/mjcipriano/sweethome3d/commit/fa6bfc63c8a344f60cf2fd7fc81ba92a04498615))
+* undoable reduced detail, LOD pruning on save, assistant id snapshots and API key handling ([24ddd4f](https://github.com/mjcipriano/sweethome3d/commit/24ddd4f4cde9320b3150ff535421f5ecf7598275))
+* **vr:** stop previous WebXR previews, stream files and tighten path checks ([a0999b6](https://github.com/mjcipriano/sweethome3d/commit/a0999b6850c68626088aa0e50aadd57cd6f5b72f))
+
+
+### Performance Improvements
+
+* **io:** verify home content digests in parallel while loading ([47101cf](https://github.com/mjcipriano/sweethome3d/commit/47101cf18b936b20be2780a45d088616929bc214))
+
 ## [7.15.0](https://github.com/mjcipriano/sweethome3d/compare/v7.14.0...v7.15.0) (2026-06-13)
 
 
