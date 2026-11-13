@@ -53,6 +53,10 @@ jobs:
             make test-core
           }
 
+      - name: Test WebXR walk-through logic
+        if: runner.os == 'Linux'
+        run: make test-webxr-walk
+
       - name: Build executable JAR
         run: make jar
 

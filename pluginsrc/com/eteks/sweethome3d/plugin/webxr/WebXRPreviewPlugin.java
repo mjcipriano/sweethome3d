@@ -21,15 +21,19 @@ import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 
 import com.eteks.sweethome3d.j3d.Ground3D;
+import com.eteks.sweethome3d.j3d.ModelLODGenerator;
+import com.eteks.sweethome3d.j3d.ModelManager;
 import com.eteks.sweethome3d.j3d.OBJWriter;
 import com.eteks.sweethome3d.j3d.Object3DBranchFactory;
 import com.eteks.sweethome3d.viewcontroller.Object3DFactory;
+import com.eteks.sweethome3d.model.Content;
 import com.eteks.sweethome3d.model.DimensionLine;
 import com.eteks.sweethome3d.model.Elevatable;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomeFurnitureGroup;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Level;
+import com.eteks.sweethome3d.model.ModelLOD;
 import com.eteks.sweethome3d.model.InterruptedRecorderException;
 import com.eteks.sweethome3d.model.RecorderException;
 import com.eteks.sweethome3d.model.Room;
@@ -37,9 +41,7 @@ import com.eteks.sweethome3d.model.Selectable;
 import com.eteks.sweethome3d.model.Wall;
 import com.eteks.sweethome3d.plugin.Plugin;
 import com.eteks.sweethome3d.plugin.PluginAction;
-import com.eteks.sweethome3d.viewcontroller.HomeController3D;
 import com.eteks.sweethome3d.viewcontroller.View;
-import com.eteks.sweethome3d.swing.HomeComponent3D;
 import javax.media.j3d.Node;
 
 /**
@@ -50,104 +52,21 @@ public class WebXRPreviewPlugin extends Plugin {
   private WebXRPreviewServer previewServer;
   private File               previewDir;
 
-  private static final String HTML_TEMPLATE =
-      "<!DOCTYPE html>\n"
-    + "<html lang=\"en\">\n"
-    + "<head>\n"
-    + "  <meta charset=\"utf-8\" />\n"
-    + "  <title>Sweet Home 3D - WebXR Preview</title>\n"
-    + "  <style>\n"
-    + "    body { margin:0; overflow:hidden; background:#111; color:#e8f5ff; font-family:Arial,sans-serif; }\n"
-    + "    #overlay { position:fixed; top:10px; left:10px; background:rgba(0,0,0,0.7); padding:10px 12px; border-radius:6px; max-width:460px; line-height:1.4; font-size:13px; }\n"
-    + "    #scale { margin-top:6px; font-weight:bold; }\n"
-    + "    #controls { margin-top:6px; color:#a7d7ff; }\n"
-    + "    #controllers { margin-top:4px; font-size:12px; color:#b6e1ff; }\n"
-    + "    #log { margin-top:6px; white-space:pre-wrap; font-size:12px; color:#cde4ff; }\n"
-    + "    canvas { display:block; }\n"
-    + "    a { color:#9cf; }\n"
-    + "  </style>\n"
-    + "</head>\n"
-    + "<body>\n"
-    + "<div id=\"overlay\">\n"
-    + "  <div><strong>WebXR Preview</strong></div>\n"
-    + "  <div>Enter VR, then move with left stick or WASD + mouse.</div>\n"
-    + "  <div id=\"controls\">Right stick up/down or +/- to scale. R or left grip recenters to the floor.</div>\n"
-    + "  <div id=\"path\">Export dir: __EXPORT_PATH__</div>\n"
-    + "  <div id=\"files\">OBJ: pending | MTL: pending</div>\n"
-    + "  <div id=\"scale\">Scale: pending</div>\n"
-    + "  <div id=\"controllers\">Controllers: detecting...</div>\n"
-    + "  <div id=\"status\"></div>\n"
-    + "  <div id=\"log\"></div>\n"
-    + "</div>\n"
-    + "<script type=\"importmap\">\n"
-    + "{ \"imports\": { \"three\": \"https://unpkg.com/three@0.155.0/build/three.module.js\" } }\n"
-    + "</script>\n"
-    + "<script type=\"module\">\n"
-    + "import * as THREE from 'https://unpkg.com/three@0.155.0/build/three.module.js';\n"
-    + "import {MTLLoader} from 'https://unpkg.com/three@0.155.0/examples/jsm/loaders/MTLLoader.js';\n"
-    + "import {OBJLoader} from 'https://unpkg.com/three@0.155.0/examples/jsm/loaders/OBJLoader.js';\n"
-    + "import {OrbitControls} from 'https://unpkg.com/three@0.155.0/examples/jsm/controls/OrbitControls.js';\n"
-    + "import {VRButton} from 'https://unpkg.com/three@0.155.0/examples/jsm/webxr/VRButton.js';\n"
-    + "const statusEl=document.getElementById('status');\n"
-    + "const filesEl=document.getElementById('files');\n"
-    + "const logEl=document.getElementById('log');\n"
-    + "const scaleEl=document.getElementById('scale');\n"
-    + "const controllersEl=document.getElementById('controllers');\n"
-    + "function log(msg){console.log(msg); if(logEl){logEl.textContent+=msg+'\\n';}}\n"
-    + "function setStatus(msg){statusEl.textContent=msg; log(msg);}\n"
-    + "const scene=new THREE.Scene();scene.background=new THREE.Color(0x111111);\n"
-    + "const camera=new THREE.PerspectiveCamera(70,window.innerWidth/window.innerHeight,0.05,4000);\n"
-    + "camera.position.set(0,1.6,3);\n"
-    + "const renderer=new THREE.WebGLRenderer({antialias:true});\n"
-    + "renderer.outputEncoding=THREE.sRGBEncoding;\n"
-    + "renderer.setSize(window.innerWidth,window.innerHeight);\n"
-    + "renderer.xr.enabled=true;\n"
-    + "renderer.xr.setReferenceSpaceType('local-floor');\n"
-    + "document.body.appendChild(renderer.domElement);\n"
-    + "document.body.appendChild(VRButton.createButton(renderer));\n"
-    + "const player=new THREE.Group();\n"
-    + "const modelGroup=new THREE.Group();\n"
-    + "scene.add(modelGroup);\n"
-    + "scene.add(player);\n"
-    + "player.add(camera);\n"
-    + "const controls=new OrbitControls(camera,renderer.domElement);\n"
-    + "controls.target.set(0,1.4,0);controls.update();\n"
-    + "scene.add(new THREE.HemisphereLight(0xffffff,0x444444,0.6));\n"
-    + "const dirLight=new THREE.DirectionalLight(0xffffff,0.8);dirLight.position.set(3,10,10);scene.add(dirLight);\n"
-    + "scene.add(new THREE.GridHelper(50,50,0x333333,0x222222));\n"
-    + "scene.add(new THREE.AxesHelper(2));\n"
-    + "const clock=new THREE.Clock();let obj=null;const keys={};\n"
-    + "let modelBounds=null;let modelScale=0.01;const SCALE_MIN=0.001;const SCALE_MAX=10;const gripState={left:false,right:false};\n"
-    + "const tmpVec=new THREE.Vector3();const tmpRight=new THREE.Vector3();const up=new THREE.Vector3(0,1,0);\n"
-    + "const controllers=[renderer.xr.getController(0),renderer.xr.getController(1)];\n"
-    + "controllers.forEach((c,i)=>{c.userData.index=i;c.addEventListener('connected',e=>{c.userData.gamepad=e.data.gamepad;c.userData.handedness=e.data.handedness||e.data.inputSource?.handedness||(i===0?'left':'right');updateControllerDisplay();log('Controller '+c.userData.handedness+' connected');});c.addEventListener('disconnected',()=>{delete c.userData.gamepad;updateControllerDisplay();log('Controller '+(c.userData.handedness||c.userData.index)+' disconnected');});player.add(c);});\n"
-    + "function updateScaleDisplay(){if(!scaleEl)return;scaleEl.textContent='Scale: '+modelScale.toFixed(3)+'x (default 0.010 = cm->m)';}\n"
-    + "function setScale(next,{recenter=false}={}){const clamped=Math.min(Math.max(next,SCALE_MIN),SCALE_MAX);modelScale=clamped;modelGroup.scale.setScalar(clamped);updateScaleDisplay();if(recenter){placePlayerOnFloor();}}\n"
-    + "function nudgeScale(multiplier){setScale(modelScale*multiplier);}\n"
-    + "function handleScaleAxis(value,delta){const dead=0.25;if(Math.abs(value)<dead)return;const change=1+value*delta*1.5;nudgeScale(change);}\n"
-    + "function placePlayerOnFloor(){const depth=modelBounds?modelBounds.getSize(tmpVec).z*modelScale:0;const spawnZ=Math.max(depth*0.55,2.0);player.position.set(0,0,spawnZ);controls.target.set(0,1.4,0);controls.update();}\n"
-    + "function prepareModel(){if(!obj)return;modelGroup.clear();modelGroup.add(obj);modelBounds=new THREE.Box3().setFromObject(obj);const center=modelBounds.getCenter(new THREE.Vector3());const minY=modelBounds.min.y;obj.position.set(-center.x,-minY,-center.z);modelBounds=new THREE.Box3().setFromObject(obj);setScale(modelScale,{recenter:true});setStatus('Model ready');}\n"
-    + "function fallbackCube(){if(obj)return;const geo=new THREE.BoxGeometry(1,1,1);const mat=new THREE.MeshStandardMaterial({color:0x44aa88});obj=new THREE.Mesh(geo,mat);prepareModel();setScale(1,{recenter:true});setStatus('Showing fallback cube');}\n"
-    + "function movePlayer(moveX,moveZ,quat,delta,speed){if(Math.abs(moveX)<0.05&&Math.abs(moveZ)<0.05)return;tmpVec.set(0,0,-1).applyQuaternion(quat);tmpVec.y=0;if(tmpVec.lengthSq()===0)return;tmpVec.normalize();tmpRight.crossVectors(tmpVec,up).normalize();player.position.addScaledVector(tmpVec,moveZ*speed*delta);player.position.addScaledVector(tmpRight,moveX*speed*delta);controls.target.addScaledVector(tmpVec,moveZ*speed*delta);controls.target.addScaledVector(tmpRight,moveX*speed*delta);controls.update();}\n"
-    + "function updateControllerDisplay(){if(!controllersEl)return;const active=controllers.filter(c=>c.userData.gamepad).length;controllersEl.textContent='Controllers: '+active+'/2';}\n"
-    + "function handleXRMovement(delta){const session=renderer.xr.getSession();if(!session)return;const xrCamera=renderer.xr.getCamera(camera);let used=false;controllers.forEach(ctrl=>{const gp=ctrl.userData.gamepad;if(!gp||gp.axes.length<2)return;const moveSource=(ctrl.userData.handedness==='left'||controllers.length===1);if(moveSource){movePlayer(gp.axes[0],-gp.axes[1],xrCamera.quaternion,delta,2.2);}else{handleScaleAxis(gp.axes[1],delta);}const gripPressed=gp.buttons&&gp.buttons[1]&&gp.buttons[1].pressed;if(ctrl.userData.handedness==='left'&&gripPressed&&!gripState.left){placePlayerOnFloor();}gripState[ctrl.userData.handedness||'left']=!!gripPressed;used=true;});if(!used){session.inputSources.forEach(src=>{const gp=src.gamepad;if(!gp||gp.axes.length<2)return;const ax=gp.axes;const moveSource=(src.handedness==='left'||session.inputSources.length===1);if(moveSource){movePlayer(ax[0],-ax[1],xrCamera.quaternion,delta,2.2);}else{handleScaleAxis(ax[1],delta);}const gripPressed=gp.buttons&&gp.buttons[1]&&gp.buttons[1].pressed;if(src.handedness==='left'&&gripPressed&&!gripState.left){placePlayerOnFloor();}gripState[src.handedness]=!!gripPressed;});}}\n"
-    + "function handleDesktopMovement(delta){const speed=3.0;const moveZ=(keys['KeyW']?1:0)+(keys['KeyS']?-1:0);const moveX=(keys['KeyA']?-1:0)+(keys['KeyD']?1:0);if(moveX===0&&moveZ===0)return;movePlayer(moveX,moveZ,camera.quaternion,delta,speed);}\n"
-    + "window.addEventListener('keydown',e=>{keys[e.code]=true;if(e.code==='Equal'||e.code==='NumpadAdd'){nudgeScale(1.05);}else if(e.code==='Minus'||e.code==='NumpadSubtract'){nudgeScale(0.95);}else if(e.code==='KeyR'){placePlayerOnFloor();}});\n"
-    + "window.addEventListener('keyup',e=>{keys[e.code]=false;});\n"
-    + "renderer.xr.addEventListener('sessionstart',()=>{const session=renderer.xr.getSession();if(session){session.addEventListener('inputsourceschange',()=>{updateControllerDisplay();});updateControllerDisplay();}placePlayerOnFloor();});\n"
-    + "const manager=new THREE.LoadingManager();\n"
-    + "manager.onError=url=>{setStatus('Error loading '+url);fallbackCube();};\n"
-    + "manager.onLoad=()=>{setStatus('Model loaded');};\n"
-    + "function loadModel(){setStatus('Loading OBJ/MTL...');const mtlLoader=new MTLLoader(manager);mtlLoader.setPath('./');mtlLoader.load('scene.mtl',materials=>{materials.preload();const loader=new OBJLoader(manager);loader.setMaterials(materials);loader.setPath('./');loader.load('scene.obj',o=>{obj=o;o.traverse(c=>{if(c.isMesh){c.castShadow=true;c.receiveShadow=true;}});prepareModel();},undefined,err=>{setStatus('OBJ load error');log(err);fallbackCube();});},undefined,err=>{setStatus('MTL load error');log(err);fallbackCube();});}\n"
-    + "function checkFiles(){return Promise.all([fetch('scene.obj',{method:'HEAD'}),fetch('scene.mtl',{method:'HEAD'})]).then(([o,m])=>{filesEl.textContent='OBJ: '+o.status+' | MTL: '+m.status;return o.ok&&m.ok;}).catch(e=>{setStatus('Fetch failed');log(e);return false;});}\n"
-    + "function animate(){const delta=clock.getDelta();handleXRMovement(delta);handleDesktopMovement(delta);renderer.render(scene,camera);}renderer.setAnimationLoop(animate);\n"
-    + "window.addEventListener('resize',()=>{camera.aspect=window.innerWidth/window.innerHeight;camera.updateProjectionMatrix();renderer.setSize(window.innerWidth,window.innerHeight);});\n"
-    + "checkFiles().then(ok=>{if(ok){loadModel();}else{setStatus('Files missing - fallback cube');fallbackCube();}});\n"
-    + "setTimeout(()=>{if(!obj){fallbackCube();}},2000);\n"
-    + "updateScaleDisplay();\n"
-    + "</script>\n"
-    + "</body>\n"
-    + "</html>\n";
+  /**
+   * The count of furniture triangles a standalone headset draws at a comfortable
+   * frame rate and loads in its browser's memory.
+   */
+  static final long TRIANGLE_BUDGET =
+      Long.getLong("com.eteks.sweethome3d.webxr.triangleBudget", 900000L).longValue();
+  /** Models with fewer drawn vertices than this are never reduced. */
+  private static final int HEAVY_MODEL_VERTICES = 6000;
+  /** The geometric error accepted to reach the budget, relative to a mesh size. */
+  private static final float HEADSET_TARGET_ERROR = 0.05f;
+  /** Models are never reduced beyond this ratio. */
+  private static final float MIN_REDUCTION_RATIO = 0.01f;
+
+  /** The files of the viewer copied from the plugin resources to each export. */
+  private static final String [] VIEWER_RESOURCES = {"webxr-viewer.js", "webxr-walk.js"};
 
   private final PluginAction[] actions;
 
@@ -201,8 +120,8 @@ public class WebXRPreviewPlugin extends Plugin {
     File exportDir = createExportDir();
     WebXRPreviewServer server;
     try {
-      exportHome(exportDir, home);
-      writeWebXRHtml(exportDir);
+      Home exportedHome = exportHome(exportDir, home);
+      writeViewer(exportDir, exportedHome);
       server = new WebXRPreviewServer(exportDir);
       server.start();
     } catch (Exception ex) {
@@ -238,8 +157,10 @@ public class WebXRPreviewPlugin extends Plugin {
       }
       message.append("\nThe browser will warn about the self-signed certificate once -\n")
           .append("choose Advanced > Proceed. Then press \"Enter VR\".\n\n")
-          .append("Move with the left stick, scale the model with the right stick,\n")
-          .append("and press the left grip to recenter on the floor.\n\n")
+          .append("You start where the virtual visitor stands, at life size.\n")
+          .append("Left stick: walk. Right stick: turn, or push forward to aim and\n")
+          .append("release to teleport. A / B: level above / below. Y: back to start.\n")
+          .append("Walls stop you and doorways let you through (X switches this off).\n\n")
           .append("SteamVR/PC headsets: open the desktop URL above in Chrome or Edge\n")
           .append("with the headset connected (WebXR uses the active OpenXR runtime).");
     }
@@ -293,42 +214,160 @@ public class WebXRPreviewPlugin extends Plugin {
     return java.nio.file.Files.createTempDirectory("sh3d-webxr-").toFile();
   }
 
-  private void exportHome(File exportDir, Home home) throws RecorderException {
+  /**
+   * Exports <code>home</code> to OBJ and returns the copy of the home that was exported.
+   */
+  private Home exportHome(File exportDir, Home home) throws RecorderException {
+    // A factory of its own, which displays the reduced models chosen for the headset
+    Object3DFactory factory = new Object3DBranchFactory();
+    Home clonedHome = cloneHomeInEDT(home);
+    // The plan is described from a second copy, as the export changes the selection of the first
+    Home describedHome = cloneHomeInEDT(home);
+    exportModel(exportDir, clonedHome, factory);
+    showAllLevels(describedHome);
+    return describedHome;
+  }
+
+  /**
+   * Exports to OBJ every viewable level of <code>home</code>, so the visitor
+   * can go to each floor whatever level is selected in the application.
+   * Caution: the selection and the visible levels of <code>home</code> are modified.
+   */
+  public static void exportModel(File exportDir, Home home, Object3DFactory factory) throws RecorderException {
     File objFile = new File(exportDir, "scene.obj");
     String header = "Exported " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date());
-    View view3D = null;
-    HomeController3D controller3D = getHomeController() != null ? getHomeController().getHomeController3D() : null;
-    if (controller3D != null) {
-      view3D = controller3D.getView();
-    }
-    Object3DFactory factory;
-    if (view3D instanceof HomeComponent3D) {
-      factory = ((HomeComponent3D)view3D).getObject3DFactory();
-    } else {
-      factory = new Object3DBranchFactory();
-    }
-    Home clonedHome = cloneHomeInEDT(home);
-    OBJExportHelper.exportHomeToFile(clonedHome, objFile.getAbsolutePath(), header, true, factory);
+    showAllLevels(home);
+    reduceModelsForHeadset(home, TRIANGLE_BUDGET);
+    OBJExportHelper.exportHomeToFile(home, objFile.getAbsolutePath(), header, true, factory);
   }
 
-  private File writeWebXRHtml(File exportDir) throws IOException {
-    String html = HTML_TEMPLATE.replace("__EXPORT_PATH__", exportDir.getName());
-    File index = new File(exportDir, "index.html");
-    OutputStream out = null;
-    try {
-      out = new java.io.FileOutputStream(index);
-      out.write(html.getBytes(StandardCharsets.UTF_8));
-    } finally {
-      if (out != null) {
-        out.close();
+  /**
+   * Switches the furniture of <code>home</code> to reduced models when its
+   * models have more triangles altogether than a standalone headset can draw
+   * and load. Every heavy model is reduced by the same ratio, so the furniture
+   * keeps its relative level of detail. Does nothing if the scene is light
+   * enough or if the model simplification library isn't available.
+   * @return the estimated count of triangles of the furniture after reduction
+   */
+  static long reduceModelsForHeadset(Home home, long triangleBudget) {
+    List<HomePieceOfFurniture> pieces = new ArrayList<HomePieceOfFurniture>();
+    collectDisplayedPieces(home.getFurniture(), pieces);
+    // Count how many drawn vertices each model brings to the scene
+    final java.util.Map<Content, Integer> pieceCounts = new java.util.LinkedHashMap<Content, Integer>();
+    for (HomePieceOfFurniture piece : pieces) {
+      Integer count = pieceCounts.get(piece.getModel());
+      pieceCounts.put(piece.getModel(), count == null ? 1 : count + 1);
+    }
+    java.util.Map<Content, Integer> vertexCounts = new java.util.HashMap<Content, Integer>();
+    long lightVertices = 0;
+    long heavyVertices = 0;
+    List<Content> heavyModels = new ArrayList<Content>();
+    for (java.util.Map.Entry<Content, Integer> entry : pieceCounts.entrySet()) {
+      Content model = entry.getKey();
+      // Loading is synchronous here; the export needs every model anyway
+      ModelManager.getInstance().loadModel(model, true, new ModelManager.ModelObserver() {
+          public void modelUpdated(javax.media.j3d.BranchGroup modelRoot) {
+          }
+
+          public void modelError(Exception ex) {
+          }
+        });
+      int vertexCount = ModelManager.getInstance().getModelVertexCount(model);
+      vertexCounts.put(model, vertexCount);
+      long vertices = (long)vertexCount * entry.getValue();
+      if (vertexCount > HEAVY_MODEL_VERTICES) {
+        heavyModels.add(model);
+        heavyVertices += vertices;
+      } else {
+        lightVertices += vertices;
       }
     }
-    return index;
+    long vertexBudget = triangleBudget * 3;
+    if (lightVertices + heavyVertices <= vertexBudget
+        || heavyModels.isEmpty()
+        || !ModelLODGenerator.isAvailable()) {
+      return (lightVertices + heavyVertices) / 3;
+    }
+    float ratio = Math.max(MIN_REDUCTION_RATIO,
+        (float)Math.max(0, vertexBudget - lightVertices) / heavyVertices);
+    long reducedVertices = lightVertices;
+    ModelLODGenerator generator = new ModelLODGenerator();
+    for (Content model : heavyModels) {
+      long vertices = (long)vertexCounts.get(model) * pieceCounts.get(model);
+      try {
+        ModelLOD modelLOD = generator.generate(model, ratio, HEADSET_TARGET_ERROR);
+        if (modelLOD != null && modelLOD.getSourceVertexCount() > 0) {
+          home.setModelLOD(model, modelLOD);
+          for (HomePieceOfFurniture piece : pieces) {
+            if (model.equals(piece.getModel())) {
+              piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, "true");
+            }
+          }
+          vertices = vertices * modelLOD.getVertexCount() / modelLOD.getSourceVertexCount();
+        }
+      } catch (IOException ex) {
+        // Keep the original model
+      } catch (RuntimeException ex) {
+        // Keep the original model
+      } catch (OutOfMemoryError ex) {
+        // Keep the original model
+      }
+      reducedVertices += vertices;
+    }
+    return reducedVertices / 3;
   }
 
+  private static void collectDisplayedPieces(List<HomePieceOfFurniture> furniture,
+                                             List<HomePieceOfFurniture> pieces) {
+    for (HomePieceOfFurniture piece : furniture) {
+      if (piece instanceof HomeFurnitureGroup) {
+        collectDisplayedPieces(((HomeFurnitureGroup)piece).getFurniture(), pieces);
+      } else if (piece.getModel() != null && piece.isVisible()
+          && (piece.getLevel() == null || piece.getLevel().isViewable())) {
+        // Pieces keep the full model unless the budget asks to reduce it
+        piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, null);
+        pieces.add(piece);
+      }
+    }
+  }
 
+  private static void showAllLevels(Home home) {
+    for (Level level : home.getLevels()) {
+      if (level.isViewable()) {
+        level.setVisible(true);
+      }
+    }
+  }
 
+  /**
+   * Writes the viewer page, its scripts and the description of the plan of
+   * <code>home</code> in <code>exportDir</code>, and returns the page.
+   */
+  public static File writeViewer(File exportDir, Home home) throws IOException {
+    copyResource("webxr-viewer.html", new File(exportDir, "index.html"));
+    for (String resource : VIEWER_RESOURCES) {
+      copyResource(resource, new File(exportDir, resource));
+    }
+    OutputStream out = new java.io.FileOutputStream(new File(exportDir, "scene.json"));
+    try {
+      out.write(WebXRSceneDescription.toJSON(home).getBytes(StandardCharsets.UTF_8));
+    } finally {
+      out.close();
+    }
+    return new File(exportDir, "index.html");
+  }
 
+  private static void copyResource(String resource, File file) throws IOException {
+    java.io.InputStream in = WebXRPreviewPlugin.class.getResourceAsStream(resource);
+    if (in == null) {
+      throw new IOException("Missing plugin resource " + resource);
+    }
+    try {
+      java.nio.file.Files.copy(in, file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+    } finally {
+      in.close();
+    }
+  }
 
   private void openInBrowser(URL url, File indexFile) {
     boolean opened = false;
