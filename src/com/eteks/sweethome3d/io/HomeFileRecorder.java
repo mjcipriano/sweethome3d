@@ -315,7 +315,15 @@ public class HomeFileRecorder implements HomeRecorder {
       File homeFile = new File(name);
       if (homeFile.isFile()) {
         if (isZipFile(homeFile)) {
-          homeInputStream = new DefaultHomeInputStream(homeFile, ContentRecording.INCLUDE_ALL_CONTENT,
+          // Read the home from a private copy of its file: the contents of the
+          // returned home keep referencing the entries of the file they were read
+          // from, and saving the home over its original file renumbers these entries.
+          // Copying raw bytes is much cheaper than inflating each entry to copy it,
+          // and lets the reader skip the eager validation of files with digests
+          File homeFileCopy = OperatingSystem.createTemporaryFile("open", ".sweethome3d");
+          java.nio.file.Files.copy(homeFile.toPath(), homeFileCopy.toPath(),
+              java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+          homeInputStream = new DefaultHomeInputStream(homeFileCopy, ContentRecording.INCLUDE_ALL_CONTENT,
               this.preferXmlEntry ? getHomeXMLHandler() : null,
               this.preferences, this.preferPreferencesContent);
         } else {

@@ -74,6 +74,7 @@ CORE_TEST_SOURCES := \
   test/com/eteks/sweethome3d/io/HomeContentContextTest.java \
   test/com/eteks/sweethome3d/junit/SweetHome3DVersionTest.java \
   test/com/eteks/sweethome3d/junit/HomeTest.java \
+  test/com/eteks/sweethome3d/junit/HomeSaveOverOpenedFileTest.java \
   test/com/eteks/sweethome3d/junit/ModelLODTest.java \
   test/com/eteks/sweethome3d/junit/OperatingSystemTest.java \
   test/com/eteks/sweethome3d/junit/PackageDependenciesTest.java
