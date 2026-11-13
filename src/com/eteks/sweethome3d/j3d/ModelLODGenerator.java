@@ -128,6 +128,30 @@ public class ModelLODGenerator {
     return generate(model, Float.valueOf(targetRatio));
   }
 
+  /**
+   * Returns a simplified model reaching <code>targetRatio</code> as closely as
+   * possible, for uses where the count of triangles matters more than fidelity
+   * (a standalone VR headset for example): the simplification accepts a
+   * geometric error up to <code>targetError</code> (relative to the size of the
+   * mesh), then removes triangles evenly from the meshes that still can't be
+   * simplified enough, like the disconnected leaves of a tree.
+   */
+  public ModelLOD generate(final Content model, float targetRatio, float targetError) throws IOException {
+    float previousTargetError = this.targetError;
+    boolean previousTriangleSampling = this.triangleSampling;
+    this.targetError = targetError;
+    this.triangleSampling = true;
+    try {
+      return generate(model, Float.valueOf(targetRatio));
+    } finally {
+      this.targetError = previousTargetError;
+      this.triangleSampling = previousTriangleSampling;
+    }
+  }
+
+  private float   targetError = 0.01f;
+  private boolean triangleSampling;
+
   private ModelLOD generate(final Content model, Float targetRatioOverride) throws IOException {
     if (!nativeAvailable) {
       throw new IOException("The model LOD native library isn't available");
@@ -260,7 +284,10 @@ public class ModelLODGenerator {
           ? source.getTextureCoordinates(0) : null;
       MeshData mesh = indexVertices(coordinates, sourceNormals, sourceTextureCoordinates);
       SimplificationResult result =
-          simplifyNative(mesh.positions, mesh.indices, targetRatio, 0.01f);
+          simplifyNative(mesh.positions, mesh.indices, targetRatio, this.targetError);
+      if (this.triangleSampling) {
+        result = sampleTriangles(result, mesh, Math.round(mesh.indices.length / 3 * targetRatio));
+      }
       if (result == null) {
         return null;
       }
@@ -299,6 +326,54 @@ public class ModelLODGenerator {
       // Unsupported geometry remains at full fidelity.
       return null;
     }
+  }
+
+  /**
+   * Returns a result with <code>targetTriangleCount</code> triangles at most
+   * (plus a tolerance), removing triangles evenly from <code>result</code>, or
+   * from the whole <code>mesh</code> if it couldn't be simplified.
+   */
+  private static SimplificationResult sampleTriangles(SimplificationResult result, MeshData mesh,
+                                                      int targetTriangleCount) {
+    int [] indices;
+    int [] sourceVertices;
+    if (result != null) {
+      indices = result.indices;
+      sourceVertices = result.sourceVertices;
+    } else {
+      indices = mesh.indices;
+      sourceVertices = null;
+    }
+    int triangleCount = indices.length / 3;
+    targetTriangleCount = Math.max(1, targetTriangleCount);
+    if (triangleCount <= targetTriangleCount * 1.3f) {
+      return result;
+    }
+    double kept = (double)targetTriangleCount / triangleCount;
+    int [] sampledIndices = new int [targetTriangleCount * 3 + 3];
+    int count = 0;
+    // Vertices still used, renumbered in their order of first use
+    int [] newVertexIndices = new int [mesh.originalVertices.length];
+    java.util.Arrays.fill(newVertexIndices, -1);
+    int [] usedVertices = new int [mesh.originalVertices.length];
+    int usedVertexCount = 0;
+    for (int i = 0; i < triangleCount && count + 3 <= sampledIndices.length; i++) {
+      if ((long)((i + 1) * kept) > (long)(i * kept)) {
+        for (int j = 0; j < 3; j++) {
+          int vertex = indices [i * 3 + j];
+          if (newVertexIndices [vertex] < 0) {
+            newVertexIndices [vertex] = usedVertexCount;
+            usedVertices [usedVertexCount++] = sourceVertices != null ? sourceVertices [vertex] : vertex;
+          }
+          sampledIndices [count++] = newVertexIndices [vertex];
+        }
+      }
+    }
+    if (count < 3) {
+      return result;
+    }
+    return new SimplificationResult(java.util.Arrays.copyOf(usedVertices, usedVertexCount),
+        java.util.Arrays.copyOf(sampledIndices, count), result != null ? result.error : 0);
   }
 
   private static native SimplificationResult simplifyNative(

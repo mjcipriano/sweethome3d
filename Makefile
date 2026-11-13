@@ -89,7 +89,7 @@ endif
 endif
 TEST_NAMES := $(subst /,.,$(FILTERED_TEST_SOURCES:test/%.java=%))
 
-.PHONY: help build model-lod-native jar run run-dev test test-core test-gui test-local test-local-check test-wsl-gpu benchmark-home-load benchmark-plan-render benchmark-plan-interaction benchmark-home-3d benchmark-home-3d-fps benchmark-model-lod benchmark-startup clean test-deps
+.PHONY: help build model-lod-native jar run run-dev test test-core test-gui test-local test-local-check test-wsl-gpu test-webxr-walk benchmark-home-load benchmark-plan-render benchmark-plan-interaction benchmark-home-3d benchmark-home-3d-fps benchmark-model-lod benchmark-startup clean test-deps
 
 help:
 	@echo "Common targets:"
@@ -99,6 +99,7 @@ help:
 	@echo "  make run        - Run the distributable jar (builds it first)."
 	@echo "  make run-dev    - Run from local classes/jars without repackaging."
 	@echo "  make webxr-plugin - Build plugins/WebXRPreview.sh3p (WebXR OBJ preview)."
+	@echo "  make test-webxr-walk - Test the WebXR viewer's walk-through logic with Node.js."
 	@echo "  make run-webxr-preview [VR_HOME_FILE=<file.sh3d>] - Build plugin and launch app with WebXR plugin."
 	@echo "  make test       - Compile and run the complete JUnit suite."
 	@echo "  make test-core  - Run tests that don't require Java 3D / OpenGL."
@@ -290,13 +291,21 @@ webxr-plugin: $(INSTALL_JAR)
 	$(JAVAC) --release 8 -encoding ISO-8859-1 -cp "$(INSTALL_JAR)$(CPSEP)lib/java3d-1.6/*$(CPSEP)lib/*" \
 	  -d .plugin-build/webxr \
 	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/WebXRPreviewPlugin.java \
-	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/WebXRPreviewServer.java
+	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/WebXRPreviewServer.java \
+	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/WebXRSceneDescription.java
 	cp pluginsrc/com/eteks/sweethome3d/plugin/webxr/ApplicationPlugin.properties .plugin-build/webxr/
 	cp pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-keystore.p12 \
+	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-viewer.html \
+	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-viewer.js \
+	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-walk.js \
 	  .plugin-build/webxr/com/eteks/sweethome3d/plugin/webxr/
 	$(JAR) cf plugins/WebXRPreview.sh3p -C .plugin-build/webxr .
 	rm -rf .plugin-build/webxr
 	@echo "Plugin built at plugins/WebXRPreview.sh3p"
+
+# Tests of the walk-through logic of the WebXR viewer (needs Node.js)
+test-webxr-walk:
+	node test/webxr/walk.test.mjs
 
 # Build WebXR plugin and launch app with plugins folder set
 run-webxr-preview: webxr-plugin
