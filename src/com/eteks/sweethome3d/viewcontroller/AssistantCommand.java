@@ -49,16 +49,18 @@ public class AssistantCommand {
    */
   public double getDouble(String name, double defaultValue) {
     Object value = this.parameters.get(name);
+    double number = Double.NaN;
     if (value instanceof Number) {
-      return ((Number)value).doubleValue();
+      number = ((Number)value).doubleValue();
     } else if (value instanceof String) {
       try {
-        return Double.parseDouble(((String)value).trim());
+        number = Double.parseDouble(((String)value).trim());
       } catch (NumberFormatException ex) {
         // Fall through
       }
     }
-    return defaultValue;
+    // Non finite values (1e999, "NaN", "Infinity") would corrupt the home geometry
+    return Double.isNaN(number) || Double.isInfinite(number) ? defaultValue : number;
   }
 
   /**

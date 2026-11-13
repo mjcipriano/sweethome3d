@@ -1997,15 +1997,15 @@ public class Home implements Serializable, Cloneable {
       throw new IllegalArgumentException("Model and LOD are required");
     }
     ModelLOD oldModelLOD = this.modelLODs.put(model, modelLOD);
+    // As for the other properties, it's up to controllers to mark the home as
+    // modified, so a home read from a file with LODs isn't modified once opened
     this.propertyChangeSupport.firePropertyChange(Property.MODEL_LODS.name(), oldModelLOD, modelLOD);
-    setModified(true);
   }
 
   public void removeModelLOD(Content model) {
     ModelLOD oldModelLOD = this.modelLODs.remove(model);
     if (oldModelLOD != null) {
       this.propertyChangeSupport.firePropertyChange(Property.MODEL_LODS.name(), oldModelLOD, null);
-      setModified(true);
     }
   }
 

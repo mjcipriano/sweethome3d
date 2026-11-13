@@ -25,6 +25,9 @@ import java.util.Map;
 public class JSONParser {
   private final String text;
   private int          index;
+  private int          depth;
+  /** Nesting limit, so a hostile or broken reply can't overflow the stack. */
+  private static final int MAX_DEPTH = 200;
 
   private JSONParser(String text) {
     this.text = text;
@@ -75,6 +78,17 @@ public class JSONParser {
   }
 
   private Object parseValue() {
+    if (++this.depth > MAX_DEPTH) {
+      throw new IllegalArgumentException("JSON nested too deeply");
+    }
+    try {
+      return parseNestedValue();
+    } finally {
+      this.depth--;
+    }
+  }
+
+  private Object parseNestedValue() {
     skipWhitespace();
     if (this.index >= this.text.length()) {
       throw new IllegalArgumentException("Unexpected end of JSON");
@@ -153,6 +167,9 @@ public class JSONParser {
       if (c == '"') {
         return builder.toString();
       } else if (c == '\\') {
+        if (this.index >= this.text.length()) {
+          throw new IllegalArgumentException("Unterminated string");
+        }
         char escaped = this.text.charAt(this.index++);
         switch (escaped) {
           case '"' :  builder.append('"');  break;
@@ -164,6 +181,9 @@ public class JSONParser {
           case 'b' :  builder.append('\b'); break;
           case 'f' :  builder.append('\f'); break;
           case 'u' :
+            if (this.index + 4 > this.text.length()) {
+              throw new IllegalArgumentException("Truncated \\u escape");
+            }
             builder.append((char)Integer.parseInt(this.text.substring(this.index, this.index + 4), 16));
             this.index += 4;
             break;

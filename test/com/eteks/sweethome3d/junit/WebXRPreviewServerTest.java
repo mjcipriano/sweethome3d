@@ -66,6 +66,26 @@ public class WebXRPreviewServerTest {
         secret.delete();
       }
 
+      // A sibling directory whose name starts with the export directory name
+      // is outside the export directory too
+      File sibling = new File(exportDir.getParentFile(), exportDir.getName() + "-sibling");
+      sibling.mkdirs();
+      writeFile(new File(sibling, "x.txt"), "secret");
+      try {
+        connection = (HttpURLConnection)new URL(localUrl.replace("index.html",
+            "..%2F" + sibling.getName() + "%2Fx.txt")).openConnection();
+        assertEquals("Sibling directories are not served", 404, connection.getResponseCode());
+      } finally {
+        deleteRecursively(sibling);
+      }
+
+      // HEAD requests give the size without the content
+      connection = (HttpURLConnection)new URL(
+          localUrl.replace("index.html", "scene.obj")).openConnection();
+      connection.setRequestMethod("HEAD");
+      assertEquals(200, connection.getResponseCode());
+      assertEquals("v 0 0 0\n".length(), connection.getContentLength());
+
       // Headset path: HTTPS with the bundled self-signed certificate
       assertTrue("HTTPS server is running", server.getHttpsPort() > 0);
       HttpsURLConnection httpsConnection = (HttpsURLConnection)new URL(
@@ -73,6 +93,15 @@ public class WebXRPreviewServerTest {
       trustSelfSigned(httpsConnection);
       assertEquals(200, httpsConnection.getResponseCode());
       assertTrue(readBody(httpsConnection).contains("WEBXR-TEST-PAGE"));
+
+      // A stopped server doesn't answer anymore
+      server.stop();
+      try {
+        ((HttpURLConnection)new URL(localUrl).openConnection()).getResponseCode();
+        org.junit.Assert.fail("Stopped server still answers");
+      } catch (IOException ex) {
+        // Expected
+      }
     } finally {
       server.stop();
       deleteRecursively(exportDir);

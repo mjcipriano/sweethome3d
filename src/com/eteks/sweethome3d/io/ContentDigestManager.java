@@ -22,6 +22,7 @@ package com.eteks.sweethome3d.io;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLEncoder;
@@ -29,11 +30,13 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
@@ -120,6 +123,81 @@ public class ContentDigestManager {
   public synchronized byte [] getContentDigest(Content content) {
     byte [] digest = this.contentDigestsCache.get(content);
     if (digest == null) {
+      digest = computeDigest(content);
+      this.contentDigestsCache.put(content, digest);
+    }
+    return digest;
+  }
+
+  /**
+   * Computes on a few threads the digests of the given <code>contents</code>
+   * that aren't known yet and caches them, to take advantage of all the cores
+   * when the many contents of a home are checked. Once this method returned,
+   * {@link #getContentDigest(Content) getContentDigest} returns immediately for
+   * these contents as long as they are referenced.
+   * @throws InterruptedIOException if the calling thread was interrupted
+   */
+  void computeContentDigests(Collection<? extends Content> contents) throws InterruptedIOException {
+    final List<Content> missingContents = new ArrayList<Content>();
+    synchronized (this) {
+      for (Content content : contents) {
+        if (!this.contentDigestsCache.containsKey(content)) {
+          missingContents.add(content);
+        }
+      }
+    }
+    int threadCount = Math.min(Math.min(Runtime.getRuntime().availableProcessors(), 8), missingContents.size());
+    if (threadCount < 2) {
+      // Let getContentDigest compute digests when they are requested
+      return;
+    }
+    final byte [][] digests = new byte [missingContents.size()][];
+    final AtomicInteger nextIndex = new AtomicInteger();
+    Thread [] threads = new Thread [threadCount];
+    for (int i = 0; i < threads.length; i++) {
+      threads [i] = new Thread("Sweet Home 3D content digests") {
+          @Override
+          public void run() {
+            for (int index; (index = nextIndex.getAndIncrement()) < digests.length && !isInterrupted(); ) {
+              try {
+                digests [index] = computeDigest(missingContents.get(index));
+              } catch (RuntimeException ex) {
+                // Leave this digest to getContentDigest
+              }
+            }
+          }
+        };
+      threads [i].setDaemon(true);
+      threads [i].start();
+    }
+    try {
+      for (Thread thread : threads) {
+        thread.join();
+      }
+    } catch (InterruptedException ex) {
+      for (Thread thread : threads) {
+        thread.interrupt();
+      }
+      throw new InterruptedIOException();
+    }
+    synchronized (this) {
+      for (int i = 0; i < digests.length; i++) {
+        if (digests [i] != null
+            && !this.contentDigestsCache.containsKey(missingContents.get(i))) {
+          this.contentDigestsCache.put(missingContents.get(i), digests [i]);
+        }
+      }
+    }
+  }
+
+  /**
+   * Returns the digest of the given <code>content</code> without using cache.
+   * This method doesn't require the lock on this manager, except briefly to
+   * list the entries of the zipped file a content may belong to.
+   */
+  private byte [] computeDigest(Content content) {
+    byte [] digest;
+    {
       try {
         if (content instanceof ResourceURLContent) {
           digest = getResourceContentDigest((ResourceURLContent)content);
@@ -141,7 +219,6 @@ public class ContentDigestManager {
       } catch (IOException ex) {
         digest = INVALID_CONTENT_DIGEST;
       }
-      this.contentDigestsCache.put(content, digest);
     }
     return digest;
   }

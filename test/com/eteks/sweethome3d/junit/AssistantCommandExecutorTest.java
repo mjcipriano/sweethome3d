@@ -302,4 +302,158 @@ public class AssistantCommandExecutorTest {
       }
     }
   }
+
+  private static HomeController newController(Home home, UserPreferences preferences) {
+    return new HomeController(home, preferences, new SwingViewFactory());
+  }
+
+  /**
+   * A turn that changes nothing (catalog search, rejected or unknown commands)
+   * must not post an empty undoable edit: the home stays unmodified.
+   */
+  @Test
+  public void testTurnWithoutChangesLeavesHomeUnmodified() throws Exception {
+    String previousNo3D = System.getProperty("com.eteks.sweethome3d.no3D");
+    System.setProperty("com.eteks.sweethome3d.no3D", "true");
+    try {
+      Home home = new Home();
+      UserPreferences preferences = new DefaultUserPreferences();
+      HomeController homeController = newController(home, preferences);
+      AssistantCommandExecutor executor =
+          new AssistantCommandExecutor(home, preferences, homeController);
+      home.addWall(new Wall(0, 0, 400, 0, 7.5f, 250));
+      final int [] postedEdits = {0};
+      java.lang.reflect.Method getter = HomeController.class.getDeclaredMethod("getUndoableEditSupport");
+      getter.setAccessible(true);
+      ((javax.swing.undo.UndoableEditSupport)getter.invoke(homeController)).addUndoableEditListener(
+          new javax.swing.event.UndoableEditListener() {
+            public void undoableEditHappened(javax.swing.event.UndoableEditEvent ev) {
+              postedEdits [0]++;
+            }
+          });
+
+      String response = "{\"commands\":["
+          + "{\"action\":\"search_catalog\",\"query\":\"sofa\"},"
+          + "{\"action\":\"move\",\"id\":\"W1\",\"dx\":1e12},"
+          + "{\"action\":\"delete\",\"ids\":[\"F9\"]},"
+          + "{\"action\":\"no_such_action\"}]}";
+      executor.execute(AssistantCommandParser.parse(response).getCommands());
+      assertEquals("No empty edit posted", 0, postedEdits [0]);
+
+      // A real change afterwards is still undoable as one step
+      executor.execute(AssistantCommandParser.parse(
+          "{\"commands\":[{\"action\":\"move\",\"id\":\"W1\",\"dx\":10}]}").getCommands());
+      assertEquals("One compound edit for the turn", 1, postedEdits [0]);
+      assertEquals(10f, home.getWalls().iterator().next().getXStart(), 1e-3);
+      homeController.undo();
+      assertEquals(0f, home.getWalls().iterator().next().getXStart(), 1e-3);
+    } finally {
+      if (previousNo3D == null) {
+        System.clearProperty("com.eteks.sweethome3d.no3D");
+      } else {
+        System.setProperty("com.eteks.sweethome3d.no3D", previousNo3D);
+      }
+    }
+  }
+
+  /**
+   * Ids designate the items listed at the start of the turn, even after an
+   * earlier command of the same turn deleted an item with a smaller index.
+   */
+  @Test
+  public void testIdsStayStableWithinTurn() throws Exception {
+    String previousNo3D = System.getProperty("com.eteks.sweethome3d.no3D");
+    System.setProperty("com.eteks.sweethome3d.no3D", "true");
+    try {
+      Home home = new Home();
+      UserPreferences preferences = new DefaultUserPreferences();
+      HomeController homeController = newController(home, preferences);
+      AssistantCommandExecutor executor =
+          new AssistantCommandExecutor(home, preferences, homeController);
+      Content icon = new URLContent(new File("dummy.png").toURI().toURL());
+      Content model = new URLContent(new File("dummy.obj").toURI().toURL());
+      HomePieceOfFurniture [] pieces = new HomePieceOfFurniture [3];
+      for (int i = 0; i < pieces.length; i++) {
+        pieces [i] = new HomePieceOfFurniture(
+            new CatalogPieceOfFurniture("Piece " + (i + 1), icon, model, 50, 50, 50, true, false));
+        home.addPieceOfFurniture(pieces [i]);
+      }
+      float x = pieces [0].getX();
+
+      String response = "{\"commands\":["
+          + "{\"action\":\"delete\",\"ids\":[\"F1\"]},"
+          + "{\"action\":\"move\",\"id\":\"F2\",\"dx\":50},"
+          + "{\"action\":\"move\",\"id\":\"F1\",\"dx\":70}]}";
+      executor.execute(AssistantCommandParser.parse(response).getCommands());
+      assertEquals(2, home.getFurniture().size());
+      assertEquals("F2 is the second piece of the brief", x + 50, pieces [1].getX(), 1e-3);
+      assertEquals("Third piece untouched", x, pieces [2].getX(), 1e-3);
+      assertEquals("Deleted piece not moved", x, pieces [0].getX(), 1e-3);
+
+      homeController.undo();
+      assertEquals(3, home.getFurniture().size());
+      assertEquals(x, pieces [1].getX(), 1e-3);
+    } finally {
+      if (previousNo3D == null) {
+        System.clearProperty("com.eteks.sweethome3d.no3D");
+      } else {
+        System.setProperty("com.eteks.sweethome3d.no3D", previousNo3D);
+      }
+    }
+  }
+
+  /**
+   * Editing then undoing a piece that can't be resized or textured must not
+   * throw (its size and color setters reject any call), and bad numbers are ignored.
+   */
+  @Test
+  public void testNonResizablePieceAndNonFiniteValues() throws Exception {
+    String previousNo3D = System.getProperty("com.eteks.sweethome3d.no3D");
+    System.setProperty("com.eteks.sweethome3d.no3D", "true");
+    try {
+      Home home = new Home();
+      UserPreferences preferences = new DefaultUserPreferences();
+      HomeController homeController = newController(home, preferences);
+      AssistantCommandExecutor executor =
+          new AssistantCommandExecutor(home, preferences, homeController);
+      Content icon = new URLContent(new File("dummy.png").toURI().toURL());
+      Content model = new URLContent(new File("dummy.obj").toURI().toURL());
+      CatalogPieceOfFurniture fixed = new CatalogPieceOfFurniture(null, "Fixed", null, icon, null, model,
+          100, 60, 80, 0, true, null, null, false, false, false, null, null);
+      assertFalse(fixed.isResizable());
+      HomePieceOfFurniture piece = new HomePieceOfFurniture(fixed);
+      home.addPieceOfFurniture(piece);
+      assertFalse(piece.isTexturable());
+      float x = piece.getX();
+
+      String response = "{\"commands\":["
+          + "{\"action\":\"move\",\"id\":\"F1\",\"dx\":30},"
+          + "{\"action\":\"resize\",\"id\":\"F1\",\"width\":300},"
+          + "{\"action\":\"set_color\",\"id\":\"F1\",\"color\":\"#FF0000\"},"
+          + "{\"action\":\"rotate\",\"id\":\"F1\",\"by\":1e999},"
+          + "{\"action\":\"set_elevation\",\"id\":\"F1\",\"elevation\":1e999},"
+          + "{\"action\":\"add_wall\",\"x1\":0,\"y1\":0,\"x2\":100,\"y2\":0,\"thickness\":-5,\"height\":1e999}]}";
+      executor.execute(AssistantCommandParser.parse(response).getCommands());
+      assertEquals(x + 30, piece.getX(), 1e-3);
+      assertEquals(100f, piece.getWidth(), 1e-3);
+      assertNull(piece.getColor());
+      assertEquals(0f, piece.getAngle(), 1e-6);
+      assertEquals(0f, piece.getElevation(), 1e-6);
+      Wall wall = home.getWalls().iterator().next();
+      assertEquals(preferences.getNewWallThickness(), wall.getThickness(), 1e-3);
+      assertEquals(preferences.getNewWallHeight(), wall.getHeight().floatValue(), 1e-3);
+
+      homeController.undo();
+      assertEquals(x, piece.getX(), 1e-3);
+      assertEquals(0, home.getWalls().size());
+      homeController.redo();
+      assertEquals(x + 30, piece.getX(), 1e-3);
+    } finally {
+      if (previousNo3D == null) {
+        System.clearProperty("com.eteks.sweethome3d.no3D");
+      } else {
+        System.setProperty("com.eteks.sweethome3d.no3D", previousNo3D);
+      }
+    }
+  }
 }

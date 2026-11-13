@@ -77,6 +77,9 @@ public class AssistantClient {
   private final String   apiKey;
   private final String   model;
   private final int      maxTokens;
+  private static final int MAX_PLAIN_BODY_LENGTH = 4 * 1024 * 1024;
+  private volatile boolean           aborted;
+  private volatile HttpURLConnection currentConnection;
 
   public AssistantClient(Provider provider, String apiUrl, String apiKey, String model) {
     this.provider = provider;
@@ -161,24 +164,51 @@ public class AssistantClient {
       out.close();
     }
 
-    int status = connection.getResponseCode();
+    if (this.aborted) {
+      connection.disconnect();
+      throw new IOException("Request cancelled");
+    }
+    this.currentConnection = connection;
+    int status;
+    try {
+      status = connection.getResponseCode();
+    } catch (IOException ex) {
+      this.currentConnection = null;
+      throw this.aborted ? new IOException("Request cancelled") : ex;
+    }
     if (status >= 400) {
+      this.currentConnection = null;
       String error = readStream(connection.getErrorStream());
       throw new IOException("Assistant request failed (HTTP " + status + "): " + error);
     }
 
     StringBuilder full = new StringBuilder();
+    // Kept in case the server ignored the streaming request and sent plain JSON
+    StringBuilder plainBody = new StringBuilder();
+    boolean eventSeen = false;
+    this.currentConnection = connection;
     BufferedReader reader =
         new BufferedReader(new InputStreamReader(connection.getInputStream(), "UTF-8"));
     try {
       String line;
       while ((line = reader.readLine()) != null) {
+        if (this.aborted) {
+          throw new IOException("Request cancelled");
+        }
         if (!line.startsWith("data:")) {
+          if (!eventSeen && plainBody.length() < MAX_PLAIN_BODY_LENGTH) {
+            plainBody.append(line).append('\n');
+          }
           continue;
         }
+        eventSeen = true;
         String data = line.substring("data:".length()).trim();
         if (data.length() == 0 || "[DONE]".equals(data)) {
           continue;
+        }
+        String error = parseStreamError(data);
+        if (error != null) {
+          throw new IOException("Assistant request failed: " + error);
         }
         String chunk = parseStreamDelta(this.provider, data);
         if (chunk != null && chunk.length() > 0) {
@@ -186,10 +216,76 @@ public class AssistantClient {
           handler.onText(chunk);
         }
       }
+    } catch (IOException ex) {
+      if (this.aborted) {
+        throw new IOException("Request cancelled");
+      }
+      throw ex;
     } finally {
-      reader.close();
+      this.currentConnection = null;
+      try {
+        reader.close();
+      } finally {
+        connection.disconnect();
+      }
+    }
+    if (!eventSeen && plainBody.toString().trim().length() > 0) {
+      // Not a server-sent-event stream: an error object or a complete reply
+      String plainText = plainBody.toString().trim();
+      String error = parseStreamError(plainText);
+      if (error != null) {
+        throw new IOException("Assistant request failed: " + error);
+      }
+      String text = parseResponseText(plainText);
+      if (text != null && text.length() > 0) {
+        full.append(text);
+        handler.onText(text);
+      }
+    }
+    if (full.length() == 0) {
+      throw new IOException("The assistant returned an empty reply");
     }
     return full.toString();
+  }
+
+  /**
+   * Cancels the streamed request in progress, if any, from another thread: the
+   * thread blocked in {@link #sendMessageStreaming} fails with an {@link IOException}.
+   * Later requests of this client fail immediately.
+   */
+  public void abort() {
+    this.aborted = true;
+    HttpURLConnection connection = this.currentConnection;
+    if (connection != null) {
+      connection.disconnect();
+    }
+  }
+
+  /**
+   * Returns the message of an in-band error event (HTTP 200 with
+   * <code>{"error":{...}}</code> or <code>{"type":"error",...}</code>), or
+   * <code>null</code> if <code>data</code> isn't an error.
+   */
+  static String parseStreamError(String data) {
+    Object parsed;
+    try {
+      parsed = JSONParser.parse(data);
+    } catch (RuntimeException ex) {
+      return null;
+    }
+    if (!(parsed instanceof Map)) {
+      return null;
+    }
+    Map<?, ?> root = (Map<?, ?>)parsed;
+    Object error = root.get("error");
+    if (error == null && !"error".equals(root.get("type"))) {
+      return null;
+    }
+    if (error instanceof Map) {
+      Object message = ((Map<?, ?>)error).get("message");
+      return message != null ? message.toString() : error.toString();
+    }
+    return error != null ? error.toString() : data;
   }
 
   /**

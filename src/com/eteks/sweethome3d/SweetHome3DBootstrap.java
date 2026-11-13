@@ -79,8 +79,8 @@ public class SweetHome3DBootstrap {
         // Refuse to let Sweet Home 3D run under Mac OS X with Java Web Start 6
         String message = Locale.getDefault().getLanguage().equals(Locale.FRENCH.getLanguage())
             ? "Sweet Home 3D ne peut pas fonctionner avec Java\n"
-              + "Web Start 6 sous Mac OS X de faï¿½on fiable.\n"
-              + "Merci de tï¿½lï¿½charger le programme d'installation depuis\n"
+              + "Web Start 6 sous Mac OS X de façon fiable.\n"
+              + "Merci de télécharger le programme d'installation depuis\n"
               + "http://www.sweethome3d.com/fr/download.jsp"
             : "Sweet Home 3D can't reliably run with Java Web Start 6\n"
               + "under Mac OS X.\n"
@@ -108,8 +108,8 @@ public class SweetHome3DBootstrap {
         // Refuse to let Sweet Home 3D run under Mac OS X with Java 7
         String message = Locale.getDefault().getLanguage().equals(Locale.FRENCH.getLanguage())
             ? "Sweet Home 3D ne peut fonctionner avec Java 6/7 sur votre\n"
-              + "systï¿½me et requiert Java 8 ou plus. Merci de mettre ï¿½ jour votre\n"
-              + "version de Java ou de tï¿½lï¿½charger le programme d'installation\n"
+              + "système et requiert Java 8 ou plus. Merci de mettre à jour votre\n"
+              + "version de Java ou de télécharger le programme d'installation\n"
               + "depuis http://www.sweethome3d.com/fr/download.jsp"
             : "Sweet Home 3D can't run with Java 6/7 under your system\n"
               + "and requires Java 8 or above. Please, update you Java version\n"

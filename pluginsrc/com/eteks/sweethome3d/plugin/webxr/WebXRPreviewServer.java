@@ -1,6 +1,5 @@
 package com.eteks.sweethome3d.plugin.webxr;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -53,6 +52,8 @@ public class WebXRPreviewServer {
   private final String     rootPath;
   private HttpServer       httpServer;
   private HttpsServer      httpsServer;
+  private ExecutorService  executor;
+  private Thread           shutdownHook;
 
   public WebXRPreviewServer(File root) throws IOException {
     this.root = root;
@@ -64,7 +65,8 @@ public class WebXRPreviewServer {
    */
   public void start() throws IOException {
     HttpHandler handler = new StaticFileHandler();
-    ExecutorService executor = Executors.newCachedThreadPool();
+    final ExecutorService executor = Executors.newCachedThreadPool();
+    this.executor = executor;
 
     this.httpServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     this.httpServer.createContext("/", handler);
@@ -84,14 +86,28 @@ public class WebXRPreviewServer {
     }
 
     final WebXRPreviewServer server = this;
-    Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+    this.shutdownHook = new Thread(new Runnable() {
         public void run() {
+          server.shutdownHook = null;
           server.stop();
         }
-      }));
+      });
+    Runtime.getRuntime().addShutdownHook(this.shutdownHook);
   }
 
-  public void stop() {
+  /**
+   * Stops both servers, their threads and the JVM shutdown hook, so a stopped
+   * preview doesn't keep sockets, threads or memory.
+   */
+  public synchronized void stop() {
+    if (this.shutdownHook != null) {
+      try {
+        Runtime.getRuntime().removeShutdownHook(this.shutdownHook);
+      } catch (IllegalStateException ex) {
+        // JVM is shutting down
+      }
+      this.shutdownHook = null;
+    }
     if (this.httpServer != null) {
       this.httpServer.stop(0);
       this.httpServer = null;
@@ -99,6 +115,10 @@ public class WebXRPreviewServer {
     if (this.httpsServer != null) {
       this.httpsServer.stop(0);
       this.httpsServer = null;
+    }
+    if (this.executor != null) {
+      this.executor.shutdownNow();
+      this.executor = null;
     }
   }
 
@@ -182,20 +202,45 @@ public class WebXRPreviewServer {
       }
       File target = new File(root, path);
       String canonical = target.getCanonicalPath();
-      if (!canonical.startsWith(rootPath) || !target.exists() || target.isDirectory()) {
+      // Compare with the root followed by a separator, so a sibling directory
+      // whose name starts with the root name isn't served
+      if (!canonical.startsWith(rootPath + File.separator) || !target.isFile()) {
         sendNotFound(exchange);
         return;
       }
-      byte [] data = readAllBytes(target);
       Headers headers = exchange.getResponseHeaders();
       String contentType = guessContentType(target.getName());
       if (contentType != null) {
         headers.set("Content-Type", contentType);
       }
-      exchange.sendResponseHeaders(200, data.length);
-      OutputStream body = exchange.getResponseBody();
-      body.write(data);
-      body.close();
+      if ("HEAD".equalsIgnoreCase(exchange.getRequestMethod())) {
+        headers.set("Content-Length", String.valueOf(target.length()));
+        exchange.sendResponseHeaders(200, -1);
+        exchange.close();
+        return;
+      }
+      // Stream the file: exported scenes can be hundreds of megabytes and
+      // mustn't be buffered in the heap of the application for each request
+      long length = target.length();
+      FileInputStream in = new FileInputStream(target);
+      try {
+        exchange.sendResponseHeaders(200, length == 0 ? -1 : length);
+        OutputStream body = exchange.getResponseBody();
+        try {
+          byte [] chunk = new byte [65536];
+          long remaining = length;
+          int read;
+          while (remaining > 0
+                 && (read = in.read(chunk, 0, (int)Math.min(chunk.length, remaining))) != -1) {
+            body.write(chunk, 0, read);
+            remaining -= read;
+          }
+        } finally {
+          body.close();
+        }
+      } finally {
+        in.close();
+      }
     }
   }
 
@@ -223,23 +268,5 @@ public class WebXRPreviewServer {
       return "image/png";
     }
     return URLConnection.guessContentTypeFromName(name);
-  }
-
-  private static byte[] readAllBytes(File file) throws IOException {
-    FileInputStream in = null;
-    try {
-      in = new FileInputStream(file);
-      ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-      byte[] chunk = new byte[8192];
-      int read;
-      while ((read = in.read(chunk)) != -1) {
-        buffer.write(chunk, 0, read);
-      }
-      return buffer.toByteArray();
-    } finally {
-      if (in != null) {
-        in.close();
-      }
-    }
   }
 }

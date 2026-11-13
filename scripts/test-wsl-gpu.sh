@@ -93,7 +93,8 @@ fps_output="$(DISPLAY="$display_name" scripts/profile-home-3d-fps.sh \
 printf '%s\n' "$fps_output"
 
 java_renderer="$(printf '%s\n' "$fps_output" | awk -F= '/^gpu=/ {print $2; exit}')"
-samples="$(printf '%s\n' "$fps_output" | sed -n 's/.*samples=\([0-9][0-9]*\).*/\1/p' | tail -1)"
+# The benchmark reports the rendered frame count as frames= (formerly samples=)
+samples="$(printf '%s\n' "$fps_output" | sed -n 's/.*\(frames\|samples\)=\([0-9][0-9]*\).*/\2/p' | tail -1)"
 fps_avg="$(printf '%s\n' "$fps_output" | sed -n 's/.*fps_avg=\([0-9][0-9]*\).*/\1/p' | tail -1)"
 
 if [[ -z "$java_renderer" ]]; then

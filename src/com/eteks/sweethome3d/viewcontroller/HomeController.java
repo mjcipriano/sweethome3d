@@ -701,6 +701,8 @@ public class HomeController implements Controller {
           }
         };
       this.home.addPropertyChangeListener(Home.Property.STORED_CAMERAS, notUndoableModificationListener);
+      // Generated model LODs aren't undoable but must be saved
+      this.home.addPropertyChangeListener(Home.Property.MODEL_LODS, notUndoableModificationListener);
       this.home.getEnvironment().addPropertyChangeListener(HomeEnvironment.Property.OBSERVER_CAMERA_ELEVATION_ADJUSTED, notUndoableModificationListener);
       this.home.getEnvironment().addPropertyChangeListener(HomeEnvironment.Property.VIDEO_WIDTH, notUndoableModificationListener);
       this.home.getEnvironment().addPropertyChangeListener(HomeEnvironment.Property.VIDEO_ASPECT_RATIO, notUndoableModificationListener);

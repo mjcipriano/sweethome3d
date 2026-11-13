@@ -99,4 +99,103 @@ public class AssistantClientTest {
     assertEquals(null, AssistantClient.parseStreamDelta(Provider.ANTHROPIC,
         "{\"type\":\"message_start\",\"message\":{\"role\":\"assistant\"}}"));
   }
+
+  /**
+   * Truncated escapes and absurd nesting must fail with the documented
+   * IllegalArgumentException rather than an index or stack overflow error.
+   */
+  @Test
+  public void testJsonParserRejectsMalformedInputCleanly() {
+    StringBuilder deep = new StringBuilder();
+    for (int i = 0; i < 100000; i++) {
+      deep.append('[');
+    }
+    String [] malformed = {"{\"reply\":\"x\\u12", "\"abc\\", "{\"a\":", deep.toString(), "1.2.3"};
+    for (String text : malformed) {
+      try {
+        JSONParser.parse(text);
+        org.junit.Assert.fail("Expected a failure for " + text.substring(0, Math.min(20, text.length())));
+      } catch (IllegalArgumentException ex) {
+        // Expected
+      }
+    }
+  }
+
+  private static com.sun.net.httpserver.HttpServer startServer(final String contentType,
+                                                               final String body) throws Exception {
+    com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(
+        new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext("/chat/completions", new com.sun.net.httpserver.HttpHandler() {
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+          java.io.InputStream in = exchange.getRequestBody();
+          while (in.read() >= 0) {
+          }
+          byte [] data = body.getBytes("UTF-8");
+          exchange.getResponseHeaders().set("Content-Type", contentType);
+          exchange.sendResponseHeaders(200, data.length);
+          exchange.getResponseBody().write(data);
+          exchange.close();
+        }
+      });
+    server.start();
+    return server;
+  }
+
+  private static String stream(com.sun.net.httpserver.HttpServer server) throws java.io.IOException {
+    AssistantClient client = new AssistantClient(Provider.OPENAI_COMPATIBLE,
+        "http://127.0.0.1:" + server.getAddress().getPort(), "", "test-model");
+    List<ChatMessage> conversation = AssistantClient.newConversation();
+    conversation.add(new ChatMessage("user", "Hello"));
+    final StringBuilder streamed = new StringBuilder();
+    String reply = client.sendMessageStreaming("system", conversation, new AssistantClient.StreamHandler() {
+        public void onText(String chunk) {
+          streamed.append(chunk);
+        }
+      });
+    assertEquals(reply, streamed.toString());
+    return reply;
+  }
+
+  /**
+   * A streamed request must cope with servers that answer with events, with a
+   * plain JSON body, with an in-band error, or with nothing at all.
+   */
+  @Test
+  public void testStreamingHandlesEventsPlainJsonErrorsAndEmptyReplies() throws Exception {
+    com.sun.net.httpserver.HttpServer server = startServer("text/event-stream",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n"
+        + "data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\ndata: [DONE]\n\n");
+    try {
+      assertEquals("Hello", stream(server));
+    } finally {
+      server.stop(0);
+    }
+
+    server = startServer("application/json",
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Plain\"}}]}");
+    try {
+      assertEquals("Plain", stream(server));
+    } finally {
+      server.stop(0);
+    }
+
+    String [] failures = {
+        "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n"
+            + "data: {\"error\":{\"message\":\"overloaded\"}}\n\n",
+        "{\"error\":{\"message\":\"overloaded\"}}",
+        "data: [DONE]\n\n"};
+    for (String body : failures) {
+      server = startServer("text/event-stream", body);
+      try {
+        stream(server);
+        org.junit.Assert.fail("Expected an IOException for " + body);
+      } catch (java.io.IOException ex) {
+        if (body.contains("overloaded")) {
+          assertTrue(ex.getMessage(), ex.getMessage().contains("overloaded"));
+        }
+      } finally {
+        server.stop(0);
+      }
+    }
+  }
 }

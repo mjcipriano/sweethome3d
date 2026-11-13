@@ -72,3 +72,8 @@ headset, it uses the headset's browser.
 
 The release workflow attaches the built plugin to every GitHub release as
 `SweetHome3D-<version>-WebXRPreview.sh3p`.
+
+Only the latest preview of a home stays served: starting a new preview, or
+closing the home, stops the previous servers and deletes their export folder
+(a freshly created private temporary directory). Files are streamed rather
+than buffered, so a large export doesn't consume the application's heap.

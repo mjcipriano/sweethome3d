@@ -47,6 +47,9 @@ import javax.media.j3d.Node;
  * WebXR page, and opens it in the default browser.
  */
 public class WebXRPreviewPlugin extends Plugin {
+  private WebXRPreviewServer previewServer;
+  private File               previewDir;
+
   private static final String HTML_TEMPLATE =
       "<!DOCTYPE html>\n"
     + "<html lang=\"en\">\n"
@@ -136,7 +139,7 @@ public class WebXRPreviewPlugin extends Plugin {
     + "manager.onError=url=>{setStatus('Error loading '+url);fallbackCube();};\n"
     + "manager.onLoad=()=>{setStatus('Model loaded');};\n"
     + "function loadModel(){setStatus('Loading OBJ/MTL...');const mtlLoader=new MTLLoader(manager);mtlLoader.setPath('./');mtlLoader.load('scene.mtl',materials=>{materials.preload();const loader=new OBJLoader(manager);loader.setMaterials(materials);loader.setPath('./');loader.load('scene.obj',o=>{obj=o;o.traverse(c=>{if(c.isMesh){c.castShadow=true;c.receiveShadow=true;}});prepareModel();},undefined,err=>{setStatus('OBJ load error');log(err);fallbackCube();});},undefined,err=>{setStatus('MTL load error');log(err);fallbackCube();});}\n"
-    + "function checkFiles(){return Promise.all([fetch('scene.obj',{method:'GET'}),fetch('scene.mtl',{method:'GET'})]).then(([o,m])=>{filesEl.textContent='OBJ: '+o.status+' | MTL: '+m.status;return o.ok&&m.ok;}).catch(e=>{setStatus('Fetch failed');log(e);return false;});}\n"
+    + "function checkFiles(){return Promise.all([fetch('scene.obj',{method:'HEAD'}),fetch('scene.mtl',{method:'HEAD'})]).then(([o,m])=>{filesEl.textContent='OBJ: '+o.status+' | MTL: '+m.status;return o.ok&&m.ok;}).catch(e=>{setStatus('Fetch failed');log(e);return false;});}\n"
     + "function animate(){const delta=clock.getDelta();handleXRMovement(delta);handleDesktopMovement(delta);renderer.render(scene,camera);}renderer.setAnimationLoop(animate);\n"
     + "window.addEventListener('resize',()=>{camera.aspect=window.innerWidth/window.innerHeight;camera.updateProjectionMatrix();renderer.setSize(window.innerWidth,window.innerHeight);});\n"
     + "checkFiles().then(ok=>{if(ok){loadModel();}else{setStatus('Files missing - fallback cube');fallbackCube();}});\n"
@@ -196,10 +199,23 @@ public class WebXRPreviewPlugin extends Plugin {
     }
 
     File exportDir = createExportDir();
-    exportHome(exportDir, home);
-    File indexFile = writeWebXRHtml(exportDir);
-    WebXRPreviewServer server = new WebXRPreviewServer(exportDir);
-    server.start();
+    WebXRPreviewServer server;
+    try {
+      exportHome(exportDir, home);
+      writeWebXRHtml(exportDir);
+      server = new WebXRPreviewServer(exportDir);
+      server.start();
+    } catch (Exception ex) {
+      deleteDirectory(exportDir);
+      throw ex;
+    }
+    File indexFile = new File(exportDir, "index.html");
+    // Only the latest preview stays served: stop the previous one and delete its export
+    stopPreview();
+    synchronized (this) {
+      this.previewServer = server;
+      this.previewDir = exportDir;
+    }
     openInBrowser(new URL(server.getLocalUrl()), indexFile);
     showConnectInstructions(server);
   }
@@ -230,13 +246,51 @@ public class WebXRPreviewPlugin extends Plugin {
     showInfo(message.toString());
   }
 
-  private File createExportDir() throws IOException {
-    String baseName = "sh3d-webxr-" + new SimpleDateFormat("yyyyMMdd-HHmmss").format(new Date());
-    File exportDir = new File(System.getProperty("java.io.tmpdir"), baseName);
-    if (!exportDir.exists() && !exportDir.mkdirs()) {
-      throw new IOException("Failed to create export dir " + exportDir);
+  /**
+   * Stops the running preview server, if any, and deletes its exported files.
+   */
+  private void stopPreview() {
+    WebXRPreviewServer server;
+    File directory;
+    synchronized (this) {
+      server = this.previewServer;
+      directory = this.previewDir;
+      this.previewServer = null;
+      this.previewDir = null;
     }
-    return exportDir;
+    if (server != null) {
+      server.stop();
+    }
+    if (directory != null) {
+      deleteDirectory(directory);
+    }
+  }
+
+  /**
+   * Stops serving the home on the network when its window is closed.
+   */
+  @Override
+  public void destroy() {
+    stopPreview();
+  }
+
+  private static void deleteDirectory(File directory) {
+    File [] files = directory.listFiles();
+    if (files != null) {
+      for (File file : files) {
+        if (file.isDirectory() && !java.nio.file.Files.isSymbolicLink(file.toPath())) {
+          deleteDirectory(file);
+        } else {
+          file.delete();
+        }
+      }
+    }
+    directory.delete();
+  }
+
+  private File createExportDir() throws IOException {
+    // A new directory with an unpredictable name, private to the user where supported
+    return java.nio.file.Files.createTempDirectory("sh3d-webxr-").toFile();
   }
 
   private void exportHome(File exportDir, Home home) throws RecorderException {
@@ -258,7 +312,7 @@ public class WebXRPreviewPlugin extends Plugin {
   }
 
   private File writeWebXRHtml(File exportDir) throws IOException {
-    String html = HTML_TEMPLATE.replace("__EXPORT_PATH__", exportDir.getAbsolutePath());
+    String html = HTML_TEMPLATE.replace("__EXPORT_PATH__", exportDir.getName());
     File index = new File(exportDir, "index.html");
     OutputStream out = null;
     try {

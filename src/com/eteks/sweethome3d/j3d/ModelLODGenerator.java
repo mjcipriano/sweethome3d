@@ -58,6 +58,12 @@ public class ModelLODGenerator {
         nativeAvailable = true;
       } catch (IOException ex2) {
         System.err.println("Model LOD generation unavailable: " + ex.getMessage());
+      } catch (LinkageError ex2) {
+        // Other architecture than the bundled x64 libraries, noexec temporary
+        // folder or missing C++ runtime: LOD generation is simply unavailable
+        System.err.println("Model LOD generation unavailable: " + ex2.getMessage());
+      } catch (SecurityException ex2) {
+        System.err.println("Model LOD generation unavailable: " + ex2.getMessage());
       }
     }
   }

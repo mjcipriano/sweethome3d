@@ -130,6 +130,42 @@ features that make Sweet Home 3D distinctive. Build in dependency order:
   snapshot-based undoable turn. Add per-turn safety limits (max commands,
   coordinate sanity vs. plan bounds) so a bad reply can't make a huge mess.
 
+### Hardening pass (2026-11-13, DONE)
+
+A review of the assistant code fixed these defects; keep the behaviors when
+extending the executor:
+
+- **Undo integrity.** `ItemState.restore` writes back only the properties that
+  differ and never calls size/color setters on non-resizable/non-texturable
+  pieces (they throw), so undoing a turn can't corrupt a furniture group or
+  abort halfway. `resize`/`set_color`/`add_furniture` skip such pieces.
+- **No empty undo step.** The turn's compound edit starts lazily at the first
+  real change (`beginTurnUpdate`), so a turn of only `search_catalog`,
+  `select` or rejected commands posts nothing and doesn't mark the home
+  modified.
+- **Ids are stable within a turn.** `execute` snapshots the furniture, wall and
+  room lists; `F#`/`W#`/`R#` resolve against that snapshot and ignore items an
+  earlier command of the turn deleted. (Still open: the home can change while
+  the request is in flight - ids are resolved against the home at apply time.)
+- **Only undoable targets.** `move` ignores labels, dimension lines, the
+  compass and cameras; `delete` counts only what is really deleted.
+- **Value safety.** Non-finite numbers are treated as absent; `add_wall`
+  thickness/height and `set_elevation` are range-checked. A command that throws
+  becomes a note instead of killing the turn.
+- **Parser.** `JSONParser` fails with `IllegalArgumentException` on truncated
+  escapes and nesting deeper than 200 levels.
+- **Client.** Streaming detects in-band error events, falls back to a plain
+  JSON body when the server ignores `stream`, and treats an empty reply as an
+  error; `abort()` cancels the request in flight.
+- **Panel.** Closing the assistant window (or its home) cancels the request and
+  no further edits are applied; one assistant dialog per home window; a failed
+  request removes the unanswered user message; a declined preview is recorded
+  in the conversation.
+
+Not changed: the API key is one clear-text preference reused for whatever
+provider/URL is configured, and the system prompt (catalog included) is rebuilt
+for every step.
+
 ### Backlog / later
 
 - **Native tool/function calling.** Use Anthropic `tool_use` and OpenAI `tools`
