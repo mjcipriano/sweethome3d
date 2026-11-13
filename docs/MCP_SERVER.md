@@ -38,6 +38,8 @@ able to modify it. Every `apply_commands` call is one step of **Edit > Undo**.
 | `search_textures` | Best texture matches, for the `set_texture` command |
 | `check_home` | Report of plan defects (unjoined walls, duplicates, rooms without door, doors out of walls...) with ids |
 | `get_plan_image` | PNG picture of the 2D plan of the selected level |
+| `get_3d_image` | PNG picture of the home in 3D from its camera (move it with `set_camera`) |
+| `export_blender` | Writes the model and a Blender scene script in a folder, for a high quality render |
 | `apply_commands` | Runs a list of edit commands as one undoable change and returns a summary |
 | `undo` / `redo` | Undoes or redoes the last change |
 
@@ -48,7 +50,12 @@ protocol (`HomeAssistantContext.getCommandReference()`), at most 30 per call:
 
 - build: `add_rectangular_room` (room + walls, optionally `next_to` another
   room), `add_room`, `add_wall`, `add_level`, `select_level`, `auto_roof`,
-  `add_furniture`, `add_door_or_window`, `add_label`, `add_dimension`;
+  `add_stairs`, `add_furniture`, `add_door_or_window`, `add_label`,
+  `add_dimension`;
+- bring in: `add_picture` (a painting, poster or rug from an image file),
+  `import_furniture` (a 3D model file), `import_texture` (an image as a
+  texture). Claude Code can read a photo you give it, then pick, size and
+  color the closest catalog piece, or use these commands with the file path;
 - change: `move`, `rotate`, `resize`, `set_color`, `set_texture`,
   `set_elevation`, `set_visible`, `rename`, `duplicate`, `delete`,
   `reduce_detail`, `restore_detail`, `select`, `set_camera`;
@@ -64,7 +71,12 @@ protocol (`HomeAssistantContext.getCommandReference()`), at most 30 per call:
 - Requests with a foreign `Origin` or `Host` header are refused, so a web page
   open in a browser can't relay requests to the server (cross-site requests,
   DNS rebinding).
-- The tools can't read or write files, save the home, or reach the network.
+- File access is limited to what you ask for: `add_picture`, `import_texture`
+  and `import_furniture` read the image or model file whose absolute path is
+  given (and, for a model, the materials and images it names in its own
+  folder), and `export_blender` writes into the folder given. Writing and
+  importing need **Allow changes to this home**. The tools can't read other
+  files, save the home, or reach the network.
 
 With several home windows, the first server gets port 47391 and the next ones a
 free port shown in their dialog. Set another fixed port with

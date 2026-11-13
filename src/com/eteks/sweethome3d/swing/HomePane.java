@@ -48,6 +48,7 @@ import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.awt.Window;
+import java.awt.SecondaryLoop;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Clipboard;
@@ -127,6 +128,7 @@ import javax.swing.Icon;
 import javax.swing.ImageIcon;
 import javax.swing.InputMap;
 import javax.imageio.ImageIO;
+import javax.swing.JFileChooser;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JCheckBoxMenuItem;
@@ -223,12 +225,14 @@ import com.eteks.sweethome3d.plugin.HomePluginController;
 import com.eteks.sweethome3d.plugin.Plugin;
 import com.eteks.sweethome3d.plugin.PluginAction;
 import com.eteks.sweethome3d.plugin.PluginManager;
+import com.eteks.sweethome3d.j3d.PhotoRenderer;
 import com.eteks.sweethome3d.tools.OperatingSystem;
 import com.eteks.sweethome3d.tools.URLContent;
 import com.eteks.sweethome3d.viewcontroller.ContentManager;
 import com.eteks.sweethome3d.viewcontroller.ExportableView;
 import com.eteks.sweethome3d.viewcontroller.FurnitureController;
 import com.eteks.sweethome3d.viewcontroller.HomeController;
+import com.eteks.sweethome3d.viewcontroller.BlenderSceneScript;
 import com.eteks.sweethome3d.viewcontroller.HomeMCPHandler;
 import com.eteks.sweethome3d.viewcontroller.HomeController3D;
 import com.eteks.sweethome3d.viewcontroller.HomeView;
@@ -1391,6 +1395,13 @@ public class HomePane extends JRootPane implements HomeView {
     addActionToMenu(ActionType.CREATE_VIDEO, preview3DMenu);
     preview3DMenu.addSeparator();
     addActionToMenu(ActionType.EXPORT_TO_OBJ, preview3DMenu);
+    // High quality rendering in Blender
+    preview3DMenu.add(new JMenuItem(new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "exportToBlender")) {
+        public void actionPerformed(ActionEvent ev) {
+          showExportToBlenderDialog();
+        }
+      }));
     addActionToMenu(ActionType.GENERATE_MODEL_LODS, preview3DMenu);
 
     // Create Help menu
@@ -4932,6 +4943,16 @@ public class HomePane extends JRootPane implements HomeView {
           public byte [] getPlanImage(int maxSize) {
             return createPlanImage(maxSize);
           }
+
+          public byte [] get3DImage(int width, int height) {
+            return create3DImage(width, height);
+          }
+        });
+      this.mcpHandler.setModelSizeProvider(new AssistantModelSizeProvider());
+      this.mcpHandler.setSceneExporter(new HomeMCPHandler.SceneExporter() {
+          public String exportForBlender(File folder) throws Exception {
+            return HomePane.this.exportForBlender(folder).getAbsolutePath();
+          }
         });
     }
     final JLabel statusLabel = new JLabel();
@@ -5045,6 +5066,153 @@ public class HomePane extends JRootPane implements HomeView {
     }
   }
 
+  /**
+   * Returns a PNG image of the home in 3D seen from its camera, rendered with
+   * the photo renderer at its fastest quality, or <code>null</code> if it
+   * can't be rendered. Called in the event dispatch thread, it keeps the
+   * application responsive while the image is computed.
+   */
+  private byte [] create3DImage(final int width, final int height) {
+    if (Boolean.getBoolean("com.eteks.sweethome3d.no3D")) {
+      return null;
+    }
+    final Home renderedHome;
+    try {
+      renderedHome = this.home.clone();
+      // Every level, as the roof and upper floors are part of the picture
+      renderedHome.getEnvironment().setAllLevelsVisible(true);
+    } catch (RuntimeException ex) {
+      return null;
+    }
+    final byte [][] result = new byte [1][];
+    final SecondaryLoop loop = Toolkit.getDefaultToolkit().getSystemEventQueue().createSecondaryLoop();
+    Thread renderer = new Thread("Sweet Home 3D MCP 3D picture") {
+        @Override
+        public void run() {
+          try {
+            BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+            new PhotoRenderer(renderedHome, PhotoRenderer.Quality.LOW).render(image, renderedHome.getCamera(), null);
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            ImageIO.write(image, "png", out);
+            result [0] = out.toByteArray();
+          } catch (Exception ex) {
+            // No picture
+          } catch (LinkageError ex) {
+            // 3D libraries not available
+          } catch (OutOfMemoryError ex) {
+            // Home too large to render
+          } finally {
+            EventQueue.invokeLater(new Runnable() {
+                public void run() {
+                  loop.exit();
+                }
+              });
+          }
+        }
+      };
+    renderer.setDaemon(true);
+    renderer.start();
+    if (EventQueue.isDispatchThread()) {
+      loop.enter();
+    } else {
+      try {
+        renderer.join();
+      } catch (InterruptedException ex) {
+        Thread.currentThread().interrupt();
+      }
+    }
+    return result [0];
+  }
+
+  /**
+   * Exports the home at OBJ format in <code>folder</code> with the script
+   * that turns it into a Blender scene ready to render, and returns that script.
+   * May be called from an other thread than the event dispatch thread.
+   */
+  public File exportForBlender(File folder) throws RecorderException, IOException {
+    if (!folder.isDirectory() && !folder.mkdirs()) {
+      throw new IOException("Can't create the folder " + folder);
+    }
+    this.exportAllToOBJ = true;
+    exportToOBJ(new File(folder, "scene.obj").getAbsolutePath());
+    File script = new File(folder, "render_blender.py");
+    final String [] scriptText = new String [1];
+    Runnable scriptWriter = new Runnable() {
+        public void run() {
+          scriptText [0] = BlenderSceneScript.create(home, "scene.obj");
+        }
+      };
+    if (EventQueue.isDispatchThread()) {
+      scriptWriter.run();
+    } else {
+      try {
+        EventQueue.invokeAndWait(scriptWriter);
+      } catch (InterruptedException ex) {
+        throw new InterruptedRecorderException(ex.getMessage());
+      } catch (InvocationTargetException ex) {
+        throw new RecorderException("Couldn't describe the home", ex.getCause());
+      }
+    }
+    OutputStream out = new FileOutputStream(script);
+    try {
+      out.write(scriptText [0].getBytes("UTF-8"));
+    } finally {
+      out.close();
+    }
+    return script;
+  }
+
+  /**
+   * Asks for a folder and exports the home for Blender in it.
+   */
+  private void showExportToBlenderDialog() {
+    JFileChooser fileChooser = new JFileChooser();
+    fileChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+    fileChooser.setDialogTitle("Export to Blender: choose an empty folder");
+    if (fileChooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) {
+      return;
+    }
+    final File folder = fileChooser.getSelectedFile();
+    final JDialog progressDialog = new JDialog(SwingUtilities.getWindowAncestor(this), "Export to Blender");
+    JLabel progressLabel = new JLabel("Exporting the home to " + folder.getName() + "...");
+    progressLabel.setBorder(BorderFactory.createEmptyBorder(16, 20, 16, 20));
+    progressDialog.add(progressLabel);
+    progressDialog.pack();
+    progressDialog.setLocationRelativeTo(this);
+    progressDialog.setVisible(true);
+    Thread exporter = new Thread("Sweet Home 3D Blender export") {
+        @Override
+        public void run() {
+          String message;
+          int messageType = JOptionPane.INFORMATION_MESSAGE;
+          try {
+            File script = exportForBlender(folder);
+            message = "The home was exported to\n" + folder + "\n\n"
+                + "To render it with Blender (blender.org), run in a terminal:\n"
+                + "    blender -b -P \"" + script + "\"\n"
+                + "The picture is written to render.png in that folder.\n\n"
+                + "To open the scene in Blender instead and adjust it:\n"
+                + "    blender -P \"" + script + "\"\n\n"
+                + "The script takes the camera, the sun and the lamps from this home;\n"
+                + "its first lines list the options and the values you can edit.";
+          } catch (Exception ex) {
+            message = "Couldn't export the home: " + ex.getMessage();
+            messageType = JOptionPane.ERROR_MESSAGE;
+          }
+          final String shownMessage = message;
+          final int shownMessageType = messageType;
+          EventQueue.invokeLater(new Runnable() {
+              public void run() {
+                progressDialog.dispose();
+                JOptionPane.showMessageDialog(HomePane.this, shownMessage, "Export to Blender", shownMessageType);
+              }
+            });
+        }
+      };
+    exporter.setDaemon(true);
+    exporter.start();
+  }
+
   private static PlanComponent findPlanComponent(Component component) {
     if (component instanceof PlanComponent) {
       return (PlanComponent)component;
@@ -5125,6 +5293,13 @@ public class HomePane extends JRootPane implements HomeView {
         + "  - Add a first floor with two bedrooms and a bathroom.\n"
         + "  - Label each room and add a dimension line along the front wall.\n"
         + "  - Put the virtual visitor in the hall, looking at the kitchen.\n\n"
+        + "Stairs, pictures and imports:\n"
+        + "  - Add stairs along the east wall of the hall up to the first floor.\n"
+        + "  - Hang this picture above the sofa, 120 cm wide.   (use the Picture... button)\n"
+        + "  - Make a rug from this picture in the middle of the living room.\n"
+        + "  - Use this picture as the floor texture of the kitchen, the tiles are 30 cm wide.\n"
+        + "  - This is a photo of my armchair: add the closest piece and match its size and color.\n"
+        + "  - Import /home/me/models/lamp.obj next to the bed, 150 cm high.\n\n"
         + "Check and repair:\n"
         + "  - Check my home for problems.\n"
         + "  - Fix the walls that don't meet.\n\n"

@@ -300,7 +300,9 @@ public class HomeDiagnostics {
         float ceiling = level != null ? level.getHeight() : home.getWallHeight();
         if (!piece.isDoorOrWindow() && ceiling > 0
             && piece.getElevation() + piece.getHeight() > ceiling + 5
-            && !"true".equals(piece.getProperty(AssistantCommandExecutor.AUTO_ROOF_PROPERTY))) {
+            && !"true".equals(piece.getProperty(AssistantCommandExecutor.AUTO_ROOF_PROPERTY))
+            // Stairs go through the ceiling to the next level
+            && piece.getStaircaseCutOutShape() == null) {
           add(issues, counts, new Issue(Type.FURNITURE_ABOVE_CEILING, id + " reaches "
               + format(piece.getElevation() + piece.getHeight()) + " cm, above the ceiling at "
               + format(ceiling) + " cm", piece, null));

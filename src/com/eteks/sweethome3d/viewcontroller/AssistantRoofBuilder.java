@@ -192,15 +192,14 @@ public class AssistantRoofBuilder {
       zip.putNextEntry(new ZipEntry("roof.mtl"));
       zip.write(mtl.getBytes("ISO-8859-1"));
       zip.closeEntry();
-      zip.putNextEntry(new ZipEntry("roof.png"));
-      zip.write(createIcon(color));
-      zip.closeEntry();
     } finally {
       zip.close();
     }
     String zipUrl = "jar:" + file.toURI().toURL() + "!/";
+    // The icon is stored apart: a home saves the contents of an archive as a
+    // whole, under the name of only one of them
     return new AssistantRoofBuilder(new TemporaryURLContent(new URL(zipUrl + "roof.obj")),
-        new TemporaryURLContent(new URL(zipUrl + "roof.png")), height);
+        AssistantGeneratedModel.storeFile("roof", ".png", createIcon(color)), height);
   }
 
   /**

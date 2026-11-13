@@ -583,9 +583,13 @@ class AssistantBuildingCommands {
           if (texture.getName() == null) {
             continue;
           }
+          // Names are compared in lower case, so the exact name comes first
+          String name = texture.getName().toLowerCase(Locale.ENGLISH);
+          String lowerQuery = query.trim().toLowerCase(Locale.ENGLISH);
           int score = Math.max(
-              AssistantCommandExecutor.scoreMatch(texture.getName(), query, tokens),
-              AssistantCommandExecutor.scoreMatch(category.getName() + " " + texture.getName(), query, tokens) - 1);
+              AssistantCommandExecutor.scoreMatch(name, lowerQuery, tokens),
+              AssistantCommandExecutor.scoreMatch(category.getName().toLowerCase(Locale.ENGLISH) + " " + name,
+                  lowerQuery, tokens) - 1);
           if (score > 0) {
             // Insert by decreasing score, keeping the catalog order between equal scores
             int index = 0;

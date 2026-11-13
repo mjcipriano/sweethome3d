@@ -61,6 +61,39 @@ public class HomeMCPHandler {
      * <code>maxSize</code> pixels, or <code>null</code> if it can't be drawn.
      */
     byte [] getPlanImage(int maxSize);
+
+    /**
+     * Returns a PNG image of the home in 3D seen from its current camera, or
+     * <code>null</code> if it can't be rendered.
+     */
+    byte [] get3DImage(int width, int height);
+  }
+
+  /**
+   * Writes the home in files for this handler, which doesn't do it itself.
+   */
+  public interface SceneExporter {
+    /**
+     * Exports the home with a Blender scene script in <code>folder</code>
+     * and returns the path of the script.
+     */
+    String exportForBlender(java.io.File folder) throws Exception;
+  }
+
+  private volatile SceneExporter sceneExporter;
+
+  /**
+   * Sets the object that exports the home for the <code>export_blender</code> tool.
+   */
+  public void setSceneExporter(SceneExporter sceneExporter) {
+    this.sceneExporter = sceneExporter;
+  }
+
+  /**
+   * Sets the object that measures the 3D models imported by <code>import_furniture</code>.
+   */
+  public void setModelSizeProvider(AssistantCommandExecutor.ModelSizeProvider modelSizeProvider) {
+    this.commandExecutor.setModelSizeProvider(modelSizeProvider);
   }
 
   /**
@@ -194,7 +227,7 @@ public class HomeMCPHandler {
         + "Furniture can only be added by its exact catalog name: use search_catalog or "
         + "list_catalog to find one. To extend the house use add_rectangular_room (room and walls "
         + "at once) and auto_roof; check_home reports plan defects and fix_home repairs them; "
-        + "get_plan_image shows the plan. Every apply_commands call is one step of the application's "
+        + "get_plan_image shows the plan and get_3d_image the home in 3D; add_stairs joins two levels; add_picture, import_furniture and import_texture bring pictures, 3D model files and texture images of this computer into the home; export_blender prepares a high quality render. Every apply_commands call is one step of the application's "
         + "Undo, also available through the undo tool.");
     return result;
   }
@@ -202,6 +235,7 @@ public class HomeMCPHandler {
   private static boolean isTool(String name) {
     return "get_home".equals(name) || "list_catalog".equals(name) || "search_catalog".equals(name)
         || "search_textures".equals(name) || "check_home".equals(name) || "get_plan_image".equals(name)
+        || "get_3d_image".equals(name) || "export_blender".equals(name)
         || "apply_commands".equals(name) || "undo".equals(name) || "redo".equals(name);
   }
 
@@ -248,6 +282,23 @@ public class HomeMCPHandler {
         + "dimensions), to see the layout or check the result of an edit. x grows to the right "
         + "and y downward, as in the commands.",
         schema(imageProperties), true));
+    Map<String, Object> image3DProperties = new LinkedHashMap<String, Object>();
+    image3DProperties.put("width", property("number", "Width of the image in pixels (default 800, at most 1600)"));
+    image3DProperties.put("height", property("number", "Height of the image in pixels (default 500, at most 1200)"));
+    tools.add(tool("get_3d_image", "Picture of the home in 3D",
+        "Renders a PNG picture of the home in 3D from its current camera (the virtual visitor, or "
+        + "the aerial view), with all levels and the roof. Move the camera first with the "
+        + "set_camera command to choose the point of view. Rendering takes a few seconds, "
+        + "more for a home with many models.",
+        schema(image3DProperties), true));
+    Map<String, Object> blenderProperties = new LinkedHashMap<String, Object>();
+    blenderProperties.put("folder", property("string", "Absolute path of the folder to write to (created if needed)"));
+    tools.add(tool("export_blender", "Export for Blender",
+        "Exports the home for a high quality render in Blender: writes the 3D model (scene.obj with "
+        + "its materials and textures) and render_blender.py in the folder, and returns the command "
+        + "to run. The script sets up the model at real size, the camera of the home, the sun, "
+        + "the lamps, glass materials and Cycles. Needs the permission to change things, as it writes files.",
+        schema(blenderProperties, "folder"), false));
     Map<String, Object> commandsProperty = new LinkedHashMap<String, Object>();
     commandsProperty.put("type", "array");
     commandsProperty.put("description", "The commands to run in order, as objects with an \"action\" field");
@@ -314,6 +365,17 @@ public class HomeMCPHandler {
       return toolResult(catalog.length() > 0 ? catalog : "The furniture catalog is empty.", false);
     } else if ("search_catalog".equals(name)) {
       return searchCatalog(arguments);
+    } else if ("get_3d_image".equals(name)) {
+      ImageProvider provider = this.imageProvider;
+      int width = arguments.get("width") instanceof Number
+          ? Math.max(160, Math.min(1600, ((Number)arguments.get("width")).intValue())) : 800;
+      int height = arguments.get("height") instanceof Number
+          ? Math.max(120, Math.min(1200, ((Number)arguments.get("height")).intValue())) : 500;
+      byte [] image = provider != null ? provider.get3DImage(width, height) : null;
+      if (image == null) {
+        return toolResult("The home can't be rendered in 3D here.", true);
+      }
+      return imageResult(image);
     } else if ("search_textures".equals(name)) {
       Object query = arguments.get("query");
       if (!(query instanceof String) || ((String)query).trim().length() == 0) {
@@ -331,21 +393,28 @@ public class HomeMCPHandler {
       if (image == null) {
         return toolResult("No picture of the plan is available (the plan is empty or not displayed).", true);
       }
-      Map<String, Object> content = new LinkedHashMap<String, Object>();
-      content.put("type", "image");
-      content.put("data", java.util.Base64.getEncoder().encodeToString(image));
-      content.put("mimeType", "image/png");
-      List<Object> contents = new ArrayList<Object>();
-      contents.add(content);
-      Map<String, Object> result = new LinkedHashMap<String, Object>();
-      result.put("content", contents);
-      result.put("isError", Boolean.FALSE);
-      return result;
+      return imageResult(image);
     } else if (!isEditingAllowed()) {
       return toolResult("Editing is disabled: the user didn't allow changes to this home. "
           + "Ask them to enable it in Sweet Home 3D (Help > Claude MCP server).", true);
     } else if ("apply_commands".equals(name)) {
       return applyCommands(arguments);
+    } else if ("export_blender".equals(name)) {
+      SceneExporter exporter = this.sceneExporter;
+      Object folder = arguments.get("folder");
+      if (exporter == null) {
+        return toolResult("The home can't be exported here.", true);
+      } else if (!(folder instanceof String) || !new java.io.File((String)folder).isAbsolute()) {
+        return toolResult("The \"folder\" argument must be an absolute path.", true);
+      }
+      try {
+        String script = exporter.exportForBlender(new java.io.File((String)folder));
+        return toolResult("Exported the home to " + folder + ". Render it with:\n  blender -b -P \""
+            + script + "\"\nThe picture is written to render.png in that folder (options after \"--\": "
+            + "--samples N --width N --height N --output FILE --gpu --save FILE.blend).", false);
+      } catch (Exception ex) {
+        return toolResult("Couldn't export the home: " + ex.getMessage(), true);
+      }
     } else if ("undo".equals(name)) {
       try {
         this.homeController.undo();
@@ -406,6 +475,19 @@ public class HomeMCPHandler {
         ? summary
         : "No change was applied (unknown actions, or ids that don't match the last get_home).",
         summary == null);
+  }
+
+  private static Map<String, Object> imageResult(byte [] image) {
+    Map<String, Object> content = new LinkedHashMap<String, Object>();
+    content.put("type", "image");
+    content.put("data", java.util.Base64.getEncoder().encodeToString(image));
+    content.put("mimeType", "image/png");
+    List<Object> contents = new ArrayList<Object>();
+    contents.add(content);
+    Map<String, Object> result = new LinkedHashMap<String, Object>();
+    result.put("content", contents);
+    result.put("isError", Boolean.FALSE);
+    return result;
   }
 
   private static Map<String, Object> toolResult(String text, boolean error) {

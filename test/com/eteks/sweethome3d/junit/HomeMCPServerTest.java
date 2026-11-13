@@ -127,7 +127,7 @@ public class HomeMCPServerTest {
 
       response = call(handler, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}");
       List<Object> tools = (List<Object>)((Map<String, Object>)response.get("result")).get("tools");
-      assertEquals(9, tools.size());
+      assertEquals(11, tools.size());
       for (Object tool : tools) {
         Map<String, Object> toolMap = (Map<String, Object>)tool;
         assertNotNull(toolMap.get("name"));
@@ -213,6 +213,10 @@ public class HomeMCPServerTest {
           public byte [] getPlanImage(int maxSize) {
             return new byte [] {(byte)maxSize, 2, 3};
           }
+
+          public byte [] get3DImage(int width, int height) {
+            return new byte [] {(byte)(width / 10), (byte)(height / 10)};
+          }
         });
       result = callTool(handler, "get_plan_image", "{\"max_size\":250}");
       assertEquals(Boolean.FALSE, result.get("isError"));
@@ -221,12 +225,36 @@ public class HomeMCPServerTest {
       assertEquals("image/png", image.get("mimeType"));
       assertEquals(java.util.Base64.getEncoder().encodeToString(new byte [] {(byte)250, 2, 3}), image.get("data"));
 
+      assertEquals(Boolean.TRUE, callTool(handler, "export_blender", "{\"folder\":\"/tmp/x\"}").get("isError"));
+      result = callTool(handler, "get_3d_image", "{\"width\":400,\"height\":300}");
+      image = (Map<String, Object>)((List<Object>)result.get("content")).get(0);
+      assertEquals(java.util.Base64.getEncoder().encodeToString(new byte [] {40, 30}), image.get("data"));
+      final java.io.File [] exportFolder = {null};
+      handler.setSceneExporter(new HomeMCPHandler.SceneExporter() {
+          public String exportForBlender(java.io.File folder) {
+            exportFolder [0] = folder;
+            return new java.io.File(folder, "render_blender.py").getPath();
+          }
+        });
+      assertEquals("Relative folders are refused", Boolean.TRUE,
+          callTool(handler, "export_blender", "{\"folder\":\"relative\"}").get("isError"));
+      String blenderFolder = new java.io.File(System.getProperty("java.io.tmpdir"), "sh3d-blender").getAbsolutePath();
+      result = callTool(handler, "export_blender", "{\"folder\":" + JSONParser.toJSONString(blenderFolder) + "}");
+      assertEquals(text(result), Boolean.FALSE, result.get("isError"));
+      assertTrue(text(result), text(result).contains("blender -b -P"));
+      assertEquals(blenderFolder, exportFolder [0].getPath());
+
       // Read-only mode keeps reading tools but refuses any change
       handler.setEditingAllowed(false);
       result = callTool(handler, "apply_commands",
           "{\"commands\":[{\"action\":\"delete\",\"ids\":[\"F2\"]}]}");
       assertEquals(Boolean.TRUE, result.get("isError"));
       assertEquals(Boolean.TRUE, callTool(handler, "undo", "{}").get("isError"));
+      exportFolder [0] = null;
+      assertEquals("Exporting writes files", Boolean.TRUE, callTool(handler, "export_blender",
+          "{\"folder\":" + JSONParser.toJSONString(blenderFolder) + "}").get("isError"));
+      assertNull(exportFolder [0]);
+      assertEquals(Boolean.FALSE, callTool(handler, "get_3d_image", "{}").get("isError"));
       assertEquals("Sofa, desk and roof", 3, fixture.home.getFurniture().size());
       assertEquals(350f, fixture.sofa2.getX(), 1e-3f);
       assertEquals(Boolean.FALSE, callTool(handler, "get_home", "{}").get("isError"));

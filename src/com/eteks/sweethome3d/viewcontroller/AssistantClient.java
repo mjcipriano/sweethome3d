@@ -53,12 +53,36 @@ public class AssistantClient {
    * A single message of a conversation (role is "user" or "assistant").
    */
   public static class ChatMessage {
-    private final String role;
-    private final String content;
+    private final String  role;
+    private final String  content;
+    private final byte [] image;
+    private final String  imageType;
 
     public ChatMessage(String role, String content) {
+      this(role, content, null, null);
+    }
+
+    /**
+     * Creates a message shown with a picture.
+     * @param image     the bytes of a PNG, JPEG or GIF image, or <code>null</code>
+     * @param imageType its MIME type, such as <code>image/jpeg</code>
+     */
+    public ChatMessage(String role, String content, byte [] image, String imageType) {
       this.role = role;
       this.content = content;
+      this.image = image;
+      this.imageType = imageType;
+    }
+
+    /**
+     * Returns the picture sent with this message, or <code>null</code>.
+     */
+    public byte [] getImage() {
+      return this.image;
+    }
+
+    public String getImageType() {
+      return this.imageType;
     }
 
     public String getRole() {
@@ -444,7 +468,11 @@ public class AssistantClient {
       if (!first) {
         body.append(',');
       }
-      appendMessage(body, message.getRole(), message.getContent());
+      if (message.getImage() != null) {
+        appendImageMessage(body, message);
+      } else {
+        appendMessage(body, message.getRole(), message.getContent());
+      }
       first = false;
     }
     body.append(']');
@@ -453,6 +481,24 @@ public class AssistantClient {
   private void appendMessage(StringBuilder body, String role, String content) {
     body.append("{\"role\":").append(JSONParser.toJSONString(role))
         .append(",\"content\":").append(JSONParser.toJSONString(content)).append('}');
+  }
+
+  /**
+   * Appends a message with its picture, in the format of the provider.
+   */
+  private void appendImageMessage(StringBuilder body, ChatMessage message) {
+    String data = java.util.Base64.getEncoder().encodeToString(message.getImage());
+    String type = message.getImageType() != null ? message.getImageType() : "image/png";
+    body.append("{\"role\":").append(JSONParser.toJSONString(message.getRole())).append(",\"content\":[");
+    if (this.provider == Provider.ANTHROPIC) {
+      body.append("{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":")
+          .append(JSONParser.toJSONString(type)).append(",\"data\":\"").append(data).append("\"}}");
+    } else {
+      body.append("{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:").append(type)
+          .append(";base64,").append(data).append("\"}}");
+    }
+    body.append(",{\"type\":\"text\",\"text\":").append(JSONParser.toJSONString(message.getContent()))
+        .append("}]}");
   }
 
   /**
