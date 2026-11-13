@@ -127,7 +127,7 @@ public class HomeMCPServerTest {
 
       response = call(handler, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}");
       List<Object> tools = (List<Object>)((Map<String, Object>)response.get("result")).get("tools");
-      assertEquals(6, tools.size());
+      assertEquals(9, tools.size());
       for (Object tool : tools) {
         Map<String, Object> toolMap = (Map<String, Object>)tool;
         assertNotNull(toolMap.get("name"));
@@ -149,6 +149,7 @@ public class HomeMCPServerTest {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
   public void testToolsReadAndEditHome() throws Exception {
     String previousNo3D = System.getProperty("com.eteks.sweethome3d.no3D");
     System.setProperty("com.eteks.sweethome3d.no3D", "true");
@@ -192,13 +193,41 @@ public class HomeMCPServerTest {
       assertEquals(Boolean.TRUE, callTool(handler, "apply_commands",
           "{\"commands\":[{\"action\":\"move\",\"id\":\"F99\",\"dx\":5}]}").get("isError"));
 
+      // Building commands, checks and textures go through the same tools
+      result = callTool(handler, "apply_commands", "{\"commands\":["
+          + "{\"action\":\"add_rectangular_room\",\"name\":\"Garage\",\"x\":1000,\"y\":0,\"width\":500,\"depth\":400},"
+          + "{\"action\":\"auto_roof\",\"type\":\"hip\"}]}");
+      assertEquals(text(result), Boolean.FALSE, result.get("isError"));
+      assertTrue(text(result), text(result).contains("hip roof"));
+      assertEquals(4, fixture.home.getWalls().size());
+      result = callTool(handler, "check_home", "{}");
+      assertEquals(Boolean.FALSE, result.get("isError"));
+      assertTrue(text(result), text(result).startsWith("Home check:"));
+      result = callTool(handler, "search_textures", "{\"query\":\"parquet\"}");
+      assertTrue(text(result), text(result).startsWith("Textures:"));
+      assertEquals(Boolean.TRUE, callTool(handler, "search_textures", "{}").get("isError"));
+
+      // A picture needs a provider, and comes back as an image content
+      assertEquals(Boolean.TRUE, callTool(handler, "get_plan_image", "{}").get("isError"));
+      handler.setImageProvider(new HomeMCPHandler.ImageProvider() {
+          public byte [] getPlanImage(int maxSize) {
+            return new byte [] {(byte)maxSize, 2, 3};
+          }
+        });
+      result = callTool(handler, "get_plan_image", "{\"max_size\":250}");
+      assertEquals(Boolean.FALSE, result.get("isError"));
+      Map<String, Object> image = (Map<String, Object>)((List<Object>)result.get("content")).get(0);
+      assertEquals("image", image.get("type"));
+      assertEquals("image/png", image.get("mimeType"));
+      assertEquals(java.util.Base64.getEncoder().encodeToString(new byte [] {(byte)250, 2, 3}), image.get("data"));
+
       // Read-only mode keeps reading tools but refuses any change
       handler.setEditingAllowed(false);
       result = callTool(handler, "apply_commands",
           "{\"commands\":[{\"action\":\"delete\",\"ids\":[\"F2\"]}]}");
       assertEquals(Boolean.TRUE, result.get("isError"));
       assertEquals(Boolean.TRUE, callTool(handler, "undo", "{}").get("isError"));
-      assertEquals(2, fixture.home.getFurniture().size());
+      assertEquals("Sofa, desk and roof", 3, fixture.home.getFurniture().size());
       assertEquals(350f, fixture.sofa2.getX(), 1e-3f);
       assertEquals(Boolean.FALSE, callTool(handler, "get_home", "{}").get("isError"));
     } finally {

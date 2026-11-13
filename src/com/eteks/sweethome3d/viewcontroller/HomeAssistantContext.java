@@ -129,7 +129,11 @@ public class HomeAssistantContext {
           brief.append(", ");
         }
         String name = levels.get(i).getName();
-        brief.append(name != null && name.length() > 0 ? name : "Level " + (i + 1));
+        brief.append(name != null && name.length() > 0 ? name : "Level " + (i + 1))
+            .append(" at ").append(format.format(levels.get(i).getElevation())).append(" cm");
+        if (levels.get(i) == home.getSelectedLevel()) {
+          brief.append(" (selected: new items go here)");
+        }
       }
       brief.append('\n');
     } else {
@@ -169,6 +173,7 @@ public class HomeAssistantContext {
               .append(" cm, center (").append(format.format(room.getXCenter())).append(", ")
               .append(format.format(room.getYCenter())).append(")");
         }
+        appendLevel(brief, room.getLevel(), levels);
         brief.append('\n');
       }
     } else {
@@ -189,7 +194,10 @@ public class HomeAssistantContext {
         brief.append("    - W").append(i + 1).append(" (")
             .append(format.format(wall.getXStart())).append(", ").append(format.format(wall.getYStart()))
             .append(") to (").append(format.format(wall.getXEnd())).append(", ")
-            .append(format.format(wall.getYEnd())).append(") cm\n");
+            .append(format.format(wall.getYEnd())).append(") cm, ")
+            .append(format.format(wall.getThickness())).append(" thick");
+        appendLevel(brief, wall.getLevel(), levels);
+        brief.append('\n');
       }
     } else {
       brief.append('\n');
@@ -222,6 +230,13 @@ public class HomeAssistantContext {
             .append(") cm, facing ").append(Math.round(Math.toDegrees(piece.getAngle())))
             .append(" deg, ").append(format.format(piece.getWidth())).append(" x ")
             .append(format.format(piece.getDepth())).append(" cm");
+        if (piece.getElevation() != 0) {
+          brief.append(", elevation ").append(format.format(piece.getElevation()));
+        }
+        if (piece.isDoorOrWindow()) {
+          brief.append(" (door/window)");
+        }
+        appendLevel(brief, piece.getLevel(), levels);
         if (!piece.isVisible()) {
           brief.append(" (hidden)");
         }
@@ -296,6 +311,22 @@ public class HomeAssistantContext {
         + "  {\"action\":\"add_door_or_window\",\"name\":\"<exact catalog name>\",\"x\":N,\"y\":N,\"angle\":N}\n"
         + "  {\"action\":\"add_room\",\"name\":\"<name>\",\"points\":[[x,y],[x,y],[x,y],...]}\n"
         + "  {\"action\":\"add_wall\",\"x1\":N,\"y1\":N,\"x2\":N,\"y2\":N,\"thickness\":N,\"height\":N}\n"
+        + "  {\"action\":\"add_rectangular_room\",\"name\":\"<name>\",\"x\":N,\"y\":N,\"width\":N,\"depth\":N}  "
+        + "(or instead of x,y: \"next_to\":\"R1\" (a room id or name),\"side\":\"north|south|east|west\",\"offset\":N to put it against "
+        + "that side of an existing room, aligned on its top or left edge plus offset. "
+        + "x,y = top left corner of the inside of the room; adds the room AND the walls around it, "
+        + "reusing a wall that already stands along a side, so place a new room against an existing one "
+        + "to extend the house. Optional: \"walls\":false, \"thickness\":N, \"height\":N, \"floor_color\":\"#RRGGBB\". "
+        + "Prefer it to add_room + add_wall for rectangular rooms)\n"
+        + "  {\"action\":\"auto_roof\",\"type\":\"gable|hip|shed|flat\",\"pitch\":N,\"overhang\":N,\"color\":\"#RRGGBB\"}  "
+        + "(adds a roof over the walls of the selected level, on a level named Roof on top of them; "
+        + "pitch in degrees (default 30), overhang in cm (default 30), \"ridge\":\"x\"|\"y\" to choose the ridge direction, "
+        + "\"ids\":[\"R1\"] to cover only some rooms and \"per_room\":true|false to force one roof per room or a single one "
+        + "(by default a house that isn't a rectangle gets one roof per room). Calling it again replaces the roof)\n"
+        + "  {\"action\":\"add_level\",\"name\":\"<name>\",\"elevation\":N,\"height\":N}  (adds a floor above and selects it)\n"
+        + "  {\"action\":\"select_level\",\"name\":\"<level name>\"}  (new items go to the selected level)\n"
+        + "  {\"action\":\"add_label\",\"text\":\"<text>\",\"x\":N,\"y\":N}\n"
+        + "  {\"action\":\"add_dimension\",\"x1\":N,\"y1\":N,\"x2\":N,\"y2\":N,\"offset\":N}  (a measurement line)\n"
         + "  {\"action\":\"select\",\"names\":[\"<item name>\"]}\n"
         + "To MODIFY items that already exist, reference them by the id shown in the project "
         + "summary (F# furniture, W# walls, R# rooms), by \"target\":\"selection\", or by name. "
@@ -303,7 +334,16 @@ public class HomeAssistantContext {
         + "  {\"action\":\"move\",\"id\":\"F1\",\"dx\":N,\"dy\":N}  (relative; or \"x\":N,\"y\":N for an absolute position)\n"
         + "  {\"action\":\"rotate\",\"id\":\"F1\",\"angle\":N}  (absolute degrees; or \"by\":N to add to the current angle)\n"
         + "  {\"action\":\"resize\",\"id\":\"F1\",\"width\":N,\"depth\":N,\"height\":N}\n"
-        + "  {\"action\":\"set_color\",\"id\":\"F1\",\"color\":\"#RRGGBB\"}\n"
+        + "  {\"action\":\"set_color\",\"id\":\"F1\",\"color\":\"#RRGGBB\"}  (furniture; a wall W#: both sides or "
+        + "\"part\":\"left\"|\"right\"; a room R#: its floor or \"part\":\"ceiling\")\n"
+        + "  {\"action\":\"set_texture\",\"id\":\"R1\",\"texture\":\"<texture name>\",\"part\":\"floor|ceiling|left|right\"}  "
+        + "(rooms, walls and furniture; find names with {\"action\":\"search_textures\",\"query\":\"<words>\"})\n"
+        + "  {\"action\":\"duplicate\",\"id\":\"F1\",\"dx\":N,\"dy\":N,\"count\":N}  (copies of furniture, each shifted by dx,dy)\n"
+        + "  {\"action\":\"set_camera\",\"x\":N,\"y\":N,\"height\":N,\"look_at_x\":N,\"look_at_y\":N,\"mode\":\"visitor|aerial\"}  "
+        + "(moves the virtual visitor, also the starting point of the VR preview)\n"
+        + "  {\"action\":\"check_home\"}  (reports plan defects: walls that don't meet, duplicates, rooms without door, doors out of walls, "
+        + "furniture under the floor or outside rooms... the report comes back in the next turn)\n"
+        + "  {\"action\":\"fix_home\"}  (repairs the defects marked fixable; \"types\":[\"wall_gap\"] limits it)\n"
         + "  {\"action\":\"set_elevation\",\"id\":\"F1\",\"elevation\":N}\n"
         + "  {\"action\":\"set_visible\",\"id\":\"F1\",\"visible\":true}\n"
         + "  {\"action\":\"rename\",\"id\":\"F1\",\"name\":\"<new name>\"}\n"
@@ -321,6 +361,17 @@ public class HomeAssistantContext {
         + "center line and the wall's direction as their angle.\n"
         + "- Use at most 30 commands per reply; coordinates beyond 1000000 cm and sizes beyond "
         + "100000 cm are rejected.";
+  }
+
+  /**
+   * Appends the name of the level of an item when the home has more than one.
+   */
+  private static void appendLevel(StringBuilder brief, Level level, List<Level> levels) {
+    if (level != null && levels.size() > 1) {
+      String name = level.getName();
+      brief.append(" [").append(name != null && name.length() > 0
+          ? name : "Level " + (levels.indexOf(level) + 1)).append(']');
+    }
   }
 
   private static void countFurniture(List<HomePieceOfFurniture> furniture, int[] counts,

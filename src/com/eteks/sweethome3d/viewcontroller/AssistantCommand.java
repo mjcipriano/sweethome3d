@@ -29,6 +29,10 @@ public class AssistantCommand {
     this.parameters = parameters;
   }
 
+  Map<String, Object> getParameters() {
+    return this.parameters;
+  }
+
   /**
    * Returns the lower-case action name (e.g. <code>"add_furniture"</code>).
    */

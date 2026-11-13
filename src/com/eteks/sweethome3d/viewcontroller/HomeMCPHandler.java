@@ -50,6 +50,25 @@ public class HomeMCPHandler {
   private final AssistantCommandExecutor commandExecutor;
   private final String                   serverVersion;
   private volatile boolean               editingAllowed = true;
+  private volatile ImageProvider         imageProvider;
+
+  /**
+   * Gives pictures of the home to this handler, which can't draw any itself.
+   */
+  public interface ImageProvider {
+    /**
+     * Returns a PNG image of the plan of the selected level no larger than
+     * <code>maxSize</code> pixels, or <code>null</code> if it can't be drawn.
+     */
+    byte [] getPlanImage(int maxSize);
+  }
+
+  /**
+   * Sets the object that draws the pictures returned by <code>get_plan_image</code>.
+   */
+  public void setImageProvider(ImageProvider imageProvider) {
+    this.imageProvider = imageProvider;
+  }
 
   /**
    * Creates a handler for the given <code>home</code>.
@@ -173,13 +192,16 @@ public class HomeMCPHandler {
         + "(F# furniture, W# walls, R# rooms) used by apply_commands. Ids stay bound to the items "
         + "of the last get_home call, so call it again to get ids for items you added. "
         + "Furniture can only be added by its exact catalog name: use search_catalog or "
-        + "list_catalog to find one. Every apply_commands call is one step of the application's "
+        + "list_catalog to find one. To extend the house use add_rectangular_room (room and walls "
+        + "at once) and auto_roof; check_home reports plan defects and fix_home repairs them; "
+        + "get_plan_image shows the plan. Every apply_commands call is one step of the application's "
         + "Undo, also available through the undo tool.");
     return result;
   }
 
   private static boolean isTool(String name) {
     return "get_home".equals(name) || "list_catalog".equals(name) || "search_catalog".equals(name)
+        || "search_textures".equals(name) || "check_home".equals(name) || "get_plan_image".equals(name)
         || "apply_commands".equals(name) || "undo".equals(name) || "redo".equals(name);
   }
 
@@ -206,6 +228,26 @@ public class HomeMCPHandler {
         "Searches the furniture catalog and returns the best matching exact names with their "
         + "category and size in centimeters.",
         schema(searchProperties, "query"), true));
+    Map<String, Object> textureProperties = new LinkedHashMap<String, Object>();
+    textureProperties.put("query", property("string", "Words describing the wanted texture, for example \"oak parquet\""));
+    tools.add(tool("search_textures", "Search textures catalog",
+        "Searches the textures catalog and returns the best matching exact names, to use with the "
+        + "set_texture command on floors, ceilings, walls and furniture.",
+        schema(textureProperties, "query"), true));
+    tools.add(tool("check_home", "Check home",
+        "Looks for defects in the plan: walls that end close to each other without being joined, "
+        + "duplicated or empty items, doors and windows that aren't in a wall, furniture under the "
+        + "floor, through the ceiling or outside every room, heavy 3D models. Each issue names its "
+        + "items by id; those marked fixable are repaired by the fix_home command of apply_commands. "
+        + "Like get_home, it binds the ids to the current items.",
+        schema(null), true));
+    Map<String, Object> imageProperties = new LinkedHashMap<String, Object>();
+    imageProperties.put("max_size", property("number", "Largest side of the image in pixels (default 1000, at most 2000)"));
+    tools.add(tool("get_plan_image", "Picture of the plan",
+        "Returns a PNG picture of the 2D plan of the selected level (walls, rooms, furniture, "
+        + "dimensions), to see the layout or check the result of an edit. x grows to the right "
+        + "and y downward, as in the commands.",
+        schema(imageProperties), true));
     Map<String, Object> commandsProperty = new LinkedHashMap<String, Object>();
     commandsProperty.put("type", "array");
     commandsProperty.put("description", "The commands to run in order, as objects with an \"action\" field");
@@ -272,6 +314,33 @@ public class HomeMCPHandler {
       return toolResult(catalog.length() > 0 ? catalog : "The furniture catalog is empty.", false);
     } else if ("search_catalog".equals(name)) {
       return searchCatalog(arguments);
+    } else if ("search_textures".equals(name)) {
+      Object query = arguments.get("query");
+      if (!(query instanceof String) || ((String)query).trim().length() == 0) {
+        return toolResult("The \"query\" argument is required.", true);
+      }
+      return toolResult("Textures: " + this.commandExecutor.searchTextures((String)query, MAX_SEARCH_RESULTS), false);
+    } else if ("check_home".equals(name)) {
+      this.commandExecutor.snapshotDescribedItems();
+      return toolResult(this.commandExecutor.checkHome(), false);
+    } else if ("get_plan_image".equals(name)) {
+      ImageProvider provider = this.imageProvider;
+      int maxSize = arguments.get("max_size") instanceof Number
+          ? Math.max(200, Math.min(2000, ((Number)arguments.get("max_size")).intValue())) : 1000;
+      byte [] image = provider != null ? provider.getPlanImage(maxSize) : null;
+      if (image == null) {
+        return toolResult("No picture of the plan is available (the plan is empty or not displayed).", true);
+      }
+      Map<String, Object> content = new LinkedHashMap<String, Object>();
+      content.put("type", "image");
+      content.put("data", java.util.Base64.getEncoder().encodeToString(image));
+      content.put("mimeType", "image/png");
+      List<Object> contents = new ArrayList<Object>();
+      contents.add(content);
+      Map<String, Object> result = new LinkedHashMap<String, Object>();
+      result.put("content", contents);
+      result.put("isError", Boolean.FALSE);
+      return result;
     } else if (!isEditingAllowed()) {
       return toolResult("Editing is disabled: the user didn't allow changes to this home. "
           + "Ask them to enable it in Sweet Home 3D (Help > Claude MCP server).", true);

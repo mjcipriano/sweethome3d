@@ -183,6 +183,52 @@ extending the executor:
 - **MCP server.** `Help > Claude MCP server...` exposes the home to Claude and
   other MCP clients through the same executor: see `docs/MCP_SERVER.md`.
 
+### Building and repair commands (2026-11-13, DONE)
+
+Added to the shared executor, so the in-app assistant and the MCP server both
+have them (`AssistantBuildingCommands`, `AssistantRoofBuilder`,
+`HomeDiagnostics`; tests in `AssistantBuildingCommandsTest`):
+
+- **`add_rectangular_room`** - a room and its four joined walls in one command,
+  by `x,y,width,depth` or `next_to` (room id or name) + `side` + `offset`. A
+  side along which a wall already stands gets no second wall, so rooms placed
+  against each other share their wall. This is the command for "add a garage
+  on the east side".
+- **`auto_roof`** - gable, hip, shed or flat roof with `pitch`, `overhang`,
+  `ridge` and `color`. Sweet Home 3D has no roof object: the roof is a piece of
+  furniture with a generated OBJ model (saved in the home file), put on a level
+  named `Roof` on top of the walls so it doesn't hide the rooms in the plan.
+  The working level stays selected and the 3D view is switched to "display all
+  levels". A house that isn't a rectangle gets one roof per room; calling the
+  command again replaces the roofs. Limits: roofs cover rectangles (the bounds
+  of the walls or of each room), not arbitrary outlines, and don't trim the
+  walls under a gable.
+- **Levels** - `add_level`, `select_level`; the brief gives each level's
+  elevation, marks the selected one and tags items with their level.
+- **Appearance** - `set_color` now also paints walls (`part: left|right`) and
+  room floors/ceilings; `set_texture` + `search_textures` use the textures
+  catalog on rooms, walls and furniture.
+- **Annotations and copies** - `add_label`, `add_dimension`, `duplicate`.
+- **`set_camera`** - moves the virtual visitor (also the VR start point); not
+  undoable, like any camera move.
+- **`check_home` / `fix_home`** - `HomeDiagnostics` reports walls that end
+  close without being joined, tiny and duplicate walls, empty rooms, rooms
+  walled on every side without a door, doors and windows out of walls,
+  duplicate furniture, furniture under the floor / through the ceiling /
+  outside rooms, unnamed rooms and heavy models. `fix_home` repairs the fixable
+  ones (joins walls, deletes duplicates and specks, puts doors back in the
+  closest wall, raises furniture to the floor) as one undo step.
+
+All of them go through the controllers or the snapshot edit (`ItemState` now
+also records wall joins, wall/room colors and textures), so every turn is still
+one Undo. Two real Claude Code sessions built a three-room house with doors,
+windows, furniture and a roof through the MCP server on 2026-11-13; their
+remarks produced `next_to`, the per-room roofs and the door check.
+
+Ideas not done: roofs following an arbitrary outline, stairs, splitting a wall
+or cutting an opening without a door model, moving items between levels,
+importing a floor plan image, rendering a 3D picture for MCP clients.
+
 ### Backlog / later
 
 - **Native tool/function calling.** Use Anthropic `tool_use` and OpenAI `tools`

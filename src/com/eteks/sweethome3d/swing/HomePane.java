@@ -46,6 +46,7 @@ import java.awt.KeyboardFocusManager;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.awt.Window;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
@@ -82,6 +83,7 @@ import java.beans.PropertyChangeListener;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
@@ -124,6 +126,7 @@ import javax.swing.DefaultListSelectionModel;
 import javax.swing.Icon;
 import javax.swing.ImageIcon;
 import javax.swing.InputMap;
+import javax.imageio.ImageIO;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JCheckBoxMenuItem;
@@ -810,8 +813,11 @@ public class HomePane extends JRootPane implements HomeView {
    * Changes the selection of the toggle model matching the given action.
    */
   private void setToggleButtonModelSelected(ActionType actionType, boolean selected) {
-    ((JToggleButton.ToggleButtonModel)getActionMap().get(actionType).getValue(ResourceAction.TOGGLE_BUTTON_MODEL)).
-        setSelected(selected);
+    Action action = getActionMap().get(actionType);
+    // The actions of the 3D view don't exist when it isn't available
+    if (action != null && action.getValue(ResourceAction.TOGGLE_BUTTON_MODEL) != null) {
+      ((JToggleButton.ToggleButtonModel)action.getValue(ResourceAction.TOGGLE_BUTTON_MODEL)).setSelected(selected);
+    }
   }
 
   /**
@@ -4922,6 +4928,11 @@ public class HomePane extends JRootPane implements HomeView {
     if (this.mcpHandler == null) {
       this.mcpHandler = new HomeMCPHandler(this.home, this.preferences, this.controller,
           this.controller != null ? this.controller.getVersion() : null);
+      this.mcpHandler.setImageProvider(new HomeMCPHandler.ImageProvider() {
+          public byte [] getPlanImage(int maxSize) {
+            return createPlanImage(maxSize);
+          }
+        });
     }
     final JLabel statusLabel = new JLabel();
     final JTextArea commandArea = new JTextArea(4, 48);
@@ -4995,6 +5006,60 @@ public class HomePane extends JRootPane implements HomeView {
   }
 
   /**
+   * Returns a PNG image of the plan no larger than <code>maxSize</code> pixels,
+   * or <code>null</code> if the plan is empty or isn't a plan component.
+   */
+  private byte [] createPlanImage(int maxSize) {
+    View planView = this.controller != null ? this.controller.getPlanController().getView() : null;
+    // The plan may be shown in a panel with the tabs of the levels
+    PlanComponent planComponent = planView instanceof Component
+        ? findPlanComponent((Component)planView) : null;
+    if (planComponent == null) {
+      return null;
+    }
+    try {
+      // Paint the whole plan as displayed (grid, items and their names), fitted to the asked size
+      int planWidth = planComponent.getWidth();
+      int planHeight = planComponent.getHeight();
+      if (planWidth <= 0 || planHeight <= 0) {
+        return null;
+      }
+      float scale = Math.min(1f, (float)maxSize / Math.max(planWidth, planHeight));
+      int width = Math.max(1, Math.round(planWidth * scale));
+      int height = Math.max(1, Math.round(planHeight * scale));
+      BufferedImage scaledImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+      Graphics2D g2D = scaledImage.createGraphics();
+      g2D.setColor(Color.WHITE);
+      g2D.fillRect(0, 0, width, height);
+      g2D.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+      g2D.scale(scale, scale);
+      planComponent.paint(g2D);
+      g2D.dispose();
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      ImageIO.write(scaledImage, "png", out);
+      return out.toByteArray();
+    } catch (IOException ex) {
+      return null;
+    } catch (RuntimeException ex) {
+      return null;
+    }
+  }
+
+  private static PlanComponent findPlanComponent(Component component) {
+    if (component instanceof PlanComponent) {
+      return (PlanComponent)component;
+    } else if (component instanceof Container) {
+      for (Component child : ((Container)component).getComponents()) {
+        PlanComponent planComponent = findPlanComponent(child);
+        if (planComponent != null) {
+          return planComponent;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
    * Starts the MCP server of this home, stopped when its window is closed.
    */
   private void startMCPServer() throws IOException {
@@ -5051,8 +5116,19 @@ public class HomePane extends JRootPane implements HomeView {
         + "  - Paint the selected chair #336699.\n"
         + "  - Hide the current object.\n"
         + "  - Rename this room to Office.\n"
-        + "  - Delete all the chairs.\n\n"
-        + "Reduce-detail (LOD) editing and multi-step planning are coming next.";
+        + "  - Delete all the chairs.\n"
+        + "  - Paint the walls of the kitchen light yellow and give it a tiled floor.\n"
+        + "  - Show the selected trees with reduced detail.\n\n"
+        + "Build the house:\n"
+        + "  - Add a 5m by 4m garage against the east side of the living room.\n"
+        + "  - Add a hip roof with a 35 degree pitch.\n"
+        + "  - Add a first floor with two bedrooms and a bathroom.\n"
+        + "  - Label each room and add a dimension line along the front wall.\n"
+        + "  - Put the virtual visitor in the hall, looking at the kitchen.\n\n"
+        + "Check and repair:\n"
+        + "  - Check my home for problems.\n"
+        + "  - Fix the walls that don't meet.\n\n"
+        + "Claude can do the same from outside the application: see Help > Claude MCP server.";
     JTextArea textArea = new JTextArea(examples);
     textArea.setEditable(false);
     textArea.setOpaque(false);
