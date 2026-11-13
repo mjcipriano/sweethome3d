@@ -20,6 +20,10 @@
 package com.eteks.sweethome3d.junit;
 
 import java.awt.KeyboardFocusManager;
+import java.awt.event.WindowEvent;
+import java.awt.event.AWTEventListener;
+import java.awt.Toolkit;
+import java.awt.AWTEvent;
 import java.awt.Window;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
@@ -113,27 +117,30 @@ public class ThreadedTaskControllerTest extends TestCase {
           return null;
         }
       };
-    // Add a listener that closes the waiting dialog
-    activeWindowListener = new PropertyChangeListener() {
-          public void propertyChange(PropertyChangeEvent ev) {
-            final Window activeWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
-            if (activeWindow != null) {
+    // Add a listener that closes the waiting dialog as soon as it's opened. It
+    // doesn't rely on the active window, which depends on the window manager,
+    // and ignores the windows without button other tests may have left
+    AWTEventListener openedWindowListener = new AWTEventListener() {
+          public void eventDispatched(AWTEvent ev) {
+            if (ev.getID() == WindowEvent.WINDOW_OPENED) {
               try {
-                ((JButton)TestUtilities.findComponent(activeWindow, JButton.class)).doClick();
+                ((JButton)TestUtilities.findComponent(((WindowEvent)ev).getWindow(), JButton.class)).doClick();
               } catch (ComponentSearchException ex) {
-                fail("No button in waiting dialog");
+                // Not the waiting dialog
               }
             }
           }
         };
-    KeyboardFocusManager.getCurrentKeyboardFocusManager().
-        addPropertyChangeListener("activeWindow", activeWindowListener);
-    // Check that a long task creates a visible dialog at screen
-    new ThreadedTaskController(cancelledTask, "Message", noExceptionHandler, preferences, viewFactory).executeTask(null);
-    cancelledTaskLatch.await(1500, TimeUnit.MILLISECONDS);
-    assertEquals("Task wasn't cancelled", 0, cancelledTaskLatch.getCount());
-    KeyboardFocusManager.getCurrentKeyboardFocusManager().
-        removePropertyChangeListener("activeWindow", activeWindowListener);
+    Toolkit.getDefaultToolkit().addAWTEventListener(openedWindowListener, AWTEvent.WINDOW_EVENT_MASK);
+    try {
+      // Check that a long task creates a visible dialog at screen
+      new ThreadedTaskController(cancelledTask, "Message", noExceptionHandler, preferences, viewFactory).executeTask(null);
+      cancelledTaskLatch.await(1500, TimeUnit.MILLISECONDS);
+      assertEquals("Task wasn't cancelled", 0, cancelledTaskLatch.getCount());
+    } finally {
+      // A listener left behind would click in the dialogs of the following tests
+      Toolkit.getDefaultToolkit().removeAWTEventListener(openedWindowListener);
+    }
 
     // 4. Create a task that fails  
     final CountDownLatch failingTaskLatch = new CountDownLatch(2);
