@@ -68,6 +68,9 @@ public class AssistantPanel extends JPanel {
   private final JCheckBox                  previewEditsCheckBox;
   /** Offset where the current assistant response starts, for streaming updates; -1 if none. */
   private int                              responseStartOffset = -1;
+  /** Client of the request in progress, or <code>null</code>; used to cancel it. */
+  private volatile AssistantClient         currentClient;
+  private volatile boolean                 cancelled;
 
   public AssistantPanel(Home home, UserPreferences preferences, HomeController homeController) {
     super(new BorderLayout(0, 8));
@@ -137,12 +140,21 @@ public class AssistantPanel extends JPanel {
     setBusy(true);
 
     final AssistantClient client = createClient();
-    new Thread("Sweet Home 3D assistant") {
+    this.cancelled = false;
+    this.currentClient = client;
+    Thread thread = new Thread("Sweet Home 3D assistant") {
         @Override
         public void run() {
           try {
             runConversation(client);
+          } catch (final RuntimeException ex) {
+            EventQueue.invokeLater(new Runnable() {
+                public void run() {
+                  finalizeResponse("Couldn't apply the reply: " + ex);
+                }
+              });
           } finally {
+            currentClient = null;
             EventQueue.invokeLater(new Runnable() {
                 public void run() {
                   setBusy(false);
@@ -151,7 +163,21 @@ public class AssistantPanel extends JPanel {
               });
           }
         }
-      }.start();
+      };
+    thread.setDaemon(true);
+    thread.start();
+  }
+
+  /**
+   * Cancels the request in progress, if any: its reply is dropped and no further
+   * edit is applied to the home. Called when the assistant window is closed.
+   */
+  public void cancel() {
+    this.cancelled = true;
+    AssistantClient client = this.currentClient;
+    if (client != null) {
+      client.abort();
+    }
   }
 
   /**
@@ -164,6 +190,9 @@ public class AssistantPanel extends JPanel {
    */
   private void runConversation(AssistantClient client) {
     for (int step = 1; step <= MAX_ASSISTANT_STEPS; step++) {
+      if (this.cancelled) {
+        return;
+      }
       final String systemPrompt = buildSystemPrompt();
       runOnDispatchThread(new Runnable() {
           public void run() {
@@ -183,13 +212,24 @@ public class AssistantPanel extends JPanel {
               }
             });
       } catch (final Exception ex) {
-        final String message = "Couldn't reach the assistant: " + ex.getMessage()
-            + "\n(Check the provider settings.)";
+        // Drop the unanswered question so the next request doesn't send two
+        // consecutive user messages
+        if (!this.conversation.isEmpty()
+            && "user".equals(this.conversation.get(this.conversation.size() - 1).getRole())) {
+          this.conversation.remove(this.conversation.size() - 1);
+        }
+        final String message = this.cancelled
+            ? "Cancelled."
+            : "Couldn't reach the assistant: " + ex.getMessage()
+              + "\n(Check the provider settings.)";
         runOnDispatchThread(new Runnable() {
             public void run() {
               finalizeResponse(message);
             }
           });
+        return;
+      }
+      if (this.cancelled) {
         return;
       }
       final String rawReply = reply;
@@ -200,8 +240,15 @@ public class AssistantPanel extends JPanel {
             applyTurn(rawReply, result);
           }
         });
+      if (result.declined) {
+        // Tell the model so the history doesn't imply the edits were applied
+        this.conversation.add(new ChatMessage("user",
+            "The user declined those edits; nothing was applied."));
+        this.conversation.add(new ChatMessage("assistant",
+            "{\"reply\":\"Understood, nothing was changed.\",\"commands\":[]}"));
+        return;
+      }
       // Stop once the model answers with no further edits, or nothing was applied
-      // (including a previewed edit the user declined)
       if (!result.hadCommands || result.summary == null) {
         return;
       }
@@ -227,7 +274,13 @@ public class AssistantPanel extends JPanel {
    * dispatch thread. Fills <code>result</code> with what happened.
    */
   private void applyTurn(String rawReply, TurnResult result) {
-    AssistantCommandParser parsed = AssistantCommandParser.parse(rawReply);
+    AssistantCommandParser parsed;
+    try {
+      parsed = AssistantCommandParser.parse(rawReply);
+    } catch (RuntimeException ex) {
+      finalizeResponse(rawReply);
+      return;
+    }
     String displayText = parsed.getReply() != null && parsed.getReply().length() > 0
         ? parsed.getReply() : rawReply;
     boolean hasCommands = this.commandExecutor != null && !parsed.getCommands().isEmpty();
@@ -236,10 +289,15 @@ public class AssistantPanel extends JPanel {
       if (this.previewEditsCheckBox.isSelected() && !confirmEdits(parsed.getCommands())) {
         footer = "Edit cancelled.";
         // Leave result.hadCommands false so the multi-step loop stops
+        result.declined = true;
       } else {
         result.hadCommands = true;
-        result.summary = this.commandExecutor.execute(parsed.getCommands());
-        footer = result.summary;
+        try {
+          result.summary = this.commandExecutor.execute(parsed.getCommands());
+          footer = result.summary;
+        } catch (RuntimeException ex) {
+          footer = "Couldn't apply the edits: " + ex;
+        }
       }
     }
     finalizeResponse(displayText + (footer != null ? "\n[" + footer + "]" : ""));
@@ -306,6 +364,7 @@ public class AssistantPanel extends JPanel {
    */
   private static final class TurnResult {
     private boolean hadCommands;
+    private boolean declined;
     private String  summary;
   }
 

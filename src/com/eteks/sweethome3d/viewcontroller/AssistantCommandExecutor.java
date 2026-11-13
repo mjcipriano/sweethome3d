@@ -17,7 +17,9 @@ import java.util.List;
 import javax.swing.undo.AbstractUndoableEdit;
 import javax.swing.undo.UndoableEditSupport;
 
+import com.eteks.sweethome3d.model.Camera;
 import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
+import com.eteks.sweethome3d.model.Compass;
 import com.eteks.sweethome3d.model.FurnitureCategory;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
@@ -48,6 +50,11 @@ public class AssistantCommandExecutor {
   private final Home            home;
   private final UserPreferences preferences;
   private final HomeController  homeController;
+  // State of the turn being executed (the executor is used on the EDT only)
+  private List<HomePieceOfFurniture> turnFurniture;
+  private List<Wall>                 turnWalls;
+  private List<Room>                 turnRooms;
+  private boolean                    turnUpdateBegun;
 
   public AssistantCommandExecutor(Home home, UserPreferences preferences, HomeController homeController) {
     this.home = home;
@@ -69,8 +76,12 @@ public class AssistantCommandExecutor {
     int [] tally = new int [6];
     List<String> notFound = new ArrayList<String>();
     List<String> notes = new ArrayList<String>();
-    UndoableEditSupport undoSupport = this.homeController.getUndoableEditSupport();
-    undoSupport.beginUpdate();
+    // Ids (F#/W#/R#) designate the items the model saw at the start of the turn,
+    // whatever earlier commands of the same turn added or deleted
+    this.turnFurniture = new ArrayList<HomePieceOfFurniture>(this.home.getFurniture());
+    this.turnWalls = new ArrayList<Wall>(this.home.getWalls());
+    this.turnRooms = new ArrayList<Room>(this.home.getRooms());
+    this.turnUpdateBegun = false;
     try {
       int applied = 0;
       for (AssistantCommand command : commands) {
@@ -80,12 +91,37 @@ public class AssistantCommandExecutor {
               + " commands were ignored");
           break;
         }
-        applyCommand(command, tally, notFound, notes);
+        try {
+          applyCommand(command, tally, notFound, notes);
+        } catch (RuntimeException ex) {
+          // One failing command mustn't abort the turn or leave the compound edit open
+          notes.add("Couldn't apply " + command.getAction() + " ("
+              + (ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName()) + ")");
+        }
       }
     } finally {
-      undoSupport.endUpdate();
+      if (this.turnUpdateBegun) {
+        this.homeController.getUndoableEditSupport().endUpdate();
+      }
+      this.turnFurniture = null;
+      this.turnWalls = null;
+      this.turnRooms = null;
+      this.turnUpdateBegun = false;
     }
     return buildSummary(tally, notFound, notes);
+  }
+
+  /**
+   * Starts the compound undoable edit of the turn the first time a command
+   * really changes the home, so a turn that changes nothing (a catalog search,
+   * a selection, rejected commands) doesn't post an empty edit that would make
+   * the home look modified and add a no-op Undo step.
+   */
+  private void beginTurnUpdate() {
+    if (!this.turnUpdateBegun) {
+      this.homeController.getUndoableEditSupport().beginUpdate();
+      this.turnUpdateBegun = true;
+    }
   }
 
   private void applyCommand(AssistantCommand command, int [] tally, List<String> notFound,
@@ -179,6 +215,7 @@ public class AssistantCommandExecutor {
     }
     if (changed > 0) {
       List<ItemState> after = captureStates(targets);
+      beginTurnUpdate();
       this.homeController.getUndoableEditSupport().postEdit(
           new AssistantModificationUndoableEdit(before, after));
       tally [4] += changed;
@@ -216,14 +253,18 @@ public class AssistantCommandExecutor {
     } else if ("set_color".equals(action)) {
       if (item instanceof HomePieceOfFurniture) {
         Integer color = parseColor(command.getString("color"));
-        if (color != null) {
+        if (color != null && ((HomePieceOfFurniture)item).isTexturable()) {
           ((HomePieceOfFurniture)item).setColor(color);
           return true;
         }
       }
     } else if ("set_elevation".equals(action)) {
       if (item instanceof HomePieceOfFurniture && command.has("elevation")) {
-        ((HomePieceOfFurniture)item).setElevation((float)command.getDouble("elevation", 0));
+        double elevation = command.getDouble("elevation", Double.NaN);
+        if (Double.isNaN(elevation) || !sizeSane(elevation)) {
+          return false;
+        }
+        ((HomePieceOfFurniture)item).setElevation((float)elevation);
         return true;
       }
     } else if ("set_visible".equals(action)) {
@@ -247,6 +288,11 @@ public class AssistantCommandExecutor {
   }
 
   private boolean moveItem(AssistantCommand command, Selectable item) {
+    if (!(item instanceof HomePieceOfFurniture || item instanceof Wall || item instanceof Room)) {
+      // Other selectable items (labels, dimension lines, compass, cameras...)
+      // aren't snapshot for undo, so they are left alone
+      return false;
+    }
     if (command.has("dx") || command.has("dy")) {
       double dx = command.getDouble("dx", 0);
       double dy = command.getDouble("dy", 0);
@@ -288,6 +334,9 @@ public class AssistantCommandExecutor {
     boolean changed = false;
     if (item instanceof HomePieceOfFurniture) {
       HomePieceOfFurniture piece = (HomePieceOfFurniture)item;
+      if (!piece.isResizable()) {
+        return false;
+      }
       double width = command.getDouble("width", Double.NaN);
       if (!Double.isNaN(width) && width > 0 && sizeSane(width)) {
         piece.setWidth((float)width);
@@ -324,8 +373,22 @@ public class AssistantCommandExecutor {
     if (targets.isEmpty()) {
       return;
     }
-    this.homeController.getPlanController().deleteItems(targets);
-    tally [5] += targets.size();
+    // Count and delete only what is really deletable and still in the home
+    List<Selectable> deletable = new ArrayList<Selectable>(targets.size());
+    for (Selectable item : targets) {
+      if (isInHome(item)
+          && !(item instanceof Compass || item instanceof Camera)
+          && (!(item instanceof HomePieceOfFurniture)
+              || this.homeController.getPlanController().isPieceOfFurnitureDeletable((HomePieceOfFurniture)item))) {
+        deletable.add(item);
+      }
+    }
+    if (deletable.isEmpty()) {
+      return;
+    }
+    beginTurnUpdate();
+    this.homeController.getPlanController().deleteItems(deletable);
+    tally [5] += deletable.size();
   }
 
   /**
@@ -402,23 +465,44 @@ public class AssistantCommandExecutor {
     if (index < 0) {
       return null;
     }
+    Selectable item = null;
     if (type == 'F') {
-      List<HomePieceOfFurniture> furniture = this.home.getFurniture();
+      List<HomePieceOfFurniture> furniture = this.turnFurniture != null
+          ? this.turnFurniture : this.home.getFurniture();
       if (index < furniture.size()) {
-        return furniture.get(index);
+        item = furniture.get(index);
       }
     } else if (type == 'W') {
-      List<Wall> walls = new ArrayList<Wall>(this.home.getWalls());
+      List<Wall> walls = this.turnWalls != null
+          ? this.turnWalls : new ArrayList<Wall>(this.home.getWalls());
       if (index < walls.size()) {
-        return walls.get(index);
+        item = walls.get(index);
       }
     } else if (type == 'R') {
-      List<Room> rooms = this.home.getRooms();
+      List<Room> rooms = this.turnRooms != null
+          ? this.turnRooms : this.home.getRooms();
       if (index < rooms.size()) {
-        return rooms.get(index);
+        item = rooms.get(index);
       }
     }
-    return null;
+    // An item deleted earlier in the turn can't be targeted anymore
+    return item != null && isInHome(item) ? item : null;
+  }
+
+  /**
+   * Returns <code>true</code> if the given item of a kind the assistant edits
+   * (furniture, wall, room) still belongs to the home; other kinds are assumed present.
+   */
+  private boolean isInHome(Selectable item) {
+    if (item instanceof HomePieceOfFurniture) {
+      return this.home.getFurniture().contains(item);
+    } else if (item instanceof Wall) {
+      return this.home.getWalls().contains(item);
+    } else if (item instanceof Room) {
+      return this.home.getRooms().contains(item);
+    } else {
+      return true;
+    }
   }
 
   /**
@@ -483,16 +567,19 @@ public class AssistantCommandExecutor {
       piece.setY((float)y);
     }
     piece.setAngle((float)Math.toRadians(command.getDouble("angle", 0)));
-    if (!Double.isNaN(width) && width > 0) {
-      piece.setWidth((float)width);
-    }
-    if (!Double.isNaN(depth) && depth > 0) {
-      piece.setDepth((float)depth);
+    if (piece.isResizable()) {
+      if (!Double.isNaN(width) && width > 0) {
+        piece.setWidth((float)width);
+      }
+      if (!Double.isNaN(depth) && depth > 0) {
+        piece.setDepth((float)depth);
+      }
     }
     if (!Double.isNaN(elevation)) {
       piece.setElevation((float)elevation);
     }
     piece.setLevel(this.home.getSelectedLevel());
+    beginTurnUpdate();
     this.homeController.getFurnitureController().addFurniture(Collections.singletonList(piece));
     if (doorOrWindow || catalogPiece.isDoorOrWindow()) {
       tally [1]++;
@@ -537,6 +624,7 @@ public class AssistantCommandExecutor {
       room.setName(name);
     }
     room.setLevel(this.home.getSelectedLevel());
+    beginTurnUpdate();
     this.homeController.getPlanController().addRooms(Collections.singletonList(room));
     tally [2]++;
   }
@@ -556,8 +644,15 @@ public class AssistantCommandExecutor {
     }
     float thickness = (float)command.getDouble("thickness", this.preferences.getNewWallThickness());
     float height = (float)command.getDouble("height", this.preferences.getNewWallHeight());
+    if (!(thickness > 0) || !sizeSane(thickness)) {
+      thickness = this.preferences.getNewWallThickness();
+    }
+    if (!(height > 0) || !sizeSane(height)) {
+      height = this.preferences.getNewWallHeight();
+    }
     Wall wall = new Wall(xStart, yStart, xEnd, yEnd, thickness, height);
     wall.setLevel(this.home.getSelectedLevel());
+    beginTurnUpdate();
     this.homeController.getPlanController().addWalls(Collections.singletonList(wall));
     tally [3]++;
   }
@@ -858,20 +953,50 @@ public class AssistantCommandExecutor {
       return state;
     }
 
+    private static boolean same(Object value1, Object value2) {
+      return value1 == value2 || value1 != null && value1.equals(value2);
+    }
+
     void restore() {
       if (this.item instanceof HomePieceOfFurniture) {
         HomePieceOfFurniture piece = (HomePieceOfFurniture)this.item;
-        piece.setX(this.x);
-        piece.setY(this.y);
-        piece.setAngle(this.angle);
-        piece.setWidth(this.width);
-        piece.setDepth(this.depth);
-        piece.setHeight(this.height);
-        piece.setElevation(this.elevation);
-        piece.setColor(this.color);
-        piece.setVisible(this.visible);
-        piece.setName(this.name);
-        piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, this.lowPoly);
+        // Write back only what differs: setters of groups propagate to their
+        // children, and size/color setters throw on non resizable/texturable pieces
+        if (piece.getX() != this.x) {
+          piece.setX(this.x);
+        }
+        if (piece.getY() != this.y) {
+          piece.setY(this.y);
+        }
+        if (piece.getAngle() != this.angle) {
+          piece.setAngle(this.angle);
+        }
+        if (piece.isResizable()) {
+          if (piece.getWidth() != this.width) {
+            piece.setWidth(this.width);
+          }
+          if (piece.getDepth() != this.depth) {
+            piece.setDepth(this.depth);
+          }
+          if (piece.getHeight() != this.height) {
+            piece.setHeight(this.height);
+          }
+        }
+        if (piece.getElevation() != this.elevation) {
+          piece.setElevation(this.elevation);
+        }
+        if (piece.isTexturable() && !same(piece.getColor(), this.color)) {
+          piece.setColor(this.color);
+        }
+        if (piece.isVisible() != this.visible) {
+          piece.setVisible(this.visible);
+        }
+        if (!same(piece.getName(), this.name)) {
+          piece.setName(this.name);
+        }
+        if (!same(piece.getProperty(ModelLOD.LOW_POLY_PROPERTY), this.lowPoly)) {
+          piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, this.lowPoly);
+        }
       } else if (this.item instanceof Wall) {
         Wall wall = (Wall)this.item;
         wall.setXStart(this.xStart);
