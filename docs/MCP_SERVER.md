@@ -35,16 +35,24 @@ able to modify it. Every `apply_commands` call is one step of **Edit > Undo**.
 | `get_home` | Text description of levels, rooms (area, extent, centre), walls, furniture and selection, with the ids `F#`/`W#`/`R#` |
 | `list_catalog` | Categories and item names of the furniture catalog |
 | `search_catalog` | Best catalog matches for a query (`doors_and_windows` to search doors and windows) |
+| `search_textures` | Best texture matches, for the `set_texture` command |
+| `check_home` | Report of plan defects (unjoined walls, duplicates, rooms without door, doors out of walls...) with ids |
+| `get_plan_image` | PNG picture of the 2D plan of the selected level |
 | `apply_commands` | Runs a list of edit commands as one undoable change and returns a summary |
 | `undo` / `redo` | Undoes or redoes the last change |
 
 Ids designate the items of the last `get_home` call, even if the home changed
 since: an item deleted meanwhile is simply not found, and items added later get
 an id at the next `get_home`. The commands are the ones of the assistant
-protocol (`HomeAssistantContext.getCommandReference()`): `add_furniture`,
-`add_door_or_window`, `add_room`, `add_wall`, `select`, `move`, `rotate`,
-`resize`, `set_color`, `set_elevation`, `set_visible`, `rename`, `delete`,
-`reduce_detail`, `restore_detail`, at most 30 per call.
+protocol (`HomeAssistantContext.getCommandReference()`), at most 30 per call:
+
+- build: `add_rectangular_room` (room + walls, optionally `next_to` another
+  room), `add_room`, `add_wall`, `add_level`, `select_level`, `auto_roof`,
+  `add_furniture`, `add_door_or_window`, `add_label`, `add_dimension`;
+- change: `move`, `rotate`, `resize`, `set_color`, `set_texture`,
+  `set_elevation`, `set_visible`, `rename`, `duplicate`, `delete`,
+  `reduce_detail`, `restore_detail`, `select`, `set_camera`;
+- check: `check_home`, `fix_home`, `search_catalog`, `search_textures`.
 
 ## Security
 
