@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.19.0](https://github.com/mjcipriano/sweethome3d/compare/v7.18.0...v7.19.0) (2026-11-14)
+
+
+### Features
+
+* **mcp:** bridge program and one-click connection for Claude Desktop and Claude Code ([8838c2e](https://github.com/mjcipriano/sweethome3d/commit/8838c2ea7a56d0be7449911b3001c902e99d618b))
+* **mcp:** bridge program and one-click connection for Claude Desktop and Claude Code ([98defa8](https://github.com/mjcipriano/sweethome3d/commit/98defa8df0550326bd46b51a0dd31be4a6e520ae))
+
 ## [7.18.0](https://github.com/mjcipriano/sweethome3d/compare/v7.17.0...v7.18.0) (2026-11-14)
 
 
