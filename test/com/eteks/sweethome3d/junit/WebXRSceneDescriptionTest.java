@@ -25,9 +25,11 @@ import com.eteks.sweethome3d.model.Content;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomeDoorOrWindow;
 import com.eteks.sweethome3d.model.Level;
+import com.eteks.sweethome3d.model.Library;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Sash;
 import com.eteks.sweethome3d.model.Wall;
+import com.eteks.sweethome3d.plugin.PluginManager;
 import com.eteks.sweethome3d.plugin.webxr.WebXRPreviewPlugin;
 import com.eteks.sweethome3d.plugin.webxr.WebXRSceneDescription;
 import com.eteks.sweethome3d.tools.URLContent;
@@ -158,6 +160,8 @@ public class WebXRSceneDescriptionTest {
       String viewer = new String(Files.readAllBytes(new File(folder, "webxr-viewer.js").toPath()), "UTF-8");
       assertTrue(viewer.contains("./webxr-walk.js"));
       assertTrue(new File(folder, "webxr-walk.js").length() > 0);
+      assertTrue(viewer.contains("./webxr-merge.js"));
+      assertTrue(new File(folder, "webxr-merge.js").length() > 0);
       JSONParser.parse(new String(Files.readAllBytes(new File(folder, "scene.json").toPath()), "UTF-8"));
     } finally {
       File [] files = folder.listFiles();
@@ -166,6 +170,42 @@ public class WebXRSceneDescriptionTest {
           file.delete();
         }
       }
+      folder.delete();
+    }
+  }
+
+  /**
+   * The preview is part of the application, and an older copy of the
+   * plug-in left in the plug-ins folder of the user mustn't replace it.
+   */
+  @Test
+  public void testPreviewIsBuiltIn() throws Exception {
+    File folder = Files.createTempDirectory("sh3d-plugins-test").toFile();
+    File oldPlugin = new File(folder, "WebXRPreview.sh3p");
+    try {
+      // A plug-in file with the same name as the built-in one
+      java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(oldPlugin));
+      zip.putNextEntry(new java.util.zip.ZipEntry("old/ApplicationPlugin.properties"));
+      zip.write(("name=WebXR Preview\nclass=com.eteks.sweethome3d.plugin.webxr.WebXRPreviewPlugin\ndescription=Old\nversion=0.0.1\n"
+          + "license=GNU GPL\nprovider=Test\napplicationMinimumVersion=1.5\njavaMinimumVersion=1.5\n").getBytes("ISO-8859-1"));
+      zip.closeEntry();
+      zip.close();
+
+      PluginManager manager = new PluginManager(new File [] {folder});
+      int count = 0;
+      for (Library library : manager.getPluginLibraries()) {
+        if ("WebXR Preview".equals(library.getName())) {
+          count++;
+          assertEquals(PluginManager.BUILT_IN_PLUGIN_LOCATION, library.getLocation());
+          // Deleting it from the preferences leaves it in place
+          manager.deletePlugins(java.util.Collections.singletonList(library));
+        }
+      }
+      assertEquals(1, count);
+      assertEquals(1, manager.getPluginLibraries().size());
+      assertTrue(oldPlugin.exists());
+    } finally {
+      oldPlugin.delete();
       folder.delete();
     }
   }

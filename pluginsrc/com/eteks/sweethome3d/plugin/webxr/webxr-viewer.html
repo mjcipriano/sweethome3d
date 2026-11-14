@@ -13,6 +13,12 @@
     #status { margin-top:6px; font-weight:bold; }
     #log { margin-top:4px; white-space:pre-wrap; font-size:12px; color:#ffd0d0; }
     canvas { display:block; }
+    #loading { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:min(440px, calc(100vw - 32px)); box-sizing:border-box; background:rgba(0,0,0,0.78); padding:18px 20px; border-radius:8px; font-size:16px; line-height:1.45; text-align:center; }
+    #loadingText { white-space:pre-wrap; }
+    #loadingTrack { margin-top:12px; height:6px; border-radius:3px; background:rgba(255,255,255,0.2); overflow:hidden; }
+    #loadingBar { height:100%; width:0; background:#7fd0ff; transition:width 0.2s; }
+    #loading.error { color:#ffd0d0; text-align:left; font-size:14px; }
+    #loading.error #loadingTrack { display:none; }
   </style>
 </head>
 <body>
@@ -30,12 +36,27 @@
   <div id="status">Loading...</div>
   <div id="log"></div>
 </div>
+<div id="loading">
+  <div id="loadingText">Loading the viewer...</div>
+  <div id="loadingTrack"><div id="loadingBar"></div></div>
+</div>
+<script>
+  // Tells what happens when the viewer itself can't start
+  function viewerFailed() {
+    var loading = document.getElementById('loading');
+    loading.classList.add('error');
+    document.getElementById('loadingText').textContent = 'Couldn\'t load the viewer.\n'
+        + 'It needs the three.js library from unpkg.com the first time: '
+        + 'check that this device is connected to the Internet, then reload the page.';
+    document.getElementById('status').textContent = 'Couldn\'t load the viewer';
+  }
+</script>
 <script type="importmap">
 { "imports": {
     "three": "https://unpkg.com/three@0.155.0/build/three.module.js",
     "three/addons/": "https://unpkg.com/three@0.155.0/examples/jsm/"
 } }
 </script>
-<script type="module" src="webxr-viewer.js"></script>
+<script type="module" src="webxr-viewer.js" onerror="viewerFailed()"></script>
 </body>
 </html>

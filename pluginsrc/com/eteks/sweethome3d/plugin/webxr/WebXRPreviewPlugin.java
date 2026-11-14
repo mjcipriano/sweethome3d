@@ -66,7 +66,7 @@ public class WebXRPreviewPlugin extends Plugin {
   private static final float MIN_REDUCTION_RATIO = 0.01f;
 
   /** The files of the viewer copied from the plugin resources to each export. */
-  private static final String [] VIEWER_RESOURCES = {"webxr-viewer.js", "webxr-walk.js"};
+  private static final String [] VIEWER_RESOURCES = {"webxr-viewer.js", "webxr-walk.js", "webxr-merge.js"};
 
   private final PluginAction[] actions;
 

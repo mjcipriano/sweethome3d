@@ -4,17 +4,17 @@ The **WebXR Preview** plugin exports the current home and serves a WebXR page
 so you can look around the house in a VR headset - no app install on the
 headset, it uses the headset's browser.
 
-## Install the plugin
+## Nothing to install
 
-- Download `SweetHome3D-<version>-WebXRPreview.sh3p` from the GitHub release
-  (or build it locally with `make webxr-plugin`, which produces
-  `plugins/WebXRPreview.sh3p`).
-- Double-click the `.sh3p` file, or copy it into the Sweet Home 3D plugins
-  folder (`~/.eteks/sweethome3d/plugins` on Linux, `%APPDATA%\eTeks\Sweet Home 3D\plugins`
-  on Windows, `~/Library/Application Support/eTeks/Sweet Home 3D/plugins` on
-  macOS), then restart Sweet Home 3D.
-- For development, `make run-webxr-preview [VR_HOME_FILE=<file.sh3d>]` builds
-  the plugin and launches the app with it loaded.
+The preview is part of the application: **Tools > WebXR Preview...** is there
+as soon as a home is open. Earlier versions shipped it as a separate
+`WebXRPreview.sh3p` file to copy in the plugins folder; such a file is now
+ignored, whatever its age, so an old copy can't take the place of the current
+preview (an old copy exported the home without reducing it - a 564 MB scene
+for the reference home, which Chrome can't read). You may delete it from
+`%APPDATA%\eTeks\Sweet Home 3D\plugins` (Windows),
+`~/Library/Application Support/eTeks/Sweet Home 3D/plugins` (macOS) or
+`~/.eteks/sweethome3d/plugins` (Linux).
 
 ## Use it
 
@@ -83,6 +83,17 @@ seconds. Reduction needs the model LOD native library shipped with the
 application; without it the full models are exported. Change the budget with
 `-Dcom.eteks.sweethome3d.webxr.triangleBudget=<triangles>`.
 
+The export has one mesh per part of each object - 24,565 for the reference
+home. Once loaded, the viewer merges the parts that share a material
+(`webxr-merge.js`): the same home is drawn with 870 meshes and the page uses
+about half the memory (370 MB instead of 650 MB in desktop Chrome, loaded in
+8 seconds). See-through parts stay apart so they are still drawn back to
+front.
+
+While the home loads, the page shows how much of it was received; **Enter VR**
+appears only when the home is ready, and a failure is explained on the page
+instead of leaving an empty world.
+
 ## Notes and limitations
 
 - **Not yet verified on a physical headset.** The page was exercised in desktop
@@ -123,6 +134,8 @@ application; without it the full models are exported. Change the budget with
 - `webxr-walk.js` - dependency-free walk logic: wall boxes with door gaps,
   sliding collision, teleport validation, level order. Tested with Node by
   `make test-webxr-walk` (`test/webxr/walk.test.mjs`).
+- `webxr-merge.js` - dependency-free merge of the mesh parts sharing a
+  material (`test/webxr/merge.test.mjs`, run by the same target).
 - `WebXRPreviewServer` - localhost HTTP server for the desktop plus an
   all-interfaces HTTPS server for headsets (WebXR secure-context requirement),
   with the self-signed keystore bundled as a resource. Covered by
@@ -130,8 +143,11 @@ application; without it the full models are exported. Change the budget with
   traversal rejection, LAN URL shape); `WebXRSceneDescriptionTest` covers the
   scene description and the viewer files.
 
-The release workflow attaches the built plugin to every GitHub release as
-`SweetHome3D-<version>-WebXRPreview.sh3p`.
+The Ant `build` target compiles `pluginsrc` into `SweetHome3D.jar`, and
+`PluginManager` registers the plug-ins of `BUILT_IN_PLUGIN_FAMILIES` before
+those of the plugins folders (the first plug-in of a given name wins). The
+release workflow still attaches `SweetHome3D-<version>-WebXRPreview.sh3p` to
+every GitHub release; installing it changes nothing.
 
 Only the latest preview of a home stays served: starting a new preview, or
 closing the home, stops the previous servers and deletes their export folder

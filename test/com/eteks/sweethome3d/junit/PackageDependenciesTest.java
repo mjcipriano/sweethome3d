@@ -46,6 +46,9 @@ public class PackageDependenciesTest extends TestCase {
     packageFilter.addPackage("com.eteks.sweethome3d.junit");
     // The VR preview is packaged as a plugin and may use the public application API.
     packageFilter.addPackage("com.eteks.sweethome3d.plugin.vr");
+    // The WebXR preview is a plug-in built in the application jar: nothing depends on it
+    // (PluginManager finds it by the name of its resource) and it uses the public application API.
+    packageFilter.addPackage("com.eteks.sweethome3d.plugin.webxr");
 
     JDepend jdepend = new JDepend(packageFilter);
     jdepend.addDirectory(System.getProperty("sweethome3d.testClasses", "classes"));

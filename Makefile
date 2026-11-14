@@ -122,7 +122,7 @@ help:
 # treats an existing jar as up to date and skips Ant after a source change, which
 # silently runs and tests stale code. Ant still does its own incremental
 # compilation, so an unchanged tree rebuilds quickly.
-APP_SOURCE_FILES := $(shell find src furniture textures help -type f 2>/dev/null) build.xml
+APP_SOURCE_FILES := $(shell find src pluginsrc furniture textures help -type f 2>/dev/null) build.xml
 
 # Build jars used for development
 $(MAIN_JAR) $(DEV_RESOURCE_JARS): $(APP_SOURCE_FILES)
@@ -298,6 +298,7 @@ webxr-plugin: $(INSTALL_JAR)
 	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-viewer.html \
 	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-viewer.js \
 	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-walk.js \
+	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-merge.js \
 	  .plugin-build/webxr/com/eteks/sweethome3d/plugin/webxr/
 	$(JAR) cf plugins/WebXRPreview.sh3p -C .plugin-build/webxr .
 	rm -rf .plugin-build/webxr
@@ -306,6 +307,7 @@ webxr-plugin: $(INSTALL_JAR)
 # Tests of the walk-through logic of the WebXR viewer (needs Node.js)
 test-webxr-walk:
 	node test/webxr/walk.test.mjs
+	node test/webxr/merge.test.mjs
 
 # Build WebXR plugin and launch app with plugins folder set
 run-webxr-preview: webxr-plugin

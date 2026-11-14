@@ -82,6 +82,14 @@ public class PluginManager {
       APPLICATION_PLUGIN_FAMILY + ".properties";
 
   private final File [] pluginFolders;
+  /**
+   * The location of the plug-ins which are part of the application.
+   */
+  public static final String BUILT_IN_PLUGIN_LOCATION = "Sweet Home 3D";
+
+  private static final String [] BUILT_IN_PLUGIN_FAMILIES = {
+      "com.eteks.sweethome3d.plugin.webxr.ApplicationPlugin"};
+
   private final Map<String, PluginLibrary> pluginLibraries =
       new TreeMap<String, PluginLibrary>();
   private final Map<Home, List<Plugin>> homePlugins = new LinkedHashMap<Home, List<Plugin>>();
@@ -99,6 +107,9 @@ public class PluginManager {
    */
   public PluginManager(File [] pluginFolders) {
     this.pluginFolders = pluginFolders;
+    // Built-in plug-ins come first, so an older copy of one of them left
+    // in a plug-ins folder isn't used in place of the one of this version
+    loadBuiltInPlugins();
     if (pluginFolders != null) {
       for (File pluginFolder : pluginFolders) {
         // Try to load plugin files from plugin folder
@@ -130,6 +141,21 @@ public class PluginManager {
     this.pluginFolders = null;
     for (URL pluginUrl : pluginUrls) {
       loadPlugins(pluginUrl, pluginUrl.toExternalForm());
+    }
+  }
+
+  /**
+   * Loads the plug-ins that are part of the application itself, if their classes are available.
+   */
+  private void loadBuiltInPlugins() {
+    ClassLoader classLoader = getClass().getClassLoader();
+    for (String pluginFamily : BUILT_IN_PLUGIN_FAMILIES) {
+      try {
+        readPlugin(ResourceBundle.getBundle(pluginFamily, Locale.getDefault(), classLoader),
+            BUILT_IN_PLUGIN_LOCATION, pluginFamily, classLoader);
+      } catch (MissingResourceException ex) {
+        // The application was built without this plug-in
+      }
     }
   }
 
@@ -399,6 +425,10 @@ public class PluginManager {
     for (Library library : libraries) {
       for (Iterator<Map.Entry<String, PluginLibrary>> it = this.pluginLibraries.entrySet().iterator(); it.hasNext(); ) {
         String pluginLocation = it.next().getValue().getLocation();
+        if (BUILT_IN_PLUGIN_LOCATION.equals(pluginLocation)) {
+          // Built-in plug-ins can't be deleted
+          continue;
+        }
         if (pluginLocation.equals(library.getLocation())) {
           if (new File(pluginLocation).exists()
               && !new File(pluginLocation).delete()) {
