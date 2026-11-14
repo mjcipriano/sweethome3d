@@ -5,6 +5,7 @@ import {MTLLoader} from 'three/addons/loaders/MTLLoader.js';
 import {OBJLoader} from 'three/addons/loaders/OBJLoader.js';
 import {VRButton} from 'three/addons/webxr/VRButton.js';
 import * as walk from './webxr-walk.js';
+import {mergeParts} from './webxr-merge.js';
 
 // The model is exported in centimeters
 const MODEL_SCALE = 0.01;
@@ -18,8 +19,22 @@ const STICK_DEAD_ZONE = 0.15;
 
 const statusElement = document.getElementById('status');
 const logElement = document.getElementById('log');
+const loadingElement = document.getElementById('loading');
+const loadingTextElement = document.getElementById('loadingText');
+const loadingBarElement = document.getElementById('loadingBar');
 function setStatus(message) { statusElement.textContent = message; }
 function logError(message) { console.error(message); logElement.textContent += message + '\n'; }
+// Shows the progress of the loading in the middle of the page (fraction is
+// a number from 0 to 1, or a negative number when it isn't known)
+function setLoading(message, fraction) {
+  setStatus(message);
+  if (loadingElement) {
+    loadingTextElement.textContent = message;
+    loadingBarElement.style.width = (fraction >= 0 ? Math.round(100 * Math.min(1, fraction)) : 100) + '%';
+    loadingBarElement.style.opacity = fraction >= 0 ? '1' : '0.35';
+  }
+}
+function megabytes(bytes) { return Math.round(bytes / 1048576) + ' MB'; }
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9fc4e8);
@@ -32,8 +47,8 @@ renderer.xr.enabled = true;
 // The floor of the visitor's real room is the floor of the visited level,
 // so the visitor's eyes are at their real height and the home is life size
 renderer.xr.setReferenceSpaceType('local-floor');
-document.body.appendChild(renderer.domElement);
-document.body.appendChild(VRButton.createButton(renderer));
+document.body.insertBefore(renderer.domElement, document.body.firstChild);
+// The button to enter VR is shown once the home is loaded, see load()
 
 // The rig is what moves through the home; the camera (the head) moves inside
 // it as the visitor moves in their real room
@@ -57,7 +72,7 @@ let stairHeight = 0;
 let colliders = [];
 let collisions = true;
 let desktopPitch = 0;
-const state = {ready: false, meshes: 0};
+const state = {ready: false, failed: false, meshes: 0, drawnMeshes: 0};
 window.sweetHome3DPreview = state;
 // For automated checks of the page
 state.debugHead = () => { headPosition(); return [head.x, head.y, head.z, rig.rotation.y]; };
@@ -533,12 +548,92 @@ function loadModel() {
       materials.preload();
       new OBJLoader().setMaterials(materials).setPath('./').load('scene.obj', resolve,
           event => {
-            if (event.lengthComputable) {
-              setStatus('Loading the home... ' + Math.round(100 * event.loaded / event.total) + '%');
+            if (event.lengthComputable && event.total > 0) {
+              setLoading('Loading the home... ' + megabytes(event.loaded) + ' of ' + megabytes(event.total),
+                  event.loaded / event.total);
+              if (event.loaded >= event.total) {
+                setLoading('Preparing the home...', -1);
+              }
+            } else {
+              setLoading('Loading the home... ' + megabytes(event.loaded), -1);
             }
           }, reject);
     }, undefined, reject);
   });
+}
+
+// Returns a copy of the model where the parts that share a material are
+// merged in one mesh: a furnished home is exported as tens of thousands of
+// meshes, far too many draw calls for a headset
+function mergeModel(model) {
+  const merged = new THREE.Group();
+  const kept = [];
+  const parts = [];
+  const materials = new Map();
+  const geometries = [];
+  model.updateMatrixWorld(true);
+  model.traverse(node => {
+    if (node.isMesh) {
+      state.meshes++;
+    }
+    if (node === model || node.isGroup && !node.isMesh) {
+      return;
+    }
+    const geometry = node.geometry;
+    const attributes = geometry && geometry.attributes;
+    if (!node.isMesh || geometry.index || !attributes.position || attributes.color
+        || attributes.position.isInterleavedBufferAttribute || node.children.length > 0) {
+      kept.push(node);
+      return;
+    }
+    const list = Array.isArray(node.material) ? node.material : [node.material];
+    const groups = geometry.groups.length > 0 ? geometry.groups
+        : [{start: 0, count: attributes.position.count, materialIndex: 0}];
+    for (const group of groups) {
+      const material = list[group.materialIndex] || list[0];
+      // See-through parts stay apart, to be drawn from the farthest to the nearest
+      const key = material.transparent || material.opacity < 1 ? material.uuid + '#' + node.id : material.uuid;
+      materials.set(key, material);
+      parts.push({key,
+          position: attributes.position.array,
+          normal: attributes.normal ? attributes.normal.array : null,
+          uv: attributes.uv ? attributes.uv.array : null,
+          start: group.start, count: Math.min(group.count, attributes.position.count - group.start)});
+    }
+    geometries.push(geometry);
+  });
+  for (const node of kept) {
+    merged.attach(node);
+  }
+  for (const part of mergeParts(parts)) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(part.position, 3));
+    if (part.normal) {
+      geometry.setAttribute('normal', new THREE.BufferAttribute(part.normal, 3));
+    } else {
+      geometry.computeVertexNormals();
+    }
+    if (part.uv) {
+      geometry.setAttribute('uv', new THREE.BufferAttribute(part.uv, 2));
+    }
+    geometry.computeBoundingSphere();
+    merged.add(new THREE.Mesh(geometry, materials.get(part.key)));
+  }
+  for (const geometry of geometries) {
+    geometry.dispose();
+  }
+  return merged;
+}
+
+function showLoadError(message, detail) {
+  state.failed = true;
+  setStatus(message);
+  logError(detail);
+  if (loadingElement) {
+    loadingElement.classList.add('error');
+    loadingTextElement.textContent = message + '\n' + detail;
+    loadingBarElement.style.width = '0';
+  }
 }
 
 async function load() {
@@ -552,13 +647,31 @@ async function load() {
   }
   reset();
   try {
-    setStatus('Loading the home...');
-    const model = await loadModel();
+    setLoading('Loading the home...', 0);
+    let model = await loadModel();
+    setLoading('Preparing the home...', -1);
+    // Let the page show the message before the long work
+    await new Promise(resolve => setTimeout(resolve, 30));
+    try {
+      model = mergeModel(model);
+    } catch (ex) {
+      // The home is shown as it was loaded
+      state.meshes = 0;
+      model.traverse(node => {
+        if (node.isMesh) {
+          state.meshes++;
+        }
+      });
+      logError('Meshes not merged: ' + (ex && ex.message ? ex.message : ex));
+    }
     model.traverse(node => {
       if (node.isMesh) {
-        state.meshes++;
+        state.drawnMeshes++;
       }
     });
+    if (state.meshes === 0) {
+      throw new Error('The exported home is empty.');
+    }
     modelGroup.add(model);
     if (!plan) {
       // Without the plan, stand in the middle of the model
@@ -570,9 +683,17 @@ async function load() {
     state.bounds = [bounds.min.x, bounds.min.y, bounds.min.z, bounds.max.x, bounds.max.y, bounds.max.z];
     state.ready = true;
     updateStatus();
+    if (loadingElement) {
+      loadingElement.style.display = 'none';
+    }
+    // Entering VR is proposed only now, so nobody enters an empty world
+    document.body.appendChild(VRButton.createButton(renderer));
   } catch (ex) {
-    setStatus('Couldn\'t load the home');
-    logError(String(ex && ex.message ? ex.message : ex));
+    const reason = String(ex && ex.message ? ex.message : ex);
+    showLoadError('Couldn\'t load the home.', /string|memory|allocation/i.test(reason)
+        ? reason + '\nThe home is too heavy for this browser: hide some furniture or levels'
+            + ' in Sweet Home 3D and start the preview again.'
+        : reason + '\nCheck that Sweet Home 3D is still running, then start the preview again.');
   }
 }
 

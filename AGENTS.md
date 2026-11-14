@@ -26,7 +26,8 @@ UTF-8/ASCII.
 - `test/com/eteks/sweethome3d/junit`: JUnit 3-style tests run through JUnit 4.
 - `lib`: bundled Java and native runtime dependencies.
 - `install`: legacy installer definitions, icons, launchers, and templates.
-- `pluginsrc`: separately packaged plugin sources.
+- `pluginsrc`: plugin sources; the WebXR preview is compiled into the
+  application jar and registered as a built-in plugin by `PluginManager`.
 - `.github/workflows`: CI and release automation.
 - `docs/OPTIMIZATION_PROGRESS.md`: current optimization checkpoint, accepted
   and rejected experiments, validation state, and prioritized next work.

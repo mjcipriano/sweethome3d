@@ -109,6 +109,24 @@
       </fileset>
     </copy>
 
+    <!-- Compile the plug-ins built in the application (WebXR preview), see PluginManager -->
+    <javac srcdir="pluginsrc" destdir="build/classes"
+           encoding="ISO-8859-1" target="${classTarget}" source="${classSource}"
+           debug="false" debuglevel="lines,vars,source">
+      <extdirs>
+        <pathelement location="lib"/>
+      </extdirs>
+      <classpath>
+        <pathelement location="build/classes"/>
+      </classpath>
+    </javac>
+    <copy todir="build/classes">
+      <fileset dir="pluginsrc">
+        <include name="**"/>
+        <exclude name="**/*.java"/>
+      </fileset>
+    </copy>
+
     <!-- Create SweetHome3D.jar -->
     <jar destfile="build/SweetHome3D.jar"
          basedir="build/classes">
