@@ -97,6 +97,7 @@ renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
 document.body.insertBefore(renderer.domElement, document.body.firstChild);
 // The button to enter VR is shown once the home is loaded, see load()
+renderer.domElement.addEventListener('webglcontextrestored', () => report('WebGL context restored'));
 renderer.domElement.addEventListener('webglcontextlost', () => {
   report('ERROR WebGL context lost: the home is too heavy for the graphics memory of this device');
   setStatus('The graphics memory of this device is full: reload the page');
@@ -751,6 +752,8 @@ function loadModel() {
   });
 }
 
+const STANDALONE_HEADSET = /OculusBrowser|Quest|Pico|VR\b.*Android|Android.*\bVR/i.test(navigator.userAgent);
+
 function releaseArray() {
   this.array = null;
 }
@@ -838,9 +841,13 @@ function mergeModel(model) {
     geometry.computeBoundingSphere();
     geometry.computeBoundingBox();
     state.triangles += part.position.length / 9;
-    // Once in the graphics memory, the arrays aren't needed in the memory of the page
-    for (const name in geometry.attributes) {
-      geometry.attributes[name].onUpload(releaseArray);
+    if (STANDALONE_HEADSET) {
+      // Once in the graphics memory, the arrays aren't needed in the small memory
+      // of a headset. A computer keeps them: its graphics may have to be
+      // created again when a linked headset starts VR
+      for (const name in geometry.attributes) {
+        geometry.attributes[name].onUpload(releaseArray);
+      }
     }
     merged.add(new THREE.Mesh(geometry, materials.get(part.key)));
   }
