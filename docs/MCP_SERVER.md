@@ -13,8 +13,12 @@ client talks to Sweet Home 3D, not the other way round.
 2. Connect Claude, once:
    - **Connect Claude Desktop** adds Sweet Home 3D to the servers of Claude
      Desktop (its `claude_desktop_config.json`, after asking; a copy of the
-     previous file is kept beside it as `.before-sweethome3d`). Quit Claude
-     Desktop completely and reopen it.
+     previous file is kept beside it as `.before-sweethome3d`). Under Windows
+     the place of that file depends on how Claude Desktop was installed
+     (`%LOCALAPPDATA%\Claude-Data\claude_<id>`, the store package folder, or
+     `%APPDATA%\Claude`), so every one of these folders that exists gets the
+     entry. Quit Claude Desktop completely, from its icon near the clock too,
+     and reopen it.
    - **Connect Claude Code** runs `claude mcp add --scope user sweethome3d ...`
      for you. If the `claude` command isn't found, **Copy command** and run it
      in a terminal. Start a new Claude Code session.

@@ -313,13 +313,20 @@ public class HomeMCPServerTest {
       assertEquals(token, HomeMCPServer.getOrCreateToken(folder));
       assertFalse(token.equals(HomeMCPServer.createToken()));
     } finally {
-      File [] files = folder.listFiles();
-      if (files != null) {
-        for (File file : files) {
-          file.delete();
+      java.util.Deque<File> pending = new java.util.ArrayDeque<File>();
+      List<File> all = new java.util.ArrayList<File>();
+      pending.add(folder);
+      while (!pending.isEmpty()) {
+        File file = pending.pop();
+        all.add(file);
+        File [] children = file.listFiles();
+        if (children != null) {
+          pending.addAll(java.util.Arrays.asList(children));
         }
       }
-      folder.delete();
+      for (int i = all.size() - 1; i >= 0; i--) {
+        all.get(i).delete();
+      }
     }
   }
 
@@ -455,7 +462,7 @@ public class HomeMCPServerTest {
 
       // The command holds neither the token nor a port
       List<String> command = com.eteks.sweethome3d.swing.HomeMCPBridge.getCommand(folder);
-      assertTrue(command.toString(), command.contains("--folder") && command.contains(folder.getAbsolutePath()));
+      assertTrue(command.toString(), command.contains("--folder") && command.contains(folder.toPath().toRealPath().toString()));
       assertFalse(command.toString().contains(HomeMCPServer.readToken(folder)));
       assertTrue(com.eteks.sweethome3d.swing.HomeMCPBridge.getClaudeCodeCommandLine(folder)
           .startsWith("claude mcp add --scope user sweethome3d -- "));
@@ -475,6 +482,28 @@ public class HomeMCPServerTest {
       root = (Map<String, Object>)JSONParser.parse(
           com.eteks.sweethome3d.swing.HomeMCPBridge.mergeClaudeDesktopConfig(null, command));
       assertNotNull(((Map<String, Object>)root.get("mcpServers")).get("sweethome3d"));
+      // Under Windows, Claude Desktop keeps its settings in one of several folders
+      File local = new File(folder, "Local");
+      File roaming = new File(folder, "Roaming");
+      File dataFolder = new File(local, "Claude-Data" + File.separator + "claude_pzs8sxrjxfjjc");
+      assertTrue(dataFolder.mkdirs() && new File(roaming, "Claude").mkdirs());
+      File dataConfig = new File(dataFolder, "claude_desktop_config.json");
+      Files.write(dataConfig.toPath(), "{\"preferences\":{\"sidebarMode\":\"chat\"}}".getBytes("UTF-8"));
+      List<File> configFiles = com.eteks.sweethome3d.swing.HomeMCPBridge.getClaudeDesktopConfigFiles(
+          folder.getPath(), local.getPath(), roaming.getPath(), null, true, false);
+      assertEquals(java.util.Arrays.asList(dataConfig, new File(new File(roaming, "Claude"), "claude_desktop_config.json")),
+          configFiles);
+      assertEquals(configFiles, com.eteks.sweethome3d.swing.HomeMCPBridge.installInClaudeDesktop(folder, configFiles));
+      for (File configFile : configFiles) {
+        root = (Map<String, Object>)JSONParser.parse(new String(Files.readAllBytes(configFile.toPath()), "UTF-8"));
+        assertNotNull(configFile.getPath(), ((Map<String, Object>)root.get("mcpServers")).get("sweethome3d"));
+      }
+      root = (Map<String, Object>)JSONParser.parse(new String(Files.readAllBytes(dataConfig.toPath()), "UTF-8"));
+      assertEquals("chat", ((Map<String, Object>)root.get("preferences")).get("sidebarMode"));
+      assertTrue(new File(dataConfig.getPath() + ".before-sweethome3d").isFile());
+      assertTrue(com.eteks.sweethome3d.swing.HomeMCPBridge.getClaudeDesktopConfigFiles(
+          folder.getPath(), new File(folder, "none").getPath(), new File(folder, "none").getPath(), null, true, false).isEmpty());
+
       try {
         com.eteks.sweethome3d.swing.HomeMCPBridge.mergeClaudeDesktopConfig("{broken", command);
         org.junit.Assert.fail("A file that isn't JSON must be left alone");
@@ -482,13 +511,20 @@ public class HomeMCPServerTest {
         assertTrue(ex.getMessage().contains("left unchanged"));
       }
     } finally {
-      File [] files = folder.listFiles();
-      if (files != null) {
-        for (File file : files) {
-          file.delete();
+      java.util.Deque<File> pending = new java.util.ArrayDeque<File>();
+      List<File> all = new java.util.ArrayList<File>();
+      pending.add(folder);
+      while (!pending.isEmpty()) {
+        File file = pending.pop();
+        all.add(file);
+        File [] children = file.listFiles();
+        if (children != null) {
+          pending.addAll(java.util.Arrays.asList(children));
         }
       }
-      folder.delete();
+      for (int i = all.size() - 1; i >= 0; i--) {
+        all.get(i).delete();
+      }
     }
   }
 }
