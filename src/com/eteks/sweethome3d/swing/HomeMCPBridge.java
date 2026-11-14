@@ -182,8 +182,22 @@ public class HomeMCPBridge {
       command.add(HomeMCPBridge.class.getName());
     }
     command.add(FOLDER_OPTION);
-    command.add(folder.getAbsolutePath());
+    command.add(getRealPath(folder));
     return command;
+  }
+
+  /**
+   * Returns the path of <code>folder</code> without the links it goes through
+   * (under Windows, "Application Data" is a legacy link to AppData\Roaming).
+   */
+  private static String getRealPath(File folder) {
+    try {
+      return folder.toPath().toRealPath().toString();
+    } catch (IOException ex) {
+      return folder.getAbsolutePath();
+    } catch (RuntimeException ex) {
+      return folder.getAbsolutePath();
+    }
   }
 
   private static String getClassPath() {
@@ -250,16 +264,38 @@ public class HomeMCPBridge {
   }
 
   /**
-   * Returns the configuration file of Claude Desktop, existing or not, or
-   * <code>null</code> if Claude Desktop doesn't seem to be installed.
+   * Returns the configuration files of Claude Desktop, existing or not, for
+   * the user of this computer: an empty list if Claude Desktop doesn't seem to
+   * be installed. Under Windows there may be more than one, as the place where
+   * Claude Desktop keeps its settings depends on how it was installed.
    */
-  public static File getClaudeDesktopConfigFile() {
-    String home = System.getProperty("user.home");
+  public static List<File> getClaudeDesktopConfigFiles() {
+    return getClaudeDesktopConfigFiles(System.getProperty("user.home"),
+        System.getenv("LOCALAPPDATA"), System.getenv("APPDATA"), System.getenv("XDG_CONFIG_HOME"),
+        OperatingSystem.isWindows(), OperatingSystem.isMacOSX());
+  }
+
+  /**
+   * Returns the configuration files of Claude Desktop found from the given folders.
+   */
+  public static List<File> getClaudeDesktopConfigFiles(String home, String localAppData, String appData,
+                                                       String configHome, boolean windows, boolean macOSX) {
     List<File> folders = new ArrayList<File>();
-    if (OperatingSystem.isWindows()) {
+    if (windows) {
+      if (localAppData == null) {
+        localAppData = home + File.separator + "AppData" + File.separator + "Local";
+      }
+      // The settings of the current installer: Claude-Data\claude_<id>
+      File [] dataFolders = new File(localAppData, "Claude-Data").listFiles();
+      if (dataFolders != null) {
+        for (File dataFolder : dataFolders) {
+          if (dataFolder.getName().toLowerCase().startsWith("claude")) {
+            folders.add(dataFolder);
+          }
+        }
+      }
       // Installed from the store, Claude Desktop keeps its settings in its package folder
-      String localAppData = System.getenv("LOCALAPPDATA");
-      File [] packages = localAppData != null ? new File(localAppData, "Packages").listFiles() : null;
+      File [] packages = new File(localAppData, "Packages").listFiles();
       if (packages != null) {
         for (File packageFolder : packages) {
           if (packageFolder.getName().startsWith("Claude_")) {
@@ -267,45 +303,66 @@ public class HomeMCPBridge {
           }
         }
       }
-      String appData = System.getenv("APPDATA");
       folders.add(new File(appData != null ? appData : home + File.separator + "AppData" + File.separator + "Roaming", "Claude"));
-    } else if (OperatingSystem.isMacOSX()) {
+    } else if (macOSX) {
       folders.add(new File(home, "Library/Application Support/Claude"));
     } else {
-      String configHome = System.getenv("XDG_CONFIG_HOME");
       folders.add(new File(configHome != null && configHome.length() > 0 ? configHome : home + "/.config", "Claude"));
     }
+    // Every folder that exists: which one an installed Claude Desktop reads can't be told from here
+    List<File> files = new ArrayList<File>();
     for (File folder : folders) {
       if (folder.isDirectory()) {
-        return new File(folder, "claude_desktop_config.json");
+        files.add(new File(folder, "claude_desktop_config.json"));
       }
     }
-    return null;
+    return files;
   }
 
   /**
-   * Registers this program in the configuration file of Claude Desktop, keeping
-   * its other settings and a copy of the previous file.
-   * @return the modified file
-   * @throws IOException if Claude Desktop isn't installed or its configuration can't be read
+   * Registers this program in the configuration files of Claude Desktop, keeping
+   * their other settings and a copy of each previous file.
+   * @return the modified files
+   * @throws IOException if Claude Desktop isn't installed or no configuration could be changed
    */
-  public static File installInClaudeDesktop(File folder) throws IOException {
-    File configFile = getClaudeDesktopConfigFile();
-    if (configFile == null) {
+  public static List<File> installInClaudeDesktop(File folder) throws IOException {
+    return installInClaudeDesktop(folder, getClaudeDesktopConfigFiles());
+  }
+
+  /**
+   * Registers this program in the given configuration files.
+   */
+  public static List<File> installInClaudeDesktop(File folder, List<File> configFiles) throws IOException {
+    if (configFiles.isEmpty()) {
       throw new IOException("Claude Desktop doesn't seem to be installed for this user");
     }
-    String config = null;
-    if (configFile.isFile()) {
-      InputStream in = new FileInputStream(configFile);
+    List<File> modifiedFiles = new ArrayList<File>();
+    IOException failure = null;
+    for (File configFile : configFiles) {
       try {
-        config = new String(readFully(in), "UTF-8");
-      } finally {
-        in.close();
+        String config = null;
+        if (configFile.isFile()) {
+          InputStream in = new FileInputStream(configFile);
+          try {
+            config = new String(readFully(in), "UTF-8");
+          } finally {
+            in.close();
+          }
+        }
+        String newConfig = mergeClaudeDesktopConfig(config, getCommand(folder));
+        if (config != null) {
+          write(new File(configFile.getPath() + ".before-sweethome3d"), config);
+        }
+        write(configFile, newConfig);
+        modifiedFiles.add(configFile);
+      } catch (IOException ex) {
+        failure = new IOException(configFile + ": " + ex.getMessage());
       }
-      write(new File(configFile.getPath() + ".before-sweethome3d"), config);
     }
-    write(configFile, mergeClaudeDesktopConfig(config, getCommand(folder)));
-    return configFile;
+    if (modifiedFiles.isEmpty()) {
+      throw failure;
+    }
+    return modifiedFiles;
   }
 
   private static void write(File file, String text) throws IOException {

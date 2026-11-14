@@ -5062,18 +5062,23 @@ public class HomePane extends JRootPane implements HomeView {
     desktopButton.addActionListener(new ActionListener() {
         public void actionPerformed(ActionEvent ev) {
           Window window = SwingUtilities.getWindowAncestor(desktopButton);
-          File configFile = HomeMCPBridge.getClaudeDesktopConfigFile();
-          if (configFile == null) {
+          List<File> configFiles = HomeMCPBridge.getClaudeDesktopConfigFiles();
+          StringBuilder files = new StringBuilder();
+          for (File configFile : configFiles) {
+            files.append("<br>").append(configFile);
+          }
+          if (configFiles.isEmpty()) {
             JOptionPane.showMessageDialog(window, "Claude Desktop doesn't seem to be installed for this user.",
                 dialogTitle, JOptionPane.WARNING_MESSAGE);
           } else if (JOptionPane.showConfirmDialog(window,
-                "<html>This adds Sweet Home 3D to the servers of Claude Desktop in<br>" + configFile
-                + "<br>(a copy of the current file is kept beside it). Continue?</html>",
+                "<html>This adds Sweet Home 3D to the servers of Claude Desktop in" + files
+                + "<br>(a copy of each current file is kept beside it). Continue?</html>",
                 dialogTitle, JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
             try {
-              HomeMCPBridge.installInClaudeDesktop(applicationFolder);
+              HomeMCPBridge.installInClaudeDesktop(applicationFolder, configFiles);
               JOptionPane.showMessageDialog(window,
-                  "Done. Quit Claude Desktop completely and open it again to see the Sweet Home 3D tools.",
+                  "Done. Quit Claude Desktop completely (from its icon near the clock too) and open it again "
+                  + "to see the Sweet Home 3D tools.",
                   dialogTitle, JOptionPane.INFORMATION_MESSAGE);
             } catch (IOException ex) {
               JOptionPane.showMessageDialog(window, "Couldn't change the settings of Claude Desktop: " + ex.getMessage(),
