@@ -47,6 +47,10 @@ import com.sun.net.httpserver.HttpsServer;
 public class WebXRPreviewServer {
   private static final String KEYSTORE_RESOURCE = "webxr-keystore.p12";
   private static final char [] KEYSTORE_PASSWORD = "sweethome3d-webxr".toCharArray();
+  private static final String LOG_PATH = "log";
+  private static final String LOG_FILE = "preview-log.txt";
+  private static final int    MAX_LOG_MESSAGE_LENGTH = 4096;
+  private static final long   MAX_LOG_LENGTH = 512 * 1024;
 
   private final File       root;
   private final String     rootPath;
@@ -200,6 +204,14 @@ public class WebXRPreviewServer {
       if (path.startsWith("/")) {
         path = path.substring(1);
       }
+      if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+        if (LOG_PATH.equals(path)) {
+          appendToLog(exchange);
+        } else {
+          sendNotFound(exchange);
+        }
+        return;
+      }
       File target = new File(root, path);
       String canonical = target.getCanonicalPath();
       // Compare with the root followed by a separator, so a sibling directory
@@ -242,6 +254,55 @@ public class WebXRPreviewServer {
         in.close();
       }
     }
+  }
+
+  /**
+   * Appends the message sent by the viewer page to the log of the preview:
+   * what happens in a headset can't be seen from the computer otherwise.
+   * Messages and the log are limited in size, and written as plain text.
+   */
+  private void appendToLog(HttpExchange exchange) throws IOException {
+    byte [] data = new byte [MAX_LOG_MESSAGE_LENGTH];
+    int length = 0;
+    InputStream in = exchange.getRequestBody();
+    try {
+      for (int read; length < data.length && (read = in.read(data, length, data.length - length)) != -1; ) {
+        length += read;
+      }
+    } finally {
+      in.close();
+    }
+    StringBuilder message = new StringBuilder(new java.text.SimpleDateFormat("HH:mm:ss", Locale.US).format(new java.util.Date()));
+    message.append(' ').append(exchange.getRemoteAddress().getAddress().getHostAddress()).append(' ');
+    for (char c : new String(data, 0, length, "UTF-8").toCharArray()) {
+      // No control character in the log, lines of a message are indented
+      if (c == '\n') {
+        message.append("\n    ");
+      } else if (c >= ' ' && c != 0x7F) {
+        message.append(c);
+      }
+    }
+    message.append('\n');
+    synchronized (this) {
+      File log = getLogFile();
+      if (log.length() < MAX_LOG_LENGTH) {
+        java.io.FileOutputStream out = new java.io.FileOutputStream(log, true);
+        try {
+          out.write(message.toString().getBytes("UTF-8"));
+        } finally {
+          out.close();
+        }
+      }
+    }
+    exchange.sendResponseHeaders(204, -1);
+    exchange.close();
+  }
+
+  /**
+   * Returns the file where the viewer page reports the steps and the errors of the visit.
+   */
+  public File getLogFile() {
+    return new File(this.root, LOG_FILE);
   }
 
   private void sendNotFound(HttpExchange exchange) throws IOException {

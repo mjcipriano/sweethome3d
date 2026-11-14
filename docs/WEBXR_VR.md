@@ -85,10 +85,28 @@ application; without it the full models are exported. Change the budget with
 
 The export has one mesh per part of each object - 24,565 for the reference
 home. Once loaded, the viewer merges the parts that share a material
-(`webxr-merge.js`): the same home is drawn with 870 meshes and the page uses
-about half the memory (370 MB instead of 650 MB in desktop Chrome, loaded in
-8 seconds). See-through parts stay apart so they are still drawn back to
-front.
+(`webxr-merge.js`), by squares of 6 m of the plan: the same home becomes 1,565
+meshes, of which only those in sight are drawn - 308 meshes and 400,000
+triangles from the start point of the reference home, instead of 24,565
+meshes and 1.19 million triangles - and the page uses about half the memory
+(desktop Chrome, loaded in 7 seconds). See-through parts stay apart so they
+are still drawn back to front.
+
+In VR the viewer counts the pictures drawn per second. When the headset
+can't keep up (under 60 % of its frame rate), the view is shortened step by
+step (60, 35, 22, 14, 9 m) and a message says so.
+
+### When something goes wrong in the headset
+
+The page reports the steps of the visit to Sweet Home 3D, which writes them in
+`preview-log.txt` in the exported folder (`sh3d-webxr-...` in the temporary
+folder of the computer, also at `https://<address>:<port>/preview-log.txt`):
+the browser and the size of the home once loaded, the start and the end of a
+VR session, the pictures per second and the triangles drawn, errors of the
+page, and a lost graphics context (home too heavy for the graphics memory). An
+error in the handling of the controllers no longer prevents the picture from
+being drawn. The log is plain text, limited to 512 KB, and only the viewer's
+`POST /log` can add to it.
 
 While the home loads, the page shows how much of it was received; **Enter VR**
 appears only when the home is ready, and a failure is explained on the page
@@ -136,6 +154,7 @@ instead of leaving an empty world.
   `make test-webxr-walk` (`test/webxr/walk.test.mjs`).
 - `webxr-merge.js` - dependency-free merge of the mesh parts sharing a
   material (`test/webxr/merge.test.mjs`, run by the same target).
+- `WebXRPreviewServer.appendToLog` - the visit log (`testViewerReportsAreLogged`).
 - `WebXRPreviewServer` - localhost HTTP server for the desktop plus an
   all-interfaces HTTPS server for headsets (WebXR secure-context requirement),
   with the self-signed keystore bundled as a resource. Covered by

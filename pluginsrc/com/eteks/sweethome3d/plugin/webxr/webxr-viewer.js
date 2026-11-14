@@ -9,6 +9,12 @@ import {mergeParts} from './webxr-merge.js';
 
 // The model is exported in centimeters
 const MODEL_SCALE = 0.01;
+// Size in meters of the squares of the plan by which the home is cut, so the
+// parts of the home out of sight aren't drawn
+const CHUNK_SIZE = 6;
+// How far the visitor sees in meters: in VR the distance goes down a step each
+// time the headset can't keep up, so a heavy home stays comfortable to visit
+const VIEW_DISTANCES = [2000, 60, 35, 22, 14, 9];
 const WALK_SPEED = 1.4;          // meters per second, a normal walking pace
 const RUN_SPEED = 3.0;
 const SNAP_TURN = Math.PI / 6;   // 30 degrees
@@ -36,6 +42,31 @@ function setLoading(message, fraction) {
 }
 function megabytes(bytes) { return Math.round(bytes / 1048576) + ' MB'; }
 
+// What happens in a headset can't be seen from the computer: the page sends
+// the steps of the visit and its errors to Sweet Home 3D, which writes them
+// in the file preview-log.txt of the exported folder
+let reportCount = 0;
+const reportedErrors = new Set();
+function report(message) {
+  if (reportCount++ < 300) {
+    try {
+      fetch('log', {method: 'POST', body: message, keepalive: true}).catch(() => {});
+    } catch (ex) {
+      // The visit goes on without the log
+    }
+  }
+}
+function reportError(where, ex) {
+  const text = where + ': ' + (ex && ex.stack ? ex.stack : ex && ex.message ? ex.message : ex);
+  if (!reportedErrors.has(text) && reportedErrors.size < 20) {
+    reportedErrors.add(text);
+    logError(text);
+    report('ERROR ' + text);
+  }
+}
+window.addEventListener('error', event => reportError('page', event.error || event.message));
+window.addEventListener('unhandledrejection', event => reportError('promise', event.reason));
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9fc4e8);
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 2000);
@@ -49,6 +80,10 @@ renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
 document.body.insertBefore(renderer.domElement, document.body.firstChild);
 // The button to enter VR is shown once the home is loaded, see load()
+renderer.domElement.addEventListener('webglcontextlost', () => {
+  report('ERROR WebGL context lost: the home is too heavy for the graphics memory of this device');
+  setStatus('The graphics memory of this device is full: reload the page');
+});
 
 // The rig is what moves through the home; the camera (the head) moves inside
 // it as the visitor moves in their real room
@@ -72,10 +107,16 @@ let stairHeight = 0;
 let colliders = [];
 let collisions = true;
 let desktopPitch = 0;
-const state = {ready: false, failed: false, meshes: 0, drawnMeshes: 0};
+const state = {ready: false, failed: false, meshes: 0, drawnMeshes: 0, triangles: 0, viewDistance: VIEW_DISTANCES[0]};
 window.sweetHome3DPreview = state;
 // For automated checks of the page
 state.debugHead = () => { headPosition(); return [head.x, head.y, head.z, rig.rotation.y]; };
+// Meshes and triangles of the last picture, with the given view distance step
+state.debugRender = viewDistance => {
+  setViewDistance(viewDistance || 0);
+  renderer.render(scene, camera);
+  return [renderer.info.render.calls, renderer.info.render.triangles, camera.far];
+};
 state.debugWalk = (moveX, moveZ) => {
   // By steps of 5 cm, as someone walking
   const steps = Math.max(1, Math.ceil(Math.hypot(moveX, moveZ) / 0.05));
@@ -467,12 +508,66 @@ renderer.xr.addEventListener('sessionstart', () => {
   // Wait for the first head pose before placing the visitor
   state.placeInVR = 3;
   showMessage(VR_HELP, 12);
+  vrStats.frames = 0;
+  vrStats.since = performance.now();
+  vrStats.samples = 0;
+  const session = renderer.xr.getSession();
+  report('VR session started, frame rate ' + (session && session.frameRate || 'unknown'));
+  if (session) {
+    session.addEventListener('visibilitychange', () => report('VR session ' + session.visibilityState));
+  }
 });
 renderer.xr.addEventListener('sessionend', () => {
   endTeleport();
   messagePanel.visible = false;
+  setViewDistance(0);
   reset();
+  report('VR session ended');
 });
+
+// ---- Smoothness of the visit in VR ----
+const vrStats = {frames: 0, since: 0, samples: 0, viewDistance: 0};
+
+function setViewDistance(index) {
+  vrStats.viewDistance = index;
+  camera.far = VIEW_DISTANCES[index];
+  camera.updateProjectionMatrix();
+  state.viewDistance = camera.far;
+}
+
+// Counts the pictures drawn in VR and shortens the view when they come too slowly
+function watchFrameRate() {
+  if (!renderer.xr.isPresenting) {
+    return;
+  }
+  vrStats.frames++;
+  const now = performance.now();
+  const elapsed = now - vrStats.since;
+  if (elapsed < 2500) {
+    return;
+  }
+  const rate = vrStats.frames * 1000 / elapsed;
+  vrStats.frames = 0;
+  vrStats.since = now;
+  const sample = vrStats.samples++;
+  if (sample === 0) {
+    // The first pictures are slow whatever the home: textures and shaders are prepared
+    report('VR first pictures: ' + rate.toFixed(1) + ' per second');
+    return;
+  }
+  const session = renderer.xr.getSession();
+  const wanted = session && session.frameRate || 72;
+  state.frameRate = rate;
+  if (sample <= 8 || sample % 8 === 0) {
+    report('VR ' + rate.toFixed(1) + ' pictures per second, ' + renderer.info.render.calls + ' meshes and '
+        + renderer.info.render.triangles + ' triangles drawn, view ' + camera.far + ' m');
+  }
+  if (rate < wanted * 0.6 && vrStats.viewDistance < VIEW_DISTANCES.length - 1) {
+    setViewDistance(vrStats.viewDistance + 1);
+    report('VR view shortened to ' + camera.far + ' m');
+    showMessage('This home is heavy for the headset:\nshowing what is within ' + camera.far + ' m', 4);
+  }
+}
 
 // ---- Desktop controls ----
 const keys = {};
@@ -562,6 +657,28 @@ function loadModel() {
   });
 }
 
+function releaseArray() {
+  this.array = null;
+}
+
+// Returns the square of the plan where the middle of some vertices is
+function chunkOf(position, start, count) {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (let i = start * 3, end = (start + count) * 3; i < end; i += 3) {
+    const x = position[i];
+    const z = position[i + 2];
+    if (x < minX) { minX = x; }
+    if (x > maxX) { maxX = x; }
+    if (z < minZ) { minZ = z; }
+    if (z > maxZ) { maxZ = z; }
+  }
+  const size = CHUNK_SIZE / MODEL_SCALE;
+  return Math.floor((minX + maxX) / 2 / size) + ',' + Math.floor((minZ + maxZ) / 2 / size);
+}
+
 // Returns a copy of the model where the parts that share a material are
 // merged in one mesh: a furnished home is exported as tens of thousands of
 // meshes, far too many draw calls for a headset
@@ -591,14 +708,22 @@ function mergeModel(model) {
         : [{start: 0, count: attributes.position.count, materialIndex: 0}];
     for (const group of groups) {
       const material = list[group.materialIndex] || list[0];
-      // See-through parts stay apart, to be drawn from the farthest to the nearest
-      const key = material.transparent || material.opacity < 1 ? material.uuid + '#' + node.id : material.uuid;
+      const count = Math.min(group.count, attributes.position.count - group.start);
+      if (count <= 0) {
+        continue;
+      }
+      // See-through parts stay apart, to be drawn from the farthest to the nearest.
+      // The others are merged by square of the plan, so what is behind the
+      // visitor or too far isn't drawn
+      const key = material.transparent || material.opacity < 1
+          ? material.uuid + '#' + node.id
+          : material.uuid + '@' + chunkOf(attributes.position.array, group.start, count);
       materials.set(key, material);
       parts.push({key,
           position: attributes.position.array,
           normal: attributes.normal ? attributes.normal.array : null,
           uv: attributes.uv ? attributes.uv.array : null,
-          start: group.start, count: Math.min(group.count, attributes.position.count - group.start)});
+          start: group.start, count});
     }
     geometries.push(geometry);
   });
@@ -617,6 +742,12 @@ function mergeModel(model) {
       geometry.setAttribute('uv', new THREE.BufferAttribute(part.uv, 2));
     }
     geometry.computeBoundingSphere();
+    geometry.computeBoundingBox();
+    state.triangles += part.position.length / 9;
+    // Once in the graphics memory, the arrays aren't needed in the memory of the page
+    for (const name in geometry.attributes) {
+      geometry.attributes[name].onUpload(releaseArray);
+    }
     merged.add(new THREE.Mesh(geometry, materials.get(part.key)));
   }
   for (const geometry of geometries) {
@@ -683,6 +814,10 @@ async function load() {
     state.bounds = [bounds.min.x, bounds.min.y, bounds.min.z, bounds.max.x, bounds.max.y, bounds.max.z];
     state.ready = true;
     updateStatus();
+    report('Home loaded in ' + Math.round(performance.now() / 1000) + ' s: ' + state.meshes + ' meshes merged in '
+        + state.drawnMeshes + ', ' + Math.round(state.triangles) + ' triangles, '
+        + (performance.memory ? megabytes(performance.memory.usedJSHeapSize) + ' used, ' : '')
+        + navigator.userAgent);
     if (loadingElement) {
       loadingElement.style.display = 'none';
     }
@@ -690,6 +825,7 @@ async function load() {
     document.body.appendChild(VRButton.createButton(renderer));
   } catch (ex) {
     const reason = String(ex && ex.message ? ex.message : ex);
+    report('ERROR load: ' + reason);
     showLoadError('Couldn\'t load the home.', /string|memory|allocation/i.test(reason)
         ? reason + '\nThe home is too heavy for this browser: hide some furniture or levels'
             + ' in Sweet Home 3D and start the preview again.'
@@ -700,15 +836,22 @@ async function load() {
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   const delta = Math.min(clock.getDelta(), 0.1);
-  if (renderer.xr.isPresenting && state.placeInVR > 0 && --state.placeInVR === 0) {
-    reset();
-  }
-  handleControllers(delta);
-  handleKeyboard(delta);
-  if (messagePanel.visible && performance.now() > messageTimeout) {
-    messagePanel.visible = false;
+  // Whatever goes wrong with the controls, the picture must still be drawn:
+  // a headset which gets no picture stays on its loading screen
+  try {
+    if (renderer.xr.isPresenting && state.placeInVR > 0 && --state.placeInVR === 0) {
+      reset();
+    }
+    handleControllers(delta);
+    handleKeyboard(delta);
+    if (messagePanel.visible && performance.now() > messageTimeout) {
+      messagePanel.visible = false;
+    }
+  } catch (ex) {
+    reportError('controls', ex);
   }
   renderer.render(scene, camera);
+  watchFrameRate();
 });
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
