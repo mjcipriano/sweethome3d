@@ -1,5 +1,15 @@
 # Changelog
 
+## [7.17.0](https://github.com/mjcipriano/sweethome3d/compare/v7.16.0...v7.17.0) (2026-11-13)
+
+
+### Features
+
+* **ai:** auto roof, rooms with walls, levels, textures, home check and repair for the assistant and MCP ([a79cf11](https://github.com/mjcipriano/sweethome3d/commit/a79cf1197fd77cc6381f7ad860cc0e51fee7db59))
+* **ai:** auto roof, rooms with walls, levels, textures, home check and repair for the assistant and MCP ([f28758c](https://github.com/mjcipriano/sweethome3d/commit/f28758c595e68318be23484c3c20e760c5f5eff9))
+* **ai:** stairs, picture furniture, model and texture import, Blender export and pictures for the assistant ([324897b](https://github.com/mjcipriano/sweethome3d/commit/324897b87ea05c36558cf6b711aa58d3974dc2fc))
+* **ai:** stairs, picture furniture, model and texture import, Blender export and pictures for the assistant ([ed5b7d0](https://github.com/mjcipriano/sweethome3d/commit/ed5b7d07c9eb47e6fc3f9779bcd1f10d8d259957))
+
 ## [7.16.0](https://github.com/mjcipriano/sweethome3d/compare/v7.15.0...v7.16.0) (2026-11-13)
 
 
