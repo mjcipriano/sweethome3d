@@ -22,6 +22,7 @@ if (-not (Test-Path $jar)) {
 $requiredEntries = @(
   "META-INF/MANIFEST.MF",
   "com/eteks/sweethome3d/SweetHome3DBootstrap.class",
+  "com/eteks/sweethome3d/swing/HomeMCPBridge.class",
   "java3d-1.6/j3dcore.jar",
   "java3d-1.6/vecmath.jar",
   "com/eteks/sweethome3d/io/DefaultFurnitureCatalog.properties",

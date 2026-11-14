@@ -340,6 +340,28 @@ public class HomePane extends JRootPane implements HomeView {
     disableMenuItemsDuringDragAndDrop(controller.getPlanController().getView(), homeMenuBar);
     // Change component orientation
     applyComponentOrientation(ComponentOrientation.getOrientation(Locale.getDefault()));
+    // Share the home with MCP clients once it's displayed, if the user asked for it
+    addAncestorListener(new javax.swing.event.AncestorListener() {
+        public void ancestorAdded(javax.swing.event.AncestorEvent ev) {
+          removeAncestorListener(this);
+          try {
+            if (HomeMCPServer.isAutoStart(OperatingSystem.getDefaultApplicationFolder())
+                && mcpServer == null) {
+              startMCPServer();
+            }
+          } catch (IOException ex) {
+            // The server can still be started from the menu
+          } catch (RuntimeException ex) {
+            // Same
+          }
+        }
+
+        public void ancestorRemoved(javax.swing.event.AncestorEvent ev) {
+        }
+
+        public void ancestorMoved(javax.swing.event.AncestorEvent ev) {
+        }
+      });
   }
 
   /**
@@ -4936,6 +4958,13 @@ public class HomePane extends JRootPane implements HomeView {
    * client such as Claude read and edit this home, and shows how to connect to it.
    */
   private void showMCPServerDialog() {
+    showMCPServerDialog(getMCPHandler());
+  }
+
+  /**
+   * Returns the handler of the requests of MCP clients for this home.
+   */
+  private HomeMCPHandler getMCPHandler() {
     if (this.mcpHandler == null) {
       this.mcpHandler = new HomeMCPHandler(this.home, this.preferences, this.controller,
           this.controller != null ? this.controller.getVersion() : null);
@@ -4955,6 +4984,17 @@ public class HomePane extends JRootPane implements HomeView {
           }
         });
     }
+    return this.mcpHandler;
+  }
+
+  private void showMCPServerDialog(final HomeMCPHandler mcpHandler) {
+    File folder;
+    try {
+      folder = OperatingSystem.getDefaultApplicationFolder();
+    } catch (IOException ex) {
+      folder = new File(System.getProperty("user.home"));
+    }
+    final File applicationFolder = folder;
     final JLabel statusLabel = new JLabel();
     final JTextArea commandArea = new JTextArea(4, 48);
     commandArea.setEditable(false);
@@ -4963,7 +5003,7 @@ public class HomePane extends JRootPane implements HomeView {
     final JButton startStopButton = new JButton();
     final JButton copyButton = new JButton("Copy command");
     final JCheckBox editingCheckBox = new JCheckBox("Allow changes to this home (each one can be undone)",
-        this.mcpHandler.isEditingAllowed());
+        mcpHandler.isEditingAllowed());
     editingCheckBox.addActionListener(new ActionListener() {
         public void actionPerformed(ActionEvent ev) {
           mcpHandler.setEditingAllowed(editingCheckBox.isSelected());
@@ -4974,14 +5014,12 @@ public class HomePane extends JRootPane implements HomeView {
           boolean running = mcpServer != null && mcpServer.isRunning();
           if (running) {
             statusLabel.setText("Running at " + mcpServer.getUrl() + " (this computer only)");
-            commandArea.setText("claude mcp add --transport http sweethome3d " + mcpServer.getUrl()
-                + " --header \"Authorization: Bearer " + mcpServer.getToken() + "\"");
           } else {
             statusLabel.setText("Stopped");
-            commandArea.setText("Start the server to get the command that connects Claude Code to this home.");
           }
+          // The command of the bridge program contains no secret and no port
+          commandArea.setText(HomeMCPBridge.getClaudeCodeCommandLine(applicationFolder));
           commandArea.setCaretPosition(0);
-          copyButton.setEnabled(running);
           startStopButton.setText(running ? "Stop server" : "Start server");
         }
       };
@@ -5008,22 +5046,79 @@ public class HomePane extends JRootPane implements HomeView {
         }
       });
     updater.run();
+    final JCheckBox autoStartCheckBox = new JCheckBox("Start this server each time a home is opened",
+        HomeMCPServer.isAutoStart(applicationFolder));
+    autoStartCheckBox.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          try {
+            HomeMCPServer.setAutoStart(applicationFolder, autoStartCheckBox.isSelected());
+          } catch (IOException ex) {
+            autoStartCheckBox.setSelected(false);
+          }
+        }
+      });
+    final String dialogTitle = this.preferences.getLocalizedString(HomePane.class, "mcpServer").replace("...", "");
+    final JButton desktopButton = new JButton("Connect Claude Desktop");
+    desktopButton.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          Window window = SwingUtilities.getWindowAncestor(desktopButton);
+          File configFile = HomeMCPBridge.getClaudeDesktopConfigFile();
+          if (configFile == null) {
+            JOptionPane.showMessageDialog(window, "Claude Desktop doesn't seem to be installed for this user.",
+                dialogTitle, JOptionPane.WARNING_MESSAGE);
+          } else if (JOptionPane.showConfirmDialog(window,
+                "<html>This adds Sweet Home 3D to the servers of Claude Desktop in<br>" + configFile
+                + "<br>(a copy of the current file is kept beside it). Continue?</html>",
+                dialogTitle, JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+            try {
+              HomeMCPBridge.installInClaudeDesktop(applicationFolder);
+              JOptionPane.showMessageDialog(window,
+                  "Done. Quit Claude Desktop completely and open it again to see the Sweet Home 3D tools.",
+                  dialogTitle, JOptionPane.INFORMATION_MESSAGE);
+            } catch (IOException ex) {
+              JOptionPane.showMessageDialog(window, "Couldn't change the settings of Claude Desktop: " + ex.getMessage(),
+                  dialogTitle, JOptionPane.ERROR_MESSAGE);
+            }
+          }
+        }
+      });
+    final JButton codeButton = new JButton("Connect Claude Code");
+    codeButton.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          Window window = SwingUtilities.getWindowAncestor(codeButton);
+          try {
+            HomeMCPBridge.installInClaudeCode(applicationFolder);
+            JOptionPane.showMessageDialog(window,
+                "Done. Start a new Claude Code session to see the Sweet Home 3D tools.",
+                dialogTitle, JOptionPane.INFORMATION_MESSAGE);
+          } catch (IOException ex) {
+            JOptionPane.showMessageDialog(window,
+                "<html>Couldn't run the claude command (" + ex.getMessage() + ").<br>"
+                + "Copy the command of this dialog and run it in a terminal instead.</html>",
+                dialogTitle, JOptionPane.WARNING_MESSAGE);
+          }
+        }
+      });
 
     JPanel buttonsPanel = new JPanel(new FlowLayout(FlowLayout.LEADING, 6, 0));
     buttonsPanel.add(startStopButton);
+    buttonsPanel.add(desktopButton);
+    buttonsPanel.add(codeButton);
     buttonsPanel.add(copyButton);
     JPanel northPanel = new JPanel(new BorderLayout(0, 6));
     northPanel.add(new JLabel("<html>Lets Claude (or another MCP client on this computer) read this home,<br>"
         + "search the furniture catalog and edit the home.</html>"), BorderLayout.NORTH);
     northPanel.add(statusLabel, BorderLayout.CENTER);
-    northPanel.add(editingCheckBox, BorderLayout.SOUTH);
+    JPanel checkBoxesPanel = new JPanel(new java.awt.GridLayout(0, 1));
+    checkBoxesPanel.add(editingCheckBox);
+    checkBoxesPanel.add(autoStartCheckBox);
+    checkBoxesPanel.add(new JLabel("Connect Claude once with a button below, or with this command for Claude Code:"));
+    northPanel.add(checkBoxesPanel, BorderLayout.SOUTH);
     JPanel panel = new JPanel(new BorderLayout(0, 8));
     panel.add(northPanel, BorderLayout.NORTH);
     panel.add(new JScrollPane(commandArea), BorderLayout.CENTER);
     panel.add(buttonsPanel, BorderLayout.SOUTH);
-    JOptionPane.showMessageDialog(this, panel,
-        this.preferences.getLocalizedString(HomePane.class, "mcpServer").replace("...", ""),
-        JOptionPane.PLAIN_MESSAGE);
+    JOptionPane.showMessageDialog(this, panel, dialogTitle, JOptionPane.PLAIN_MESSAGE);
   }
 
   /**
@@ -5231,10 +5326,13 @@ public class HomePane extends JRootPane implements HomeView {
    * Starts the MCP server of this home, stopped when its window is closed.
    */
   private void startMCPServer() throws IOException {
-    String token = HomeMCPServer.getOrCreateToken(OperatingSystem.getDefaultApplicationFolder());
-    HomeMCPServer server = new HomeMCPServer(this.mcpHandler, token, HomeMCPServer.getConfiguredPort());
+    File applicationFolder = OperatingSystem.getDefaultApplicationFolder();
+    String token = HomeMCPServer.getOrCreateToken(applicationFolder);
+    HomeMCPServer server = new HomeMCPServer(getMCPHandler(), token, HomeMCPServer.getConfiguredPort());
     server.start();
     this.mcpServer = server;
+    // Where the bridge program launched by MCP clients finds this server
+    HomeMCPServer.writePort(applicationFolder, server.getPort());
     final Window window = SwingUtilities.getWindowAncestor(this);
     if (window != null) {
       window.addWindowListener(new WindowAdapter() {
@@ -5249,6 +5347,11 @@ public class HomePane extends JRootPane implements HomeView {
 
   private void stopMCPServer() {
     if (this.mcpServer != null) {
+      try {
+        HomeMCPServer.clearPort(OperatingSystem.getDefaultApplicationFolder(), this.mcpServer.getPort());
+      } catch (IOException ex) {
+        // The bridge program will find no server at this port
+      }
       this.mcpServer.stop();
       this.mcpServer = null;
     }
