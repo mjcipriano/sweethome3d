@@ -108,6 +108,50 @@ public class WebXRPreviewServerTest {
     }
   }
 
+  /**
+   * The viewer page reports the steps of a visit in a headset to the server,
+   * which keeps them in a text file of limited size.
+   */
+  @Test
+  public void testViewerReportsAreLogged() throws Exception {
+    File exportDir = createExportDir();
+    WebXRPreviewServer server = new WebXRPreviewServer(exportDir);
+    server.start();
+    try {
+      String logUrl = server.getLocalUrl().replace("index.html", "log");
+      assertEquals(204, post(logUrl, "VR session started\nsecond line\u0007"));
+      String log = new String(java.nio.file.Files.readAllBytes(server.getLogFile().toPath()), "UTF-8");
+      assertTrue(log, log.contains(" 127.0.0.1 VR session started\n    second line\n"));
+      assertTrue(log, log.indexOf('\u0007') == -1);
+
+      // Nothing else can be written, and a message is cut to a few kilobytes
+      assertEquals(404, post(server.getLocalUrl(), "x"));
+      assertEquals(404, post(logUrl.replace("/log", "/scene.obj"), "x"));
+      char [] big = new char [100000];
+      java.util.Arrays.fill(big, 'a');
+      assertEquals(204, post(logUrl, new String(big)));
+      assertTrue(server.getLogFile().length() < 5000);
+      // The log stops growing once it is big enough
+      for (int i = 0; i < 200; i++) {
+        post(logUrl, new String(big));
+      }
+      assertTrue(String.valueOf(server.getLogFile().length()), server.getLogFile().length() < 520 * 1024);
+    } finally {
+      server.stop();
+      deleteRecursively(exportDir);
+    }
+  }
+
+  private static int post(String url, String body) throws IOException {
+    HttpURLConnection connection = (HttpURLConnection)new URL(url).openConnection();
+    connection.setRequestMethod("POST");
+    connection.setDoOutput(true);
+    java.io.OutputStream out = connection.getOutputStream();
+    out.write(body.getBytes("UTF-8"));
+    out.close();
+    return connection.getResponseCode();
+  }
+
   @Test
   public void testLanUrlsUseHttpsAndTheHttpsPort() throws Exception {
     File exportDir = createExportDir();
