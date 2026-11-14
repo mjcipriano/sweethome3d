@@ -159,6 +159,63 @@ public class HomeMCPHandler {
     }
   }
 
+  /**
+   * Answers a JSON-RPC message in place of a server that can't be reached: the
+   * handshake and the list of tools are answered as the server would, so a client
+   * started before Sweet Home 3D still knows the tools, and tool calls fail with
+   * <code>reason</code>.
+   * @return the JSON response, or <code>null</code> if the message doesn't require any
+   */
+  public static String handleOffline(String requestBody, String serverVersion, String reason) {
+    Object message;
+    try {
+      message = JSONParser.parse(requestBody);
+    } catch (RuntimeException ex) {
+      return JSONParser.toJSON(error(null, PARSE_ERROR, "Parse error"));
+    }
+    if (message instanceof List) {
+      List<Object> responses = new ArrayList<Object>();
+      for (Object item : (List<?>)message) {
+        Map<String, Object> response = handleOfflineMessage(item, serverVersion, reason);
+        if (response != null) {
+          responses.add(response);
+        }
+      }
+      return responses.isEmpty() ? null : JSONParser.toJSON(responses);
+    } else {
+      Map<String, Object> response = handleOfflineMessage(message, serverVersion, reason);
+      return response != null ? JSONParser.toJSON(response) : null;
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> handleOfflineMessage(Object message, String serverVersion, String reason) {
+    if (!(message instanceof Map)) {
+      return error(null, INVALID_REQUEST, "Invalid request");
+    }
+    Map<String, Object> request = (Map<String, Object>)message;
+    Object id = request.get("id");
+    Object method = request.get("method");
+    if (!(method instanceof String) || !request.containsKey("id")) {
+      return null;
+    }
+    if ("initialize".equals(method)) {
+      return result(id, initialize(request.get("params") instanceof Map
+          ? (Map<String, Object>)request.get("params")
+          : new LinkedHashMap<String, Object>(), serverVersion != null ? serverVersion : ""));
+    } else if ("ping".equals(method)) {
+      return result(id, new LinkedHashMap<String, Object>());
+    } else if ("tools/list".equals(method)) {
+      Map<String, Object> tools = new LinkedHashMap<String, Object>();
+      tools.put("tools", getTools());
+      return result(id, tools);
+    } else if ("tools/call".equals(method)) {
+      return result(id, toolResult(reason, true));
+    } else {
+      return error(id, METHOD_NOT_FOUND, "Method not found: " + method);
+    }
+  }
+
   @SuppressWarnings("unchecked")
   private Map<String, Object> handleMessage(Object message) {
     if (!(message instanceof Map)) {
@@ -182,7 +239,7 @@ public class HomeMCPHandler {
         : new LinkedHashMap<String, Object>();
     try {
       if ("initialize".equals(method)) {
-        return result(id, initialize(params));
+        return result(id, initialize(params, this.serverVersion));
       } else if ("ping".equals(method)) {
         return result(id, new LinkedHashMap<String, Object>());
       } else if ("tools/list".equals(method)) {
@@ -206,7 +263,7 @@ public class HomeMCPHandler {
     }
   }
 
-  private Map<String, Object> initialize(Map<String, Object> params) {
+  private static Map<String, Object> initialize(Map<String, Object> params, String serverVersion) {
     Object requestedVersion = params.get("protocolVersion");
     Map<String, Object> result = new LinkedHashMap<String, Object>();
     result.put("protocolVersion", SUPPORTED_PROTOCOL_VERSIONS.contains(requestedVersion)
@@ -217,7 +274,7 @@ public class HomeMCPHandler {
     Map<String, Object> serverInfo = new LinkedHashMap<String, Object>();
     serverInfo.put("name", "sweethome3d");
     serverInfo.put("title", "Sweet Home 3D");
-    serverInfo.put("version", this.serverVersion);
+    serverInfo.put("version", serverVersion);
     result.put("serverInfo", serverInfo);
     result.put("instructions",
         "Tools to read and edit the home open in Sweet Home 3D, an interior design application. "
@@ -242,7 +299,7 @@ public class HomeMCPHandler {
   /**
    * Returns the description of the tools of this server.
    */
-  private List<Object> getTools() {
+  private static List<Object> getTools() {
     List<Object> tools = new ArrayList<Object>();
     tools.add(tool("get_home", "Describe home",
         "Returns a text description of the home open in Sweet Home 3D: levels, rooms with their "

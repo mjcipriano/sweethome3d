@@ -10,20 +10,42 @@ client talks to Sweet Home 3D, not the other way round.
 ## Use it
 
 1. Open a home and choose **Help > Claude MCP server...**, then **Start server**.
-2. Press **Copy command** and run it in a terminal. It looks like:
-
-   ```
-   claude mcp add --transport http sweethome3d http://127.0.0.1:47391/mcp --header "Authorization: Bearer <token>"
-   ```
-
-   Other clients take the same URL and header in their MCP configuration
-   (`"type": "http"`, `"url"`, `"headers": {"Authorization": "Bearer <token>"}`).
+2. Connect Claude, once:
+   - **Connect Claude Desktop** adds Sweet Home 3D to the servers of Claude
+     Desktop (its `claude_desktop_config.json`, after asking; a copy of the
+     previous file is kept beside it as `.before-sweethome3d`). Quit Claude
+     Desktop completely and reopen it.
+   - **Connect Claude Code** runs `claude mcp add --scope user sweethome3d ...`
+     for you. If the `claude` command isn't found, **Copy command** and run it
+     in a terminal. Start a new Claude Code session.
 3. Ask Claude things like "what rooms does my home have?", "add a desk and an
    office chair to the study", or "move the sofa 50 cm to the right".
 
-The address and the token stay the same from one session to the next, so the
-command only has to be run once. The server stops when the home window is
-closed and must be started again from the menu; it never starts by itself.
+Tick **Start this server each time a home is opened** to skip step 1 from then
+on. Otherwise the server stops when the home window is closed and must be
+started again from the menu.
+
+Claude doesn't need to be told anything else: on connection it receives the
+instructions of the server, the list of tools and the reference of the edit
+commands. If Claude is asked about the home while no server runs, the tools
+answer that the server must be started.
+
+### How the connection works
+
+The buttons register a small program, the *bridge* (`sweethome3d-mcp` in the
+packaged application, otherwise `java -cp <jar> com.eteks.sweethome3d.swing.HomeMCPBridge`).
+Claude launches it and talks to it on its standard input and output; the
+bridge forwards each message to the server of the home, whose port and token
+it reads in the Sweet Home 3D application folder. The registration therefore
+contains no token and no port, and it stays valid from one session to the
+next. It does contain the path of the application: connect again after moving
+Sweet Home 3D or installing a new version in another folder. With several home
+windows sharing their home, the bridge reaches the server started last.
+
+Clients that take a URL can still connect directly to
+`http://127.0.0.1:47391/mcp` with the header `Authorization: Bearer <token>`
+(the token is in the file `mcp-token`, see Security), for example
+`claude mcp add --transport http sweethome3d http://127.0.0.1:47391/mcp --header "Authorization: Bearer <token>"`.
 
 Untick **Allow changes to this home** to let Claude read the home without being
 able to modify it. Every `apply_commands` call is one step of **Edit > Undo**.
@@ -71,6 +93,12 @@ protocol (`HomeAssistantContext.getCommandReference()`), at most 30 per call:
   use and stored in the file `mcp-token` of the Sweet Home 3D application folder
   (`~/.eteks/sweethome3d` on Linux), readable by its owner only. Delete that
   file to get a new token.
+- The bridge program reads that token file, so it works for the user who runs
+  Sweet Home 3D only. The registration written in Claude's settings holds no
+  secret. **Connect Claude Desktop** changes one entry (`mcpServers.sweethome3d`)
+  of Claude Desktop's configuration file, after confirmation.
+- The server only starts by itself if you ticked **Start this server each time
+  a home is opened** (a file `mcp-autostart` in the application folder).
 - Requests with a foreign `Origin` or `Host` header are refused, so a web page
   open in a browser can't relay requests to the server (cross-site requests,
   DNS rebinding).
@@ -93,6 +121,11 @@ free port shown in their dialog. Set another fixed port with
   and `HomeAssistantContext`. Called in the event dispatch thread.
 - `swing/HomeMCPServer` - Streamable HTTP transport on the JDK `HttpServer`
   (POST only: no server-initiated stream, no session), token file, header checks.
+- `swing/HomeMCPBridge` - the stdio program launched by clients (forwards to
+  the server, answers the handshake and the tool list itself while no server
+  runs via `HomeMCPHandler.handleOffline`), and the registration in Claude
+  Desktop and Claude Code. `scripts/package-release.ps1` adds its launcher
+  `sweethome3d-mcp` to the application image.
 - `swing/HomePane.showMCPServerDialog` - the menu item and dialog.
 - `HomeMCPServerTest` covers the handler, the transport checks and the token
   file. A real Claude Code client was run against the server on 2026-11-13

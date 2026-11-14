@@ -106,6 +106,17 @@ $jpackageArgs = @(
   "--java-options", "-Dcom.eteks.sweethome3d.applicationVersion=$Version"
 )
 
+# A second launcher for the program MCP clients (Claude Desktop, Claude Code)
+# start to reach the home open in the application: it talks on its standard
+# input and output, so it needs a console under Windows and no window anywhere.
+$bridgeProperties = Join-Path $staging "sweethome3d-mcp.properties"
+@(
+  "main-class=com.eteks.sweethome3d.swing.HomeMCPBridge",
+  "java-options=-Djava.awt.headless=true -Dcom.eteks.sweethome3d.applicationVersion=$Version",
+  "win-console=true"
+) | Set-Content -Path $bridgeProperties -Encoding ascii
+$jpackageArgs += @("--add-launcher", "sweethome3d-mcp=$bridgeProperties")
+
 if ($IsWindows) {
   $jpackageArgs += @("--icon", (Join-Path $root "install/windows/SweetHome3D.ico"))
 } elseif ($IsMacOS) {
@@ -123,6 +134,22 @@ $appImageName = if ($IsMacOS) { "Sweet Home 3D.app" } else { "Sweet Home 3D" }
 $appImage = Join-Path $appImages $appImageName
 if (-not (Test-Path $appImage)) {
   throw "Expected application image was not produced: $appImage"
+}
+
+# The launcher MCP clients start must exist and answer on its standard output
+$bridge = if ($IsWindows) {
+  Join-Path $appImage "sweethome3d-mcp.exe"
+} elseif ($IsMacOS) {
+  Join-Path $appImage "Contents/MacOS/sweethome3d-mcp"
+} else {
+  Join-Path $appImage "bin/sweethome3d-mcp"
+}
+if (-not (Test-Path $bridge)) {
+  throw "Expected MCP bridge launcher was not produced: $bridge"
+}
+$bridgeAnswer = '{"jsonrpc":"2.0","id":1,"method":"ping"}' | & $bridge --folder $staging
+if ("$bridgeAnswer" -notmatch '"result"') {
+  throw "The MCP bridge launcher didn't answer a ping: $bridgeAnswer"
 }
 
 Get-ChildItem $root -Filter "*LICENSE*" -File | ForEach-Object {

@@ -391,4 +391,104 @@ public class HomeMCPServerTest {
       System.setProperty("com.eteks.sweethome3d.no3D", previousNo3D);
     }
   }
+
+  /**
+   * Tests the program MCP clients launch to reach the server: forwarding,
+   * answers given while no server runs, and its registration in Claude Desktop.
+   */
+  @Test
+  @SuppressWarnings("unchecked")
+  public void testBridge() throws Exception {
+    File folder = java.nio.file.Files.createTempDirectory("sh3d-mcp-bridge").toFile();
+    try {
+      String messages = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n"
+          + "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n\n"
+          + "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n"
+          + "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"get_home\",\"arguments\":{}}}\n";
+      // No server and no token yet: the bridge answers the handshake itself
+      java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+      com.eteks.sweethome3d.swing.HomeMCPBridge.run(new java.io.ByteArrayInputStream(messages.getBytes("UTF-8")), out, folder);
+      String [] lines = out.toString("UTF-8").split("\n");
+      assertEquals("One line per request, none for the notification", 3, lines.length);
+      Map<String, Object> result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [0])).get("result");
+      assertEquals("2025-06-18", result.get("protocolVersion"));
+      result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [1])).get("result");
+      assertEquals(12, ((List<Object>)result.get("tools")).size());
+      result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [2])).get("result");
+      assertEquals(Boolean.TRUE, result.get("isError"));
+      assertTrue(lines [2], lines [2].contains("Start server"));
+      assertFalse(new File(folder, "mcp-token").exists());
+
+      // With a server recorded in the folder, on whatever port it got
+      final Home home = new Home();
+      home.addRoom(new Room(new float [][] {{0, 0}, {400, 0}, {400, 300}, {0, 300}}));
+      HomeMCPHandler handler = new HomeMCPHandler(home, AssistantCannedProtocolTest.createCatalogPreferences(), null, "1.2.3");
+      HomeMCPServer server = new HomeMCPServer(handler, HomeMCPServer.getOrCreateToken(folder), 0);
+      server.start();
+      try {
+        assertEquals(-1, HomeMCPServer.readPort(folder));
+        HomeMCPServer.writePort(folder, server.getPort());
+        assertEquals(server.getPort(), HomeMCPServer.readPort(folder));
+        out = new java.io.ByteArrayOutputStream();
+        com.eteks.sweethome3d.swing.HomeMCPBridge.run(new java.io.ByteArrayInputStream(messages.getBytes("UTF-8")), out, folder);
+        lines = out.toString("UTF-8").split("\n");
+        assertEquals(3, lines.length);
+        Map<String, Object> serverInfo = (Map<String, Object>)((Map<String, Object>)
+            ((Map<String, Object>)JSONParser.parse(lines [0])).get("result")).get("serverInfo");
+        assertEquals("Answered by the server", "1.2.3", serverInfo.get("version"));
+        result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [2])).get("result");
+        assertEquals(lines [2], Boolean.FALSE, result.get("isError"));
+        assertTrue(lines [2], lines [2].contains("12 m2") || lines [2].contains("12.0 m2") || lines [2].contains("Rooms"));
+        HomeMCPServer.clearPort(folder, server.getPort() + 1);
+        assertEquals("Only the server that recorded a port clears it", server.getPort(), HomeMCPServer.readPort(folder));
+        HomeMCPServer.clearPort(folder, server.getPort());
+        assertEquals(-1, HomeMCPServer.readPort(folder));
+      } finally {
+        server.stop();
+      }
+
+      assertFalse(HomeMCPServer.isAutoStart(folder));
+      HomeMCPServer.setAutoStart(folder, true);
+      assertTrue(HomeMCPServer.isAutoStart(folder));
+      HomeMCPServer.setAutoStart(folder, false);
+      assertFalse(HomeMCPServer.isAutoStart(folder));
+
+      // The command holds neither the token nor a port
+      List<String> command = com.eteks.sweethome3d.swing.HomeMCPBridge.getCommand(folder);
+      assertTrue(command.toString(), command.contains("--folder") && command.contains(folder.getAbsolutePath()));
+      assertFalse(command.toString().contains(HomeMCPServer.readToken(folder)));
+      assertTrue(com.eteks.sweethome3d.swing.HomeMCPBridge.getClaudeCodeCommandLine(folder)
+          .startsWith("claude mcp add --scope user sweethome3d -- "));
+
+      // Registration in Claude Desktop keeps the other settings
+      String config = com.eteks.sweethome3d.swing.HomeMCPBridge.mergeClaudeDesktopConfig(
+          "\uFEFF{\"theme\":\"dark\",\"scale\":1.5,\"mcpServers\":{\"other\":{\"command\":\"npx\",\"args\":[\"x\"]},"
+          + "\"sweethome3d\":{\"command\":\"old\"}}}", command);
+      Map<String, Object> root = (Map<String, Object>)JSONParser.parse(config);
+      assertEquals("dark", root.get("theme"));
+      assertEquals(1.5, ((Number)root.get("scale")).doubleValue(), 0);
+      Map<String, Object> servers = (Map<String, Object>)root.get("mcpServers");
+      assertEquals("npx", ((Map<String, Object>)servers.get("other")).get("command"));
+      Map<String, Object> entry = (Map<String, Object>)servers.get("sweethome3d");
+      assertEquals(command.get(0), entry.get("command"));
+      assertEquals(command.subList(1, command.size()), entry.get("args"));
+      root = (Map<String, Object>)JSONParser.parse(
+          com.eteks.sweethome3d.swing.HomeMCPBridge.mergeClaudeDesktopConfig(null, command));
+      assertNotNull(((Map<String, Object>)root.get("mcpServers")).get("sweethome3d"));
+      try {
+        com.eteks.sweethome3d.swing.HomeMCPBridge.mergeClaudeDesktopConfig("{broken", command);
+        org.junit.Assert.fail("A file that isn't JSON must be left alone");
+      } catch (java.io.IOException ex) {
+        assertTrue(ex.getMessage().contains("left unchanged"));
+      }
+    } finally {
+      File [] files = folder.listFiles();
+      if (files != null) {
+        for (File file : files) {
+          file.delete();
+        }
+      }
+      folder.delete();
+    }
+  }
 }

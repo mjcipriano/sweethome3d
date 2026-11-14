@@ -51,6 +51,8 @@ public class HomeMCPServer {
   public static final String ENDPOINT_PATH = "/mcp";
 
   private static final String TOKEN_FILE = "mcp-token";
+  private static final String PORT_FILE = "mcp-port";
+  private static final String AUTO_START_FILE = "mcp-autostart";
   private static final int    MAX_REQUEST_LENGTH = 1024 * 1024;
 
   private final HomeMCPHandler handler;
@@ -121,6 +123,88 @@ public class HomeMCPServer {
       out.close();
     }
     return token;
+  }
+
+  /**
+   * Returns the token stored in the given application <code>folder</code>,
+   * or <code>null</code> if there's none yet.
+   */
+  public static String readToken(File folder) {
+    String token = readSmallFile(new File(folder, TOKEN_FILE));
+    return token != null && token.matches("[0-9a-f]{32,}") ? token : null;
+  }
+
+  /**
+   * Records in the application <code>folder</code> the port of the server started
+   * last, where {@link HomeMCPBridge} finds it.
+   */
+  public static void writePort(File folder, int port) throws IOException {
+    folder.mkdirs();
+    OutputStream out = new FileOutputStream(new File(folder, PORT_FILE));
+    try {
+      out.write(String.valueOf(port).getBytes("UTF-8"));
+    } finally {
+      out.close();
+    }
+  }
+
+  /**
+   * Returns the port recorded in the application <code>folder</code>, or -1 if no
+   * started server recorded one.
+   */
+  public static int readPort(File folder) {
+    String port = readSmallFile(new File(folder, PORT_FILE));
+    try {
+      int value = port != null ? Integer.parseInt(port) : -1;
+      return value > 0 && value <= 65535 ? value : -1;
+    } catch (NumberFormatException ex) {
+      return -1;
+    }
+  }
+
+  /**
+   * Forgets the port recorded in the application <code>folder</code> if it's <code>port</code>.
+   */
+  public static void clearPort(File folder, int port) {
+    if (readPort(folder) == port) {
+      new File(folder, PORT_FILE).delete();
+    }
+  }
+
+  /**
+   * Returns <code>true</code> if the user chose to start a server each time a home is opened.
+   */
+  public static boolean isAutoStart(File folder) {
+    return new File(folder, AUTO_START_FILE).isFile();
+  }
+
+  /**
+   * Sets whether a server should start each time a home is opened.
+   */
+  public static void setAutoStart(File folder, boolean autoStart) throws IOException {
+    File file = new File(folder, AUTO_START_FILE);
+    if (autoStart) {
+      folder.mkdirs();
+      file.createNewFile();
+    } else {
+      file.delete();
+    }
+  }
+
+  private static String readSmallFile(File file) {
+    if (!file.isFile()) {
+      return null;
+    }
+    try {
+      InputStream in = new FileInputStream(file);
+      try {
+        return new String(readFully(in, 4096), "UTF-8").trim();
+      } finally {
+        in.close();
+      }
+    } catch (IOException ex) {
+      return null;
+    }
   }
 
   /**
