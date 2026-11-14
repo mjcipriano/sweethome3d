@@ -3,7 +3,6 @@
 import * as THREE from 'three';
 import {MTLLoader} from 'three/addons/loaders/MTLLoader.js';
 import {OBJLoader} from 'three/addons/loaders/OBJLoader.js';
-import {VRButton} from 'three/addons/webxr/VRButton.js';
 import * as walk from './webxr-walk.js';
 import {mergeParts} from './webxr-merge.js';
 
@@ -67,10 +66,28 @@ function reportError(where, ex) {
 window.addEventListener('error', event => reportError('page', event.error || event.message));
 window.addEventListener('unhandledrejection', event => reportError('promise', event.reason));
 
+// Creates the renderer on the graphics card the headset uses. Without this, a
+// computer with a headset linked to it (Quest Link, SteamVR) has to move the
+// whole home to the other graphics card when VR starts, and may never finish
+function createRenderer() {
+  try {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('webgl2', {alpha: false, depth: true, stencil: true, antialias: true,
+        premultipliedAlpha: true, preserveDrawingBuffer: false, powerPreference: 'high-performance',
+        xrCompatible: true});
+    if (context) {
+      return new THREE.WebGLRenderer({canvas, context, antialias: true});
+    }
+  } catch (ex) {
+    console.warn(ex);
+  }
+  return new THREE.WebGLRenderer({antialias: true, powerPreference: 'high-performance'});
+}
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9fc4e8);
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 2000);
-const renderer = new THREE.WebGLRenderer({antialias: true});
+const renderer = createRenderer();
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -80,6 +97,7 @@ renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
 document.body.insertBefore(renderer.domElement, document.body.firstChild);
 // The button to enter VR is shown once the home is loaded, see load()
+renderer.domElement.addEventListener('webglcontextrestored', () => report('WebGL context restored'));
 renderer.domElement.addEventListener('webglcontextlost', () => {
   report('ERROR WebGL context lost: the home is too heavy for the graphics memory of this device');
   setStatus('The graphics memory of this device is full: reload the page');
@@ -525,6 +543,83 @@ renderer.xr.addEventListener('sessionend', () => {
   report('VR session ended');
 });
 
+// ---- Entering VR ----
+const VR_START_TIMEOUT = 20000;
+let vrSession = null;
+
+// Creates the button which starts and stops the visit in VR. Each step is
+// reported, to tell where it stops when the headset stays on a loading screen
+function createVRButton() {
+  const button = document.createElement('button');
+  button.id = 'VRButton';
+  button.style.cssText = 'position:fixed; bottom:20px; left:50%; transform:translateX(-50%); padding:12px 18px;'
+      + ' border:1px solid #fff; border-radius:4px; background:rgba(0,0,0,0.55); color:#fff;'
+      + ' font:normal 13px sans-serif; z-index:999;';
+  const disable = text => {
+    button.textContent = text;
+    button.disabled = true;
+    button.style.opacity = '0.6';
+  };
+  if (!navigator.xr) {
+    disable(window.isSecureContext ? 'VR NOT SUPPORTED BY THIS BROWSER' : 'VR NEEDS THE HTTPS ADDRESS');
+    return button;
+  }
+  button.textContent = 'ENTER VR';
+  button.style.cursor = 'pointer';
+  navigator.xr.isSessionSupported('immersive-vr').then(supported => {
+    if (!supported) {
+      disable('VR NOT SUPPORTED');
+      report('VR not supported by this browser or no headset found');
+    }
+  }).catch(ex => {
+    disable('VR NOT ALLOWED');
+    reportError('VR support', ex);
+  });
+  button.addEventListener('click', () => {
+    if (vrSession) {
+      vrSession.end();
+    } else if (!button.dataset.starting) {
+      enterVR(button);
+    }
+  });
+  return button;
+}
+
+async function enterVR(button) {
+  report('Enter VR pressed');
+  button.dataset.starting = 'true';
+  button.textContent = 'STARTING VR...';
+  let step = 'the headset did not answer the request of a VR session';
+  const timeout = setTimeout(() => {
+    report('ERROR VR not started after ' + VR_START_TIMEOUT / 1000 + ' s: ' + step);
+    setStatus('VR didn\'t start: ' + step + '.');
+    logError('With a headset linked to this computer (Quest Link, Air Link, SteamVR), check that its'
+        + ' application runs and is the active OpenXR runtime, then reload this page.\n'
+        + 'Otherwise open the https address shown by Sweet Home 3D in the browser of the headset itself.');
+  }, VR_START_TIMEOUT);
+  try {
+    const session = await navigator.xr.requestSession('immersive-vr',
+        {optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'layers']});
+    report('VR session granted');
+    step = 'the graphics of the page could not be attached to the headset';
+    session.addEventListener('end', () => {
+      vrSession = null;
+      button.textContent = 'ENTER VR';
+    });
+    await renderer.xr.setSession(session);
+    vrSession = session;
+    button.textContent = 'EXIT VR';
+    report('VR session attached to the page');
+  } catch (ex) {
+    button.textContent = 'ENTER VR';
+    setStatus('VR didn\'t start');
+    reportError('enter VR', ex);
+  } finally {
+    clearTimeout(timeout);
+    delete button.dataset.starting;
+  }
+}
+
 // ---- Smoothness of the visit in VR ----
 const vrStats = {frames: 0, since: 0, samples: 0, viewDistance: 0};
 
@@ -657,6 +752,8 @@ function loadModel() {
   });
 }
 
+const STANDALONE_HEADSET = /OculusBrowser|Quest|Pico|VR\b.*Android|Android.*\bVR/i.test(navigator.userAgent);
+
 function releaseArray() {
   this.array = null;
 }
@@ -744,9 +841,13 @@ function mergeModel(model) {
     geometry.computeBoundingSphere();
     geometry.computeBoundingBox();
     state.triangles += part.position.length / 9;
-    // Once in the graphics memory, the arrays aren't needed in the memory of the page
-    for (const name in geometry.attributes) {
-      geometry.attributes[name].onUpload(releaseArray);
+    if (STANDALONE_HEADSET) {
+      // Once in the graphics memory, the arrays aren't needed in the small memory
+      // of a headset. A computer keeps them: its graphics may have to be
+      // created again when a linked headset starts VR
+      for (const name in geometry.attributes) {
+        geometry.attributes[name].onUpload(releaseArray);
+      }
     }
     merged.add(new THREE.Mesh(geometry, materials.get(part.key)));
   }
@@ -822,7 +923,7 @@ async function load() {
       loadingElement.style.display = 'none';
     }
     // Entering VR is proposed only now, so nobody enters an empty world
-    document.body.appendChild(VRButton.createButton(renderer));
+    document.body.appendChild(createVRButton());
   } catch (ex) {
     const reason = String(ex && ex.message ? ex.message : ex);
     report('ERROR load: ' + reason);

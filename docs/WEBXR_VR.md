@@ -105,7 +105,15 @@ the browser and the size of the home once loaded, the start and the end of a
 VR session, the pictures per second and the triangles drawn, errors of the
 page, and a lost graphics context (home too heavy for the graphics memory). An
 error in the handling of the controllers no longer prevents the picture from
-being drawn. The log is plain text, limited to 512 KB, and only the viewer's
+being drawn. **Enter VR** reports each step (pressed, session granted, session
+attached); if VR hasn't started after 20 seconds, the page says at which step
+it stopped.
+
+With a headset linked to the computer (Quest Link, Air Link, SteamVR), VR is
+entered from the desktop page: the application of the headset must run and be
+the active OpenXR runtime. The page creates its graphics on the graphics card
+of the headset (`xrCompatible`, high performance GPU), so the home needn't be
+moved to another card when VR starts. The log is plain text, limited to 512 KB, and only the viewer's
 `POST /log` can add to it.
 
 While the home loads, the page shows how much of it was received; **Enter VR**
