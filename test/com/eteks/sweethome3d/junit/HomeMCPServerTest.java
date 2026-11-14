@@ -127,7 +127,7 @@ public class HomeMCPServerTest {
 
       response = call(handler, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}");
       List<Object> tools = (List<Object>)((Map<String, Object>)response.get("result")).get("tools");
-      assertEquals(11, tools.size());
+      assertEquals(12, tools.size());
       for (Object tool : tools) {
         Map<String, Object> toolMap = (Map<String, Object>)tool;
         assertNotNull(toolMap.get("name"));
@@ -203,6 +203,9 @@ public class HomeMCPServerTest {
       result = callTool(handler, "check_home", "{}");
       assertEquals(Boolean.FALSE, result.get("isError"));
       assertTrue(text(result), text(result).startsWith("Home check:"));
+      result = callTool(handler, "get_report", "{}");
+      assertEquals(Boolean.FALSE, result.get("isError"));
+      assertTrue(text(result), text(result).contains("Garage: 20.0 m2") && text(result).contains("4 walls"));
       result = callTool(handler, "search_textures", "{\"query\":\"parquet\"}");
       assertTrue(text(result), text(result).startsWith("Textures:"));
       assertEquals(Boolean.TRUE, callTool(handler, "search_textures", "{}").get("isError"));

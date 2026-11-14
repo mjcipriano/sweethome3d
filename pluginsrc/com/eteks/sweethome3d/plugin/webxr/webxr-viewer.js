@@ -52,6 +52,8 @@ scene.add(sun);
 // Plan of the home (null if the description couldn't be loaded)
 let plan = null;
 let levelIndex = 0;
+// Height of the visitor's feet above the floor of the level, on stairs
+let stairHeight = 0;
 let colliders = [];
 let collisions = true;
 let desktopPitch = 0;
@@ -59,13 +61,36 @@ const state = {ready: false, meshes: 0};
 window.sweetHome3DPreview = state;
 // For automated checks of the page
 state.debugHead = () => { headPosition(); return [head.x, head.y, head.z, rig.rotation.y]; };
+state.debugWalk = (moveX, moveZ) => {
+  // By steps of 5 cm, as someone walking
+  const steps = Math.max(1, Math.ceil(Math.hypot(moveX, moveZ) / 0.05));
+  for (let i = 0; i < steps; i++) {
+    walkInPlan(moveX / steps, moveZ / steps);
+  }
+  headPosition();
+  return [head.x, head.y, head.z, levelIndex, stairHeight];
+};
 
 const head = new THREE.Vector3();
 const forward = new THREE.Vector3();
 const tmp = new THREE.Vector3();
 
 function floorY() {
-  return plan && plan.levels[levelIndex] ? plan.levels[levelIndex].elevation : 0;
+  return (plan && plan.levels[levelIndex] ? plan.levels[levelIndex].elevation : 0) + stairHeight;
+}
+
+// Puts the visitor on the floor, the stairs or the level found by walk.standAt
+function standOn(place) {
+  if (place.level !== levelIndex) {
+    levelIndex = place.level;
+    colliders = walk.buildColliders(plan, levelIndex);
+    const name = plan.levels[levelIndex] && plan.levels[levelIndex].name;
+    showMessage(name ? 'Level: ' + name : 'Level ' + (levelIndex + 1));
+    stairHeight = place.height;
+    updateStatus();
+  }
+  stairHeight = place.height;
+  rig.position.y = floorY();
 }
 
 function headPosition() {
@@ -93,6 +118,7 @@ function turn(angle) {
 
 function setLevel(index, announce) {
   levelIndex = index;
+  stairHeight = 0;
   colliders = plan ? walk.buildColliders(plan, levelIndex) : [];
   rig.position.y = floorY();
   if (announce) {
@@ -150,13 +176,36 @@ function walkBy(dx, dz) {
   // Right of the visitor
   const rightX = -forward.z;
   const rightZ = forward.x;
-  const moveX = forward.x * dz + rightX * dx;
-  const moveZ = forward.z * dz + rightZ * dx;
+  walkInPlan(forward.x * dz + rightX * dx, forward.z * dz + rightZ * dx);
+}
+
+// Walks by (moveX, moveZ) meters along the axes of the plan
+function walkInPlan(moveX, moveZ) {
   headPosition();
   let x = head.x + moveX;
   let z = head.z + moveZ;
   if (collisions) {
     [x, z] = walk.move(head.x, head.z, moveX, moveZ, colliders);
+  }
+  if (plan && collisions) {
+    // Stairs are climbed, their sides and the holes in the floor block like walls
+    const from = {level: levelIndex, height: stairHeight};
+    let place = walk.standAt(plan, from, x, z);
+    if (!place) {
+      // Slide along what blocks
+      for (const [slideX, slideZ] of [[x, head.z], [head.x, z]]) {
+        place = walk.standAt(plan, from, slideX, slideZ);
+        if (place) {
+          x = slideX;
+          z = slideZ;
+          break;
+        }
+      }
+    }
+    if (!place) {
+      return;
+    }
+    standOn(place);
   }
   placeHead(x, z);
 }
@@ -167,6 +216,17 @@ function keepHeadOutOfWalls() {
     headPosition();
     const [x, z] = walk.move(head.x, head.z, 0, 0, colliders);
     if (x !== head.x || z !== head.z) {
+      placeHead(x, z);
+    }
+  }
+  if (collisions && plan && plan.stairs && plan.stairs.length > 0) {
+    // Someone who really walks onto stairs climbs them too
+    headPosition();
+    const place = walk.standAt(plan, {level: levelIndex, height: stairHeight}, head.x, head.z);
+    if (place && (place.level !== levelIndex || place.height !== stairHeight)) {
+      const x = head.x;
+      const z = head.z;
+      standOn(place);
       placeHead(x, z);
     }
   }
@@ -231,7 +291,8 @@ const direction = new THREE.Vector3();
 function aimTeleport(controller) {
   controller.getWorldPosition(origin);
   controller.getWorldDirection(direction).negate();
-  const y = floorY();
+  // The floor of the level, even for someone standing on stairs
+  const y = floorY() - stairHeight;
   const velocityY = direction.y * TELEPORT_SPEED;
   // Time at which the ball reaches the floor
   const discriminant = velocityY * velocityY + 2 * GRAVITY * (origin.y - y);
@@ -252,10 +313,16 @@ function aimTeleport(controller) {
   // No teleporting through a wall: doorways are the way to the next room
   teleport.valid = reachesFloor
       && !(collisions && walk.isBlocked(head.x, head.z, teleport.x, teleport.z, colliders));
+  // Stairs can be teleported onto, not the holes in the floor
+  teleport.place = teleport.valid && plan && collisions
+      ? walk.standAt(plan, levelIndex, teleport.x, teleport.z) : null;
+  if (teleport.valid && plan && collisions && !teleport.place) {
+    teleport.valid = false;
+  }
   const color = teleport.valid ? 0x33ff88 : 0xff4433;
   arcMaterial.color.setHex(color);
   targetMaterial.color.setHex(color);
-  target.position.set(teleport.x, y + 0.02, teleport.z);
+  target.position.set(teleport.x, y + (teleport.place ? teleport.place.height : 0) + 0.02, teleport.z);
   arc.visible = true;
   target.visible = reachesFloor;
   teleport.aiming = true;
@@ -264,6 +331,9 @@ function aimTeleport(controller) {
 function endTeleport() {
   if (teleport.aiming) {
     if (teleport.valid) {
+      if (teleport.place) {
+        standOn(teleport.place);
+      }
       placeHead(teleport.x, teleport.z);
     }
     teleport.aiming = false;
@@ -449,6 +519,7 @@ function updateStatus() {
   setStatus('Ready' + level + (collisions ? '' : ' - walking through walls')
       + (plan ? '' : ' - no plan data: walls don\'t block you'));
   state.level = levelIndex;
+  state.stairHeight = stairHeight;
   state.colliders = colliders.length;
   state.collisions = collisions;
   headPosition();

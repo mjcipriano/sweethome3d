@@ -57,7 +57,6 @@ class AssistantObjectCommands {
   private static final int    DEFAULT_BOX_COLOR = 0xD8D8D8;
   private static final String IMPORTED_CATEGORY = "Imported";
   /** A staircase cuts the floors above it over its whole area. */
-  private static final String FULL_CUT_OUT_SHAPE = "M0,0 v1 h1 v-1 z";
   private static final Pattern MODEL_NAME = Pattern.compile(".*\\.(obj|dae|3ds|kmz)$", Pattern.CASE_INSENSITIVE);
 
   private final Home                     home;
@@ -134,14 +133,33 @@ class AssistantObjectCommands {
       return;
     }
     int stepCount = AssistantGeneratedModel.getStepCount((float)rise);
-    // Treads of 25 cm unless a length is given
-    double length = command.getDouble("length", stepCount * 25);
-    if (!(length >= stepCount * 15) || length > 2000) {
-      length = stepCount * 25;
+    String shapeName = command.getString("shape");
+    shapeName = shapeName != null ? shapeName.trim().toLowerCase(Locale.ENGLISH) : "";
+    int shape = shapeName.startsWith("l") || shapeName.contains("quarter")
+        ? AssistantGeneratedModel.STAIRS_L
+        : (shapeName.startsWith("u") || shapeName.contains("half")
+            ? AssistantGeneratedModel.STAIRS_U
+            : AssistantGeneratedModel.STAIRS_STRAIGHT);
+    if (stepCount < 4) {
+      shape = AssistantGeneratedModel.STAIRS_STRAIGHT;
     }
+    // Treads of 25 cm, unless a tread or the length of a straight flight is given
+    double tread = command.getDouble("tread", 25);
+    double length = command.getDouble("length", Double.NaN);
+    if (shape == AssistantGeneratedModel.STAIRS_STRAIGHT && length >= stepCount * 15 && length <= 2000) {
+      tread = length / stepCount;
+    }
+    if (!(tread >= 15) || tread > 125) {
+      tread = 25;
+    }
+    boolean turnRight = !"left".equalsIgnoreCase(command.getString("turn"));
+    String railing = command.getString("railing");
+    railing = railing != null ? railing.trim().toLowerCase(Locale.ENGLISH) : "";
+    boolean leftRail = "left".equals(railing) || "both".equals(railing) || "true".equals(railing);
+    boolean rightRail = "right".equals(railing) || "both".equals(railing) || "true".equals(railing);
     Integer color = AssistantCommandExecutor.parseColor(command.getString("color"));
-    AssistantGeneratedModel model = AssistantGeneratedModel.buildStairs((float)width, (float)length,
-        (float)rise, color != null ? color : DEFAULT_STAIRS_COLOR);
+    AssistantGeneratedModel model = AssistantGeneratedModel.buildStairs((float)width, (float)tread,
+        (float)rise, color != null ? color : DEFAULT_STAIRS_COLOR, shape, turnRight, leftRail, rightRail);
     String name = command.getString("name");
     HomePieceOfFurniture piece = new HomePieceOfFurniture(new CatalogPieceOfFurniture(
         name != null && name.trim().length() > 0 ? name.trim() : "Staircase",
@@ -150,13 +168,17 @@ class AssistantObjectCommands {
     piece.setY((float)y);
     piece.setAngle((float)Math.toRadians(command.getDouble("angle", 0)));
     piece.setLevel(level);
-    piece.setStaircaseCutOutShape(FULL_CUT_OUT_SHAPE);
+    piece.setStaircaseCutOutShape(model.getCutOutShape());
     piece.setProperty(STAIRS_PROPERTY, "true");
+    piece.setProperty(AssistantGeneratedModel.STAIRS_FLIGHTS_PROPERTY, model.getFlights());
     this.executor.beginTurnUpdate();
     this.homeController.getFurnitureController().addFurniture(Collections.singletonList(piece));
     tally [0]++;
-    notes.add("Added stairs of " + stepCount + " steps, " + Math.round(width) + " cm wide and "
-        + Math.round(length) + " cm long, climbing " + Math.round(rise) + " cm"
+    notes.add("Added " + (shape == AssistantGeneratedModel.STAIRS_L ? "L-shaped stairs"
+            : (shape == AssistantGeneratedModel.STAIRS_U ? "U-shaped stairs" : "stairs"))
+        + " of " + stepCount + " steps" + (leftRail || rightRail ? " with a handrail" : "")
+        + ", " + Math.round(width) + " cm wide, taking " + Math.round(model.getWidth()) + " x "
+        + Math.round(model.getDepth()) + " cm on the floor, climbing " + Math.round(rise) + " cm"
         + (levelAbove != null
             ? " to the level \"" + levelAbove.getName() + "\", whose floor is cut out above them"
             : "; there is no level above yet (add_level creates one, and its floor will be cut out above the stairs)")
@@ -178,7 +200,7 @@ class AssistantObjectCommands {
   /**
    * Returns the file an <code>image</code> or <code>path</code> parameter designates.
    */
-  private File getFile(AssistantCommand command, String parameter) throws IOException {
+  File getFile(AssistantCommand command, String parameter) throws IOException {
     String path = command.getString(parameter);
     if (path == null) {
       path = command.getString("path");

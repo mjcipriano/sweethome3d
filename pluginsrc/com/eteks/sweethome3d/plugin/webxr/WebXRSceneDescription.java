@@ -21,6 +21,7 @@ import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Level;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Wall;
+import com.eteks.sweethome3d.viewcontroller.AssistantGeneratedModel;
 
 /**
  * Describes what the WebXR viewer needs to let a visitor walk in a home as in
@@ -113,6 +114,20 @@ public class WebXRSceneDescription {
           .append(",\"level\":").append(levelIndex).append('}');
     }
 
+    // Stairs the visitor can climb: the ones which describe their flights
+    json.append("],\"stairs\":[");
+    first = true;
+    for (HomePieceOfFurniture piece : home.getFurniture()) {
+      String stairs = piece.isVisible() ? getStairs(piece, levels, implicitLevel) : null;
+      if (stairs != null) {
+        if (!first) {
+          json.append(',');
+        }
+        first = false;
+        json.append(stairs);
+      }
+    }
+
     // The visitor starts where the virtual visitor of the home stands
     Camera observer = home.getObserverCamera();
     int startLevel = getLevelIndex(home.getSelectedLevel(), levels, implicitLevel);
@@ -141,6 +156,64 @@ public class WebXRSceneDescription {
       return 0;
     }
     return level != null ? levels.indexOf(level) : -1;
+  }
+
+  /**
+   * Returns the description of the flights of <code>piece</code> if it's a staircase
+   * generated with them, or <code>null</code>.
+   */
+  private static String getStairs(HomePieceOfFurniture piece, List<Level> levels, boolean implicitLevel) {
+    String description = piece.getProperty(AssistantGeneratedModel.STAIRS_FLIGHTS_PROPERTY);
+    int levelIndex = getLevelIndex(piece.getLevel(), levels, implicitLevel);
+    if (description == null || levelIndex < 0) {
+      return null;
+    }
+    try {
+      int separator = description.indexOf('|');
+      String [] size = description.substring(0, separator).split(",");
+      // The piece may have been resized or mirrored since it was generated
+      float scaleX = piece.getWidth() / Float.parseFloat(size [0]);
+      float scaleZ = piece.getDepth() / Float.parseFloat(size [1]);
+      float scaleY = piece.getHeight() / Float.parseFloat(size [2]);
+      int mirror = piece.isModelMirrored() ? -1 : 1;
+      StringBuilder flights = new StringBuilder();
+      float rise = 0;
+      for (String flight : description.substring(separator + 1).split(";")) {
+        String [] values = flight.split(",");
+        float x1 = Float.parseFloat(values [0]) * scaleX * mirror;
+        float x2 = Float.parseFloat(values [2]) * scaleX * mirror;
+        float endHeight = Float.parseFloat(values [7]) * scaleY;
+        rise = Math.max(rise, endHeight);
+        if (flights.length() > 0) {
+          flights.append(',');
+        }
+        flights.append("{\"x1\":").append(meters(Math.min(x1, x2)))
+            .append(",\"z1\":").append(meters(Float.parseFloat(values [1]) * scaleZ))
+            .append(",\"x2\":").append(meters(Math.max(x1, x2)))
+            .append(",\"z2\":").append(meters(Float.parseFloat(values [3]) * scaleZ))
+            .append(",\"ux\":").append(Integer.parseInt(values [4]) * mirror)
+            .append(",\"uz\":").append(Integer.parseInt(values [5]))
+            .append(",\"h0\":").append(meters(Float.parseFloat(values [6]) * scaleY))
+            .append(",\"h1\":").append(meters(endHeight)).append('}');
+      }
+      // The level the top of the stairs leads to
+      int topLevel = -1;
+      if (!implicitLevel) {
+        float top = levels.get(levelIndex).getElevation() + piece.getElevation() + rise;
+        for (int i = 0; i < levels.size(); i++) {
+          if (i != levelIndex && Math.abs(levels.get(i).getElevation() - top) < 30) {
+            topLevel = i;
+          }
+        }
+      }
+      return "{\"level\":" + levelIndex + ",\"topLevel\":" + topLevel
+          + ",\"x\":" + meters(piece.getX()) + ",\"z\":" + meters(piece.getY())
+          + ",\"angle\":" + number(piece.getAngle()) + ",\"base\":" + meters(piece.getElevation())
+          + ",\"rise\":" + meters(rise) + ",\"flights\":[" + flights + "]}";
+    } catch (RuntimeException ex) {
+      // A description edited by hand
+      return null;
+    }
   }
 
   private static boolean hasRoom(Home home, Level level) {

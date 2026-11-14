@@ -60,6 +60,7 @@ headset, it uses the headset's browser.
 | Right stick left / right | Turn by 30 degrees |
 | Right stick forward, or right trigger | Aim a teleport arc; release to jump there (green = allowed, red = a wall is in the way) |
 | A / B | Go to the level above / below |
+| Walk or teleport onto stairs | Climb them; you arrive on the level they lead to |
 | X | Switch wall blocking off / on |
 | Y | Back to the start |
 
@@ -86,7 +87,7 @@ application; without it the full models are exported. Change the budget with
 
 - **Not yet verified on a physical headset.** The page was exercised in desktop
   Chrome (loading, start position, walking into a wall, turning, changing
-  level) and the walk-through logic has automated tests, but the controller
+  level, climbing stairs) and the walk-through logic has automated tests, but the controller
   mapping, teleport arc and comfort were not tried on a Quest. Please report
   what you see.
 - The headset needs internet access the first time: the viewer page loads
@@ -94,7 +95,12 @@ application; without it the full models are exported. Change the budget with
 - The scene is still an OBJ text file, which is slow to load for big homes
   (load time on a headset hasn't been measured). Textures are exported at full
   resolution.
-- There are no stairs: use A / B to change level.
+- Only the stairs made by the assistant's `add_stairs` command can be walked:
+  they describe their flights and landings. You climb by walking or by
+  teleporting onto them, their sides and the hole in the floor above block
+  you like walls, and wall blocking off (X) also switches stairs off.
+  Staircases from the furniture catalog are scenery: use A / B to change
+  level.
 - The bundled TLS certificate is self-signed and **deliberately not a
   secret** - it carries no trust and only exists so the headset browser grants
   the page a secure context. The server only serves the exported scene files

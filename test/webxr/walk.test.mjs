@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import {buildColliders, move, isBlocked, nextLevel, startLevel} from '../../pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-walk.js';
+import {buildColliders, move, isBlocked, nextLevel, startLevel, standAt} from '../../pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-walk.js';
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 // A wall along x from 0 to 4 m at z = 2, 10 cm thick, with a 0.9 m door centered at x = 2
 const scene = {
@@ -58,4 +58,58 @@ const roofed = {levels: [{elevation: 0, floor: true}, {elevation: 2.5, floor: fa
 assert.strictEqual(nextLevel(roofed, 0, 1), 2);
 assert.strictEqual(nextLevel(roofed, 2, -1), 0);
 assert.strictEqual(nextLevel(roofed, 1, 1), 2, 'leaves a level without floor');
+
+// Stairs: a straight flight 1 m wide climbing 2.7 m over 4 m toward -z, centered at (10, 10)
+const storey = {
+  levels: [{elevation: 0, floor: true}, {elevation: 2.7, floor: true}],
+  stairs: [{level: 0, topLevel: 1, x: 10, z: 10, angle: 0, base: 0, rise: 2.7,
+            flights: [{x1: -0.5, z1: -2, x2: 0.5, z2: 2, ux: 0, uz: -1, h0: 0, h1: 2.7}]}]
+};
+assert.deepStrictEqual(standAt(storey, {level: 0, height: 0}, 5, 5), {level: 0, height: 0}, 'on the floor');
+// Walking up from the bottom step
+let place = standAt(storey, {level: 0, height: 0}, 10, 11.9);
+assert.ok(place.level === 0 && near(place.height, 2.7 * 0.1 / 4), 'first step: ' + place.height);
+let climbed = {level: 0, height: 0};
+for (let stepZ = 12.2; stepZ > 7.5; stepZ -= 0.1) {
+  climbed = standAt(storey, climbed, 10, stepZ);
+  assert.ok(climbed, 'climbing at ' + stepZ);
+}
+assert.deepStrictEqual(climbed, {level: 1, height: 0}, 'arrived upstairs');
+// ...and back down through the hole
+for (let stepZ = 7.6; stepZ < 12.3; stepZ += 0.1) {
+  climbed = standAt(storey, climbed, 10, stepZ);
+  assert.ok(climbed, 'going down at ' + stepZ);
+}
+assert.deepStrictEqual(climbed, {level: 0, height: 0}, 'back downstairs');
+// No climbing onto the side of the stairs where they are high, nor jumping off
+assert.strictEqual(standAt(storey, {level: 0, height: 0}, 10, 9), null, 'side of the stairs');
+assert.strictEqual(standAt(storey, {level: 0, height: 1.35}, 11, 10), null, 'no jumping off');
+// Upstairs the hole is closed except at the top of the stairs
+assert.strictEqual(standAt(storey, {level: 1, height: 0}, 10, 11), null, 'hole');
+place = standAt(storey, {level: 1, height: 0}, 10, 8.1);
+assert.ok(place.level === 0 && place.height > 2.6, 'top step from upstairs');
+// A teleport lands on the stairs at their height
+place = standAt(storey, 0, 10, 10);
+assert.ok(place.level === 0 && near(place.height, 1.35), 'teleport on stairs');
+assert.strictEqual(standAt(storey, 1, 10, 10), null, 'no teleport into the hole');
+// Stairs turned by 90 degrees climb toward +x
+const turned = {levels: storey.levels, stairs: [{...storey.stairs[0], angle: Math.PI / 2}]};
+place = standAt(turned, 0, 11, 10);
+assert.ok(near(place.height, 2.7 * 0.75), 'turned stairs: ' + place.height);
+// L-shaped stairs: a landing then a flight toward +x
+const lShaped = {levels: storey.levels, stairs: [{level: 0, topLevel: 1, x: 0, z: 0, angle: 0, base: 0, rise: 2.7,
+  flights: [{x1: -1.5, z1: -0.5, x2: -0.5, z2: 1.5, ux: 0, uz: -1, h0: 0, h1: 1.2},
+            {x1: -1.5, z1: -1.5, x2: -0.5, z2: -0.5, ux: 0, uz: 0, h0: 1.35, h1: 1.35},
+            {x1: -0.5, z1: -1.5, x2: 1.5, z2: -0.5, ux: 1, uz: 0, h0: 1.35, h1: 2.7}]}]};
+climbed = {level: 0, height: 0};
+for (let stepZ = 1.7; stepZ > -1; stepZ -= 0.1) {
+  climbed = standAt(lShaped, climbed, -1, stepZ);
+  assert.ok(climbed, 'first flight at ' + stepZ);
+}
+assert.ok(near(climbed.height, 1.35), 'on the landing');
+for (let stepX = -1; stepX < 1.8; stepX += 0.1) {
+  climbed = standAt(lShaped, climbed, stepX, -1);
+  assert.ok(climbed, 'second flight at ' + stepX);
+}
+assert.deepStrictEqual(climbed, {level: 1, height: 0}, 'L stairs lead upstairs');
 console.log('walk tests OK');

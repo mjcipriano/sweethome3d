@@ -38,6 +38,9 @@ import org.junit.Test;
 import com.eteks.sweethome3d.model.Camera;
 import com.eteks.sweethome3d.model.Content;
 import com.eteks.sweethome3d.model.Home;
+import com.eteks.sweethome3d.io.HomeFileRecorder;
+import com.eteks.sweethome3d.model.Wall;
+import com.eteks.sweethome3d.model.BackgroundImage;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Level;
 import com.eteks.sweethome3d.model.Room;
@@ -131,6 +134,122 @@ public class AssistantObjectCommandsTest {
     }
     zip.close();
     return entries;
+  }
+
+  @Test
+  public void testStairsShapesAndRails() throws Exception {
+    run("{\"action\":\"add_level\",\"name\":\"First floor\",\"elevation\":280},{\"action\":\"select_level\",\"index\":1}");
+    String summary = run("{\"action\":\"add_stairs\",\"x\":0,\"y\":0,\"width\":100,\"shape\":\"L\"}");
+    assertTrue(summary, summary.contains("L-shaped stairs of 16 steps") && summary.contains("300 x 275 cm"));
+    HomePieceOfFurniture stairs = this.home.getFurniture().get(0);
+    // 7 steps, a landing as wide as the steps, then 8 steps to the right
+    assertEquals(300f, stairs.getWidth(), 0.01f);
+    assertEquals(275f, stairs.getDepth(), 0.01f);
+    assertEquals(280f, stairs.getHeight(), 0.01f);
+    String flights = stairs.getProperty(AssistantGeneratedModel.STAIRS_FLIGHTS_PROPERTY);
+    assertTrue(flights, flights.startsWith("300.00,275.00,280.00|"));
+    String [] parts = flights.substring(flights.indexOf('|') + 1).split(";");
+    assertEquals("Two flights and a landing", 3, parts.length);
+    assertEquals("-150.00,-37.50,-50.00,137.50,0,-1,0.00,122.50", parts [0]);
+    assertEquals("-150.00,-137.50,-50.00,-37.50,0,0,140.00,140.00", parts [1]);
+    assertEquals("-50.00,-137.50,150.00,-37.50,1,0,140.00,280.00", parts [2]);
+    // The floor above is cut out over the flights only
+    String cutOut = stairs.getStaircaseCutOutShape();
+    assertEquals(cutOut, 3, cutOut.split("M").length - 1);
+    this.homeController.undo();
+
+    run("{\"action\":\"add_stairs\",\"x\":0,\"y\":0,\"width\":100,\"shape\":\"L\",\"turn\":\"left\"}");
+    flights = this.home.getFurniture().get(0).getProperty(AssistantGeneratedModel.STAIRS_FLIGHTS_PROPERTY);
+    assertTrue("The second flight climbs to the left: " + flights, flights.endsWith("-150.00,-137.50,50.00,-37.50,-1,0,140.00,280.00"));
+    this.homeController.undo();
+
+    summary = run("{\"action\":\"add_stairs\",\"x\":0,\"y\":0,\"width\":100,\"shape\":\"U\",\"railing\":true}");
+    assertTrue(summary, summary.contains("U-shaped stairs of 16 steps with a handrail") && summary.contains("200 x 300 cm"));
+    stairs = this.home.getFurniture().get(0);
+    assertEquals(200f, stairs.getWidth(), 0.01f);
+    assertEquals(300f, stairs.getDepth(), 0.01f);
+    assertTrue("Rails are higher than the floor above: " + stairs.getHeight(), stairs.getHeight() > 360);
+    flights = stairs.getProperty(AssistantGeneratedModel.STAIRS_FLIGHTS_PROPERTY);
+    assertTrue(flights, flights.endsWith("0,1,140.00,280.00"));
+    assertFalse(this.executor.checkHome().contains("above_ceiling"));
+
+    // Flights survive a save
+    File file = new File(this.folder, "stairs.sh3d");
+    new HomeFileRecorder().writeHome(this.home, file.getPath());
+    Home reopened = new HomeFileRecorder().readHome(file.getPath());
+    assertEquals(flights, reopened.getFurniture().get(0).getProperty(AssistantGeneratedModel.STAIRS_FLIGHTS_PROPERTY));
+    assertNotNull(reopened.getFurniture().get(0).getModel().openStream());
+
+    // A straight flight with one rail
+    this.homeController.undo();
+    run("{\"action\":\"add_stairs\",\"x\":0,\"y\":0,\"railing\":\"left\",\"length\":480}");
+    stairs = this.home.getFurniture().get(0);
+    assertEquals(90f, stairs.getWidth(), 0.01f);
+    assertEquals(480f, stairs.getDepth(), 0.01f);
+    assertEquals("M0,0 v1 h1 v-1 z", stairs.getStaircaseCutOutShape());
+  }
+
+  @Test
+  public void testMoveToLevelBackgroundImageAndReport() throws Exception {
+    run("{\"action\":\"add_rectangular_room\",\"name\":\"Living room\",\"x\":0,\"y\":0,\"width\":600,\"depth\":400}");
+    run("{\"action\":\"add_level\",\"name\":\"First floor\",\"elevation\":280},{\"action\":\"select_level\",\"index\":1}");
+    Level ground = this.home.getLevels().get(0);
+    Level first = this.home.getLevels().get(1);
+    Wall wall1 = new ArrayList<Wall>(this.home.getWalls()).get(0);
+    Wall joined = wall1.getWallAtEnd();
+    assertNotNull(joined);
+
+    // A wall moved alone leaves the walls it was joined to
+    String summary = run("{\"action\":\"move_to_level\",\"id\":\"W1\",\"level\":\"First floor\"}");
+    assertTrue(summary, summary.contains("Moved 1 item to the level \"First floor\""));
+    assertEquals(first, wall1.getLevel());
+    assertNull(wall1.getWallAtEnd());
+    assertTrue(joined.getWallAtStart() != wall1 && joined.getWallAtEnd() != wall1);
+    this.homeController.undo();
+    assertEquals(ground, wall1.getLevel());
+    assertEquals(joined, wall1.getWallAtEnd());
+    assertTrue(joined.getWallAtStart() == wall1 || joined.getWallAtEnd() == wall1);
+
+    // Rooms and all the walls together keep their joins
+    run("{\"action\":\"move_to_level\",\"ids\":[\"W1\",\"W2\",\"W3\",\"W4\",\"R1\"],\"index\":2}");
+    assertEquals(first, this.home.getRooms().get(0).getLevel());
+    assertEquals(joined, wall1.getWallAtEnd());
+    assertEquals(first, joined.getLevel());
+    assertTrue(run("{\"action\":\"move_to_level\",\"id\":\"R1\",\"level\":\"Attic\"}").contains("there is no level"));
+    this.homeController.undo();
+    assertEquals(ground, this.home.getRooms().get(0).getLevel());
+
+    // The picture of a floor plan, 12 m wide, with its corner at 100,50
+    File plan = createImage("plan.png", 400, 200);
+    summary = run("{\"action\":\"set_background_image\",\"image\":" + json(plan) + ",\"width\":1200,\"x\":100,\"y\":50}");
+    assertTrue(summary, summary.contains("it covers 1200 x 600 cm"));
+    BackgroundImage image = ground.getBackgroundImage();
+    assertNotNull(image);
+    assertEquals(3f, image.getScale(), 1e-4f);
+    assertEquals("The origin is in plan units", -100f, image.getXOrigin(), 1e-3f);
+    assertEquals(-50f, image.getYOrigin(), 1e-3f);
+    assertNull(first.getBackgroundImage());
+    this.homeController.undo();
+    assertNull(ground.getBackgroundImage());
+    this.homeController.redo();
+    assertNotNull(ground.getBackgroundImage());
+    // Saved with the home
+    File file = new File(this.folder, "plan.sh3d");
+    new HomeFileRecorder().writeHome(this.home, file.getPath());
+    Home reopened = new HomeFileRecorder().readHome(file.getPath());
+    assertNotNull(reopened.getLevels().get(0).getBackgroundImage().getImage().openStream());
+    run("{\"action\":\"remove_background_image\"}");
+    assertNull(ground.getBackgroundImage());
+    File text = new File(this.folder, "notes.png");
+    Files.write(text.toPath(), "not an image".getBytes("UTF-8"));
+    assertTrue(run("{\"action\":\"set_background_image\",\"image\":" + json(text) + "}").contains("isn't a PNG, JPEG or GIF image"));
+
+    String report = this.executor.reportHome();
+    assertTrue(report, report.contains("Level \"Ground floor\"") || report.contains("- Level \""));
+    assertTrue(report, report.contains("Living room: 24.0 m2, perimeter 20.0 m"));
+    assertTrue(report, report.contains("4 walls"));
+    assertTrue(report, report.contains("- Total: floor 24.0 m2"));
+    assertTrue(run("{\"action\":\"home_report\"}").contains("Quantities of the home"));
   }
 
   @Test

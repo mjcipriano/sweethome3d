@@ -25,6 +25,7 @@ import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.HomeTexture;
 import com.eteks.sweethome3d.model.ModelLOD;
+import com.eteks.sweethome3d.model.Level;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Selectable;
 import com.eteks.sweethome3d.model.UserPreferences;
@@ -60,6 +61,7 @@ public class AssistantCommandExecutor {
   private boolean                    turnUpdateBegun;
   private final AssistantBuildingCommands buildingCommands;
   private final AssistantObjectCommands   objectCommands;
+  private final AssistantPlanCommands     planCommands;
   private ModelSizeProvider               modelSizeProvider;
   private java.io.File                    attachedImage;
 
@@ -84,6 +86,8 @@ public class AssistantCommandExecutor {
     this.homeController = homeController;
     this.buildingCommands = new AssistantBuildingCommands(home, preferences, homeController, this);
     this.objectCommands = new AssistantObjectCommands(home, preferences, homeController, this);
+    this.planCommands = new AssistantPlanCommands(home, homeController, this,
+        this.buildingCommands, this.objectCommands);
   }
 
   /**
@@ -120,6 +124,13 @@ public class AssistantCommandExecutor {
         ? this.describedWalls : new ArrayList<Wall>(this.home.getWalls());
     List<Room> rooms = this.describedRooms != null ? this.describedRooms : this.home.getRooms();
     return HomeDiagnostics.describe(HomeDiagnostics.check(this.home, furniture, walls, rooms));
+  }
+
+  /**
+   * Returns the report of the quantities of the home: floor areas, walls, furniture.
+   */
+  public String reportHome() {
+    return HomeReport.describe(this.home);
   }
 
   /**
@@ -266,8 +277,9 @@ public class AssistantCommandExecutor {
       modify(action, command, tally, notes);
     } else if ("delete".equals(action) || "remove".equals(action)) {
       delete(command, tally);
-    } else if (!this.buildingCommands.apply(action, command, tally, notes)) {
-      this.objectCommands.apply(action, command, tally, notes);
+    } else if (!this.buildingCommands.apply(action, command, tally, notes)
+               && !this.objectCommands.apply(action, command, tally, notes)) {
+      this.planCommands.apply(action, command, tally, notes);
     }
     // Unknown actions are ignored so a single bad command doesn't break a turn
   }
@@ -1068,6 +1080,7 @@ public class AssistantCommandExecutor {
     private HomeTexture texture1, texture2;
     // Walls joined to a wall
     private Wall      wallAtStart, wallAtEnd;
+    private Level     level;
 
     private ItemState(Selectable item) {
       this.item = item;
@@ -1089,6 +1102,7 @@ public class AssistantCommandExecutor {
         state.name = piece.getName();
         state.lowPoly = piece.getProperty(ModelLOD.LOW_POLY_PROPERTY);
         state.texture1 = piece.getTexture();
+        state.level = piece.getLevel();
       } else if (item instanceof Wall) {
         Wall wall = (Wall)item;
         state.xStart = wall.getXStart();
@@ -1103,6 +1117,7 @@ public class AssistantCommandExecutor {
         state.texture2 = wall.getRightSideTexture();
         state.wallAtStart = wall.getWallAtStart();
         state.wallAtEnd = wall.getWallAtEnd();
+        state.level = wall.getLevel();
       } else if (item instanceof Room) {
         Room room = (Room)item;
         state.name = room.getName();
@@ -1111,6 +1126,7 @@ public class AssistantCommandExecutor {
         state.color2 = room.getCeilingColor();
         state.texture1 = room.getFloorTexture();
         state.texture2 = room.getCeilingTexture();
+        state.level = room.getLevel();
       }
       return state;
     }
@@ -1162,6 +1178,9 @@ public class AssistantCommandExecutor {
         if (piece.isTexturable() && piece.getTexture() != this.texture1) {
           piece.setTexture(this.texture1);
         }
+        if (piece.getLevel() != this.level) {
+          piece.setLevel(this.level);
+        }
       } else if (this.item instanceof Wall) {
         Wall wall = (Wall)this.item;
         wall.setXStart(this.xStart);
@@ -1176,6 +1195,9 @@ public class AssistantCommandExecutor {
         wall.setRightSideTexture(this.texture2);
         wall.setWallAtStart(this.wallAtStart);
         wall.setWallAtEnd(this.wallAtEnd);
+        if (wall.getLevel() != this.level) {
+          wall.setLevel(this.level);
+        }
       } else if (this.item instanceof Room) {
         Room room = (Room)this.item;
         room.setName(this.name);
@@ -1186,6 +1208,9 @@ public class AssistantCommandExecutor {
         room.setCeilingColor(this.color2);
         room.setFloorTexture(this.texture1);
         room.setCeilingTexture(this.texture2);
+        if (room.getLevel() != this.level) {
+          room.setLevel(this.level);
+        }
       }
     }
   }

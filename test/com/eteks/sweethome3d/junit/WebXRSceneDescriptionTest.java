@@ -109,6 +109,16 @@ public class WebXRSceneDescriptionTest {
       }
     }
 
+    // Stairs generated with the description of their flight, then made twice as wide
+    com.eteks.sweethome3d.model.HomePieceOfFurniture stairs = new com.eteks.sweethome3d.model.HomePieceOfFurniture(
+        new com.eteks.sweethome3d.model.CatalogPieceOfFurniture("Stairs", null, null, 200, 400, 270, true, false));
+    stairs.setProperty(com.eteks.sweethome3d.viewcontroller.AssistantGeneratedModel.STAIRS_FLIGHTS_PROPERTY,
+        "100.00,400.00,270.00|-50.00,-200.00,50.00,200.00,0,-1,0.00,270.00");
+    stairs.setX(300);
+    stairs.setY(150);
+    home.addPieceOfFurniture(stairs);
+    stairs.setLevel(ground);
+
     Map<String, Object> scene = (Map<String, Object>)JSONParser.parse(WebXRSceneDescription.toJSON(home));
     List<Object> levels = (List<Object>)scene.get("levels");
     assertEquals("Hidden level not exported", 3, levels.size());
@@ -116,6 +126,18 @@ public class WebXRSceneDescriptionTest {
     assertEquals(2.7, number(levels.get(1), "elevation"), 1e-4);
     assertEquals(Boolean.TRUE, ((Map<String, Object>)levels.get(1)).get("floor"));
     assertEquals("A level without room has no floor", Boolean.FALSE, ((Map<String, Object>)levels.get(2)).get("floor"));
+
+    List<Object> allStairs = (List<Object>)scene.get("stairs");
+    assertEquals(1, allStairs.size());
+    assertEquals(0, number(allStairs.get(0), "level"), 0);
+    assertEquals("Stairs lead to the level at their top", 1, number(allStairs.get(0), "topLevel"), 0);
+    assertEquals(3, number(allStairs.get(0), "x"), 1e-4);
+    assertEquals(2.7, number(allStairs.get(0), "rise"), 1e-4);
+    Object flight = ((List<Object>)((Map<String, Object>)allStairs.get(0)).get("flights")).get(0);
+    assertEquals("Flights follow the size of the piece", 1, number(flight, "x2"), 1e-4);
+    assertEquals(-2, number(flight, "z1"), 1e-4);
+    assertEquals(-1, number(flight, "uz"), 0);
+    assertEquals(2.7, number(flight, "h1"), 1e-4);
 
     List<Object> walls = (List<Object>)scene.get("walls");
     assertEquals("Wall of the hidden level not exported", 2, walls.size());

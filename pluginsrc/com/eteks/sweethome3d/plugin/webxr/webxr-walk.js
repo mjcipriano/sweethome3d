@@ -200,3 +200,92 @@ export function nextLevel(scene, levelIndex, step) {
   const position = order.indexOf(levelIndex) + step;
   return position >= 0 && position < order.length ? order[position] : levelIndex;
 }
+
+// ---- Stairs ----
+
+/** Largest height someone steps up or down at once. */
+export const MAX_STEP = 0.4;
+
+/**
+ * Returns the height above the floor of the stairs' level at (x, z) if the
+ * point is on one of the flights or landings of the stairs, or null.
+ */
+function stairHeightAt(stair, x, z) {
+  // Coordinates relative to the center of the stairs at angle 0
+  const dx = x - stair.x;
+  const dz = z - stair.z;
+  const cos = Math.cos(stair.angle);
+  const sin = Math.sin(stair.angle);
+  const localX = dx * cos + dz * sin;
+  const localZ = dz * cos - dx * sin;
+  let height = null;
+  for (const flight of stair.flights || []) {
+    if (localX >= flight.x1 && localX <= flight.x2 && localZ >= flight.z1 && localZ <= flight.z2) {
+      let progress = 0;
+      if (flight.ux > 0) {
+        progress = (localX - flight.x1) / (flight.x2 - flight.x1);
+      } else if (flight.ux < 0) {
+        progress = (flight.x2 - localX) / (flight.x2 - flight.x1);
+      } else if (flight.uz > 0) {
+        progress = (localZ - flight.z1) / (flight.z2 - flight.z1);
+      } else if (flight.uz < 0) {
+        progress = (flight.z2 - localZ) / (flight.z2 - flight.z1);
+      }
+      const flightHeight = (stair.base || 0) + flight.h0 + (flight.h1 - flight.h0) * progress;
+      // Where two parts meet, the highest one is the one someone stands on
+      height = height === null ? flightHeight : Math.max(height, flightHeight);
+    }
+  }
+  return height;
+}
+
+/** Returns the height the stairs climb, up to the floor of the level they lead to. */
+function stairTop(scene, stair) {
+  const levels = scene.levels || [];
+  return stair.topLevel >= 0 && levels[stair.topLevel] && levels[stair.level]
+      ? levels[stair.topLevel].elevation - levels[stair.level].elevation
+      : (stair.base || 0) + stair.rise;
+}
+
+/**
+ * Returns where someone standing at (x, z) is: {level, height}, with height
+ * the height of their feet above the floor of the level. It's on the stairs
+ * of the level, on the stairs coming up from a lower level through the hole
+ * in the floor, or on the floor itself. Returns null over a hole in the floor
+ * too deep to step down. `from` is the {level, height} the visitor comes from,
+ * or only a level index for someone who arrives from elsewhere (teleport).
+ */
+export function standAt(scene, from, x, z) {
+  const position = typeof from === 'number' ? {level: from, height: null} : from;
+  const stairs = scene.stairs || [];
+  const reachable = height => position.height === null || Math.abs(height - position.height) <= MAX_STEP;
+  // On stairs of the current level
+  for (const stair of stairs) {
+    if (stair.level === position.level) {
+      const height = stairHeightAt(stair, x, z);
+      if (height !== null) {
+        return reachable(height) ? {level: position.level, height} : null;
+      }
+    }
+  }
+  // At the top of stairs, on the floor of the level they lead to
+  if (position.height !== null && position.height > MAX_STEP) {
+    for (const stair of stairs) {
+      if (stair.level === position.level && stair.topLevel >= 0
+          && Math.abs(stairTop(scene, stair) - position.height) <= MAX_STEP) {
+        return standAt(scene, {level: stair.topLevel, height: 0}, x, z);
+      }
+    }
+    return null;
+  }
+  // Over the hole of stairs coming up from a lower level
+  for (const stair of stairs) {
+    if (stair.topLevel === position.level) {
+      const height = stairHeightAt(stair, x, z);
+      if (height !== null) {
+        return stairTop(scene, stair) - height <= MAX_STEP ? {level: stair.level, height} : null;
+      }
+    }
+  }
+  return {level: position.level, height: 0};
+}
