@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.18.0](https://github.com/mjcipriano/sweethome3d/compare/v7.17.0...v7.18.0) (2026-11-14)
+
+
+### Features
+
+* **ai:** L and U stairs with handrails, walkable stairs in VR, level moves, floor plan image and quantities report ([f529789](https://github.com/mjcipriano/sweethome3d/commit/f52978974e85980ed7ccae46d01612f535e77ff4))
+* **ai:** L and U stairs with handrails, walkable stairs in VR, level moves, floor plan image and quantities report ([3af0c8d](https://github.com/mjcipriano/sweethome3d/commit/3af0c8d738f41198971105086cb7e38d55d082f4))
+
 ## [7.17.0](https://github.com/mjcipriano/sweethome3d/compare/v7.16.0...v7.17.0) (2026-11-13)
 
 
