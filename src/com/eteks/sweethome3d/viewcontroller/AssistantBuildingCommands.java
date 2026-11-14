@@ -333,7 +333,7 @@ class AssistantBuildingCommands {
     }
   }
 
-  private Level findLevel(String name, double index) {
+  Level findLevel(String name, double index) {
     List<Level> levels = this.home.getLevels();
     if (name != null) {
       for (Level level : levels) {

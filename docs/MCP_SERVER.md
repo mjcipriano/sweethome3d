@@ -37,6 +37,7 @@ able to modify it. Every `apply_commands` call is one step of **Edit > Undo**.
 | `search_catalog` | Best catalog matches for a query (`doors_and_windows` to search doors and windows) |
 | `search_textures` | Best texture matches, for the `set_texture` command |
 | `check_home` | Report of plan defects (unjoined walls, duplicates, rooms without door, doors out of walls...) with ids |
+| `get_report` | Floor areas and perimeters by room, wall lengths and surfaces, furniture counts and prices |
 | `get_plan_image` | PNG picture of the 2D plan of the selected level |
 | `get_3d_image` | PNG picture of the home in 3D from its camera (move it with `set_camera`) |
 | `export_blender` | Writes the model and a Blender scene script in a folder, for a high quality render |
@@ -50,16 +51,18 @@ protocol (`HomeAssistantContext.getCommandReference()`), at most 30 per call:
 
 - build: `add_rectangular_room` (room + walls, optionally `next_to` another
   room), `add_room`, `add_wall`, `add_level`, `select_level`, `auto_roof`,
-  `add_stairs`, `add_furniture`, `add_door_or_window`, `add_label`,
+  `add_stairs` (straight, L or U shaped, with handrails), `add_furniture`, `add_door_or_window`, `add_label`,
   `add_dimension`;
 - bring in: `add_picture` (a painting, poster or rug from an image file),
   `import_furniture` (a 3D model file), `import_texture` (an image as a
-  texture). Claude Code can read a photo you give it, then pick, size and
+  texture), `set_background_image` (the picture of a floor plan behind the
+  plan, which Claude can look at with `get_plan_image` and trace). Claude Code can read a photo you give it, then pick, size and
   color the closest catalog piece, or use these commands with the file path;
 - change: `move`, `rotate`, `resize`, `set_color`, `set_texture`,
   `set_elevation`, `set_visible`, `rename`, `duplicate`, `delete`,
-  `reduce_detail`, `restore_detail`, `select`, `set_camera`;
-- check: `check_home`, `fix_home`, `search_catalog`, `search_textures`.
+  `reduce_detail`, `restore_detail`, `select`, `set_camera`, `move_to_level`;
+- check: `check_home`, `fix_home`, `home_report`, `search_catalog`,
+  `search_textures`.
 
 ## Security
 

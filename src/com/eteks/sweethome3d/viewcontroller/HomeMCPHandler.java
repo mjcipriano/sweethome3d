@@ -227,14 +227,14 @@ public class HomeMCPHandler {
         + "Furniture can only be added by its exact catalog name: use search_catalog or "
         + "list_catalog to find one. To extend the house use add_rectangular_room (room and walls "
         + "at once) and auto_roof; check_home reports plan defects and fix_home repairs them; "
-        + "get_plan_image shows the plan and get_3d_image the home in 3D; add_stairs joins two levels; add_picture, import_furniture and import_texture bring pictures, 3D model files and texture images of this computer into the home; export_blender prepares a high quality render. Every apply_commands call is one step of the application's "
+        + "get_plan_image shows the plan and get_3d_image the home in 3D; add_stairs joins two levels (straight, L or U shaped, with handrails); move_to_level moves items to another level; set_background_image displays the picture of a floor plan behind the plan to trace it (look at it with get_plan_image); get_report gives areas and quantities; add_picture, import_furniture and import_texture bring pictures, 3D model files and texture images of this computer into the home; export_blender prepares a high quality render. Every apply_commands call is one step of the application's "
         + "Undo, also available through the undo tool.");
     return result;
   }
 
   private static boolean isTool(String name) {
     return "get_home".equals(name) || "list_catalog".equals(name) || "search_catalog".equals(name)
-        || "search_textures".equals(name) || "check_home".equals(name) || "get_plan_image".equals(name)
+        || "search_textures".equals(name) || "check_home".equals(name) || "get_report".equals(name) || "get_plan_image".equals(name)
         || "get_3d_image".equals(name) || "export_blender".equals(name)
         || "apply_commands".equals(name) || "undo".equals(name) || "redo".equals(name);
   }
@@ -274,6 +274,11 @@ public class HomeMCPHandler {
         + "floor, through the ceiling or outside every room, heavy 3D models. Each issue names its "
         + "items by id; those marked fixable are repaired by the fix_home command of apply_commands. "
         + "Like get_home, it binds the ids to the current items.",
+        schema(null), true));
+    tools.add(tool("get_report", "Quantities of the home",
+        "Returns the quantities of the home: floor area and perimeter of each room by level, length "
+        + "and surface of the walls, count of the furniture by name with prices when they have one. "
+        + "Use it to estimate flooring, paint or a budget.",
         schema(null), true));
     Map<String, Object> imageProperties = new LinkedHashMap<String, Object>();
     imageProperties.put("max_size", property("number", "Largest side of the image in pixels (default 1000, at most 2000)"));
@@ -385,6 +390,8 @@ public class HomeMCPHandler {
     } else if ("check_home".equals(name)) {
       this.commandExecutor.snapshotDescribedItems();
       return toolResult(this.commandExecutor.checkHome(), false);
+    } else if ("get_report".equals(name)) {
+      return toolResult(this.commandExecutor.reportHome(), false);
     } else if ("get_plan_image".equals(name)) {
       ImageProvider provider = this.imageProvider;
       int maxSize = arguments.get("max_size") instanceof Number

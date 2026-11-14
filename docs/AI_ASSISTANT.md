@@ -233,7 +233,7 @@ tests in `AssistantObjectCommandsTest`.
 - **`add_stairs`** - a straight flight generated as a model, from the selected
   level up to the next one (risers of about 17.5 cm, treads of 25 cm unless a
   `length` is given). The piece has a staircase cut-out shape, so the floor of
-  the level above is cut open over it. Straight flights only.
+  the level above is cut open over it. See below for the L and U shapes.
 - **`add_picture`** - furniture showing an image file: `panel` (painting,
   poster, photo, screen; hang it with `elevation`), `box`, or `floor` (a rug).
   Missing sizes follow the proportions of the image. This is a textured box,
@@ -267,10 +267,40 @@ of one archive under a single name, so an icon stored next to its model made
 the model point to the icon once the home was saved and reopened (found with
 the built-in renderer; fixed for roofs too, with a save-and-reopen test).
 
-Ideas not done: L and U shaped or spiral stairs, railings, roofs following an
-arbitrary outline, splitting a wall or cutting an opening without a door model,
-moving items between levels, importing a floor plan image, turning a photo into
-a real 3D model (needs an image-to-3D service), PBR materials for Blender.
+### Stair shapes, walkable stairs, floor plan image and report (2026-11-14, DONE)
+
+`AssistantPlanCommands`, `HomeReport`, `AssistantGeneratedModel`; tests in
+`AssistantObjectCommandsTest`, `WebXRSceneDescriptionTest` and
+`test/webxr/walk.test.mjs`.
+
+- **`add_stairs` shapes** - `"shape":"L"` (quarter turn) and `"shape":"U"`
+  (half turn) make two flights joined by a landing, turning `"turn":"left"` or
+  `"right"`; they need less length than a straight flight. `"railing":true`
+  (or `"left"` / `"right"` for a straight flight) adds handrails on posts.
+  The floor above is cut out over the flights only. The reply gives the floor
+  size the stairs take, so the model can check they fit.
+- **Walkable stairs in the VR preview** - generated stairs record their
+  flights in the piece property `assistantStairsFlights`; the WebXR plugin
+  exports them and the viewer lets the visitor walk or teleport up and down
+  them, arriving on the next level. See `docs/WEBXR_VR.md`. Staircases of the
+  furniture catalog have no such description and are still crossed with the
+  level buttons.
+- **`move_to_level`** - moves furniture, walls and rooms to another level
+  (undoable). A wall moved without the walls it is joined to is detached from
+  them.
+- **`set_background_image` / `remove_background_image`** - displays the
+  picture of a floor plan behind the plan of the selected level, scaled by the
+  real `width` it shows, to trace it with rooms and walls. Through MCP, Claude
+  sees it with `get_plan_image` and can trace it itself. The image is saved
+  with the home. Nothing recognises walls automatically.
+- **`home_report`** (MCP tool `get_report`) - floor area and perimeter of each
+  room by level, length and surface of the walls (both sides, openings not
+  deducted), furniture counts by name and prices when pieces have one.
+
+Ideas not done: spiral stairs, roofs following an arbitrary outline, splitting
+a wall or cutting an opening without a door model, recognising the walls of a
+floor plan image automatically, turning a photo into a real 3D model (needs an
+image-to-3D service), PBR materials for Blender.
 
 ### Backlog / later
 
