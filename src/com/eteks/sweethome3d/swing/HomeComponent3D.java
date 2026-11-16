@@ -2138,13 +2138,16 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
         public void mouseWheelMoved(MouseWheelEvent ev) {
           if (isEnabled()
               && !controller.isEditingState()) {
-            // Mouse wheel changes camera location
-            float delta = -2.5f * ev.getWheelRotation();
-            // Multiply delta by 10 if shift is down
+            // Mouse wheel zooms: each notch changes the distance to the home by a ratio
+            // in the aerial view, and moves the visitor 25 cm in the virtual visit
+            float steps = (float)-ev.getPreciseWheelRotation();
+            // Three times faster if shift is down
             if (ev.isShiftDown()) {
-              delta *= 5;
+              steps *= 3;
             }
-            controller.moveCamera(delta);
+            if (steps != 0) {
+              controller.zoomCamera(Math.max(-6, Math.min(6, steps)));
+            }
           }
         }
       };
@@ -2171,6 +2174,17 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     inputMap.put(KeyStroke.getKeyStroke("shift UP"), ActionType.MOVE_CAMERA_FAST_FORWARD);
     inputMap.put(KeyStroke.getKeyStroke("shift alt UP"), ActionType.MOVE_CAMERA_FAST_FORWARD);
     inputMap.put(KeyStroke.getKeyStroke("shift W"), ActionType.MOVE_CAMERA_FAST_FORWARD);
+    inputMap.put(KeyStroke.getKeyStroke("ADD"), "ZOOM_CAMERA_IN");
+    inputMap.put(KeyStroke.getKeyStroke("EQUALS"), "ZOOM_CAMERA_IN");
+    inputMap.put(KeyStroke.getKeyStroke("PLUS"), "ZOOM_CAMERA_IN");
+    inputMap.put(KeyStroke.getKeyStroke("SUBTRACT"), "ZOOM_CAMERA_OUT");
+    inputMap.put(KeyStroke.getKeyStroke("MINUS"), "ZOOM_CAMERA_OUT");
+    inputMap.put(KeyStroke.getKeyStroke("shift ADD"), "ZOOM_CAMERA_FAST_IN");
+    inputMap.put(KeyStroke.getKeyStroke("shift EQUALS"), "ZOOM_CAMERA_FAST_IN");
+    inputMap.put(KeyStroke.getKeyStroke("shift SUBTRACT"), "ZOOM_CAMERA_FAST_OUT");
+    inputMap.put(KeyStroke.getKeyStroke("shift MINUS"), "ZOOM_CAMERA_FAST_OUT");
+    inputMap.put(KeyStroke.getKeyStroke("0"), "ZOOM_CAMERA_TO_FIT");
+    inputMap.put(KeyStroke.getKeyStroke("NUMPAD0"), "ZOOM_CAMERA_TO_FIT");
     inputMap.put(KeyStroke.getKeyStroke("UP"), ActionType.MOVE_CAMERA_FORWARD);
     inputMap.put(KeyStroke.getKeyStroke("alt UP"), ActionType.MOVE_CAMERA_FORWARD);
     inputMap.put(KeyStroke.getKeyStroke("W"), ActionType.MOVE_CAMERA_FORWARD);
@@ -2347,6 +2361,27 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       }
     }
     ActionMap actionMap = getActionMap();
+    // Zoom with the + and - keys
+    class ZoomCameraAction extends AbstractAction {
+      private final float steps;
+
+      public ZoomCameraAction(float steps) {
+        this.steps = steps;
+      }
+
+      public void actionPerformed(ActionEvent ev) {
+        controller.zoomCamera(this.steps);
+      }
+    }
+    actionMap.put("ZOOM_CAMERA_IN", new ZoomCameraAction(1));
+    actionMap.put("ZOOM_CAMERA_OUT", new ZoomCameraAction(-1));
+    actionMap.put("ZOOM_CAMERA_FAST_IN", new ZoomCameraAction(3));
+    actionMap.put("ZOOM_CAMERA_FAST_OUT", new ZoomCameraAction(-3));
+    actionMap.put("ZOOM_CAMERA_TO_FIT", new AbstractAction() {
+        public void actionPerformed(ActionEvent ev) {
+          controller.zoomCameraToFit();
+        }
+      });
     actionMap.put(ActionType.MOVE_CAMERA_FORWARD, new MoveCameraAction(6.5f));
     actionMap.put(ActionType.MOVE_CAMERA_FAST_FORWARD, new MoveCameraAction(32.5f));
     actionMap.put(ActionType.MOVE_CAMERA_BACKWARD, new MoveCameraAction(-6.5f));

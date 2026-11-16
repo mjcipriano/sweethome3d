@@ -321,6 +321,41 @@ public class HomeController3D implements Controller {
   }
 
   /**
+   * Zooms the 3D view: in the aerial view, the distance to the home changes
+   * by a ratio at each step, so the zoom is as fast from far away as it is
+   * precise close to the home; in the virtual visit, the visitor walks 25 cm
+   * per step.
+   * @param steps the count of zoom steps, positive to get closer, negative to move away
+   */
+  public void zoomCamera(float steps) {
+    this.cameraState.zoomCamera(steps);
+  }
+
+  /**
+   * Shows the home in the aerial view from the given direction, at the
+   * distance where it's entirely in sight.
+   * @param yaw   the angle of the camera around the home in radians: 0 to look
+   *              from the top of the plan (north), <code>PI</code> from its bottom
+   * @param pitch the angle of the camera above the horizon in radians,
+   *              <code>PI / 2</code> for a view from the top
+   */
+  public void viewFromDirection(float yaw, float pitch) {
+    viewFromTop();
+    Camera camera = this.home.getTopCamera();
+    rotateCameraYaw(yaw - camera.getYaw());
+    rotateCameraPitch(pitch - camera.getPitch());
+    zoomCameraToFit();
+  }
+
+  /**
+   * Places the camera of the aerial view at the distance where the whole
+   * home is in sight. Does nothing in the virtual visit.
+   */
+  public void zoomCameraToFit() {
+    this.cameraState.zoomCameraToFit();
+  }
+
+  /**
    * Elevates home camera of <code>delta</code>.
    * @param delta the value in cm that the camera should move down
    *              (with a negative delta) or up (with a positive delta)
@@ -450,6 +485,13 @@ public class HomeController3D implements Controller {
     }
 
     public void moveCamera(float delta) {
+    }
+
+    public void zoomCamera(float steps) {
+      moveCamera(steps * 25);
+    }
+
+    public void zoomCameraToFit() {
     }
 
     public void moveCameraSideways(float delta) {
@@ -821,6 +863,7 @@ public class HomeController3D implements Controller {
    * Top camera controller state.
    */
   private class TopCameraState extends EditingCameraState {
+    private static final double ZOOM_STEP_RATIO = 0.88;
     private final float MIN_WIDTH  = 100;
     private final float MIN_DEPTH  = MIN_WIDTH;
     private final float MIN_HEIGHT = 20;
@@ -1238,7 +1281,8 @@ public class HomeController3D implements Controller {
           + homeBoundsDepth * homeBoundsDepth
           + homeBoundsHeight * homeBoundsHeight) / 2;
       this.minDistanceToAerialViewCenter = halfDiagonal * 1.05f;
-      this.maxDistanceToAerialViewCenter = Math.max(5 * this.minDistanceToAerialViewCenter, 5000);
+      // Far enough to see the home with its surroundings
+      this.maxDistanceToAerialViewCenter = Math.max(12 * this.minDistanceToAerialViewCenter, 10000);
     }
 
     @Override
@@ -1248,6 +1292,27 @@ public class HomeController3D implements Controller {
       delta *= 5;
       float newDistanceToCenter = getCameraToAerialViewCenterDistance() - delta;
       placeCameraAt(newDistanceToCenter, false);
+    }
+
+    @Override
+    public void zoomCamera(float steps) {
+      super.moveCamera(steps);
+      float distanceToCenter = getCameraToAerialViewCenterDistance();
+      // 12 % of the distance per step, and at least the 12.5 cm of a move
+      float newDistanceToCenter = (float)(distanceToCenter * Math.pow(ZOOM_STEP_RATIO, steps));
+      float minimumChange = 12.5f * Math.abs(steps);
+      if (Math.abs(newDistanceToCenter - distanceToCenter) < minimumChange) {
+        newDistanceToCenter = distanceToCenter - Math.signum(steps) * minimumChange;
+      }
+      placeCameraAt(newDistanceToCenter, false);
+    }
+
+    @Override
+    public void zoomCameraToFit() {
+      super.moveCamera(0);
+      // With the default field of view, the home fills the view from about 2.2 times its half diagonal
+      double halfFieldOfView = Math.max(Math.toRadians(10), this.topCamera.getFieldOfView() / 2);
+      placeCameraAt((float)(this.minDistanceToAerialViewCenter / 1.05 / Math.sin(Math.min(halfFieldOfView, Math.PI / 2 - 0.01)) * 1.05), false);
     }
 
     public void placeCameraAt(float distanceToCenter, boolean firstPieceOfFurnitureAddedToEmptyHome) {

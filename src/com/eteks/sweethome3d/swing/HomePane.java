@@ -1348,6 +1348,18 @@ public class HomePane extends JRootPane implements HomeView {
     planMenu.addSeparator();
     planMenu.add(createLevelsMenu(home, preferences));
     planMenu.addSeparator();
+    // Dimension lines of the rooms in one step
+    planMenu.add(new JMenuItem(new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "addRoomDimensions")) {
+        public void actionPerformed(ActionEvent ev) {
+          int count = controller.addRoomDimensions();
+          if (count == 0) {
+            JOptionPane.showMessageDialog(HomePane.this,
+                HomePane.this.preferences.getLocalizedString(HomePane.class, "addRoomDimensions.none"));
+          }
+        }
+      }));
+    planMenu.addSeparator();
     addActionToMenu(ActionType.ZOOM_IN, planMenu);
     addActionToMenu(ActionType.ZOOM_OUT, planMenu);
     planMenu.addSeparator();
@@ -1411,6 +1423,33 @@ public class HomePane extends JRootPane implements HomeView {
       });
     preview3DMenu.add(showFullDetailMenuItem);
     addActionToMenu(ActionType.MODIFY_3D_ATTRIBUTES, preview3DMenu);
+    // Standard views of the home
+    JMenu standardViewsMenu = new JMenu(preferences.getLocalizedString(HomePane.class, "standardViews"));
+    String [] viewNames = {"standardViews.top", "standardViews.south", "standardViews.north", "standardViews.east",
+                           "standardViews.west", "standardViews.southEast", "standardViews.southWest",
+                           "standardViews.northEast", "standardViews.northWest"};
+    final float [][] viewAngles = {{(float)Math.PI, (float)Math.PI / 2}, {(float)Math.PI, 0.02f}, {0, 0.02f},
+        {(float)Math.PI / 2, 0.02f}, {(float)Math.PI * 3 / 2, 0.02f},
+        {(float)Math.PI * 3 / 4, (float)Math.PI / 6}, {(float)Math.PI * 5 / 4, (float)Math.PI / 6},
+        {(float)Math.PI / 4, (float)Math.PI / 6}, {(float)Math.PI * 7 / 4, (float)Math.PI / 6}};
+    for (int i = 0; i < viewNames.length; i++) {
+      final float [] angles = viewAngles [i];
+      standardViewsMenu.add(new JMenuItem(new AbstractAction(
+          preferences.getLocalizedString(HomePane.class, viewNames [i])) {
+          public void actionPerformed(ActionEvent ev) {
+            controller.getHomeController3D().viewFromDirection(angles [0], angles [1]);
+          }
+        }));
+      if (i == 0 || i == 4) {
+        standardViewsMenu.addSeparator();
+      }
+    }
+    preview3DMenu.addSeparator();
+    preview3DMenu.add(standardViewsMenu);
+    // Zoom of the 3D view
+    preview3DMenu.add(createZoom3DMenuItem(preferences.getLocalizedString(HomePane.class, "zoomIn3D"), 2));
+    preview3DMenu.add(createZoom3DMenuItem(preferences.getLocalizedString(HomePane.class, "zoomOut3D"), -2));
+    preview3DMenu.add(createZoom3DMenuItem(preferences.getLocalizedString(HomePane.class, "zoomToFit3D"), 0));
     preview3DMenu.addSeparator();
     addActionToMenu(ActionType.CREATE_PHOTO, preview3DMenu);
     addActionToMenu(ActionType.CREATE_PHOTOS_AT_POINTS_OF_VIEW, preview3DMenu);
@@ -2719,6 +2758,66 @@ public class HomePane extends JRootPane implements HomeView {
     addActionToMenu(ActionType.DELETE_RECENT_HOMES, openRecentHomeMenu);
   }
 
+  private JMenuItem createZoom3DMenuItem(String text, final int steps) {
+    return new JMenuItem(new AbstractAction(text) {
+        public void actionPerformed(ActionEvent ev) {
+          if (steps == 0) {
+            controller.getHomeController3D().zoomCameraToFit();
+          } else {
+            controller.getHomeController3D().zoomCamera(steps);
+          }
+        }
+      });
+  }
+
+  /**
+   * Returns a button that zooms the 3D view of <code>steps</code> each time
+   * it's clicked and as long as it's kept pressed, or shows the whole home
+   * if <code>steps</code> is 0.
+   */
+  private JButton createZoom3DButton(String text, String toolTip, final int steps) {
+    final JButton button = new JButton(text);
+    button.setToolTipText(toolTip);
+    button.setFocusable(false);
+    button.setMargin(new Insets(2, 4, 2, 4));
+    final ActionListener zoomListener = new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          if (steps == 0) {
+            controller.getHomeController3D().zoomCameraToFit();
+          } else {
+            controller.getHomeController3D().zoomCamera(steps);
+          }
+        }
+      };
+    if (steps == 0) {
+      button.addActionListener(zoomListener);
+    } else {
+      // Zooms at once when pressed, then repeatedly while the button is kept pressed
+      final javax.swing.Timer repeatTimer = new javax.swing.Timer(60, zoomListener);
+      repeatTimer.setInitialDelay(350);
+      button.addMouseListener(new MouseAdapter() {
+          @Override
+          public void mousePressed(MouseEvent ev) {
+            if (button.isEnabled() && SwingUtilities.isLeftMouseButton(ev)) {
+              zoomListener.actionPerformed(null);
+              repeatTimer.restart();
+            }
+          }
+
+          @Override
+          public void mouseReleased(MouseEvent ev) {
+            repeatTimer.stop();
+          }
+
+          @Override
+          public void mouseExited(MouseEvent ev) {
+            repeatTimer.stop();
+          }
+        });
+    }
+    return button;
+  }
+
   /**
    * Returns the tool bar displayed in this pane.
    */
@@ -2769,6 +2868,14 @@ public class HomePane extends JRootPane implements HomeView {
 
     addActionToToolBar(ActionType.ZOOM_IN, toolBar);
     addActionToToolBar(ActionType.ZOOM_OUT, toolBar);
+    // Zoom of the 3D view
+    if (this.controller.getHomeController3D().getView() != null) {
+      toolBar.add(Box.createRigidArea(new Dimension(2, 2)));
+      toolBar.add(createZoom3DButton("3D +", preferences.getLocalizedString(HomePane.class, "zoomIn3D.tooltip"), 1));
+      toolBar.add(createZoom3DButton("3D \u2212", preferences.getLocalizedString(HomePane.class, "zoomOut3D.tooltip"), -1));
+      toolBar.add(createZoom3DButton("3D fit", preferences.getLocalizedString(HomePane.class, "zoomToFit3D.tooltip"), 0));
+      toolBar.add(Box.createRigidArea(new Dimension(2, 2)));
+    }
 
     if (!OperatingSystem.isMacOSX() || getToolkit().getScreenSize().width >= 1024) {
       JComponent enableDisableMagnetismButton = createEnableDisableMagnetismButton(preferences);
@@ -3750,6 +3857,11 @@ public class HomePane extends JRootPane implements HomeView {
       addToggleActionToPopupMenu(ActionType.DISPLAY_ALL_LEVELS, true, view3DPopup);
       addToggleActionToPopupMenu(ActionType.DISPLAY_SELECTED_LEVEL, true, view3DPopup);
       addActionToPopupMenu(ActionType.MODIFY_3D_ATTRIBUTES, view3DPopup);
+      // Zoom of the 3D view
+      view3DPopup.addSeparator();
+      view3DPopup.add(createZoom3DMenuItem(this.preferences.getLocalizedString(HomePane.class, "zoomIn3D"), 2));
+      view3DPopup.add(createZoom3DMenuItem(this.preferences.getLocalizedString(HomePane.class, "zoomOut3D"), -2));
+      view3DPopup.add(createZoom3DMenuItem(this.preferences.getLocalizedString(HomePane.class, "zoomToFit3D"), 0));
       view3DPopup.addSeparator();
       addActionToPopupMenu(ActionType.CREATE_PHOTO, view3DPopup);
       addActionToPopupMenu(ActionType.CREATE_PHOTOS_AT_POINTS_OF_VIEW, view3DPopup);

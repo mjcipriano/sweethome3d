@@ -365,6 +365,8 @@ public class HomeAssistantContext {
         + "  {\"action\":\"home_report\"}  (floor areas, wall lengths and surfaces, furniture counts and prices, reported back in the next turn)\n"
         + "  {\"action\":\"add_label\",\"text\":\"<text>\",\"x\":N,\"y\":N}\n"
         + "  {\"action\":\"add_dimension\",\"x1\":N,\"y1\":N,\"x2\":N,\"y2\":N,\"offset\":N}  (a measurement line)\n"
+        + "  {\"action\":\"auto_dimensions\"}  (adds the dimension lines giving the size of every room of the selected level, "
+        + "or of \"ids\":[\"R1\"]; lines that exist are kept)\n"
         + "  {\"action\":\"select\",\"names\":[\"<item name>\"]}\n"
         + "To MODIFY items that already exist, reference them by the id shown in the project "
         + "summary (F# furniture, W# walls, R# rooms), by \"target\":\"selection\", or by name. "

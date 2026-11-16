@@ -38,6 +38,8 @@ UTF-8/ASCII.
 - `docs/LAYERS_AND_FURNITURE_LIBRARIES.md`: tags and layers of furniture
   (Furniture > Layers and tags...), and the commands that let the assistant or
   Claude build furniture from parts and write furniture libraries.
+- `docs/VIEW_3D_NAVIGATION.md`: zoom of the 3D view (wheel, keys, tool bar
+  buttons), standard views, and Plan > Add room dimensions.
 - `docs/WEBXR_VR.md`: the WebXR preview plugin (Tools > WebXR Preview...) —
   viewing a home in a Meta Quest 2/3 or SteamVR headset, and how its
   HTTP/HTTPS preview server works.
