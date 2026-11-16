@@ -5,6 +5,7 @@ import {MTLLoader} from 'three/addons/loaders/MTLLoader.js';
 import {OBJLoader} from 'three/addons/loaders/OBJLoader.js';
 import * as walk from './webxr-walk.js';
 import {mergeParts} from './webxr-merge.js';
+import {createNotesUI} from './webxr-notes-ui.js';
 
 // The model is exported in centimeters
 const MODEL_SCALE = 0.01;
@@ -668,9 +669,42 @@ function watchFrameRate() {
 }
 
 // ---- Desktop controls ----
+// Review notes: N writes one about what is under the mouse, T lists them
+const pointer = new THREE.Vector2(0, 0);
+const noteRaycaster = new THREE.Raycaster();
+renderer.domElement.addEventListener('pointermove', event => {
+  pointer.set(event.clientX / window.innerWidth * 2 - 1, -(event.clientY / window.innerHeight) * 2 + 1);
+});
+const notes = createNotesUI({scene, getPlan: () => plan,
+    pick: () => {
+      noteRaycaster.setFromCamera(pointer, camera);
+      noteRaycaster.far = 80;
+      const hits = noteRaycaster.intersectObject(modelGroup, true);
+      return hits.length > 0 ? {point: hits[0].point, key: null} : null;
+    },
+    onTyping: typing => {
+      if (typing) {
+        for (const code in keys) {
+          keys[code] = false;
+        }
+      }
+    }});
+state.notes = notes;
+
 const keys = {};
 let turnArmed = true;
 window.addEventListener('keydown', event => {
+  if (notes.typing) {
+    return;
+  }
+  if (event.code === 'KeyN' && !event.repeat && state.ready && !renderer.xr.isPresenting) {
+    event.preventDefault();
+    notes.addAtAim();
+    return;
+  } else if (event.code === 'KeyT' && !event.repeat) {
+    notes.toggleList();
+    return;
+  }
   keys[event.code] = true;
   if (event.code === 'KeyR') {
     reset();
@@ -918,6 +952,7 @@ async function load() {
     state.bounds = [bounds.min.x, bounds.min.y, bounds.min.z, bounds.max.x, bounds.max.y, bounds.max.z];
     state.ready = true;
     updateStatus();
+    notes.load();
     report('Home loaded in ' + Math.round(performance.now() / 1000) + ' s: ' + state.meshes + ' meshes merged in '
         + state.drawnMeshes + ', ' + Math.round(state.triangles) + ' triangles, '
         + (performance.memory ? megabytes(performance.memory.usedJSHeapSize) + ' used, ' : '')

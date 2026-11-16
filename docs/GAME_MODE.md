@@ -22,6 +22,7 @@ made for a keyboard and a mouse; in a headset, use the walk-through.
 | E | Open / close the door in front of you |
 | Left click | Break what the cross aims at |
 | B | Rebuild everything, and close the doors |
+| N | Write a note on what the cross aims at, for Claude (`docs/REVIEW_NOTES.md`); T lists the notes |
 | V | First / third person view |
 | R | Back to the start (where the virtual visitor stands in the home) |
 | H | Hide / show the help |

@@ -67,12 +67,13 @@ public class WebXRPreviewPlugin extends Plugin {
 
   /** The files of the viewer copied from the plugin resources to each export. */
   private static final String [] VIEWER_RESOURCES = {"webxr-viewer.js", "webxr-walk.js", "webxr-merge.js",
-                                                     "webxr-game.js", "webxr-game-physics.js"};
+                                                     "webxr-game.js", "webxr-game-physics.js",
+                                                     "webxr-notes.js", "webxr-notes-ui.js"};
 
   private final PluginAction[] actions;
 
   public WebXRPreviewPlugin() {
-    this.actions = new PluginAction[] { new WebXRPreviewAction(), new GameModeAction(), new WebPageExportAction() };
+    this.actions = new PluginAction[] { new WebXRPreviewAction(), new GameModeAction(), new ReviewNotesAction(), new WebPageExportAction() };
   }
 
   @Override
@@ -265,6 +266,7 @@ public class WebXRPreviewPlugin extends Plugin {
       Home exportedHome = exportHome(exportDir, home);
       writeViewer(exportDir, exportedHome);
       server = new WebXRPreviewServer(exportDir);
+      server.setNotesStore(createNotesStore(home));
       server.start();
     } catch (Exception ex) {
       deleteDirectory(exportDir);
@@ -284,6 +286,91 @@ public class WebXRPreviewPlugin extends Plugin {
     } else {
       openInBrowser(new URL(server.getLocalUrl()), indexFile);
       showConnectInstructions(server);
+    }
+  }
+
+  /**
+   * Returns the store of the review notes written in the viewer: the home
+   * itself, changed in the event dispatch thread.
+   */
+  private static WebXRPreviewServer.NotesStore createNotesStore(final Home home) {
+    return new WebXRPreviewServer.NotesStore() {
+        public String getNotes() {
+          return com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.getJSON(home);
+        }
+
+        public void setNotes(final String json) {
+          final RuntimeException [] error = new RuntimeException [1];
+          Runnable store = new Runnable() {
+              public void run() {
+                try {
+                  com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.setJSON(home, json);
+                } catch (RuntimeException ex) {
+                  error [0] = ex;
+                }
+              }
+            };
+          if (EventQueue.isDispatchThread()) {
+            store.run();
+          } else {
+            try {
+              EventQueue.invokeAndWait(store);
+            } catch (InterruptedException ex) {
+              Thread.currentThread().interrupt();
+              throw new IllegalArgumentException("Interrupted");
+            } catch (InvocationTargetException ex) {
+              throw new IllegalArgumentException(String.valueOf(ex.getCause()));
+            }
+          }
+          if (error [0] != null) {
+            throw error [0];
+          }
+        }
+      };
+  }
+
+  /**
+   * Shows the review notes of the home, to read them or to give them to an assistant.
+   */
+  private class ReviewNotesAction extends PluginAction {
+    ReviewNotesAction() {
+      putPropertyValue(Property.NAME, "Review notes...");
+      putPropertyValue(Property.SHORT_DESCRIPTION, "Notes written while visiting the home in the walk-through or the game mode");
+      putPropertyValue(Property.MENU, "Tools");
+      setEnabled(true);
+    }
+
+    @Override
+    public void execute() {
+      final Home home = getHome();
+      if (home == null) {
+        return;
+      }
+      final javax.swing.JTextArea textArea = new javax.swing.JTextArea(
+          com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.describe(home, false), 18, 70);
+      textArea.setEditable(false);
+      textArea.setLineWrap(true);
+      textArea.setWrapStyleWord(true);
+      textArea.setCaretPosition(0);
+      javax.swing.JPanel panel = new javax.swing.JPanel(new java.awt.BorderLayout(0, 6));
+      panel.add(new javax.swing.JLabel("<html>Notes are written in the walk-through and in the game mode: aim at a wall, "
+          + "a piece of furniture or a floor and press <b>N</b>.<br>They are saved with the home. Claude reads them "
+          + "through the MCP server (<i>get_notes</i>) and can do what they ask;<br>the design assistant sees the open "
+          + "ones too. Or copy them from here.</html>"), java.awt.BorderLayout.NORTH);
+      panel.add(new javax.swing.JScrollPane(textArea), java.awt.BorderLayout.CENTER);
+      Object [] options = {"Close", "Copy", "Delete the notes done", "Delete all notes"};
+      int option = JOptionPane.showOptionDialog(null, panel, "Review notes", JOptionPane.DEFAULT_OPTION,
+          JOptionPane.PLAIN_MESSAGE, null, options, options [0]);
+      if (option == 1) {
+        java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
+            new java.awt.datatransfer.StringSelection(textArea.getText()), null);
+      } else if (option == 2 || option == 3) {
+        for (java.util.Map<String, Object> note : com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.getNotes(home)) {
+          if (option == 3 || com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.STATUS_DONE.equals(note.get("status"))) {
+            com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.updateNote(home, (String)note.get("id"), "deleted", null);
+          }
+        }
+      }
     }
   }
 

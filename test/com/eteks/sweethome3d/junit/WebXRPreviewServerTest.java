@@ -142,6 +142,119 @@ public class WebXRPreviewServerTest {
     }
   }
 
+  /**
+   * The viewer page reads the review notes and stores them, and nothing else can.
+   */
+  @Test
+  public void testReviewNotesAreStored() throws Exception {
+    File exportDir = createExportDir();
+    WebXRPreviewServer server = new WebXRPreviewServer(exportDir);
+    final String [] stored = {"[]"};
+    server.setNotesStore(new WebXRPreviewServer.NotesStore() {
+        public String getNotes() {
+          return stored [0];
+        }
+
+        public void setNotes(String json) {
+          if (!json.startsWith("[")) {
+            throw new IllegalArgumentException("Not notes");
+          }
+          stored [0] = json;
+        }
+      });
+    server.start();
+    try {
+      String notesUrl = server.getLocalUrl().replace("index.html", "notes");
+      assertEquals("[]", read(notesUrl));
+      String notes = "[{\"id\":\"n1\",\"text\":\"add an outlet here\"}]";
+      assertEquals(204, postNotes(notesUrl, notes, "1", null));
+      assertEquals(notes, stored [0]);
+      assertEquals(notes, read(notesUrl));
+      // Not without the header a page of another site can't send, nor from another site
+      assertEquals(403, postNotes(notesUrl, "[]", null, null));
+      int port = new URL(notesUrl).getPort();
+      assertEquals(403, rawPostNotes(port, "[]", "http://evil.example"));
+      assertEquals(notes, stored [0]);
+      assertEquals(204, rawPostNotes(port, "[]", "http://127.0.0.1:" + port));
+      // What the application refuses, and what is too long
+      assertEquals(400, postNotes(notesUrl, "{}", "1", null));
+      char [] big = new char [600 * 1024];
+      java.util.Arrays.fill(big, ' ');
+      assertEquals(413, postNotes(notesUrl, "[" + new String(big) + "]", "1", null));
+      assertEquals("[]", stored [0]);
+    } finally {
+      server.stop();
+      deleteRecursively(exportDir);
+    }
+    // A server without store knows no notes
+    exportDir = createExportDir();
+    server = new WebXRPreviewServer(exportDir);
+    server.start();
+    try {
+      assertEquals(404, postNotes(server.getLocalUrl().replace("index.html", "notes"), "[]", "1", null));
+    } finally {
+      server.stop();
+      deleteRecursively(exportDir);
+    }
+  }
+
+  private static String read(String url) throws IOException {
+    java.io.InputStream in = new URL(url).openStream();
+    try {
+      java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+      byte [] buffer = new byte [4096];
+      for (int read; (read = in.read(buffer)) != -1; ) {
+        out.write(buffer, 0, read);
+      }
+      return new String(out.toByteArray(), "UTF-8");
+    } finally {
+      in.close();
+    }
+  }
+
+  /**
+   * Posts notes with an Origin header, which HttpURLConnection doesn't let a program set.
+   */
+  private static int rawPostNotes(int port, String body, String origin) throws IOException {
+    java.net.Socket socket = new java.net.Socket("127.0.0.1", port);
+    try {
+      byte [] data = body.getBytes("UTF-8");
+      java.io.OutputStream out = socket.getOutputStream();
+      out.write(("POST /notes HTTP/1.1\r\nHost: 127.0.0.1:" + port + "\r\nOrigin: " + origin + "\r\n"
+          + WebXRPreviewServer.NOTES_HEADER + ": 1\r\nContent-Type: application/json\r\nContent-Length: " + data.length
+          + "\r\nConnection: close\r\n\r\n").getBytes("ISO-8859-1"));
+      out.write(data);
+      out.flush();
+      java.io.BufferedReader reader = new java.io.BufferedReader(
+          new java.io.InputStreamReader(socket.getInputStream(), "ISO-8859-1"));
+      String statusLine = reader.readLine();
+      return Integer.parseInt(statusLine.split(" ") [1]);
+    } finally {
+      socket.close();
+    }
+  }
+
+  private static int postNotes(String url, String body, String header, String origin) throws IOException {
+    HttpURLConnection connection = (HttpURLConnection)new URL(url).openConnection();
+    connection.setRequestMethod("POST");
+    connection.setDoOutput(true);
+    if (header != null) {
+      connection.setRequestProperty(WebXRPreviewServer.NOTES_HEADER, header);
+    }
+    if (origin != null) {
+      // HttpURLConnection only sends this header when allowed to
+      connection.setRequestProperty("Origin", origin);
+    }
+    java.io.OutputStream out = connection.getOutputStream();
+    try {
+      out.write(body.getBytes("UTF-8"));
+      out.close();
+    } catch (IOException ex) {
+      // The server may answer before the whole body is sent
+    }
+    return connection.getResponseCode();
+  }
+
   private static int post(String url, String body) throws IOException {
     HttpURLConnection connection = (HttpURLConnection)new URL(url).openConnection();
     connection.setRequestMethod("POST");

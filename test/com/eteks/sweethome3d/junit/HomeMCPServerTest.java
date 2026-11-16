@@ -34,6 +34,7 @@ import org.junit.Test;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Room;
+import com.eteks.sweethome3d.model.Wall;
 import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.swing.HomeMCPServer;
 import com.eteks.sweethome3d.swing.SwingViewFactory;
@@ -127,7 +128,7 @@ public class HomeMCPServerTest {
 
       response = call(handler, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}");
       List<Object> tools = (List<Object>)((Map<String, Object>)response.get("result")).get("tools");
-      assertEquals(12, tools.size());
+      assertEquals(14, tools.size());
       for (Object tool : tools) {
         Map<String, Object> toolMap = (Map<String, Object>)tool;
         assertNotNull(toolMap.get("name"));
@@ -331,6 +332,74 @@ public class HomeMCPServerTest {
   }
 
   /**
+   * Tests the review notes of the user: stored with the home, described with
+   * the ids of the items they are pinned to, and updated by the client.
+   */
+  @Test
+  public void testReviewNotes() throws Exception {
+    Fixture fixture = new Fixture();
+    Wall wall = new Wall(0, 0, 400, 0, 10, 250);
+    fixture.home.addWall(wall);
+    assertTrue(text(callTool(fixture.handler, "get_notes", "{}")).contains("no review note"));
+
+    String sofaKey = com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.getKey(fixture.sofa2);
+    String wallKey = com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.getKey(wall);
+    String roomKey = com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.getKey(fixture.home.getRooms().get(0));
+    // As the viewer posts them, with fields a note doesn't have
+    assertEquals(4, com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.setJSON(fixture.home, "["
+        + "{\"id\":\"n1\",\"text\":\"add an outlet here\",\"status\":\"open\",\"target\":\"wall\",\"key\":\"" + wallKey + "\",\"x\":120.26,\"y\":4,\"z\":30,\"evil\":{\"a\":1}},"
+        + "{\"id\":\"n2\",\"text\":\"fix this model\",\"target\":\"furniture\",\"name\":\"Sofa\",\"key\":\"" + sofaKey + "\",\"x\":300,\"y\":10,\"z\":45},"
+        + "{\"id\":\"n3\",\"text\":\"darker floor\",\"target\":\"room\",\"key\":\"" + roomKey + "\",\"x\":200,\"y\":150,\"z\":0},"
+        + "{\"id\":\"bad id!\",\"text\":\"gone\",\"target\":\"furniture\",\"name\":\"Chair\",\"key\":\"missing\",\"x\":1,\"y\":2,\"z\":3},"
+        + "{\"id\":\"n9\",\"text\":\"   \"}, 12]"));
+    assertTrue(fixture.home.isModified());
+    assertFalse(fixture.home.getProperty(com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.NOTES_PROPERTY).contains("evil"));
+
+    String notes = text(callTool(fixture.handler, "get_notes", "{}"));
+    assertTrue(notes, notes.contains("Review notes of the user (4)"));
+    assertTrue(notes, notes.contains("- n1 [open] \"add an outlet here\" - on wall W1 (from 0,0 to 400,0), 120 cm from its start, "
+        + "at x 120 y 4 cm, 30 cm above the floor"));
+    assertTrue(notes, notes.contains("- n2 [open] \"fix this model\" - on furniture F2 \"Sofa\", at x 300 y 10 cm"));
+    assertTrue(notes, notes.contains("- n3 [open] \"darker floor\" - on room R1"));
+    assertTrue(notes, notes.contains("- n4 [open] \"gone\" - on furniture \"Chair\" (no longer in the home)"));
+    // The ids of the notes are the ones commands take
+    assertTrue(text(callTool(fixture.handler, "apply_commands",
+        "{\"commands\":[{\"action\":\"move\",\"id\":\"F2\",\"dx\":50}]}")).contains("modified 1 item"));
+    assertEquals(350, fixture.sofa2.getX(), 0.01f);
+    // The description of the home tells the assistant about them too
+    assertTrue(text(callTool(fixture.handler, "get_home", "{}")).contains("add an outlet here"));
+
+    // Done with a reply, then left out of the open notes
+    String updated = text(callTool(fixture.handler, "update_note",
+        "{\"id\":\"n1\",\"status\":\"done\",\"reply\":\"Outlet added as a label\"}"));
+    assertTrue(updated, updated.contains("Note n1 updated; 3 still open"));
+    notes = text(callTool(fixture.handler, "get_notes", "{}"));
+    assertFalse(notes, notes.contains("n1 "));
+    notes = text(callTool(fixture.handler, "get_notes", "{\"all\":true}"));
+    assertTrue(notes, notes.contains("- n1 [done] \"add an outlet here\""));
+    assertTrue(notes, notes.contains("reply: Outlet added as a label"));
+    assertTrue(text(callTool(fixture.handler, "update_note", "{\"id\":\"n4\",\"status\":\"deleted\"}")).contains("2 still open"));
+    assertEquals(3, com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.getNotes(fixture.home).size());
+    assertEquals(Boolean.TRUE, callTool(fixture.handler, "update_note", "{\"id\":\"n77\",\"status\":\"done\"}").get("isError"));
+
+    // A read-only home lets the notes be read, not changed
+    fixture.handler.setEditingAllowed(false);
+    assertTrue(text(callTool(fixture.handler, "get_notes", "{}")).contains("fix this model"));
+    assertEquals(Boolean.TRUE, callTool(fixture.handler, "update_note", "{\"id\":\"n2\",\"status\":\"done\"}").get("isError"));
+    assertEquals(2, com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.getOpenCount(fixture.home));
+
+    // What isn't a list of notes is refused
+    try {
+      com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.setJSON(fixture.home, "{\"text\":\"x\"}");
+      org.junit.Assert.fail("Not an array");
+    } catch (IllegalArgumentException ex) {
+      // Expected
+    }
+    com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.setJSON(fixture.home, "[]");
+    assertNull(fixture.home.getProperty(com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.NOTES_PROPERTY));
+  }
+
+  /**
    * Posts <code>body</code> and returns the status code and the response body.
    */
   private static Object [] post(HomeMCPServer server, String body, String authorization,
@@ -420,7 +489,7 @@ public class HomeMCPServerTest {
       Map<String, Object> result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [0])).get("result");
       assertEquals("2025-06-18", result.get("protocolVersion"));
       result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [1])).get("result");
-      assertEquals(12, ((List<Object>)result.get("tools")).size());
+      assertEquals(14, ((List<Object>)result.get("tools")).size());
       result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [2])).get("result");
       assertEquals(Boolean.TRUE, result.get("isError"));
       assertTrue(lines [2], lines [2].contains("Start server"));

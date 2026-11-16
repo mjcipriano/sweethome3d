@@ -6,6 +6,7 @@ import {MTLLoader} from 'three/addons/loaders/MTLLoader.js';
 import {OBJLoader} from 'three/addons/loaders/OBJLoader.js';
 import {mergeParts} from './webxr-merge.js';
 import * as physics from './webxr-game-physics.js';
+import {createNotesUI} from './webxr-notes-ui.js';
 
 // The model is exported in centimeters
 const MODEL_SCALE = 0.01;
@@ -269,7 +270,15 @@ function setFlying(flying) {
 }
 
 window.addEventListener('keydown', event => {
-  if (!game.ready) {
+  if (!game.ready || notes.typing) {
+    return;
+  }
+  if (event.code === 'KeyN' && !event.repeat) {
+    event.preventDefault();
+    notes.addAtAim();
+    return;
+  } else if (event.code === 'KeyT' && !event.repeat) {
+    notes.toggleList();
     return;
   }
   if (event.code === 'Space') {
@@ -331,7 +340,7 @@ document.addEventListener('mousemove', event => {
   }
 });
 renderer.domElement.addEventListener('mousedown', event => {
-  if (game.locked && event.button === 0) {
+  if (game.locked && event.button === 0 && !notes.typing) {
     breakAimed();
   }
 });
@@ -508,6 +517,50 @@ function animateDebris(delta) {
   }
 }
 
+// ---- Review notes ----
+
+// What the cross aims at: the point, and the key of the item of the home it is on
+function pickAimed() {
+  raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+  raycaster.far = 60;
+  const hits = raycaster.intersectObject(modelGroup, true);
+  for (const hit of hits) {
+    let node = hit.object;
+    let visible = true;
+    let key = null;
+    while (node && node !== modelGroup) {
+      visible = visible && node.visible;
+      key = key || node.userData.key || null;
+      node = node.parent;
+    }
+    if (visible) {
+      return {point: hit.point, key};
+    }
+  }
+  return null;
+}
+const notes = createNotesUI({scene, getPlan: () => game.world && game.world.scene, pick: pickAimed,
+    onTyping: typing => {
+      if (typing) {
+        for (const code in keys) {
+          keys[code] = false;
+        }
+        if (document.pointerLockElement) {
+          document.exitPointerLock();
+        }
+      } else if (renderer.domElement.requestPointerLock) {
+        try {
+          const locking = renderer.domElement.requestPointerLock();
+          if (locking && locking.catch) {
+            locking.catch(() => {});
+          }
+        } catch (ex) {
+          // A click takes the mouse again
+        }
+      }
+    }});
+game.notes = notes;
+
 // ---- Each picture ----
 
 function readInput() {
@@ -599,6 +652,7 @@ async function load() {
       throw new Error('The exported home is empty.');
     }
     hangDoors();
+    notes.load();
     // Land around the home, as far as someone may walk or fly
     const land = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000).rotateX(-Math.PI / 2),
         new THREE.MeshLambertMaterial({color: 0x8fa87a}));

@@ -44,7 +44,7 @@ public class WebXRSceneDescription {
    * description and in the names of its shapes in the exported model.
    */
   public static String getKey(com.eteks.sweethome3d.model.HomeObject item) {
-    return item.getId().replaceAll("[^A-Za-z0-9]", "");
+    return com.eteks.sweethome3d.viewcontroller.HomeReviewNotes.getKey(item);
   }
 
   private static void collectFurniture(List<HomePieceOfFurniture> furniture, List<HomePieceOfFurniture> pieces) {

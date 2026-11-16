@@ -294,6 +294,8 @@ public class HomeMCPHandler {
         + "is hidden, shown or selected at once with hide_layer, show_layer and select_layer. "
         + "add_room_shape draws L, T and U shaped rooms, apply_style decorates rooms in a named style "
         + "and replace_furniture swaps a piece for another one in place. "
+        + "The user may have left review notes while visiting the home (get_notes): requests pinned to a wall, "
+        + "a piece of furniture or a room; do them and mark each one with update_note. "
         + "Every apply_commands call is one step of the application's "
         + "Undo, also available through the undo tool.");
     return result;
@@ -303,6 +305,7 @@ public class HomeMCPHandler {
     return "get_home".equals(name) || "list_catalog".equals(name) || "search_catalog".equals(name)
         || "search_textures".equals(name) || "check_home".equals(name) || "get_report".equals(name) || "get_plan_image".equals(name)
         || "get_3d_image".equals(name) || "export_blender".equals(name)
+        || "get_notes".equals(name) || "update_note".equals(name)
         || "apply_commands".equals(name) || "undo".equals(name) || "redo".equals(name);
   }
 
@@ -347,6 +350,24 @@ public class HomeMCPHandler {
         + "and surface of the walls, count of the furniture by name with prices when they have one. "
         + "Use it to estimate flooring, paint or a budget.",
         schema(null), true));
+    Map<String, Object> notesProperties = new LinkedHashMap<String, Object>();
+    notesProperties.put("all", property("boolean", "true to include the notes already marked as done (default: open notes only)"));
+    tools.add(tool("get_notes", "Review notes of the user",
+        "Returns the notes the user wrote while visiting the home in the walk-through or the game mode "
+        + "(for example \"add an outlet here\" on a wall, or \"fix this model\" on a piece of furniture). "
+        + "Each note gives its id, its text, the item it is pinned to by id (W# wall, F# furniture, R# room), "
+        + "and the point clicked: x and y in the centimeters of the plan and the height above the floor. "
+        + "These are the user's requests: do what each one asks with apply_commands, then mark it with update_note. "
+        + "Like get_home, it binds the ids to the current items.",
+        schema(notesProperties), true));
+    Map<String, Object> noteProperties = new LinkedHashMap<String, Object>();
+    noteProperties.put("id", property("string", "The id of the note, as given by get_notes (n1, n2...)"));
+    noteProperties.put("status", property("string", "done, open, or deleted to remove the note"));
+    noteProperties.put("reply", property("string", "What was done about the note, or why it can't be done, for the user to read"));
+    tools.add(tool("update_note", "Update a review note",
+        "Marks a review note as done once what it asks was done (or open again), with a short reply the "
+        + "user reads beside the note, or deletes it.",
+        schema(noteProperties, "id"), false));
     Map<String, Object> imageProperties = new LinkedHashMap<String, Object>();
     imageProperties.put("max_size", property("number", "Largest side of the image in pixels (default 1000, at most 2000)"));
     tools.add(tool("get_plan_image", "Picture of the plan",
@@ -459,6 +480,9 @@ public class HomeMCPHandler {
       return toolResult(this.commandExecutor.checkHome(), false);
     } else if ("get_report".equals(name)) {
       return toolResult(this.commandExecutor.reportHome(), false);
+    } else if ("get_notes".equals(name)) {
+      this.commandExecutor.snapshotDescribedItems();
+      return toolResult(HomeReviewNotes.describe(this.home, !Boolean.TRUE.equals(arguments.get("all"))), false);
     } else if ("get_plan_image".equals(name)) {
       ImageProvider provider = this.imageProvider;
       int maxSize = arguments.get("max_size") instanceof Number
@@ -473,6 +497,17 @@ public class HomeMCPHandler {
           + "Ask them to enable it in Sweet Home 3D (Help > Claude MCP server).", true);
     } else if ("apply_commands".equals(name)) {
       return applyCommands(arguments);
+    } else if ("update_note".equals(name)) {
+      Object id = arguments.get("id");
+      if (!(id instanceof String)) {
+        return toolResult("The \"id\" argument is required.", true);
+      }
+      String status = arguments.get("status") instanceof String ? ((String)arguments.get("status")).trim().toLowerCase() : null;
+      String reply = arguments.get("reply") instanceof String ? (String)arguments.get("reply") : null;
+      if (!HomeReviewNotes.updateNote(this.home, ((String)id).trim(), status, reply)) {
+        return toolResult("This home has no note \"" + id + "\".", true);
+      }
+      return toolResult("Note " + id + " updated; " + HomeReviewNotes.getOpenCount(this.home) + " still open.", false);
     } else if ("export_blender".equals(name)) {
       SceneExporter exporter = this.sceneExporter;
       Object folder = arguments.get("folder");

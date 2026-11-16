@@ -46,6 +46,9 @@ UTF-8/ASCII.
   styles, the home report and the 3D web page export.
 - `docs/GAME_MODE.md`: Tools > Game mode... - the home played as a video game
   in the browser (walk, jump, climb, fly, doors, breaking), and its physics.
+- `docs/REVIEW_NOTES.md`: notes pinned to walls, furniture and rooms while
+  visiting the home (N in the walk-through and the game mode), stored with the
+  home and read by Claude with the `get_notes` MCP tool.
 - `docs/WEBXR_VR.md`: the WebXR preview plugin (Tools > WebXR Preview...) —
   viewing a home in a Meta Quest 2/3 or SteamVR headset, and how its
   HTTP/HTTPS preview server works.
