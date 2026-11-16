@@ -224,7 +224,7 @@ public class WebXRPreviewServer {
         path = path.substring(1);
       }
       if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-        if (LOG_PATH.equals(path)) {
+        if (LOG_PATH.equals(path) && logEnabled) {
           appendToLog(exchange);
         } else if (NOTES_PATH.equals(path) && notesStore != null) {
           storeNotes(exchange);
@@ -289,6 +289,16 @@ public class WebXRPreviewServer {
         in.close();
       }
     }
+  }
+
+  private volatile boolean logEnabled = true;
+
+  /**
+   * Sets whether the viewer may write its log in the served folder. Switched
+   * off for a folder that isn't a temporary export, where nothing must be added.
+   */
+  public void setLogEnabled(boolean logEnabled) {
+    this.logEnabled = logEnabled;
   }
 
   /** The path of the review notes of the home. */

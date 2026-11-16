@@ -82,19 +82,45 @@ of its 3D model - a home made of large imported models comes out as boxes.
 ## 3D web page to share
 
 **Tools > Export 3D web page...** writes a folder (`<home>-3d-web`) with the
-same walk-through as the WebXR preview. Put it on any static web host
-(GitHub Pages, Netlify, your own server) and share the address of its
-`index.html`; with https, a headset gets the **Enter VR** button. A
-`README.txt` in the folder explains it, including how to try it locally
-(`python -m http.server`). Opening `index.html` from the disk doesn't work.
-Anyone with the address sees the whole home.
+same walk-through and game mode as the preview. Browsers refuse to load a 3D
+scene from a page opened from the disk, so the folder comes with its own way
+to be seen, with **no web server to install**:
+
+| On | Do |
+| --- | --- |
+| This computer, right away | **View it now** at the end of the export, or later **Tools > View 3D web page folder...** |
+| Any Windows computer | Double-click **View in browser (Windows).bat** in the folder |
+| Any Mac | Double-click **View in browser (macOS).command** (the first time: right-click > Open) |
+| Linux, or a Mac from the Terminal | `sh view-in-browser.sh` in the folder |
+
+A launcher starts a tiny web server with what the computer already has -
+PowerShell under Windows, Python 3, Ruby or PHP under macOS and Linux - opens
+the browser at the address it prints, and stops when its window is closed. It
+shows this folder only, to this computer only, and installs nothing. So the
+folder can be copied on a USB key or sent as a zip, and seen by someone who
+has neither Sweet Home 3D nor a web site.
+
+To share it as a link instead, put the folder on any static web host (GitHub
+Pages, Netlify, your own server); with https, a headset gets the **Enter VR**
+button. Anyone with the address sees the whole home. `README.txt` in the
+folder says all this.
+
+Things that may need a click: Windows may warn before running a `.bat` that
+came from the Internet or from a zip (More info > Run anyway); a Mac asks
+once to confirm a downloaded `.command`, and a file copied through Windows
+may lose its permission to run - then use `sh view-in-browser.sh`.
+
+The 360 degree panorama (`docs/VIEW_3D_NAVIGATION.md`) needs none of this:
+its `index.html` contains the picture and opens with a double click.
 
 ## Implementation
 
 - `viewcontroller/AssistantDesignCommands` - `replace_furniture`,
   `add_room_shape` (`getShapePoints`), `apply_style` (`getStyles`).
 - `swing/HomeDesignToolsView` - the dialogs, which run those commands.
-- `WebXRPreviewPlugin.exportWebPage` - the web page export.
+- `WebXRPreviewPlugin.exportWebPage` - the web page export; `viewFolder`
+  serves a folder with the server of the application;
+  `tools/WebFolderLaunchers` writes the launchers (`WebFolderLaunchersTest`).
 - `HomeReport` unit prices (`setUnitPrice`, stored as home properties),
   `HomeVersions`, `ElevationDrawing.createSVG`.
 - `AssistantDesignCommandsTest`.

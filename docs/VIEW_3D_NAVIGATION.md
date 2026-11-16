@@ -42,8 +42,9 @@ a setting of the 3D view, off again at the next start.
 **3D view > Export 360° panorama...** computes a picture of everything around
 the virtual visitor (place him in the plan first) with the photo renderer, and
 writes a folder with `panorama.jpg` and an `index.html` to look around in it:
-drag to turn, wheel to zoom, **Enter VR** in a headset when the folder is on
-a https web site. As it is one picture, it loads at once on any device,
+drag to turn, wheel to zoom. The page contains the picture, so it opens with
+a double click on any computer, without a web server; on a https web site it
+also offers **Enter VR** in a headset. As it is one picture, it loads at once on any device,
 whatever the size of the home - a light alternative to the 3D web page for a
 heavy home. Sizes: 2048 x 1024 (a few seconds for a small home), 4096 x 2048,
 and 4096 x 2048 at the best quality of the renderer, which is much longer.

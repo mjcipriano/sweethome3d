@@ -89,12 +89,22 @@ public final class PanoramaExporter {
     if (!folder.isDirectory() && !folder.mkdirs()) {
       throw new IOException("Can't create " + folder);
     }
-    if (!ImageIO.write(image, "jpg", new File(folder, IMAGE_NAME))) {
+    java.io.ByteArrayOutputStream jpeg = new java.io.ByteArrayOutputStream();
+    if (!ImageIO.write(image, "jpg", jpeg)) {
       throw new IOException("Can't write a JPEG image");
     }
-    OutputStream out = new FileOutputStream(new File(folder, PAGE_NAME));
+    OutputStream out = new FileOutputStream(new File(folder, IMAGE_NAME));
     try {
-      out.write(getPage(title).getBytes("UTF-8"));
+      out.write(jpeg.toByteArray());
+    } finally {
+      out.close();
+    }
+    // The page carries the picture itself, so it opens from the disk with a double click:
+    // a browser refuses to draw in 3D a picture read from another file of the disk
+    out = new FileOutputStream(new File(folder, PAGE_NAME));
+    try {
+      out.write(getPage(title, "data:image/jpeg;base64,"
+          + java.util.Base64.getEncoder().encodeToString(jpeg.toByteArray())).getBytes("UTF-8"));
     } finally {
       out.close();
     }
@@ -105,6 +115,14 @@ public final class PanoramaExporter {
    * wheel to zoom, and Enter VR in a headset when the page is served with https.
    */
   static String getPage(String title) {
+    return getPage(title, IMAGE_NAME);
+  }
+
+  /**
+   * Returns the web page that shows the panorama at the given address,
+   * which may be the picture itself as a <code>data:</code> address.
+   */
+  static String getPage(String title, String imageAddress) {
     String escapedTitle = title == null ? "Panorama" : title.replace("&", "&amp;").replace("<", "&lt;");
     return "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
         + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
@@ -130,7 +148,7 @@ public final class PanoramaExporter {
         + "const geometry = new THREE.SphereGeometry(50, 64, 32);\n"
         + "// Seen from inside\n"
         + "geometry.scale(-1, 1, 1);\n"
-        + "const texture = new THREE.TextureLoader().load('" + IMAGE_NAME + "');\n"
+        + "const texture = new THREE.TextureLoader().load('" + imageAddress + "');\n"
         + "texture.colorSpace = THREE.SRGBColorSpace;\n"
         + "const sphere = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({map: texture}));\n"
         + "// The middle of the picture, where the visitor looks, is straight ahead\n"
@@ -237,8 +255,9 @@ public final class PanoramaExporter {
                     // The message below tells where it is
                   }
                   JOptionPane.showMessageDialog(SwingUtilities.getRootPane(parent),
-                      "<html>The panorama is in<br>" + folder + "<br><br>Open its index.html to look around. "
-                      + "Put the folder on a web site (https)<br>to share it and to see it in a VR headset.</html>");
+                      "<html>The panorama is in<br>" + folder + "<br><br>Double-click its index.html to look around, "
+                      + "on any computer: the page<br>contains the picture and needs no web server. "
+                      + "Put it on a web site (https)<br>to share it as a link and to see it in a VR headset.</html>");
                 }
               }
             });
