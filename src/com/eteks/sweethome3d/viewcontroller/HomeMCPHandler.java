@@ -284,7 +284,15 @@ public class HomeMCPHandler {
         + "Furniture can only be added by its exact catalog name: use search_catalog or "
         + "list_catalog to find one. To extend the house use add_rectangular_room (room and walls "
         + "at once) and auto_roof; check_home reports plan defects and fix_home repairs them; "
-        + "get_plan_image shows the plan and get_3d_image the home in 3D; add_stairs joins two levels (straight, L or U shaped, with handrails); move_to_level moves items to another level; set_background_image displays the picture of a floor plan behind the plan to trace it (look at it with get_plan_image); get_report gives areas and quantities; add_picture, import_furniture and import_texture bring pictures, 3D model files and texture images of this computer into the home; export_blender prepares a high quality render. Every apply_commands call is one step of the application's "
+        + "get_plan_image shows the plan and get_3d_image the home in 3D; add_stairs joins two levels (straight, L or U shaped, with handrails); move_to_level moves items to another level; set_background_image displays the picture of a floor plan behind the plan to trace it (look at it with get_plan_image); get_report gives areas and quantities; add_picture, import_furniture and import_texture bring pictures, 3D model files and texture images of this computer into the home; export_blender prepares a high quality render. "
+        + "When no catalog piece fits what is asked, make one: create_furniture builds a piece from simple parts "
+        + "(boxes, cylinders, cones, spheres, each with its size, place and color), which you should then look at with "
+        + "get_3d_image and correct; import_furniture brings a 3D model file you wrote or were given. "
+        + "add_to_catalog (or \"catalog\" in create_furniture) keeps a piece in the user's furniture catalog for other homes, "
+        + "and export_furniture_library writes a set of pieces as a .sh3f furniture library file to share. "
+        + "Furniture can carry tags (add_tags, remove_tags, set_tags), and a layer - the pieces of a tag or of a type - "
+        + "is hidden, shown or selected at once with hide_layer, show_layer and select_layer. "
+        + "Every apply_commands call is one step of the application's "
         + "Undo, also available through the undo tool.");
     return result;
   }

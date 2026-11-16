@@ -62,6 +62,8 @@ public class AssistantCommandExecutor {
   private final AssistantBuildingCommands buildingCommands;
   private final AssistantObjectCommands   objectCommands;
   private final AssistantPlanCommands     planCommands;
+  private final AssistantLayerCommands    layerCommands;
+  private final AssistantLibraryCommands  libraryCommands;
   private ModelSizeProvider               modelSizeProvider;
   private java.io.File                    attachedImage;
 
@@ -88,6 +90,8 @@ public class AssistantCommandExecutor {
     this.objectCommands = new AssistantObjectCommands(home, preferences, homeController, this);
     this.planCommands = new AssistantPlanCommands(home, homeController, this,
         this.buildingCommands, this.objectCommands);
+    this.layerCommands = new AssistantLayerCommands(home, homeController, this);
+    this.libraryCommands = new AssistantLibraryCommands(home, preferences, homeController, this);
   }
 
   /**
@@ -278,7 +282,9 @@ public class AssistantCommandExecutor {
     } else if ("delete".equals(action) || "remove".equals(action)) {
       delete(command, tally);
     } else if (!this.buildingCommands.apply(action, command, tally, notes)
-               && !this.objectCommands.apply(action, command, tally, notes)) {
+               && !this.objectCommands.apply(action, command, tally, notes)
+               && !this.layerCommands.apply(action, command, tally, notes)
+               && !this.libraryCommands.apply(action, command, tally, notes)) {
       this.planCommands.apply(action, command, tally, notes);
     }
     // Unknown actions are ignored so a single bad command doesn't break a turn

@@ -426,6 +426,7 @@ public class MultipleLevelsPlanPanel extends JPanel implements PlanView, Printab
     // Split popup menu
     for (Component component : popup.getComponents()) {
       if (component instanceof JMenuItem
+          && ((JMenuItem)component).getAction() != null
           && (HomeView.ActionType.ADD_LEVEL.name().equals(((JMenuItem)component).getAction().getValue(ResourceAction.RESOURCE_PREFIX))
               || HomeView.ActionType.ADD_LEVEL_AT_SAME_ELEVATION.name().equals(((JMenuItem)component).getAction().getValue(ResourceAction.RESOURCE_PREFIX)))) {
         tabbedPanePopup.add(component);
@@ -446,6 +447,7 @@ public class MultipleLevelsPlanPanel extends JPanel implements PlanView, Printab
               }
             });
       } else if (component instanceof JMenuItem
+          && ((JMenuItem)component).getAction() != null
                  && (HomeView.ActionType.MAKE_LEVEL_UNVIEWABLE.name().equals(((JMenuItem)component).getAction().getValue(ResourceAction.RESOURCE_PREFIX))
                      || HomeView.ActionType.MAKE_LEVEL_VIEWABLE.name().equals(((JMenuItem)component).getAction().getValue(ResourceAction.RESOURCE_PREFIX))
                      || HomeView.ActionType.MAKE_LEVEL_ONLY_VIEWABLE_ONE.name().equals(((JMenuItem)component).getAction().getValue(ResourceAction.RESOURCE_PREFIX))
