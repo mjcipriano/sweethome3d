@@ -88,7 +88,8 @@ panel reminds the controls for a few seconds when you enter VR.
 
 Desktop: W A S D or arrows to walk (Shift to run), drag the mouse to look,
 Q / E to turn, Page Up / Page Down to change level, C for wall blocking, R to
-go back to the start.
+go back to the start. N writes a review note on what the mouse points at, for
+Claude to act on (`docs/REVIEW_NOTES.md`), and T lists the notes.
 
 ### Heavy homes
 

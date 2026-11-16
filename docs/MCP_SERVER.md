@@ -67,6 +67,8 @@ able to modify it. Every `apply_commands` call is one step of **Edit > Undo**.
 | `get_plan_image` | PNG picture of the 2D plan of the selected level |
 | `get_3d_image` | PNG picture of the home in 3D from its camera (move it with `set_camera`) |
 | `export_blender` | Writes the model and a Blender scene script in a folder, for a high quality render |
+| `get_notes` | The review notes the user pinned to walls, furniture and rooms while visiting the home, with ids and coordinates (`docs/REVIEW_NOTES.md`) |
+| `update_note` | Marks a note done with a reply, or deletes it |
 | `apply_commands` | Runs a list of edit commands as one undoable change and returns a summary |
 | `undo` / `redo` | Undoes or redoes the last change |
 

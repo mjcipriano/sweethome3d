@@ -261,6 +261,11 @@ public class HomeAssistantContext {
       }
     }
 
+    int openNotes = HomeReviewNotes.getOpenCount(home);
+    if (openNotes > 0) {
+      brief.append("- ").append(HomeReviewNotes.describe(home, true).replace("\n", "\n    ")).append('\n');
+    }
+
     List<Selectable> selectedItems = home.getSelectedItems();
     if (!selectedItems.isEmpty()) {
       brief.append("- Current selection (").append(selectedItems.size()).append("):\n");

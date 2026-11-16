@@ -220,6 +220,9 @@ public class WebXRSceneDescriptionTest {
       String gameScript = new String(Files.readAllBytes(new File(folder, "webxr-game.js").toPath()), "UTF-8");
       assertTrue(gameScript.contains("./webxr-game-physics.js"));
       assertTrue(new File(folder, "webxr-game-physics.js").isFile());
+      assertTrue(gameScript.contains("./webxr-notes-ui.js"));
+      assertTrue(new File(folder, "webxr-notes-ui.js").isFile());
+      assertTrue(new File(folder, "webxr-notes.js").isFile());
       String viewer = new String(Files.readAllBytes(new File(folder, "webxr-viewer.js").toPath()), "UTF-8");
       assertTrue(viewer.contains("./webxr-walk.js"));
       assertTrue(new File(folder, "webxr-walk.js").length() > 0);

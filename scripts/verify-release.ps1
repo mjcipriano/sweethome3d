@@ -30,6 +30,8 @@ $requiredEntries = @(
   "com/eteks/sweethome3d/plugin/webxr/webxr-game.js",
   "com/eteks/sweethome3d/plugin/webxr/webxr-game-physics.js",
   "com/eteks/sweethome3d/plugin/webxr/webxr-game.html",
+  "com/eteks/sweethome3d/plugin/webxr/webxr-notes.js",
+  "com/eteks/sweethome3d/plugin/webxr/webxr-notes-ui.js",
   "com/eteks/sweethome3d/plugin/webxr/webxr-keystore.p12",
   "java3d-1.6/j3dcore.jar",
   "java3d-1.6/vecmath.jar",

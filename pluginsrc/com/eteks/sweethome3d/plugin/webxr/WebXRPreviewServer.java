@@ -226,9 +226,25 @@ public class WebXRPreviewServer {
       if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
         if (LOG_PATH.equals(path)) {
           appendToLog(exchange);
+        } else if (NOTES_PATH.equals(path) && notesStore != null) {
+          storeNotes(exchange);
         } else {
           sendNotFound(exchange);
         }
+        return;
+      }
+      if (NOTES_PATH.equals(path) && notesStore != null) {
+        byte [] notes = notesStore.getNotes().getBytes("UTF-8");
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.getResponseHeaders().set("Cache-Control", "no-store");
+        boolean head = "HEAD".equalsIgnoreCase(exchange.getRequestMethod());
+        exchange.sendResponseHeaders(200, head ? -1 : notes.length);
+        if (!head) {
+          OutputStream out = exchange.getResponseBody();
+          out.write(notes);
+          out.close();
+        }
+        exchange.close();
         return;
       }
       File target = new File(root, path);
@@ -273,6 +289,73 @@ public class WebXRPreviewServer {
         in.close();
       }
     }
+  }
+
+  /** The path of the review notes of the home. */
+  public static final String NOTES_PATH = "notes";
+  /** The header a page must send to change the notes, which a page of another site can't send. */
+  public static final String NOTES_HEADER = "X-SweetHome3D-Notes";
+  private static final int MAX_NOTES_LENGTH = 512 * 1024;
+
+  /**
+   * Where the review notes written in the viewer are kept.
+   */
+  public interface NotesStore {
+    /** Returns the notes as a JSON array. */
+    String getNotes();
+
+    /**
+     * Stores the notes given as a JSON array.
+     * @throws IllegalArgumentException if they can't be stored
+     */
+    void setNotes(String json);
+  }
+
+  private volatile NotesStore notesStore;
+
+  /**
+   * Sets where the notes written in the viewer are read and stored. Without
+   * it, the server knows no notes.
+   */
+  public void setNotesStore(NotesStore notesStore) {
+    this.notesStore = notesStore;
+  }
+
+  /**
+   * Stores the notes posted by the viewer page of this computer. Other
+   * computers, and the pages of other sites open in a browser of this one,
+   * can't change them.
+   */
+  private void storeNotes(HttpExchange exchange) throws IOException {
+    String origin = exchange.getRequestHeaders().getFirst("Origin");
+    String host = exchange.getRequestHeaders().getFirst("Host");
+    boolean allowed = exchange.getRemoteAddress().getAddress().isLoopbackAddress()
+        && exchange.getRequestHeaders().getFirst(NOTES_HEADER) != null
+        && (origin == null || host != null && (origin.equals("http://" + host) || origin.equals("https://" + host)));
+    int status = 403;
+    if (allowed) {
+      java.io.ByteArrayOutputStream body = new java.io.ByteArrayOutputStream();
+      InputStream in = exchange.getRequestBody();
+      try {
+        byte [] buffer = new byte [8192];
+        for (int read; body.size() <= MAX_NOTES_LENGTH && (read = in.read(buffer)) != -1; ) {
+          body.write(buffer, 0, read);
+        }
+      } finally {
+        in.close();
+      }
+      status = 413;
+      if (body.size() <= MAX_NOTES_LENGTH) {
+        try {
+          this.notesStore.setNotes(new String(body.toByteArray(), "UTF-8"));
+          status = 204;
+        } catch (RuntimeException ex) {
+          status = 400;
+        }
+      }
+    }
+    exchange.sendResponseHeaders(status, -1);
+    exchange.close();
   }
 
   /**
