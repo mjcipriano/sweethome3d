@@ -71,7 +71,7 @@ public class WebXRPreviewPlugin extends Plugin {
   private final PluginAction[] actions;
 
   public WebXRPreviewPlugin() {
-    this.actions = new PluginAction[] { new WebXRPreviewAction() };
+    this.actions = new PluginAction[] { new WebXRPreviewAction(), new WebPageExportAction() };
   }
 
   @Override
@@ -108,6 +108,107 @@ public class WebXRPreviewPlugin extends Plugin {
       }, "WebXRPreview");
       worker.setDaemon(true);
       worker.start();
+    }
+  }
+
+  /**
+   * Exports the home as a folder of web files to put on any web site, so
+   * the home can be visited from a link.
+   */
+  private class WebPageExportAction extends PluginAction {
+    WebPageExportAction() {
+      putPropertyValue(Property.NAME, "Export 3D web page...");
+      putPropertyValue(Property.SHORT_DESCRIPTION, "Export the home as a folder of web files to share");
+      putPropertyValue(Property.MENU, "Tools");
+      setEnabled(true);
+    }
+
+    @Override
+    public void execute() {
+      if (getHome() == null) {
+        return;
+      }
+      javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
+      chooser.setDialogTitle("Folder that will receive the web page of the home");
+      chooser.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
+      if (chooser.showSaveDialog(null) != javax.swing.JFileChooser.APPROVE_OPTION) {
+        return;
+      }
+      final File parentFolder = chooser.getSelectedFile();
+      final WebPageExportAction self = this;
+      self.setEnabled(false);
+      Thread worker = new Thread(new Runnable() {
+        public void run() {
+          try {
+            File folder = exportWebPage(getHome(), parentFolder);
+            showInfo("The 3D web page of the home is in\n" + folder + "\n\n"
+                + "Put this folder on any web site (GitHub Pages, Netlify, your own server...)\n"
+                + "and share the address of its index.html: visitors walk through the home\n"
+                + "in their browser, and in VR from a headset if the site uses https.\n\n"
+                + "Opening index.html directly from the disk doesn't work: browsers only\n"
+                + "load the home from a web server. See README.txt in the folder.");
+          } catch (Exception ex) {
+            showError("Export of the 3D web page failed: " + ex.getMessage(), ex);
+          } finally {
+            SwingUtilities.invokeLater(new Runnable() {
+              public void run() {
+                self.setEnabled(true);
+              }
+            });
+          }
+        }
+      }, "WebPageExport");
+      worker.setDaemon(true);
+      worker.start();
+    }
+  }
+
+  /**
+   * Exports <code>home</code> with its viewer in a new sub folder of
+   * <code>parentFolder</code> and returns that folder.
+   */
+  File exportWebPage(Home home, File parentFolder) throws Exception {
+    if (parentFolder == null || !parentFolder.isDirectory()) {
+      throw new IOException("Choose an existing folder");
+    }
+    String name = home.getName() != null ? new File(home.getName()).getName().replaceFirst("\\.[^.]*$", "") : "home";
+    name = name.replaceAll("[^A-Za-z0-9_-]+", "-");
+    File folder = new File(parentFolder, (name.length() > 0 ? name : "home") + "-3d-web");
+    for (int i = 2; folder.exists(); i++) {
+      folder = new File(parentFolder, (name.length() > 0 ? name : "home") + "-3d-web-" + i);
+    }
+    if (!folder.mkdir()) {
+      throw new IOException("Can't create " + folder);
+    }
+    try {
+      Home exportedHome = exportHome(folder, home);
+      writeViewer(folder, exportedHome);
+      writeWebPageReadme(folder);
+    } catch (Exception ex) {
+      deleteDirectory(folder);
+      throw ex;
+    }
+    return folder;
+  }
+
+  static void writeWebPageReadme(File folder) throws IOException {
+    String text = "3D web page of a home, exported by Sweet Home 3D\r\n\r\n"
+        + "Put the whole folder on a web site and open index.html from its address.\r\n"
+        + "- GitHub Pages, Netlify, Cloudflare Pages or any static web hosting work.\r\n"
+        + "- The site must use https for the Enter VR button to appear in a headset.\r\n"
+        + "- To try it on this computer, run in this folder:  python -m http.server 8000\r\n"
+        + "  then open http://localhost:8000/index.html\r\n"
+        + "- Opening index.html from the disk (file://) doesn't work: browsers refuse\r\n"
+        + "  to load the home that way.\r\n"
+        + "- The page loads the three.js library from the unpkg.com CDN, so visitors\r\n"
+        + "  need an Internet access.\r\n\r\n"
+        + "Anyone who has the address can see the whole home: its plan, its furniture\r\n"
+        + "and its textures.\r\n";
+    OutputStream out = new java.io.FileOutputStream(new File(folder, "README.txt"));
+    try {
+      out.write(text.getBytes(StandardCharsets.UTF_8));
+    } finally {
+      out.close();
     }
   }
 

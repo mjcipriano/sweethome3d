@@ -40,6 +40,10 @@ UTF-8/ASCII.
   Claude build furniture from parts and write furniture libraries.
 - `docs/VIEW_3D_NAVIGATION.md`: zoom of the 3D view (wheel, keys, tool bar
   buttons), standard views, and Plan > Add room dimensions.
+- `docs/GAP_ANALYSIS.md`: what comparable programs offer, what exists here,
+  and the prioritized list of what is still missing.
+- `docs/DESIGN_TOOLS.md`: replace furniture in place, room shapes, decoration
+  styles, the home report and the 3D web page export.
 - `docs/WEBXR_VR.md`: the WebXR preview plugin (Tools > WebXR Preview...) —
   viewing a home in a Meta Quest 2/3 or SteamVR headset, and how its
   HTTP/HTTPS preview server works.

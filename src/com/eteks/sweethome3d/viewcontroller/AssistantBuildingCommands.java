@@ -292,7 +292,7 @@ class AssistantBuildingCommands {
    * Returns <code>true</code> if an existing wall of <code>level</code> already
    * runs along the whole given segment.
    */
-  private boolean isAlongExistingWall(float [] side, float thickness, Level level) {
+  boolean isAlongExistingWall(float [] side, float thickness, Level level) {
     for (Wall wall : this.home.getWalls()) {
       if (wall.getLevel() == level && wall.getLength() > 1) {
         float tolerance = wall.getThickness() / 2 + thickness / 2 + 2;

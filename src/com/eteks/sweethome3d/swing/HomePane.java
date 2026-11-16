@@ -1348,6 +1348,25 @@ public class HomePane extends JRootPane implements HomeView {
     planMenu.addSeparator();
     planMenu.add(createLevelsMenu(home, preferences));
     planMenu.addSeparator();
+    // Tools of comparable design programs: room shapes, styles, report
+    planMenu.add(new JMenuItem(new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "addRoomShape")) {
+        public void actionPerformed(ActionEvent ev) {
+          HomeDesignToolsView.showRoomShapeDialog(HomePane.this, home, HomePane.this.preferences, controller);
+        }
+      }));
+    planMenu.add(new JMenuItem(new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "applyStyle")) {
+        public void actionPerformed(ActionEvent ev) {
+          HomeDesignToolsView.showStyleDialog(HomePane.this, home, HomePane.this.preferences, controller);
+        }
+      }));
+    planMenu.add(new JMenuItem(new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "homeReport")) {
+        public void actionPerformed(ActionEvent ev) {
+          HomeDesignToolsView.showReportDialog(HomePane.this, home);
+        }
+      }));
     // Dimension lines of the rooms in one step
     planMenu.add(new JMenuItem(new AbstractAction(
         preferences.getLocalizedString(HomePane.class, "addRoomDimensions")) {
@@ -1504,6 +1523,14 @@ public class HomePane extends JRootPane implements HomeView {
       };
     helpMenu.add(new JMenuItem(mcpServerAction));
 
+    // Replacement of the selected furniture by the piece selected in the catalog
+    furnitureMenu.addSeparator();
+    furnitureMenu.add(new JMenuItem(new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "replaceFurniture")) {
+        public void actionPerformed(ActionEvent ev) {
+          HomeDesignToolsView.replaceSelectedFurniture(HomePane.this, home, HomePane.this.preferences, controller);
+        }
+      }));
     // Tags of furniture and layers
     furnitureMenu.addSeparator();
     furnitureMenu.add(FurnitureLayersView.createTagsMenu(
