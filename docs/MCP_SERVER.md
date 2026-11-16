@@ -88,6 +88,9 @@ protocol (`HomeAssistantContext.getCommandReference()`), at most 30 per call:
   cones and spheres), `add_to_catalog`, `export_furniture_library` and
   `import_furniture_library` (`.sh3f` files) - see
   `docs/LAYERS_AND_FURNITURE_LIBRARIES.md` for the workflow;
+- design: `add_room_shape` (L, T, U rooms), `apply_style` (a decoration
+  style for rooms), `replace_furniture` (swap a piece in place) - see
+  `docs/DESIGN_TOOLS.md`;
 - organise: `add_tags`, `remove_tags`, `set_tags`, `hide_layer`, `show_layer`,
   `select_layer` (a layer = the pieces of a tag or of a type);
 - change: `move`, `rotate`, `resize`, `set_color`, `set_texture`,

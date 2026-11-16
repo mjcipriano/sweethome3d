@@ -49,7 +49,10 @@ const reportedErrors = new Set();
 function report(message) {
   if (reportCount++ < 300) {
     try {
-      fetch('log', {method: 'POST', body: message, keepalive: true}).catch(() => {});
+      // A home exported as a web page has no server to write the log: stop at the first refusal
+      fetch('log', {method: 'POST', body: message, keepalive: true})
+        .then(response => { if (!response.ok) reportCount = Infinity; })
+        .catch(() => { reportCount = Infinity; });
     } catch (ex) {
       // The visit goes on without the log
     }

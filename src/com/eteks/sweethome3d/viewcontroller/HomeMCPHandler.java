@@ -292,6 +292,8 @@ public class HomeMCPHandler {
         + "and export_furniture_library writes a set of pieces as a .sh3f furniture library file to share. "
         + "Furniture can carry tags (add_tags, remove_tags, set_tags), and a layer - the pieces of a tag or of a type - "
         + "is hidden, shown or selected at once with hide_layer, show_layer and select_layer. "
+        + "add_room_shape draws L, T and U shaped rooms, apply_style decorates rooms in a named style "
+        + "and replace_furniture swaps a piece for another one in place. "
         + "Every apply_commands call is one step of the application's "
         + "Undo, also available through the undo tool.");
     return result;
