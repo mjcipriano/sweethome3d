@@ -78,7 +78,7 @@ protocol (`HomeAssistantContext.getCommandReference()`), at most 30 per call:
 - build: `add_rectangular_room` (room + walls, optionally `next_to` another
   room), `add_room`, `add_wall`, `add_level`, `select_level`, `auto_roof`,
   `add_stairs` (straight, L or U shaped, with handrails), `add_furniture`, `add_door_or_window`, `add_label`,
-  `add_dimension`;
+  `add_dimension`, `auto_dimensions` (the size of every room);
 - bring in: `add_picture` (a painting, poster or rug from an image file),
   `import_furniture` (a 3D model file), `import_texture` (an image as a
   texture), `set_background_image` (the picture of a floor plan behind the

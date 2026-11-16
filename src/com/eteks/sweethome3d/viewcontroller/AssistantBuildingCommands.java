@@ -85,6 +85,27 @@ class AssistantBuildingCommands {
       addLabel(command, notes);
     } else if ("add_dimension".equals(action) || "add_dimension_line".equals(action)) {
       addDimensionLine(command, notes);
+    } else if ("auto_dimensions".equals(action) || "add_room_dimensions".equals(action)) {
+      List<Room> rooms = new ArrayList<Room>();
+      for (Selectable item : this.executor.resolveTargets(command)) {
+        if (item instanceof Room) {
+          rooms.add((Room)item);
+        }
+      }
+      if (rooms.isEmpty()) {
+        for (Room room : this.home.getRooms()) {
+          if (room.isAtLevel(this.home.getSelectedLevel())) {
+            rooms.add(room);
+          }
+        }
+      }
+      List<DimensionLine> dimensionLines = RoomDimensions.createDimensionLines(this.home, rooms);
+      if (!dimensionLines.isEmpty()) {
+        this.executor.beginTurnUpdate();
+        this.homeController.getPlanController().addDimensionLines(dimensionLines);
+      }
+      notes.add("Added " + dimensionLines.size() + " dimension lines to " + rooms.size()
+          + (rooms.size() == 1 ? " room" : " rooms"));
     } else if ("duplicate".equals(action)) {
       duplicate(command, tally, notes);
     } else if ("set_camera".equals(action)) {

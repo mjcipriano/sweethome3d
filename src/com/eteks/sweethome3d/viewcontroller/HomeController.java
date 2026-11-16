@@ -1457,6 +1457,30 @@ public class HomeController implements Controller {
   }
 
   /**
+   * Adds the dimension lines giving the size of the selected rooms, or of
+   * every room of the selected level if no room is selected, in one undoable
+   * operation.
+   * @return the count of dimension lines added
+   * @see RoomDimensions
+   */
+  public int addRoomDimensions() {
+    List<Room> rooms = Home.getRoomsSubList(this.home.getSelectedItems());
+    if (rooms.isEmpty()) {
+      rooms = new ArrayList<Room>();
+      for (Room room : this.home.getRooms()) {
+        if (room.isAtLevel(this.home.getSelectedLevel())) {
+          rooms.add(room);
+        }
+      }
+    }
+    List<DimensionLine> dimensionLines = RoomDimensions.createDimensionLines(this.home, rooms);
+    if (!dimensionLines.isEmpty()) {
+      getPlanController().addDimensionLines(dimensionLines);
+    }
+    return dimensionLines.size();
+  }
+
+  /**
    * Adds tags to pieces of furniture and removes others, in one undoable operation.
    * @return the count of pieces whose tags changed
    * @see HomeItemTags
