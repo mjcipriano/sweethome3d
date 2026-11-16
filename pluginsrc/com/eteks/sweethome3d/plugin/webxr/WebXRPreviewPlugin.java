@@ -157,6 +157,12 @@ public class WebXRPreviewPlugin extends Plugin {
       }
       message.append("\nThe browser will warn about the self-signed certificate once -\n")
           .append("choose Advanced > Proceed. Then press \"Enter VR\".\n\n")
+          .append("If the headset can't connect (connection timed out), the firewall of\n")
+          .append("this computer is blocking it: allow incoming connections for Sweet Home 3D")
+          .append(server.getHttpsPort() > 0 ? " (TCP port " + server.getHttpsPort() + ")" : "").append(".\n")
+          .append("On Windows, a network marked Public blocks them, and an older Block rule\n")
+          .append("for Sweet Home 3D wins over an Allow rule: remove it in Windows Firewall.\n")
+          .append("Type the https address, not the Desktop one, which only answers on this computer.\n\n")
           .append("You start where the virtual visitor stands, at life size.\n")
           .append("Left stick: walk. Right stick: turn, or push forward to aim and\n")
           .append("release to teleport. A / B: level above / below. Y: back to start.\n")

@@ -30,6 +30,25 @@ for the reference home, which Chrome can't read). You may delete it from
    bundled self-signed certificate because browsers only allow WebXR ("Enter
    VR") on secure (https) pages; choose **Advanced > Proceed**. Then press
    **Enter VR**.
+   The headset address keeps the same port from one preview to the next
+   (47443; the desktop one is 47480), so it can be bookmarked in the headset.
+   Another free port is used when it is taken, for instance by the preview
+   of a second home; change them with
+   `-Dcom.eteks.sweethome3d.webxr.httpsPort` and `...webxr.httpPort`.
+
+   **If the headset says the connection timed out**, the firewall of the
+   computer is blocking it. On Windows: a network marked *Public* blocks
+   incoming connections, and a *Block* rule for Sweet Home 3D (created when the
+   firewall question was dismissed once) wins over any *Allow* rule. In an
+   administrator PowerShell:
+
+   ```powershell
+   Get-NetFirewallRule -DisplayName "sweet home 3d.exe" | Where-Object Action -eq Block | Remove-NetFirewallRule
+   New-NetFirewallRule -DisplayName "Sweet Home 3D WebXR" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 47443
+   ```
+
+   Use the `https://` address: the desktop one only answers on the computer
+   itself.
 4. **SteamVR / PC headsets (Quest 2 over Link/Air Link too):** open the
    *desktop* URL in Chrome or Edge while SteamVR (or the Oculus runtime) is
    running. Desktop Chrome/Edge expose WebXR through the active OpenXR

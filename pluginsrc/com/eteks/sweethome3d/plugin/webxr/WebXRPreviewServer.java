@@ -52,6 +52,13 @@ public class WebXRPreviewServer {
   private static final int    MAX_LOG_MESSAGE_LENGTH = 4096;
   private static final long   MAX_LOG_LENGTH = 512 * 1024;
 
+  /** System property giving the port of the desktop preview (0 = any free port). */
+  public static final String HTTP_PORT_PROPERTY = "com.eteks.sweethome3d.webxr.httpPort";
+  /** System property giving the port headsets connect to (0 = any free port). */
+  public static final String HTTPS_PORT_PROPERTY = "com.eteks.sweethome3d.webxr.httpsPort";
+  public static final int    DEFAULT_HTTP_PORT = 47480;
+  public static final int    DEFAULT_HTTPS_PORT = 47443;
+
   private final File       root;
   private final String     rootPath;
   private HttpServer       httpServer;
@@ -72,14 +79,26 @@ public class WebXRPreviewServer {
     final ExecutorService executor = Executors.newCachedThreadPool();
     this.executor = executor;
 
-    this.httpServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    // The same ports from one preview to the next, so the address typed in a
+    // headset and a firewall rule stay valid; any free port if they are taken
+    int httpPort = Integer.getInteger(HTTP_PORT_PROPERTY, DEFAULT_HTTP_PORT).intValue();
+    try {
+      this.httpServer = HttpServer.create(new InetSocketAddress("127.0.0.1", httpPort), 0);
+    } catch (IOException ex) {
+      this.httpServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    }
     this.httpServer.createContext("/", handler);
     this.httpServer.setExecutor(executor);
     this.httpServer.start();
 
     try {
       SSLContext sslContext = createSelfSignedContext();
-      this.httpsServer = HttpsServer.create(new InetSocketAddress((InetAddress)null, 0), 0);
+      int httpsPort = Integer.getInteger(HTTPS_PORT_PROPERTY, DEFAULT_HTTPS_PORT).intValue();
+      try {
+        this.httpsServer = HttpsServer.create(new InetSocketAddress((InetAddress)null, httpsPort), 0);
+      } catch (IOException ex) {
+        this.httpsServer = HttpsServer.create(new InetSocketAddress((InetAddress)null, 0), 0);
+      }
       this.httpsServer.setHttpsConfigurator(new HttpsConfigurator(sslContext));
       this.httpsServer.createContext("/", handler);
       this.httpsServer.setExecutor(executor);
