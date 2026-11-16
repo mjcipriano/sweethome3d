@@ -47,6 +47,7 @@ Legend: **yes** = available, **new** = added with this analysis, **partly**,
 | Fast zoom, zoom buttons, standard views | yes | 7.20 |
 | Photo-realistic images and videos | yes | built-in renderers, and Blender export |
 | VR walk-through in a headset | yes | Tools > WebXR Preview... |
+| Game-like visit (run, jump, fly, open doors) | yes | Tools > Game mode... (`docs/GAME_MODE.md`) |
 | A link to share a 3D visit | **new** | Tools > Export 3D web page... writes a folder for any static web host |
 | 360 degree panoramas | **new** | 3D view > Export 360° panorama... |
 | Automatic hiding of the walls in front of the camera (doll house) | **new** | 3D view > Hide walls in front of the camera |

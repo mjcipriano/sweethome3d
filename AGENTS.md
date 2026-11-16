@@ -44,6 +44,8 @@ UTF-8/ASCII.
   and the prioritized list of what is still missing.
 - `docs/DESIGN_TOOLS.md`: replace furniture in place, room shapes, decoration
   styles, the home report and the 3D web page export.
+- `docs/GAME_MODE.md`: Tools > Game mode... - the home played as a video game
+  in the browser (walk, jump, climb, fly, doors, breaking), and its physics.
 - `docs/WEBXR_VR.md`: the WebXR preview plugin (Tools > WebXR Preview...) —
   viewing a home in a Meta Quest 2/3 or SteamVR headset, and how its
   HTTP/HTTPS preview server works.

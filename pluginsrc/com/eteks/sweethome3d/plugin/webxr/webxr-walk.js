@@ -210,7 +210,7 @@ export const MAX_STEP = 0.4;
  * Returns the height above the floor of the stairs' level at (x, z) if the
  * point is on one of the flights or landings of the stairs, or null.
  */
-function stairHeightAt(stair, x, z, fromHeight = null) {
+export function stairHeightAt(stair, x, z, fromHeight = null) {
   // Coordinates relative to the center of the stairs at angle 0
   const dx = x - stair.x;
   const dz = z - stair.z;

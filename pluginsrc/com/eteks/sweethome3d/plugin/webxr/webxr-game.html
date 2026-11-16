@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sweet Home 3D - Game mode</title>
+  <style>
+    body { margin:0; overflow:hidden; background:#9fc4e8; color:#e8f5ff; font-family:Arial,sans-serif; user-select:none; }
+    canvas { display:block; }
+    #help { position:fixed; top:10px; left:10px; background:rgba(0,0,0,0.72); padding:10px 12px; border-radius:6px; max-width:400px; line-height:1.45; font-size:13px; }
+    #help table { border-collapse:collapse; margin-top:6px; }
+    #help td { padding:1px 10px 1px 0; vertical-align:top; }
+    #help td:first-child { color:#ffd98a; white-space:nowrap; }
+    #status { position:fixed; left:10px; bottom:10px; background:rgba(0,0,0,0.6); padding:6px 10px; border-radius:6px; font-size:13px; }
+    #hint { position:fixed; left:50%; bottom:18%; transform:translateX(-50%); background:rgba(0,0,0,0.6); padding:6px 12px; border-radius:6px; font-size:15px; display:none; }
+    #crosshair { position:fixed; left:50%; top:50%; width:14px; height:14px; margin:-7px 0 0 -7px; pointer-events:none; display:none; }
+    #crosshair:before, #crosshair:after { content:""; position:absolute; background:rgba(255,255,255,0.9); box-shadow:0 0 2px #000; }
+    #crosshair:before { left:6px; top:0; width:2px; height:14px; }
+    #crosshair:after { left:0; top:6px; width:14px; height:2px; }
+    #start { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:min(460px, calc(100vw - 32px)); box-sizing:border-box; background:rgba(0,0,0,0.8); padding:18px 20px; border-radius:8px; font-size:16px; line-height:1.45; text-align:center; cursor:pointer; }
+    #startText { white-space:pre-wrap; }
+    #startTrack { margin-top:12px; height:6px; border-radius:3px; background:rgba(255,255,255,0.2); overflow:hidden; }
+    #startBar { height:100%; width:0; background:#ffd98a; transition:width 0.2s; }
+    #start.error { color:#ffd0d0; text-align:left; font-size:14px; cursor:default; }
+    a { color:#a7d7ff; }
+  </style>
+</head>
+<body>
+<div id="help">
+  <div><strong>Sweet Home 3D - game mode</strong> &nbsp; <a href="index.html">walk-through / VR</a></div>
+  <table>
+    <tr><td>Click</td><td>take the mouse (Esc gives it back)</td></tr>
+    <tr><td>Mouse</td><td>look around</td></tr>
+    <tr><td>W A S D / arrows</td><td>move (Shift to run)</td></tr>
+    <tr><td>Space</td><td>jump; keep it pressed against a wall to climb it</td></tr>
+    <tr><td>F, or Space twice</td><td>fly on / off (Space up, C down)</td></tr>
+    <tr><td>E</td><td>open / close the door in front of you</td></tr>
+    <tr><td>Left click</td><td>break what you aim at</td></tr>
+    <tr><td>B</td><td>rebuild everything</td></tr>
+    <tr><td>V</td><td>first / third person view</td></tr>
+    <tr><td>R</td><td>back to the start &nbsp; <b>H</b> hide this help</td></tr>
+  </table>
+</div>
+<div id="status">Loading...</div>
+<div id="hint"></div>
+<div id="crosshair"></div>
+<div id="start">
+  <div id="startText">Loading the game...</div>
+  <div id="startTrack"><div id="startBar"></div></div>
+</div>
+<script>
+  // Tells what happens when the game itself can't start
+  function gameFailed() {
+    var start = document.getElementById('start');
+    start.classList.add('error');
+    document.getElementById('startText').textContent = 'Couldn\'t load the game.\n'
+        + 'It needs the three.js library from unpkg.com the first time: '
+        + 'check that this computer is connected to the Internet, then reload the page.';
+  }
+</script>
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.155.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.155.0/examples/jsm/"
+} }
+</script>
+<script type="module" src="webxr-game.js" onerror="gameFailed()"></script>
+</body>
+</html>

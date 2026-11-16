@@ -139,6 +139,10 @@ While the home loads, the page shows how much of it was received; **Enter VR**
 appears only when the home is ready, and a failure is explained on the page
 instead of leaving an empty world.
 
+The same export has a **game mode** for the keyboard and the mouse of the
+computer (**Tools > Game mode...**, or the *game mode* link of the page): see
+`docs/GAME_MODE.md`.
+
 ## Notes and limitations
 
 - **Not yet verified on a physical headset.** The page was exercised in desktop
