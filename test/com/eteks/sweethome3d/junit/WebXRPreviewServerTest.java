@@ -240,4 +240,41 @@ public class WebXRPreviewServerTest {
     }
     file.delete();
   }
+
+  /**
+   * The preview keeps the same port from one run to the next, and takes
+   * another one when it's busy.
+   */
+  @Test
+  public void testPortIsStableWithFallback() throws Exception {
+    java.net.ServerSocket socket = new java.net.ServerSocket(0);
+    int freePort = socket.getLocalPort();
+    socket.close();
+    String previousPort = System.getProperty(WebXRPreviewServer.HTTPS_PORT_PROPERTY);
+    System.setProperty(WebXRPreviewServer.HTTPS_PORT_PROPERTY, String.valueOf(freePort));
+    File exportDir = createExportDir();
+    WebXRPreviewServer server = new WebXRPreviewServer(exportDir);
+    WebXRPreviewServer otherServer = new WebXRPreviewServer(exportDir);
+    try {
+      server.start();
+      assertEquals(freePort, server.getHttpsPort());
+      otherServer.start();
+      assertTrue(otherServer.getHttpsPort() > 0);
+      assertTrue(otherServer.getHttpsPort() != freePort);
+      // Free again for the next preview
+      server.stop();
+      server = new WebXRPreviewServer(exportDir);
+      server.start();
+      assertEquals(freePort, server.getHttpsPort());
+    } finally {
+      server.stop();
+      otherServer.stop();
+      if (previousPort == null) {
+        System.clearProperty(WebXRPreviewServer.HTTPS_PORT_PROPERTY);
+      } else {
+        System.setProperty(WebXRPreviewServer.HTTPS_PORT_PROPERTY, previousPort);
+      }
+      deleteRecursively(exportDir);
+    }
+  }
 }
