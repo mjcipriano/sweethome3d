@@ -1,5 +1,15 @@
 # Changelog
 
+## [7.21.0](https://github.com/mjcipriano/sweethome3d/compare/v7.20.0...v7.21.0) (2026-11-16)
+
+
+### Features
+
+* game mode - walk, jump, climb and fly in the home, open doors, break things ([6df4b3f](https://github.com/mjcipriano/sweethome3d/commit/6df4b3f825edd9331e76cf080d0f452982b6e07f))
+* game mode - walk, jump, climb and fly in the home, open doors, break things ([52da941](https://github.com/mjcipriano/sweethome3d/commit/52da941df648d428fb20d1d3884ffe68c0c3d2a7))
+* review notes pinned to walls, furniture and rooms, read by Claude ([119af5a](https://github.com/mjcipriano/sweethome3d/commit/119af5ac6cd608e63a0f69d040fb16f1b08af11f))
+* review notes pinned to walls, furniture and rooms, read by Claude ([bb349c6](https://github.com/mjcipriano/sweethome3d/commit/bb349c6a327688fd1f1da127ae3de77bd96ab8c5))
+
 ## [7.20.0](https://github.com/mjcipriano/sweethome3d/compare/v7.19.0...v7.20.0) (2026-11-16)
 
 
