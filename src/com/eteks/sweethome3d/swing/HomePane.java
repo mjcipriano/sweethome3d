@@ -1367,6 +1367,12 @@ public class HomePane extends JRootPane implements HomeView {
           HomeDesignToolsView.showReportDialog(HomePane.this, home);
         }
       }));
+    planMenu.add(new JMenuItem(new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "exportElevation")) {
+        public void actionPerformed(ActionEvent ev) {
+          HomeDesignToolsView.showElevationDialog(HomePane.this, home);
+        }
+      }));
     // Dimension lines of the rooms in one step
     planMenu.add(new JMenuItem(new AbstractAction(
         preferences.getLocalizedString(HomePane.class, "addRoomDimensions")) {
@@ -1544,6 +1550,14 @@ public class HomePane extends JRootPane implements HomeView {
         }
       };
     furnitureMenu.add(new JMenuItem(layersAction));
+
+    // Named versions of the home
+    fileMenu.insert(new JMenuItem(new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "homeVersions")) {
+        public void actionPerformed(ActionEvent ev) {
+          HomeDesignToolsView.showVersionsDialog(HomePane.this, home, controller);
+        }
+      }), Math.min(fileMenu.getMenuComponentCount(), 8));
 
     // Add menus to menu bar
     JMenuBar menuBar = new JMenuBar();

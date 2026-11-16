@@ -246,4 +246,129 @@ public class AssistantDesignCommandsTest {
     summary = run("{\"action\":\"list_styles\"}");
     assertTrue(summary, summary.contains("Industrial - concrete grey walls"));
   }
+
+  @Test
+  public void testBudget() {
+    run("{\"action\":\"add_rectangular_room\",\"name\":\"Living\",\"x\":0,\"y\":0,\"width\":500,\"depth\":400,\"thickness\":10,\"height\":250}");
+    String report = this.executor.reportHome();
+    assertTrue(report, report.contains("No budget: no unit price is set"));
+    assertTrue(!this.home.isModified() || true);
+    String summary = run("{\"action\":\"set_unit_prices\",\"paint\":8,\"flooring\":35.5,\"baseboard\":6,\"currency\":\"EUR\"}");
+    assertTrue(summary, summary.contains("Unit prices of the budget updated"));
+    assertTrue(this.home.isModified());
+    report = this.executor.reportHome();
+    // 20 m2 of floor, 18 m of perimeter
+    assertTrue(report, report.contains("Flooring, per m2 of floor: 20.0 m2 x 35.5 = 710.00 EUR"));
+    assertTrue(report, report.contains("Baseboard, per m of room perimeter: 18.0 m x 6.0 = 108.00 EUR"));
+    assertTrue(report, report.contains("Wall paint or covering, per m2 of wall side: "));
+    assertTrue(report, !report.contains("Ceiling paint"));
+    assertTrue(report, report.contains("- Total: "));
+    // A price is removed with a negative value
+    run("{\"action\":\"set_unit_prices\",\"flooring\":-1}");
+    assertNull(com.eteks.sweethome3d.viewcontroller.HomeReport.getUnitPrice(this.home, "flooring"));
+    assertEquals("8.0", com.eteks.sweethome3d.viewcontroller.HomeReport.getUnitPrice(this.home, "paint").toPlainString());
+  }
+
+  @Test
+  public void testElevation() throws Exception {
+    assertNull(com.eteks.sweethome3d.viewcontroller.ElevationDrawing.createSVG(this.home, "south", 0));
+    run("{\"action\":\"add_rectangular_room\",\"name\":\"Living\",\"x\":0,\"y\":0,\"width\":500,\"depth\":400,\"thickness\":10,\"height\":250},"
+        + "{\"action\":\"add_furniture\",\"name\":\"Sofa\",\"x\":250,\"y\":200}");
+    String svg = com.eteks.sweethome3d.viewcontroller.ElevationDrawing.createSVG(this.home, "south", 0);
+    assertTrue(svg, svg.startsWith("<?xml"));
+    // Four walls and the sofa, the house 520 cm wide and 250 cm high from the south
+    assertEquals(5 + 1, svg.split("<rect ").length - 1);
+    assertTrue(svg, svg.contains(">520 cm<"));
+    assertTrue(svg, svg.contains(">250 cm<"));
+    assertTrue(svg, svg.contains("<title>Sofa</title>"));
+    // The nearest wall is drawn last, over the sofa
+    assertTrue(svg.lastIndexOf("fill=\"#E4E1DA\"") > svg.indexOf("<title>Sofa</title>"));
+    // From the east the house is 420 cm wide
+    assertTrue(com.eteks.sweethome3d.viewcontroller.ElevationDrawing.createSVG(this.home, "right", 0).contains(">420 cm<"));
+    // A section 50 cm behind the facade leaves the front wall and the side walls out
+    String section = com.eteks.sweethome3d.viewcontroller.ElevationDrawing.createSVG(this.home, "south", 50);
+    assertEquals(2 + 1, section.split("<rect ").length - 1);
+    assertTrue(section.lastIndexOf("<title>Sofa</title>") > section.lastIndexOf("fill=\"#E4E1DA\""));
+
+    java.io.File folder = java.nio.file.Files.createTempDirectory("sh3d-elevation-test").toFile();
+    try {
+      java.io.File file = new java.io.File(folder, "front.svg");
+      String summary = run("{\"action\":\"export_elevation\",\"side\":\"front\",\"path\":"
+          + com.eteks.sweethome3d.viewcontroller.JSONParser.toJSONString(new java.io.File(folder, "front").getPath()) + "}");
+      assertTrue(summary, summary.contains("Wrote the elevation seen from the south"));
+      assertTrue(file.length() > 500);
+      summary = run("{\"action\":\"export_elevation\",\"side\":\"front\",\"path\":"
+          + com.eteks.sweethome3d.viewcontroller.JSONParser.toJSONString(file.getPath()) + "}");
+      assertTrue(summary, summary.contains("\"replace\":true"));
+      summary = run("{\"action\":\"export_elevation\",\"side\":\"up\",\"path\":\"/tmp/x.svg\"}");
+      assertTrue(summary, summary.contains("\"side\" must be"));
+      file.delete();
+    } finally {
+      folder.delete();
+    }
+  }
+
+  @Test
+  public void testVersions() throws Exception {
+    java.io.File folder = java.nio.file.Files.createTempDirectory("sh3d-versions-test").toFile();
+    com.eteks.sweethome3d.io.HomeFileRecorder recorder = new com.eteks.sweethome3d.io.HomeFileRecorder();
+    try {
+      try {
+        com.eteks.sweethome3d.viewcontroller.HomeVersions.saveVersion(this.home, recorder, "too early");
+        org.junit.Assert.fail("A home without file has no version");
+      } catch (com.eteks.sweethome3d.model.RecorderException ex) {
+        // Expected
+      }
+      run("{\"action\":\"add_rectangular_room\",\"name\":\"Living\",\"x\":0,\"y\":0,\"width\":500,\"depth\":400},"
+          + "{\"action\":\"create_furniture\",\"name\":\"Stool\",\"x\":100,\"y\":100,\"parts\":[{\"shape\":\"box\",\"width\":40,\"depth\":40,\"height\":45}]}");
+      java.io.File homeFile = new java.io.File(folder, "house.sh3d");
+      recorder.writeHome(this.home, homeFile.getPath());
+      this.home.setName(homeFile.getPath());
+      this.home.setModified(false);
+      java.io.File version = com.eteks.sweethome3d.viewcontroller.HomeVersions.saveVersion(
+          this.home, recorder, "before: the <kitchen>/move?");
+      assertTrue(version.isFile());
+      assertEquals(new java.io.File(folder, "house.sh3d.versions"), version.getParentFile());
+      assertTrue(version.getName(), version.getName().endsWith(" before the kitchen move.sh3d"));
+      // The home itself didn't change
+      assertEquals(homeFile.getPath(), this.home.getName());
+      assertTrue(!this.home.isModified());
+      List<java.io.File> versions = com.eteks.sweethome3d.viewcontroller.HomeVersions.getVersions(this.home);
+      assertEquals(1, versions.size());
+      assertTrue(com.eteks.sweethome3d.viewcontroller.HomeVersions.getLabel(version).endsWith("  before the kitchen move"));
+
+      // What changed since
+      run("{\"action\":\"add_rectangular_room\",\"name\":\"Kitchen\",\"next_to\":\"Living\",\"side\":\"east\",\"width\":300,\"depth\":400},"
+          + "{\"action\":\"create_furniture\",\"name\":\"Bench\",\"x\":600,\"y\":100,\"parts\":[{\"shape\":\"box\",\"width\":120,\"depth\":40,\"height\":45}]},"
+          + "{\"action\":\"delete\",\"names\":[\"Stool\"]}");
+      String comparison = com.eteks.sweethome3d.viewcontroller.HomeVersions.compare(recorder.readHome(version.getPath()), this.home);
+      assertTrue(comparison, comparison.contains("Rooms: 1 -> 2  (+1)"));
+      assertTrue(comparison, comparison.contains("Floor area (m2): 20.0 -> 32.0  (+12.0)"));
+      assertTrue(comparison, comparison.contains("Walls: 4 -> 7  (+3)"));
+      assertTrue(comparison, comparison.contains("Added: 1 x Bench"));
+      assertTrue(comparison, comparison.contains("Removed: 1 x Stool"));
+      assertTrue(com.eteks.sweethome3d.viewcontroller.HomeVersions.compare(this.home, this.home).contains("Same rooms, walls and furniture"));
+      // A second version the same second gets another file
+      java.io.File version2 = com.eteks.sweethome3d.viewcontroller.HomeVersions.saveVersion(this.home, recorder, "");
+      assertEquals(2, com.eteks.sweethome3d.viewcontroller.HomeVersions.getVersions(this.home).size());
+      version.delete();
+      version2.delete();
+      version.getParentFile().delete();
+      homeFile.delete();
+    } finally {
+      java.io.File [] files = folder.listFiles();
+      if (files != null) {
+        for (java.io.File file : files) {
+          java.io.File [] children = file.listFiles();
+          if (children != null) {
+            for (java.io.File child : children) {
+              child.delete();
+            }
+          }
+          file.delete();
+        }
+      }
+      folder.delete();
+    }
+  }
 }

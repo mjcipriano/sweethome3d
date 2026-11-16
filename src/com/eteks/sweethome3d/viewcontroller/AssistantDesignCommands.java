@@ -137,6 +137,24 @@ public class AssistantDesignCommands {
       applyStyle(command, tally, notes);
     } else if ("list_styles".equals(action)) {
       notes.add("Styles: " + describeStyles());
+    } else if ("set_unit_prices".equals(action) || "set_budget".equals(action)) {
+      int count = 0;
+      for (String key : HomeReport.UNIT_PRICE_KEYS) {
+        if (command.has(key)) {
+          double price = command.getDouble(key, -1);
+          HomeReport.setUnitPrice(this.home, key, price >= 0 && price < 1E9
+              ? new java.math.BigDecimal(String.valueOf(price)) : null);
+          count++;
+        }
+      }
+      if (command.has("currency")) {
+        HomeReport.setBudgetCurrency(this.home, command.getString("currency"));
+        count++;
+      }
+      notes.add(count > 0 ? "Unit prices of the budget updated; home_report gives the budget"
+          : "Ignored set_unit_prices: give \"paint\", \"flooring\", \"ceiling\" (per m2), \"baseboard\" (per m) or \"currency\"");
+    } else if ("export_elevation".equals(action)) {
+      exportElevation(command, notes);
     } else if ("add_room_shape".equals(action) || "add_shaped_room".equals(action)) {
       addRoomShape(command, tally, notes);
     } else {
@@ -349,6 +367,55 @@ public class AssistantDesignCommands {
       return point;
     }
     return new float [] {(float)(point [0] + dx / length * 5), (float)(point [1] + dy / length * 5)};
+  }
+
+  // ---- Elevation drawings ----
+
+  private void exportElevation(AssistantCommand command, List<String> notes) {
+    String side = ElevationDrawing.parseSide(command.getString("side"));
+    if (side == null) {
+      notes.add("Ignored export_elevation: \"side\" must be south, north, east or west (the side the home is seen from)");
+      return;
+    }
+    String path = command.getString("path");
+    if (path == null || path.trim().length() == 0) {
+      notes.add("Ignored export_elevation without the absolute \"path\" of the SVG file to write");
+      return;
+    }
+    path = path.trim();
+    if (path.startsWith("~/")) {
+      path = System.getProperty("user.home") + path.substring(1);
+    }
+    if (!path.toLowerCase(Locale.ENGLISH).endsWith(".svg")) {
+      path += ".svg";
+    }
+    java.io.File file = new java.io.File(path);
+    if (!file.isAbsolute() || file.getParentFile() == null || !file.getParentFile().isDirectory()) {
+      notes.add("Ignored export_elevation: the path must be absolute, in a folder that exists");
+      return;
+    }
+    if (file.exists() && !command.getBoolean("replace", false)) {
+      notes.add(file + " exists; give \"replace\":true to overwrite it");
+      return;
+    }
+    double section = command.getDouble("section", 0);
+    String svg = ElevationDrawing.createSVG(this.home, side,
+        section > 0 && AssistantCommandExecutor.sizeSane(section) ? (float)section : 0);
+    if (svg == null) {
+      notes.add("Nothing to draw in the elevation seen from the " + side);
+      return;
+    }
+    try {
+      java.io.OutputStream out = new java.io.FileOutputStream(file);
+      try {
+        out.write(svg.getBytes("UTF-8"));
+      } finally {
+        out.close();
+      }
+      notes.add("Wrote the elevation seen from the " + side + " in " + file);
+    } catch (java.io.IOException ex) {
+      notes.add("Couldn't write " + file + " (" + ex.getMessage() + ")");
+    }
   }
 
   // ---- Room shapes ----

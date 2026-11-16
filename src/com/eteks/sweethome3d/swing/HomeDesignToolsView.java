@@ -241,18 +241,52 @@ public final class HomeDesignToolsView {
   }
 
   /**
-   * Shows the quantities of the home: areas, walls, furniture and prices.
+   * Shows the quantities of the home (areas, walls, furniture and prices)
+   * and its budget, computed from unit prices that can be changed here.
    */
-  public static void showReportDialog(final JComponent parent, Home home) {
-    final String report = HomeReport.describe(home);
-    final JTextArea textArea = new JTextArea(report, 24, 64);
+  public static void showReportDialog(final JComponent parent, final Home home) {
+    final JTextArea textArea = new JTextArea(HomeReport.describe(home), 24, 70);
     textArea.setEditable(false);
     textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, textArea.getFont().getSize()));
     textArea.setCaretPosition(0);
+    // Unit prices of the budget
+    final JTextField [] priceFields = new JTextField [HomeReport.UNIT_PRICE_KEYS.length];
+    JPanel pricesPanel = new JPanel(new GridLayout(0, 2, 6, 3));
+    for (int i = 0; i < priceFields.length; i++) {
+      java.math.BigDecimal price = HomeReport.getUnitPrice(home, HomeReport.UNIT_PRICE_KEYS [i]);
+      priceFields [i] = new JTextField(price != null ? price.toPlainString() : "", 8);
+      pricesPanel.add(new JLabel(HomeReport.getUnitPriceLabel(HomeReport.UNIT_PRICE_KEYS [i]) + ":"));
+      pricesPanel.add(priceFields [i]);
+    }
+    final JTextField currencyField = new JTextField(
+        HomeReport.getBudgetCurrency(home) != null ? HomeReport.getBudgetCurrency(home) : "", 8);
+    pricesPanel.add(new JLabel("Currency (EUR, USD...):"));
+    pricesPanel.add(currencyField);
+    JButton updateButton = new JButton("Update budget");
+    updateButton.setToolTipText("Stores these unit prices in the home and computes the budget again");
+    updateButton.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          try {
+            java.math.BigDecimal [] prices = new java.math.BigDecimal [priceFields.length];
+            for (int i = 0; i < priceFields.length; i++) {
+              String text = priceFields [i].getText().trim().replace(',', '.');
+              prices [i] = text.length() > 0 ? new java.math.BigDecimal(text) : null;
+            }
+            for (int i = 0; i < priceFields.length; i++) {
+              HomeReport.setUnitPrice(home, HomeReport.UNIT_PRICE_KEYS [i], prices [i]);
+            }
+            HomeReport.setBudgetCurrency(home, currencyField.getText());
+            textArea.setText(HomeReport.describe(home));
+            textArea.setCaretPosition(textArea.getDocument().getLength());
+          } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(SwingUtilities.getRootPane(parent), "Prices must be numbers; leave a field empty for no price.");
+          }
+        }
+      });
     JButton copyButton = new JButton("Copy");
     copyButton.addActionListener(new ActionListener() {
         public void actionPerformed(ActionEvent ev) {
-          Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(report), null);
+          Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(textArea.getText()), null);
         }
       });
     JButton saveButton = new JButton("Save as text file...");
@@ -261,27 +295,191 @@ public final class HomeDesignToolsView {
           JFileChooser chooser = new JFileChooser();
           chooser.setSelectedFile(new File("home-report.txt"));
           if (chooser.showSaveDialog(SwingUtilities.getRootPane(parent)) == JFileChooser.APPROVE_OPTION) {
-            try {
-              Writer writer = new OutputStreamWriter(new FileOutputStream(chooser.getSelectedFile()), "UTF-8");
-              try {
-                writer.write(report);
-              } finally {
-                writer.close();
-              }
-            } catch (IOException ex) {
-              JOptionPane.showMessageDialog(SwingUtilities.getRootPane(parent),
-                  "The file couldn't be written: " + ex.getMessage());
-            }
+            writeFile(parent, chooser.getSelectedFile(), textArea.getText());
           }
         }
       });
     JPanel buttons = new JPanel();
+    buttons.add(updateButton);
     buttons.add(copyButton);
     buttons.add(saveButton);
+    JPanel southPanel = new JPanel(new BorderLayout(0, 4));
+    southPanel.add(pricesPanel, BorderLayout.CENTER);
+    southPanel.add(buttons, BorderLayout.SOUTH);
     JPanel panel = new JPanel(new BorderLayout(0, 6));
     panel.add(new JScrollPane(textArea), BorderLayout.CENTER);
-    panel.add(buttons, BorderLayout.SOUTH);
-    JOptionPane.showMessageDialog(SwingUtilities.getRootPane(parent), panel, "Home report",
+    panel.add(southPanel, BorderLayout.SOUTH);
+    JOptionPane.showMessageDialog(SwingUtilities.getRootPane(parent), panel, "Home report and budget",
+        JOptionPane.PLAIN_MESSAGE);
+  }
+
+  private static boolean writeFile(JComponent parent, File file, String text) {
+    try {
+      Writer writer = new OutputStreamWriter(new FileOutputStream(file), "UTF-8");
+      try {
+        writer.write(text);
+      } finally {
+        writer.close();
+      }
+      return true;
+    } catch (IOException ex) {
+      JOptionPane.showMessageDialog(SwingUtilities.getRootPane(parent),
+          "The file couldn't be written: " + ex.getMessage());
+      return false;
+    }
+  }
+
+  /**
+   * Asks for a side and writes the elevation drawing of the home seen from it.
+   */
+  public static void showElevationDialog(JComponent parent, Home home) {
+    JComboBox sideComboBox = new JComboBox(new String [] {
+        "Front - seen from the bottom of the plan (south)", "Back - seen from the top of the plan (north)",
+        "Right side (east)", "Left side (west)"});
+    JTextField sectionField = new JTextField("0", 6);
+    JPanel panel = new JPanel(new GridLayout(0, 1, 0, 4));
+    panel.add(new JLabel("Side the home is seen from:"));
+    panel.add(sideComboBox);
+    panel.add(new JLabel("<html>Section: distance in cm behind the front of the home where it is cut,<br>"
+        + "to show the inside (0 = the outside of the home):</html>"));
+    panel.add(sectionField);
+    panel.add(new JLabel("<html>The drawing is a SVG file at 1 unit per cm, made of the outline of each<br>"
+        + "wall, door, window and piece of furniture. Browsers, Inkscape and<br>"
+        + "office suites open it.</html>"));
+    if (JOptionPane.showConfirmDialog(SwingUtilities.getRootPane(parent), panel, "Export elevation drawing",
+          JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) {
+      return;
+    }
+    float section;
+    try {
+      section = Math.max(0, (float)parse(sectionField));
+    } catch (NumberFormatException ex) {
+      section = 0;
+    }
+    String side = com.eteks.sweethome3d.viewcontroller.ElevationDrawing.SIDES [sideComboBox.getSelectedIndex()];
+    String svg = com.eteks.sweethome3d.viewcontroller.ElevationDrawing.createSVG(home, side, section);
+    if (svg == null) {
+      JOptionPane.showMessageDialog(SwingUtilities.getRootPane(parent), "There is nothing to draw from this side.");
+      return;
+    }
+    JFileChooser chooser = new JFileChooser();
+    chooser.setSelectedFile(new File("elevation-" + side + ".svg"));
+    if (chooser.showSaveDialog(SwingUtilities.getRootPane(parent)) == JFileChooser.APPROVE_OPTION) {
+      File file = chooser.getSelectedFile();
+      if (!file.getName().toLowerCase().endsWith(".svg")) {
+        file = new File(file.getPath() + ".svg");
+      }
+      if (writeFile(parent, file, svg)) {
+        try {
+          java.awt.Desktop.getDesktop().browse(file.toURI());
+        } catch (Exception ex) {
+          JOptionPane.showMessageDialog(SwingUtilities.getRootPane(parent), "The drawing is in " + file);
+        }
+      }
+    }
+  }
+
+  /**
+   * Shows the versions of the home: save one, open one, compare one with
+   * the current state, delete one.
+   */
+  public static void showVersionsDialog(final JComponent parent, final Home home, final HomeController controller) {
+    if (home.getName() == null) {
+      JOptionPane.showMessageDialog(SwingUtilities.getRootPane(parent),
+          "Save the home in a file first: its versions are kept in a folder beside that file.");
+      return;
+    }
+    final javax.swing.DefaultListModel listModel = new javax.swing.DefaultListModel();
+    final java.util.List<File> versions = new java.util.ArrayList<File>();
+    final Runnable refresh = new Runnable() {
+        public void run() {
+          versions.clear();
+          versions.addAll(com.eteks.sweethome3d.viewcontroller.HomeVersions.getVersions(home));
+          listModel.clear();
+          for (File version : versions) {
+            listModel.addElement(com.eteks.sweethome3d.viewcontroller.HomeVersions.getLabel(version));
+          }
+        }
+      };
+    refresh.run();
+    final JList list = new JList(listModel);
+    list.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
+    list.setVisibleRowCount(10);
+    final JTextArea comparisonArea = new JTextArea(9, 52);
+    comparisonArea.setEditable(false);
+    comparisonArea.setLineWrap(true);
+    comparisonArea.setWrapStyleWord(true);
+    comparisonArea.setText("Choose a version and Compare to see what changed since.");
+    JButton saveButton = new JButton("Save a version...");
+    JButton compareButton = new JButton("Compare with now");
+    JButton openButton = new JButton("Open in a new window");
+    JButton deleteButton = new JButton("Delete");
+    saveButton.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          String label = JOptionPane.showInputDialog(SwingUtilities.getRootPane(parent),
+              "Name of this version (for instance \"before moving the kitchen\"):", "Save a version",
+              JOptionPane.QUESTION_MESSAGE);
+          if (label != null) {
+            try {
+              controller.saveHomeVersion(label);
+              refresh.run();
+              list.setSelectedIndex(0);
+            } catch (Exception ex) {
+              JOptionPane.showMessageDialog(SwingUtilities.getRootPane(parent),
+                  "The version couldn't be saved: " + ex.getMessage());
+            }
+          }
+        }
+      });
+    compareButton.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          int index = list.getSelectedIndex();
+          if (index >= 0) {
+            try {
+              comparisonArea.setText("From \"" + listModel.get(index) + "\" to now:\n"
+                  + controller.compareWithHomeVersion(versions.get(index)));
+              comparisonArea.setCaretPosition(0);
+            } catch (Exception ex) {
+              comparisonArea.setText("This version couldn't be read: " + ex.getMessage());
+            }
+          }
+        }
+      });
+    openButton.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          int index = list.getSelectedIndex();
+          if (index >= 0) {
+            controller.open(versions.get(index).getPath());
+          }
+        }
+      });
+    deleteButton.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          int index = list.getSelectedIndex();
+          if (index >= 0 && JOptionPane.showConfirmDialog(SwingUtilities.getRootPane(parent),
+                "Delete the version \"" + listModel.get(index) + "\"? This can't be undone.", "Delete version",
+                JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+            versions.get(index).delete();
+            refresh.run();
+          }
+        }
+      });
+    JPanel buttons = new JPanel(new GridLayout(0, 1, 0, 4));
+    buttons.add(saveButton);
+    buttons.add(compareButton);
+    buttons.add(openButton);
+    buttons.add(deleteButton);
+    JPanel east = new JPanel(new BorderLayout());
+    east.add(buttons, BorderLayout.NORTH);
+    JPanel panel = new JPanel(new BorderLayout(8, 8));
+    panel.add(new JLabel("<html>A version is a copy of the home as it is now, kept in the folder<br><i>"
+        + com.eteks.sweethome3d.viewcontroller.HomeVersions.getFolder(home).getName() + "</i> beside its file. "
+        + "Opening one shows it in another window:<br>save it under the name of the home there to come back to it.</html>"),
+        BorderLayout.NORTH);
+    panel.add(new JScrollPane(list), BorderLayout.CENTER);
+    panel.add(east, BorderLayout.EAST);
+    panel.add(new JScrollPane(comparisonArea), BorderLayout.SOUTH);
+    JOptionPane.showMessageDialog(SwingUtilities.getRootPane(parent), panel, "Versions of the home",
         JOptionPane.PLAIN_MESSAGE);
   }
 }

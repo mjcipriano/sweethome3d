@@ -22,7 +22,7 @@ Legend: **yes** = available, **new** = added with this analysis, **partly**,
 | Stairs generator | yes | `add_stairs`: straight, L, U (no spiral) |
 | Plan checker (walls that don't meet, doors out of walls...) | yes | `check_home`, `fix_home` |
 | Terrain, garden, landscaping tools | no | only furniture and a flat ground |
-| 2D elevation and section drawings | no | the standard 3D views (front, sides) are the closest |
+| 2D elevation and section drawings | **new**, schematic | Plan > Export elevation drawing... (outlines, not model projections) |
 | Construction documents (framing, schedules, electrical symbols) | no | out of scope |
 
 ## Furnishing and decorating
@@ -58,7 +58,7 @@ Legend: **yes** = available, **new** = added with this analysis, **partly**,
 | --- | --- | --- |
 | Areas, wall lengths and surfaces, furniture list and prices | **new in the UI** | Plan > Home report... (the assistant and MCP already had `home_report`) |
 | Furniture list export (CSV) | yes | |
-| Paint, flooring and material estimates with unit prices | partly | surfaces are reported; no unit prices yet |
+| Paint, flooring and baseboard budget from unit prices | **new** | in the Home report window; `set_unit_prices` |
 
 ## Working with others, and with AI
 
@@ -67,7 +67,7 @@ Legend: **yes** = available, **new** = added with this analysis, **partly**,
 | AI design assistant in the program | yes | several providers |
 | Control from an external AI agent | yes | MCP server for Claude |
 | Cloud storage, real-time collaboration, comments | no | files are local; the web page export shares a read-only visit |
-| Versions of a design to compare | no | candidate: named snapshots of a home |
+| Versions of a design to compare | **new** | File > Versions... |
 | Mobile and tablet apps | no | |
 
 ## What to do next, by value for effort
