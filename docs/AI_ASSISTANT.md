@@ -183,6 +183,12 @@ extending the executor:
 - **MCP server.** `Help > Claude MCP server...` exposes the home to Claude and
   other MCP clients through the same executor: see `docs/MCP_SERVER.md`.
 
+### Design tools from the gap analysis (2026-11-16, DONE)
+
+`replace_furniture`, `add_room_shape`, `apply_style`, `set_unit_prices`,
+`export_elevation`, `auto_dimensions`, and `add_stairs` with
+`"shape":"spiral"`: see `docs/DESIGN_TOOLS.md` and `docs/GAP_ANALYSIS.md`.
+
 ### Tags, layers and furniture libraries (2026-11-16, DONE)
 
 `add_tags` / `remove_tags` / `set_tags`, `hide_layer` / `show_layer` /

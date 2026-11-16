@@ -1457,6 +1457,27 @@ public class HomeController implements Controller {
   }
 
   /**
+   * Saves a copy of the home as a named version beside its file.
+   * @see HomeVersions
+   */
+  public java.io.File saveHomeVersion(String label) throws RecorderException {
+    if (this.application == null) {
+      throw new RecorderException("Versions aren't available here");
+    }
+    return HomeVersions.saveVersion(this.home, this.application.getHomeRecorder(), label);
+  }
+
+  /**
+   * Returns what changed from the given version of the home to its current state.
+   */
+  public String compareWithHomeVersion(java.io.File version) throws RecorderException {
+    if (this.application == null) {
+      throw new RecorderException("Versions aren't available here");
+    }
+    return HomeVersions.compare(this.application.getHomeRecorder().readHome(version.getPath()), this.home);
+  }
+
+  /**
    * Adds the dimension lines giving the size of the selected rooms, or of
    * every room of the selected level if no room is selected, in one undoable
    * operation.

@@ -141,6 +141,27 @@ public class WebXRSceneDescriptionTest {
     assertEquals(-1, number(flight, "uz"), 0);
     assertEquals(2.7, number(flight, "h1"), 1e-4);
 
+    // A staircase of the catalog has no description: it's walked as one flight from its front to its back
+    com.eteks.sweethome3d.model.HomePieceOfFurniture catalogStairs = new com.eteks.sweethome3d.model.HomePieceOfFurniture(
+        new com.eteks.sweethome3d.model.CatalogPieceOfFurniture("Catalog staircase", null, null, 90, 300, 270, true, false));
+    catalogStairs.setStaircaseCutOutShape("M0,0 v1 h1 v-1 z");
+    catalogStairs.setX(600);
+    catalogStairs.setY(150);
+    home.addPieceOfFurniture(catalogStairs);
+    catalogStairs.setLevel(ground);
+    Map<String, Object> sceneWithCatalogStairs = (Map<String, Object>)JSONParser.parse(WebXRSceneDescription.toJSON(home));
+    List<Object> bothStairs = (List<Object>)sceneWithCatalogStairs.get("stairs");
+    assertEquals(2, bothStairs.size());
+    assertEquals(1, number(bothStairs.get(1), "topLevel"), 0);
+    List<Object> catalogFlights = (List<Object>)((Map<String, Object>)bothStairs.get(1)).get("flights");
+    assertEquals(1, catalogFlights.size());
+    assertEquals(0.45, number(catalogFlights.get(0), "x2"), 1e-4);
+    assertEquals(1.5, number(catalogFlights.get(0), "z2"), 1e-4);
+    assertEquals(-1, number(catalogFlights.get(0), "uz"), 0);
+    assertEquals(0, number(catalogFlights.get(0), "h0"), 1e-4);
+    assertEquals(2.7, number(catalogFlights.get(0), "h1"), 1e-4);
+    home.deletePieceOfFurniture(catalogStairs);
+
     List<Object> walls = (List<Object>)scene.get("walls");
     assertEquals("Wall of the hidden level not exported", 2, walls.size());
     assertEquals(0, number(walls.get(0), "level"), 0);

@@ -19,10 +19,10 @@ Legend: **yes** = available, **new** = added with this analysis, **partly**,
 | Trace over a scanned plan | yes | background image; `set_background_image` |
 | Mirror / flip a plan | yes | select all, then flip horizontally / vertically |
 | Automatic roof | yes | `auto_roof` (assistant) |
-| Stairs generator | yes | `add_stairs`: straight, L, U (no spiral) |
+| Stairs generator | yes | `add_stairs`: straight, L, U and spiral |
 | Plan checker (walls that don't meet, doors out of walls...) | yes | `check_home`, `fix_home` |
 | Terrain, garden, landscaping tools | no | only furniture and a flat ground |
-| 2D elevation and section drawings | no | the standard 3D views (front, sides) are the closest |
+| 2D elevation and section drawings | **new**, schematic | Plan > Export elevation drawing... (outlines, not model projections) |
 | Construction documents (framing, schedules, electrical symbols) | no | out of scope |
 
 ## Furnishing and decorating
@@ -48,8 +48,8 @@ Legend: **yes** = available, **new** = added with this analysis, **partly**,
 | Photo-realistic images and videos | yes | built-in renderers, and Blender export |
 | VR walk-through in a headset | yes | Tools > WebXR Preview... |
 | A link to share a 3D visit | **new** | Tools > Export 3D web page... writes a folder for any static web host |
-| 360 degree panoramas | no | candidate: render six views or an equirectangular image |
-| Automatic hiding of the walls in front of the camera (doll house) | partly | walls transparency is global |
+| 360 degree panoramas | **new** | 3D view > Export 360° panorama... |
+| Automatic hiding of the walls in front of the camera (doll house) | **new** | 3D view > Hide walls in front of the camera |
 | Sun position by date and time in the live view | partly | compass and time are used by the photo renderer |
 
 ## Quantities and cost
@@ -58,7 +58,7 @@ Legend: **yes** = available, **new** = added with this analysis, **partly**,
 | --- | --- | --- |
 | Areas, wall lengths and surfaces, furniture list and prices | **new in the UI** | Plan > Home report... (the assistant and MCP already had `home_report`) |
 | Furniture list export (CSV) | yes | |
-| Paint, flooring and material estimates with unit prices | partly | surfaces are reported; no unit prices yet |
+| Paint, flooring and baseboard budget from unit prices | **new** | in the Home report window; `set_unit_prices` |
 
 ## Working with others, and with AI
 
@@ -67,16 +67,20 @@ Legend: **yes** = available, **new** = added with this analysis, **partly**,
 | AI design assistant in the program | yes | several providers |
 | Control from an external AI agent | yes | MCP server for Claude |
 | Cloud storage, real-time collaboration, comments | no | files are local; the web page export shares a read-only visit |
-| Versions of a design to compare | no | candidate: named snapshots of a home |
+| Versions of a design to compare | **new** | File > Versions... |
 | Mobile and tablet apps | no | |
 
 ## What to do next, by value for effort
 
-1. **Unit prices in the report** (paint per m2, flooring per m2, baseboard per
-   m) to turn the quantities into a budget.
-2. **Named versions of a home** (snapshot, compare, restore).
-3. **360 degree panorama export**, viewable in the same web page and in a
-   headset without loading the whole model.
-4. **Spiral stairs** and walkable catalog staircases.
-5. **Elevation drawings** of a wall with its furniture, as a 2D export.
-6. **Doll house view**: hide the walls between the camera and the rooms.
+The six items first listed here (unit prices, versions, panoramas, spiral and
+walkable stairs, elevation drawings, doll house) were done on 2026-11-16.
+What remains:
+
+1. **Elevations from the 3D models** instead of outlines, and dimensions on
+   them.
+2. **Restore a version in place**, and a visual comparison of two versions.
+3. **Catalog staircases walked exactly** (their steps read from the model).
+4. **Unit prices per room or per wall**, and doors and windows deducted from
+   the wall surfaces.
+5. **Sun position by date and time** in the live 3D view.
+6. **Terrain and garden tools.**

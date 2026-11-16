@@ -146,7 +146,114 @@ public class HomeReport {
     } else if (!furniture.isEmpty()) {
       report.append("- No piece of furniture has a price\n");
     }
+    appendBudget(report, home, totalFloor, totalWallSurface, totalPrice, currency);
     return report.toString().trim();
+  }
+
+  /** The unit prices of a budget: their keys, and what each one is the price of. */
+  public static final String [] UNIT_PRICE_KEYS = {"paint", "flooring", "ceiling", "baseboard"};
+  private static final String [] UNIT_PRICE_LABELS = {
+      "Wall paint or covering, per m2 of wall side", "Flooring, per m2 of floor",
+      "Ceiling paint, per m2 of ceiling", "Baseboard, per m of room perimeter"};
+  private static final String UNIT_PRICE_PROPERTY_PREFIX = "budgetUnitPrice.";
+  private static final String BUDGET_CURRENCY_PROPERTY = "budgetCurrency";
+
+  /**
+   * Returns what the unit price of the given key is the price of.
+   */
+  public static String getUnitPriceLabel(String key) {
+    for (int i = 0; i < UNIT_PRICE_KEYS.length; i++) {
+      if (UNIT_PRICE_KEYS [i].equals(key)) {
+        return UNIT_PRICE_LABELS [i];
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Returns the unit price stored in <code>home</code> for the given key, or <code>null</code>.
+   */
+  public static BigDecimal getUnitPrice(Home home, String key) {
+    String value = home.getProperty(UNIT_PRICE_PROPERTY_PREFIX + key);
+    if (value != null) {
+      try {
+        return new BigDecimal(value);
+      } catch (NumberFormatException ex) {
+        // No price
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Stores a unit price in <code>home</code>, saved with it, or removes it
+   * if <code>price</code> is <code>null</code> or negative.
+   */
+  public static void setUnitPrice(Home home, String key, BigDecimal price) {
+    if (getUnitPriceLabel(key) != null) {
+      String value = price != null && price.signum() >= 0 ? price.toPlainString() : null;
+      String oldValue = home.getProperty(UNIT_PRICE_PROPERTY_PREFIX + key);
+      if (value == null ? oldValue != null : !value.equals(oldValue)) {
+        home.setProperty(UNIT_PRICE_PROPERTY_PREFIX + key, value);
+        home.setModified(true);
+      }
+    }
+  }
+
+  /**
+   * Returns the currency of the budget of <code>home</code>, or <code>null</code>.
+   */
+  public static String getBudgetCurrency(Home home) {
+    return home.getProperty(BUDGET_CURRENCY_PROPERTY);
+  }
+
+  public static void setBudgetCurrency(Home home, String currency) {
+    String value = currency != null && currency.trim().length() > 0
+        ? currency.trim().substring(0, Math.min(8, currency.trim().length())) : null;
+    String oldValue = home.getProperty(BUDGET_CURRENCY_PROPERTY);
+    if (value == null ? oldValue != null : !value.equals(oldValue)) {
+      home.setProperty(BUDGET_CURRENCY_PROPERTY, value);
+      home.setModified(true);
+    }
+  }
+
+  /**
+   * Appends the budget computed from the unit prices of the home, if it has any.
+   */
+  private static void appendBudget(StringBuilder report, Home home, double floor, double wallSurface,
+                                   BigDecimal furniturePrice, String furnitureCurrency) {
+    double perimeter = 0;
+    for (Room room : home.getRooms()) {
+      perimeter += getPerimeter(room) / 100.;
+    }
+    double [] quantities = {wallSurface, floor, floor, perimeter};
+    String [] units = {"m2", "m2", "m2", "m"};
+    String currency = getBudgetCurrency(home) != null ? getBudgetCurrency(home) : furnitureCurrency;
+    String suffix = currency != null ? " " + currency : "";
+    BigDecimal total = BigDecimal.ZERO;
+    StringBuilder lines = new StringBuilder();
+    for (int i = 0; i < UNIT_PRICE_KEYS.length; i++) {
+      BigDecimal unitPrice = getUnitPrice(home, UNIT_PRICE_KEYS [i]);
+      if (unitPrice != null) {
+        BigDecimal quantity = new BigDecimal(quantities [i]).setScale(1, java.math.RoundingMode.HALF_UP);
+        BigDecimal cost = quantity.multiply(unitPrice).setScale(2, java.math.RoundingMode.HALF_UP);
+        total = total.add(cost);
+        lines.append("    - ").append(UNIT_PRICE_LABELS [i]).append(": ").append(quantity.toPlainString()).append(' ')
+            .append(units [i]).append(" x ").append(unitPrice.toPlainString()).append(" = ")
+            .append(cost.toPlainString()).append(suffix).append('\n');
+      }
+    }
+    if (lines.length() == 0) {
+      report.append("- No budget: no unit price is set (wall paint, flooring, ceiling, baseboard)\n");
+      return;
+    }
+    report.append("- Budget from the unit prices (walls on both sides, doors and windows not deducted):\n").append(lines);
+    if (furniturePrice != null) {
+      total = total.add(furniturePrice);
+      report.append("    - Furniture that has a price: ").append(furniturePrice.toPlainString()).append(suffix).append('\n');
+    }
+    report.append("    - Total: ").append(total.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString())
+        .append(suffix).append('\n');
   }
 
   private static void collect(List<HomePieceOfFurniture> furniture, List<HomePieceOfFurniture> pieces) {

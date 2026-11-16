@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import {buildColliders, move, isBlocked, nextLevel, startLevel, standAt} from '../../pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-walk.js';
+import {buildColliders, move, isBlocked, nextLevel, startLevel, standAt, MAX_STEP} from '../../pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-walk.js';
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 // A wall along x from 0 to 4 m at z = 2, 10 cm thick, with a 0.9 m door centered at x = 2
 const scene = {
@@ -112,4 +112,57 @@ for (let stepX = -1; stepX < 1.8; stepX += 0.1) {
   assert.ok(climbed, 'second flight at ' + stepX);
 }
 assert.deepStrictEqual(climbed, {level: 1, height: 0}, 'L stairs lead upstairs');
+// Spiral stairs: 15 steps of 24 degrees around a post at (20, 20), each one a small
+// landing above the previous one, as AssistantGeneratedModel.buildSpiralStairs describes them
+{
+  const radius = 0.98;
+  const steps = 15;
+  const stepHeight = 2.7 / steps;
+  const stepAngle = 24 * Math.PI / 180;
+  const flights = [];
+  for (let i = 0; i < steps; i++) {
+    const points = [[(i - 0.5) * stepAngle, radius * 0.35], [(i - 0.5) * stepAngle, radius], [i * stepAngle, radius],
+                    [(i + 0.5) * stepAngle, radius], [(i + 0.5) * stepAngle, radius * 0.35]]
+        .map(([angle, r]) => [r * Math.sin(angle), r * Math.cos(angle)]);
+    flights.push({x1: Math.min(...points.map(p => p[0])), z1: Math.min(...points.map(p => p[1])),
+                  x2: Math.max(...points.map(p => p[0])), z2: Math.max(...points.map(p => p[1])),
+                  ux: 0, uz: 0, h0: (i + 1) * stepHeight, h1: (i + 1) * stepHeight});
+  }
+  const spiral = {
+    levels: [{elevation: 0, floor: true}, {elevation: 2.7, floor: true}],
+    stairs: [{level: 0, topLevel: 1, x: 20, z: 20, angle: 0, base: 0, rise: 2.7, flights}]
+  };
+  const at = (angle, r) => [20 + r * Math.sin(angle), 20 + r * Math.cos(angle)];
+  // Up, turning around the post from the front of the stairs
+  let visitor = standAt(spiral, {level: 0, height: 0}, ...at(-0.3, radius * 1.3));
+  assert.deepStrictEqual(visitor, {level: 0, height: 0}, 'in front of the spiral stairs');
+  let highest = 0;
+  for (let angle = -0.15; angle <= (steps - 1) * stepAngle + 0.001; angle += 0.03) {
+    const next = standAt(spiral, visitor, ...at(angle, radius * 0.75));
+    assert.ok(next, 'spiral blocked at ' + angle + ' from ' + visitor.height);
+    assert.ok(next.height >= visitor.height - 1e-9, 'spiral goes down at ' + angle);
+    assert.ok(next.height - visitor.height <= MAX_STEP + 1e-9, 'spiral step too high at ' + angle);
+    visitor = next;
+    highest = Math.max(highest, visitor.height);
+  }
+  assert.ok(near(highest, 2.7), 'top of the spiral stairs: ' + highest);
+  // Off the top step, on the floor above
+  visitor = standAt(spiral, visitor, ...at((steps - 1) * stepAngle, radius * 1.3));
+  assert.deepStrictEqual(visitor, {level: 1, height: 0}, 'spiral stairs lead upstairs');
+  // The hole is closed elsewhere, and the bottom step can't be climbed from upstairs
+  assert.strictEqual(standAt(spiral, visitor, ...at(Math.PI / 2, radius * 0.75)), null, 'hole of the spiral stairs');
+  // Back down
+  visitor = standAt(spiral, visitor, ...at((steps - 1) * stepAngle, radius * 0.75));
+  assert.ok(visitor && visitor.level === 0 && near(visitor.height, 2.7), 'top step from upstairs');
+  for (let angle = (steps - 1) * stepAngle; angle >= -0.2; angle -= 0.03) {
+    const next = standAt(spiral, visitor, ...at(angle, radius * 0.75));
+    assert.ok(next, 'spiral blocked going down at ' + angle);
+    visitor = next;
+  }
+  visitor = standAt(spiral, visitor, ...at(-0.3, radius * 1.3));
+  assert.deepStrictEqual(visitor, {level: 0, height: 0}, 'down the spiral stairs');
+  // The bottom step isn't a way up to the top one, which is above it
+  const low = standAt(spiral, {level: 0, height: 0}, ...at(0, radius * 0.75));
+  assert.ok(low && low.height < 0.5, 'bottom step under the top one: ' + (low && low.height));
+}
 console.log('walk tests OK');

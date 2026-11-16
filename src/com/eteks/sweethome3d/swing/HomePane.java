@@ -1367,6 +1367,12 @@ public class HomePane extends JRootPane implements HomeView {
           HomeDesignToolsView.showReportDialog(HomePane.this, home);
         }
       }));
+    planMenu.add(new JMenuItem(new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "exportElevation")) {
+        public void actionPerformed(ActionEvent ev) {
+          HomeDesignToolsView.showElevationDialog(HomePane.this, home);
+        }
+      }));
     // Dimension lines of the rooms in one step
     planMenu.add(new JMenuItem(new AbstractAction(
         preferences.getLocalizedString(HomePane.class, "addRoomDimensions")) {
@@ -1441,6 +1447,18 @@ public class HomePane extends JRootPane implements HomeView {
         }
       });
     preview3DMenu.add(showFullDetailMenuItem);
+    // Doll house display: the walls in front of the camera are left out of the aerial view
+    final JCheckBoxMenuItem dollHouseMenuItem = new JCheckBoxMenuItem(
+        preferences.getLocalizedString(HomePane.class, "dollHouseView"));
+    dollHouseMenuItem.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          View view3D = controller.getHomeController3D().getView();
+          if (view3D instanceof HomeComponent3D) {
+            ((HomeComponent3D)view3D).setDollHouseView(dollHouseMenuItem.isSelected());
+          }
+        }
+      });
+    preview3DMenu.add(dollHouseMenuItem);
     addActionToMenu(ActionType.MODIFY_3D_ATTRIBUTES, preview3DMenu);
     // Standard views of the home
     JMenu standardViewsMenu = new JMenu(preferences.getLocalizedString(HomePane.class, "standardViews"));
@@ -1475,6 +1493,12 @@ public class HomePane extends JRootPane implements HomeView {
     addActionToMenu(ActionType.CREATE_VIDEO, preview3DMenu);
     preview3DMenu.addSeparator();
     addActionToMenu(ActionType.EXPORT_TO_OBJ, preview3DMenu);
+    preview3DMenu.add(new JMenuItem(new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "exportPanorama")) {
+        public void actionPerformed(ActionEvent ev) {
+          PanoramaExporter.showExportDialog(HomePane.this, home);
+        }
+      }));
     // High quality rendering in Blender
     preview3DMenu.add(new JMenuItem(new AbstractAction(
         preferences.getLocalizedString(HomePane.class, "exportToBlender")) {
@@ -1544,6 +1568,14 @@ public class HomePane extends JRootPane implements HomeView {
         }
       };
     furnitureMenu.add(new JMenuItem(layersAction));
+
+    // Named versions of the home
+    fileMenu.insert(new JMenuItem(new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "homeVersions")) {
+        public void actionPerformed(ActionEvent ev) {
+          HomeDesignToolsView.showVersionsDialog(HomePane.this, home, controller);
+        }
+      }), Math.min(fileMenu.getMenuComponentCount(), 8));
 
     // Add menus to menu bar
     JMenuBar menuBar = new JMenuBar();

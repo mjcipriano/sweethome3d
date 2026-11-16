@@ -135,7 +135,9 @@ class AssistantObjectCommands {
     int stepCount = AssistantGeneratedModel.getStepCount((float)rise);
     String shapeName = command.getString("shape");
     shapeName = shapeName != null ? shapeName.trim().toLowerCase(Locale.ENGLISH) : "";
-    int shape = shapeName.startsWith("l") || shapeName.contains("quarter")
+    int shape = shapeName.startsWith("spiral") || shapeName.startsWith("helic") || shapeName.startsWith("circular")
+        ? AssistantGeneratedModel.STAIRS_SPIRAL
+        : shapeName.startsWith("l") || shapeName.contains("quarter")
         ? AssistantGeneratedModel.STAIRS_L
         : (shapeName.startsWith("u") || shapeName.contains("half")
             ? AssistantGeneratedModel.STAIRS_U
@@ -174,7 +176,8 @@ class AssistantObjectCommands {
     this.executor.beginTurnUpdate();
     this.homeController.getFurnitureController().addFurniture(Collections.singletonList(piece));
     tally [0]++;
-    notes.add("Added " + (shape == AssistantGeneratedModel.STAIRS_L ? "L-shaped stairs"
+    notes.add("Added " + (shape == AssistantGeneratedModel.STAIRS_SPIRAL ? "spiral stairs"
+            : shape == AssistantGeneratedModel.STAIRS_L ? "L-shaped stairs"
             : (shape == AssistantGeneratedModel.STAIRS_U ? "U-shaped stairs" : "stairs"))
         + " of " + stepCount + " steps" + (leftRail || rightRail ? " with a handrail" : "")
         + ", " + Math.round(width) + " cm wide, taking " + Math.round(model.getWidth()) + " x "

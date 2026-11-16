@@ -1115,8 +1115,23 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
   private boolean isVisible() {
     HomePieceOfFurniture piece = (HomePieceOfFurniture)getUserData();
     return piece.isVisible()
+        && !this.hiddenInView
         && (piece.getLevel() == null
             || piece.getLevel().isViewableAndVisible());
+  }
+
+  private boolean hiddenInView;
+
+  /**
+   * Sets whether this piece is left out of the view it's displayed in, as
+   * the doors and windows of the walls the doll house display leaves out.
+   * It changes nothing in the home.
+   */
+  public void setHiddenInView(boolean hiddenInView) {
+    if (hiddenInView != this.hiddenInView) {
+      this.hiddenInView = hiddenInView;
+      updatePieceOfFurnitureVisibility();
+    }
   }
 
   /**

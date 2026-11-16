@@ -1428,6 +1428,27 @@ public class Wall3D extends Object3DBranch {
     return geometry;
   }
 
+  private boolean hiddenInView;
+
+  /**
+   * Sets whether this wall is left out of the view it's displayed in, whatever
+   * the visibility of its level. Used by the doll house display, it changes
+   * nothing in the home.
+   */
+  public void setHiddenInView(boolean hiddenInView) {
+    if (hiddenInView != this.hiddenInView) {
+      this.hiddenInView = hiddenInView;
+      updateWallAppearance(false);
+    }
+  }
+
+  /**
+   * Returns <code>true</code> if this wall is left out of its view.
+   */
+  public boolean isHiddenInView() {
+    return this.hiddenInView;
+  }
+
   /**
    * Sets wall appearance with its color, texture and transparency.
    */
@@ -1527,10 +1548,11 @@ public class Wall3D extends Object3DBranch {
     // Update wall side visibility
     RenderingAttributes renderingAttributes = wallSideAppearance.getRenderingAttributes();
     HomeEnvironment.DrawingMode drawingMode = getHome().getEnvironment().getDrawingMode();
-    renderingAttributes.setVisible(ignoreDrawingMode
-        || drawingMode == null
-        || drawingMode == HomeEnvironment.DrawingMode.FILL
-        || drawingMode == HomeEnvironment.DrawingMode.FILL_AND_OUTLINE);
+    renderingAttributes.setVisible(!this.hiddenInView
+        && (ignoreDrawingMode
+            || drawingMode == null
+            || drawingMode == HomeEnvironment.DrawingMode.FILL
+            || drawingMode == HomeEnvironment.DrawingMode.FILL_AND_OUTLINE));
   }
 
   /**
@@ -1540,8 +1562,9 @@ public class Wall3D extends Object3DBranch {
     // Update wall side visibility
     RenderingAttributes renderingAttributes = wallSideAppearance.getRenderingAttributes();
     HomeEnvironment.DrawingMode drawingMode = getHome().getEnvironment().getDrawingMode();
-    renderingAttributes.setVisible(drawingMode == HomeEnvironment.DrawingMode.OUTLINE
-        || drawingMode == HomeEnvironment.DrawingMode.FILL_AND_OUTLINE);
+    renderingAttributes.setVisible(!this.hiddenInView
+        && (drawingMode == HomeEnvironment.DrawingMode.OUTLINE
+            || drawingMode == HomeEnvironment.DrawingMode.FILL_AND_OUTLINE));
   }
 
   /**

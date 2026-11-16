@@ -1361,6 +1361,9 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
                 public void run() {
                   updateView(view, home.getCamera());
                   updateViewPlatformTransform(viewPlatformTransform, home.getCamera(), true);
+                  if (dollHouseView) {
+                    updateDollHouseView();
+                  }
                   updater = null;
                 }
               });
@@ -1372,6 +1375,9 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
         public void propertyChange(PropertyChangeEvent ev) {
           updateView(view, home.getCamera());
           updateViewPlatformTransform(viewPlatformTransform, home.getCamera(), false);
+          if (dollHouseView) {
+            updateDollHouseView();
+          }
           // Add camera change listener to new active camera
           ((Camera)ev.getOldValue()).removePropertyChangeListener(cameraChangeListener);
           home.getCamera().addPropertyChangeListener(cameraChangeListener);
@@ -3896,6 +3902,22 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     if (listenToHomeUpdates) {
       this.homeObjects.put(homeObject, object3D);
     }
+    if (this.dollHouseView) {
+      // An object created while the doll house display is on
+      if (object3D instanceof com.eteks.sweethome3d.j3d.Wall3D) {
+        ((com.eteks.sweethome3d.j3d.Wall3D)object3D).setHiddenInView(
+            com.eteks.sweethome3d.viewcontroller.DollHouseView.getHiddenWalls(this.home, this.home.getCamera()).contains(homeObject));
+      } else if (object3D instanceof com.eteks.sweethome3d.j3d.HomePieceOfFurniture3D
+                 && homeObject instanceof HomePieceOfFurniture
+                 && ((HomePieceOfFurniture)homeObject).isDoorOrWindow()) {
+        java.util.Set<HomePieceOfFurniture> hiddenFurniture = new java.util.HashSet<HomePieceOfFurniture>();
+        com.eteks.sweethome3d.viewcontroller.DollHouseView.addHiddenDoorsAndWindows(
+            java.util.Collections.singletonList((HomePieceOfFurniture)homeObject),
+            com.eteks.sweethome3d.viewcontroller.DollHouseView.getHiddenWalls(this.home, this.home.getCamera()),
+            hiddenFurniture);
+        ((com.eteks.sweethome3d.j3d.HomePieceOfFurniture3D)object3D).setHiddenInView(!hiddenFurniture.isEmpty());
+      }
+    }
     if (index == -1) {
       group.addChild(object3D);
     } else {
@@ -3934,6 +3956,51 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    */
   public Object3DFactory getObject3DFactory() {
     return this.object3dFactory;
+  }
+
+  private boolean dollHouseView;
+
+  /**
+   * Returns <code>true</code> if the aerial view leaves out the walls that
+   * stand between the camera and the rooms.
+   */
+  public boolean isDollHouseView() {
+    return this.dollHouseView;
+  }
+
+  /**
+   * Sets whether the aerial view leaves out the walls that stand between the
+   * camera and the rooms, with their doors and windows. The home isn't changed.
+   */
+  public void setDollHouseView(boolean dollHouseView) {
+    if (dollHouseView != this.dollHouseView) {
+      this.dollHouseView = dollHouseView;
+      updateDollHouseView();
+    }
+  }
+
+  /**
+   * Updates the walls, doors and windows left out by the doll house display
+   * for the current camera.
+   */
+  private void updateDollHouseView() {
+    if (this.home == null) {
+      return;
+    }
+    java.util.Set<Wall> hiddenWalls = this.dollHouseView
+        ? com.eteks.sweethome3d.viewcontroller.DollHouseView.getHiddenWalls(this.home, this.home.getCamera())
+        : new java.util.HashSet<Wall>();
+    java.util.Set<HomePieceOfFurniture> hiddenFurniture = new java.util.HashSet<HomePieceOfFurniture>();
+    com.eteks.sweethome3d.viewcontroller.DollHouseView.addHiddenDoorsAndWindows(
+        this.home.getFurniture(), hiddenWalls, hiddenFurniture);
+    for (Map.Entry<Selectable, Object3DBranch> entry : this.homeObjects.entrySet()) {
+      if (entry.getValue() instanceof com.eteks.sweethome3d.j3d.Wall3D) {
+        ((com.eteks.sweethome3d.j3d.Wall3D)entry.getValue()).setHiddenInView(hiddenWalls.contains(entry.getKey()));
+      } else if (entry.getValue() instanceof com.eteks.sweethome3d.j3d.HomePieceOfFurniture3D) {
+        ((com.eteks.sweethome3d.j3d.HomePieceOfFurniture3D)entry.getValue()).setHiddenInView(
+            hiddenFurniture.contains(entry.getKey()));
+      }
+    }
   }
 
   /**
