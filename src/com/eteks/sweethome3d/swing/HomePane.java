@@ -1447,6 +1447,18 @@ public class HomePane extends JRootPane implements HomeView {
         }
       });
     preview3DMenu.add(showFullDetailMenuItem);
+    // Doll house display: the walls in front of the camera are left out of the aerial view
+    final JCheckBoxMenuItem dollHouseMenuItem = new JCheckBoxMenuItem(
+        preferences.getLocalizedString(HomePane.class, "dollHouseView"));
+    dollHouseMenuItem.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          View view3D = controller.getHomeController3D().getView();
+          if (view3D instanceof HomeComponent3D) {
+            ((HomeComponent3D)view3D).setDollHouseView(dollHouseMenuItem.isSelected());
+          }
+        }
+      });
+    preview3DMenu.add(dollHouseMenuItem);
     addActionToMenu(ActionType.MODIFY_3D_ATTRIBUTES, preview3DMenu);
     // Standard views of the home
     JMenu standardViewsMenu = new JMenu(preferences.getLocalizedString(HomePane.class, "standardViews"));
@@ -1481,6 +1493,12 @@ public class HomePane extends JRootPane implements HomeView {
     addActionToMenu(ActionType.CREATE_VIDEO, preview3DMenu);
     preview3DMenu.addSeparator();
     addActionToMenu(ActionType.EXPORT_TO_OBJ, preview3DMenu);
+    preview3DMenu.add(new JMenuItem(new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "exportPanorama")) {
+        public void actionPerformed(ActionEvent ev) {
+          PanoramaExporter.showExportDialog(HomePane.this, home);
+        }
+      }));
     // High quality rendering in Blender
     preview3DMenu.add(new JMenuItem(new AbstractAction(
         preferences.getLocalizedString(HomePane.class, "exportToBlender")) {

@@ -176,4 +176,44 @@ public class HomeController3DZoomTest {
     this.home.setSelectedItems(java.util.Arrays.asList(new com.eteks.sweethome3d.model.Selectable [] {room}));
     assertEquals(2, this.homeController.addRoomDimensions());
   }
+
+  @Test
+  public void testDollHouseView() {
+    java.util.List<Wall> walls = new java.util.ArrayList<Wall>(this.home.getWalls());
+    Wall north = walls.get(0);
+    Wall east = walls.get(1);
+    Wall south = walls.get(2);
+    Wall west = walls.get(3);
+    // Seen from the south (the bottom of the plan), only the south wall stands before the rooms
+    this.controller.viewFromDirection((float)Math.PI, (float)Math.PI / 5);
+    java.util.Set<Wall> hidden = com.eteks.sweethome3d.viewcontroller.DollHouseView.getHiddenWalls(this.home, this.home.getCamera());
+    assertEquals(java.util.Collections.singleton(south), hidden);
+    // A door in that wall goes with it, a door in another wall stays
+    com.eteks.sweethome3d.model.HomePieceOfFurniture southDoor = new com.eteks.sweethome3d.model.HomeDoorOrWindow(
+        new com.eteks.sweethome3d.model.CatalogDoorOrWindow("Door", null, null, 90, 10, 200, 0, true, 1, 0,
+            new com.eteks.sweethome3d.model.Sash [0], null, null, false, 0f, true));
+    assertTrue(southDoor.isDoorOrWindow());
+    southDoor.setX(400);
+    southDoor.setY(800);
+    com.eteks.sweethome3d.model.HomePieceOfFurniture northDoor = southDoor.clone();
+    northDoor.setY(0);
+    this.home.addPieceOfFurniture(southDoor);
+    this.home.addPieceOfFurniture(northDoor);
+    java.util.Set<com.eteks.sweethome3d.model.HomePieceOfFurniture> hiddenFurniture =
+        new java.util.HashSet<com.eteks.sweethome3d.model.HomePieceOfFurniture>();
+    com.eteks.sweethome3d.viewcontroller.DollHouseView.addHiddenDoorsAndWindows(this.home.getFurniture(), hidden, hiddenFurniture);
+    assertEquals(java.util.Collections.singleton(southDoor), hiddenFurniture);
+    // From a corner, the two walls of that corner
+    this.controller.viewFromDirection((float)Math.PI * 3 / 4, (float)Math.PI / 6);
+    hidden = com.eteks.sweethome3d.viewcontroller.DollHouseView.getHiddenWalls(this.home, this.home.getCamera());
+    assertEquals(new java.util.HashSet<Wall>(java.util.Arrays.asList(south, east)), hidden);
+    this.controller.viewFromDirection((float)Math.PI * 7 / 4, (float)Math.PI / 6);
+    hidden = com.eteks.sweethome3d.viewcontroller.DollHouseView.getHiddenWalls(this.home, this.home.getCamera());
+    assertEquals(new java.util.HashSet<Wall>(java.util.Arrays.asList(north, west)), hidden);
+    // From the top and in the virtual visit, every wall is shown
+    this.controller.viewFromDirection((float)Math.PI, (float)Math.PI / 2);
+    assertTrue(com.eteks.sweethome3d.viewcontroller.DollHouseView.getHiddenWalls(this.home, this.home.getCamera()).isEmpty());
+    this.controller.viewFromObserver();
+    assertTrue(com.eteks.sweethome3d.viewcontroller.DollHouseView.getHiddenWalls(this.home, this.home.getCamera()).isEmpty());
+  }
 }

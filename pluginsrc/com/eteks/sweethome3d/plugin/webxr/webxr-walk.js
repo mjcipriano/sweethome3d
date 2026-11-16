@@ -210,7 +210,7 @@ export const MAX_STEP = 0.4;
  * Returns the height above the floor of the stairs' level at (x, z) if the
  * point is on one of the flights or landings of the stairs, or null.
  */
-function stairHeightAt(stair, x, z) {
+function stairHeightAt(stair, x, z, fromHeight = null) {
   // Coordinates relative to the center of the stairs at angle 0
   const dx = x - stair.x;
   const dz = z - stair.z;
@@ -219,6 +219,7 @@ function stairHeightAt(stair, x, z) {
   const localX = dx * cos + dz * sin;
   const localZ = dz * cos - dx * sin;
   let height = null;
+  let reachableHeight = null;
   for (const flight of stair.flights || []) {
     if (localX >= flight.x1 && localX <= flight.x2 && localZ >= flight.z1 && localZ <= flight.z2) {
       let progress = 0;
@@ -234,7 +235,15 @@ function stairHeightAt(stair, x, z) {
       const flightHeight = (stair.base || 0) + flight.h0 + (flight.h1 - flight.h0) * progress;
       // Where two parts meet, the highest one is the one someone stands on
       height = height === null ? flightHeight : Math.max(height, flightHeight);
+      // Parts may also be one above the other (the steps of spiral stairs):
+      // someone stands on the highest one within reach
+      if (fromHeight !== null && Math.abs(flightHeight - fromHeight) <= MAX_STEP) {
+        reachableHeight = reachableHeight === null ? flightHeight : Math.max(reachableHeight, flightHeight);
+      }
     }
+  }
+  if (reachableHeight !== null) {
+    return reachableHeight;
   }
   return height;
 }
@@ -262,7 +271,7 @@ export function standAt(scene, from, x, z) {
   // On stairs of the current level
   for (const stair of stairs) {
     if (stair.level === position.level) {
-      const height = stairHeightAt(stair, x, z);
+      const height = stairHeightAt(stair, x, z, position.height === null ? 0 : position.height);
       if (height !== null) {
         return reachable(height) ? {level: position.level, height} : null;
       }
@@ -281,7 +290,8 @@ export function standAt(scene, from, x, z) {
   // Over the hole of stairs coming up from a lower level
   for (const stair of stairs) {
     if (stair.topLevel === position.level) {
-      const height = stairHeightAt(stair, x, z);
+      // From the floor above, the step within reach is the one just under it
+      const height = stairHeightAt(stair, x, z, stairTop(scene, stair));
       if (height !== null) {
         return stairTop(scene, stair) - height <= MAX_STEP ? {level: stair.level, height} : null;
       }

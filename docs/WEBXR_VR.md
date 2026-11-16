@@ -151,12 +151,15 @@ instead of leaving an empty world.
 - The scene is still an OBJ text file, which is slow to load for big homes
   (load time on a headset hasn't been measured). Textures are exported at full
   resolution.
-- Only the stairs made by the assistant's `add_stairs` command can be walked:
-  they describe their flights and landings. You climb by walking or by
+- Stairs made by the assistant's `add_stairs` command are walked exactly:
+  they describe their flights, landings and, for spiral stairs, each step.
+  A staircase of the furniture catalog doesn't say where its steps are, so it
+  is walked as one flight over its whole area, climbing from its front to its
+  back: right for straight staircases set that way, approximate for the
+  others (turn the piece, or use A / B). You climb by walking or by
   teleporting onto them, their sides and the hole in the floor above block
   you like walls, and wall blocking off (X) also switches stairs off.
-  Staircases from the furniture catalog are scenery: use A / B to change
-  level.
+  A / B always change level.
 - The bundled TLS certificate is self-signed and **deliberately not a
   secret** - it carries no trust and only exists so the headset browser grants
   the page a secure context. The server only serves the exported scene files

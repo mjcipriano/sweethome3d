@@ -165,6 +165,15 @@ public class WebXRSceneDescription {
   private static String getStairs(HomePieceOfFurniture piece, List<Level> levels, boolean implicitLevel) {
     String description = piece.getProperty(AssistantGeneratedModel.STAIRS_FLIGHTS_PROPERTY);
     int levelIndex = getLevelIndex(piece.getLevel(), levels, implicitLevel);
+    if (description == null && levelIndex >= 0 && piece.getStaircaseCutOutShape() != null
+        && !piece.isDoorOrWindow() && piece.getWidth() > 0 && piece.getDepth() > 0 && piece.getHeight() > 30) {
+      // A staircase of the catalog doesn't tell where its steps are: it's walked as one
+      // flight over its whole area, climbing from its front to its back
+      description = String.format(java.util.Locale.US, "%.2f,%.2f,%.2f|%.2f,%.2f,%.2f,%.2f,0,-1,0,%.2f",
+          piece.getWidth(), piece.getDepth(), piece.getHeight(),
+          -piece.getWidth() / 2, -piece.getDepth() / 2, piece.getWidth() / 2, piece.getDepth() / 2,
+          piece.getHeight());
+    }
     if (description == null || levelIndex < 0) {
       return null;
     }

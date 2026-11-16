@@ -371,4 +371,52 @@ public class AssistantDesignCommandsTest {
       folder.delete();
     }
   }
+
+  @Test
+  public void testSpiralStairs() throws Exception {
+    run("{\"action\":\"add_rectangular_room\",\"name\":\"Hall\",\"x\":0,\"y\":0,\"width\":500,\"depth\":400},"
+        + "{\"action\":\"add_level\",\"name\":\"First floor\"},{\"action\":\"select_level\",\"name\":\"Ground\"}");
+    this.home.setSelectedLevel(this.home.getLevels().get(0));
+    String summary = run("{\"action\":\"add_stairs\",\"shape\":\"spiral\",\"x\":250,\"y\":200,\"width\":80,\"railing\":true}");
+    assertTrue(summary, summary.contains("Added spiral stairs of "));
+    HomePieceOfFurniture stairs = this.home.getFurniture().get(0);
+    // A square of twice the post radius and the width of the steps
+    assertEquals(176, stairs.getWidth(), 0.01f);
+    assertEquals(176, stairs.getDepth(), 0.01f);
+    float rise = this.home.getLevels().get(1).getElevation();
+    // The post goes up to the handrail of the floor above
+    assertEquals(rise + 90, stairs.getHeight(), 0.5f);
+    String flights = stairs.getProperty(com.eteks.sweethome3d.viewcontroller.AssistantGeneratedModel.STAIRS_FLIGHTS_PROPERTY);
+    int stepCount = com.eteks.sweethome3d.viewcontroller.AssistantGeneratedModel.getStepCount(rise);
+    assertEquals(stepCount, flights.substring(flights.indexOf('|') + 1).split(";").length);
+    // The last step is at the height of the floor above, and the hole in that floor is round
+    String lastFlight = flights.substring(flights.lastIndexOf(';') + 1);
+    assertEquals(rise, Float.parseFloat(lastFlight.substring(lastFlight.lastIndexOf(',') + 1)), 0.05f);
+    assertTrue(stairs.getStaircaseCutOutShape().startsWith("M1.0000,0.5000 L"));
+    assertEquals(24, stairs.getStaircaseCutOutShape().split("L").length);
+    // The model is closed solids turned outward
+    java.io.InputStream in = stairs.getModel().openStream();
+    java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(in, "ISO-8859-1"));
+    List<double []> vertices = new ArrayList<double []>();
+    double volume = 0;
+    for (String line = reader.readLine(); line != null; line = reader.readLine()) {
+      String [] parts = line.trim().split(" +");
+      if (parts [0].equals("v")) {
+        vertices.add(new double [] {Double.parseDouble(parts [1]), Double.parseDouble(parts [2]), Double.parseDouble(parts [3])});
+      } else if (parts [0].equals("f")) {
+        double [] a = vertices.get(Integer.parseInt(parts [1]) - 1);
+        for (int i = 2; i < parts.length - 1; i++) {
+          double [] b = vertices.get(Integer.parseInt(parts [i]) - 1);
+          double [] c = vertices.get(Integer.parseInt(parts [i + 1]) - 1);
+          volume += (a [0] * (b [1] * c [2] - b [2] * c [1]) - a [1] * (b [0] * c [2] - b [2] * c [0])
+              + a [2] * (b [0] * c [1] - b [1] * c [0])) / 6;
+        }
+      }
+    }
+    in.close();
+    // The post and a slab of 5 cm by step, of 24 degrees of a disc of 88 cm of radius
+    double expected = Math.PI * 8 * 8 * (rise + 90) * 0.95 + stepCount * 5 * Math.PI * 88 * 88 * 24 / 360;
+    assertEquals(expected, volume, expected * 0.25);
+    assertTrue(volume > 0);
+  }
 }
