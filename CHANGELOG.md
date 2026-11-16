@@ -1,5 +1,35 @@
 # Changelog
 
+## [7.20.0](https://github.com/mjcipriano/sweethome3d/compare/v7.19.0...v7.20.0) (2026-11-16)
+
+
+### Features
+
+* budget from unit prices, versions of a home, elevation drawings ([b136315](https://github.com/mjcipriano/sweethome3d/commit/b13631588f0bbffcdcf9110c741ed77b3902026a))
+* budget, versions, elevations, spiral stairs, 360 panorama, doll house display ([41629f3](https://github.com/mjcipriano/sweethome3d/commit/41629f34b83d1dbcca9ace44447b334d4d358c51))
+* design tools from a gap analysis against comparable programs ([d41f051](https://github.com/mjcipriano/sweethome3d/commit/d41f051b4c6a899b2e868aa295f64bd8158f458c))
+* design tools from a gap analysis against comparable programs ([9692a75](https://github.com/mjcipriano/sweethome3d/commit/9692a75e5b16ef5be47d8f3910c23d857369d960))
+* fast zoom and zoom buttons for the 3D view, standard views, room dimensions ([6f6d960](https://github.com/mjcipriano/sweethome3d/commit/6f6d9603c1a9baa4a067612bafad796164233beb))
+* fast zoom and zoom buttons for the 3D view, standard views, room dimensions ([d59bf10](https://github.com/mjcipriano/sweethome3d/commit/d59bf10eff68266da8e0c29b3dbd9f41b54e319a))
+* spiral stairs, walkable catalog staircases, 360 degree panorama, doll house display ([349a71d](https://github.com/mjcipriano/sweethome3d/commit/349a71da890b7bf5b56aa9821340a78a171df154))
+* tags and layers for furniture, and furniture made by the assistant ([95024df](https://github.com/mjcipriano/sweethome3d/commit/95024dfa0a741117122343cbc9c8ac3125dd7db6))
+* tags and layers for furniture, and furniture made by the assistant ([9fca338](https://github.com/mjcipriano/sweethome3d/commit/9fca338ccfb628f291f655e69ec49878a51489dd))
+
+
+### Bug Fixes
+
+* **mcp:** register the bridge in the settings folder Claude Desktop really reads under Windows ([b535a0e](https://github.com/mjcipriano/sweethome3d/commit/b535a0eb5750658a220f8067d1078f117de24d6c))
+* **mcp:** register the bridge in the settings folder Claude Desktop really reads under Windows ([a996fe0](https://github.com/mjcipriano/sweethome3d/commit/a996fe037263bf41e18a654b35fd5a1c71f5edf6))
+* **webxr:** build the preview into the application and merge its meshes ([98af686](https://github.com/mjcipriano/sweethome3d/commit/98af686fef88ac1e1abe86ece5b6457065fb1fbb))
+* **webxr:** build the preview into the application and merge its meshes ([81fa444](https://github.com/mjcipriano/sweethome3d/commit/81fa4449134772115d717e47e92c56afae1f05fd))
+* **webxr:** draw only what is in sight in VR and log the visit of a headset ([d1e5c0e](https://github.com/mjcipriano/sweethome3d/commit/d1e5c0ea5b9b4b462652bbb0dfd679282a48ad0c))
+* **webxr:** draw only what is in sight in VR and log the visit of a headset ([a67fd9e](https://github.com/mjcipriano/sweethome3d/commit/a67fd9e07cc8d68e795dcdf49b33ff6e6d86afcd))
+* **webxr:** keep the mesh arrays on a computer, whose graphics may be created again when VR starts ([be250a4](https://github.com/mjcipriano/sweethome3d/commit/be250a4d097ec11fc4fd3dee1435e8e4c1b203b1))
+* **webxr:** keep the same port for headsets and explain a blocked connection ([6867467](https://github.com/mjcipriano/sweethome3d/commit/6867467d7c7a5e3da1eb95c8de0c8a671500ca55))
+* **webxr:** keep the same port for headsets and explain a blocked connection ([1b9db9e](https://github.com/mjcipriano/sweethome3d/commit/1b9db9e5f8e91d02da525a6d3807a74f8ab9000e))
+* **webxr:** start VR on the graphics card of the headset and report each step ([03efa6d](https://github.com/mjcipriano/sweethome3d/commit/03efa6d57bae5a57cd9da1315b152221a496decc))
+* **webxr:** start VR on the graphics card of the headset and report each step ([03e7b78](https://github.com/mjcipriano/sweethome3d/commit/03e7b7815be44e13678793f6f022e92646a254b3))
+
 ## [7.19.0](https://github.com/mjcipriano/sweethome3d/compare/v7.18.0...v7.19.0) (2026-11-14)
 
 
