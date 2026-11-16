@@ -35,6 +35,9 @@ UTF-8/ASCII.
   (Help > Design assistant...) — phase ledger, command protocol, and next work.
 - `docs/MCP_SERVER.md`: the local MCP server (Help > Claude MCP server...)
   that lets Claude and other MCP clients read and edit the open home.
+- `docs/LAYERS_AND_FURNITURE_LIBRARIES.md`: tags and layers of furniture
+  (Furniture > Layers and tags...), and the commands that let the assistant or
+  Claude build furniture from parts and write furniture libraries.
 - `docs/WEBXR_VR.md`: the WebXR preview plugin (Tools > WebXR Preview...) —
   viewing a home in a Meta Quest 2/3 or SteamVR headset, and how its
   HTTP/HTTPS preview server works.

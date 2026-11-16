@@ -1457,6 +1457,33 @@ public class HomeController implements Controller {
   }
 
   /**
+   * Adds tags to pieces of furniture and removes others, in one undoable operation.
+   * @return the count of pieces whose tags changed
+   * @see HomeItemTags
+   */
+  public int changeFurnitureTags(List<HomePieceOfFurniture> furniture,
+                                 java.util.Collection<String> addedTags,
+                                 java.util.Collection<String> removedTags,
+                                 boolean replace) {
+    return HomeItemTags.changeTags(this.home, getUndoableEditSupport(), furniture, addedTags, removedTags, replace);
+  }
+
+  /**
+   * Renames a tag of the furniture of the home, in one undoable operation.
+   */
+  public int renameFurnitureTag(String tag, String newTag) {
+    return HomeItemTags.renameTag(this.home, getUndoableEditSupport(), tag, newTag);
+  }
+
+  /**
+   * Shows or hides pieces of furniture, in one undoable operation.
+   * @return the count of pieces whose visibility changed
+   */
+  public int setFurnitureVisible(List<HomePieceOfFurniture> furniture, boolean visible) {
+    return HomeItemTags.setVisible(getUndoableEditSupport(), furniture, visible);
+  }
+
+  /**
    * Undoes last operation.
    */
   public void undo() {

@@ -84,6 +84,12 @@ protocol (`HomeAssistantContext.getCommandReference()`), at most 30 per call:
   texture), `set_background_image` (the picture of a floor plan behind the
   plan, which Claude can look at with `get_plan_image` and trace). Claude Code can read a photo you give it, then pick, size and
   color the closest catalog piece, or use these commands with the file path;
+- make furniture: `create_furniture` (a piece built from boxes, cylinders,
+  cones and spheres), `add_to_catalog`, `export_furniture_library` and
+  `import_furniture_library` (`.sh3f` files) - see
+  `docs/LAYERS_AND_FURNITURE_LIBRARIES.md` for the workflow;
+- organise: `add_tags`, `remove_tags`, `set_tags`, `hide_layer`, `show_layer`,
+  `select_layer` (a layer = the pieces of a tag or of a type);
 - change: `move`, `rotate`, `resize`, `set_color`, `set_texture`,
   `set_elevation`, `set_visible`, `rename`, `duplicate`, `delete`,
   `reduce_detail`, `restore_detail`, `select`, `set_camera`, `move_to_level`;
@@ -109,7 +115,11 @@ protocol (`HomeAssistantContext.getCommandReference()`), at most 30 per call:
 - File access is limited to what you ask for: `add_picture`, `import_texture`
   and `import_furniture` read the image or model file whose absolute path is
   given (and, for a model, the materials and images it names in its own
-  folder), and `export_blender` writes into the folder given. Writing and
+  folder), `import_furniture_library` reads the `.sh3f` file given,
+  `export_blender` writes into the folder given and
+  `export_furniture_library` writes the `.sh3f` file given (it refuses to
+  overwrite a file without `"replace":true`). `add_to_catalog` and
+  `import_furniture_library` change the furniture catalog of the user. Writing and
   importing need **Allow changes to this home**. The tools can't read other
   files, save the home, or reach the network.
 

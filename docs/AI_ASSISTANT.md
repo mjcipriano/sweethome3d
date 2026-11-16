@@ -183,6 +183,13 @@ extending the executor:
 - **MCP server.** `Help > Claude MCP server...` exposes the home to Claude and
   other MCP clients through the same executor: see `docs/MCP_SERVER.md`.
 
+### Tags, layers and furniture libraries (2026-11-16, DONE)
+
+`add_tags` / `remove_tags` / `set_tags`, `hide_layer` / `show_layer` /
+`select_layer`, `create_furniture` (a piece built from simple parts),
+`add_to_catalog`, `export_furniture_library` and `import_furniture_library`:
+see `docs/LAYERS_AND_FURNITURE_LIBRARIES.md`.
+
 ### Building and repair commands (2026-11-13, DONE)
 
 Added to the shared executor, so the in-app assistant and the MCP server both

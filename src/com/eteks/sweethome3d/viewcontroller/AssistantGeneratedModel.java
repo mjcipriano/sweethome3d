@@ -370,7 +370,7 @@ public class AssistantGeneratedModel {
    * whose name starts with <code>icon_</code>) in a file of its own: a home
    * saves the contents of an archive as a whole, under the name of only one of them.
    */
-  private static AssistantGeneratedModel store(String prefix, Map<String, byte []> files,
+  static AssistantGeneratedModel store(String prefix, Map<String, byte []> files,
                                                float width, float depth, float height) throws IOException {
     Map<String, byte []> modelFiles = new LinkedHashMap<String, byte []>();
     String modelName = null;
@@ -451,7 +451,7 @@ public class AssistantGeneratedModel {
     return vertexCount + 8;
   }
 
-  private static String material(String name, int color, String image) {
+  static String material(String name, int color, String image) {
     return String.format(Locale.US, "newmtl %s\nKa 0.2 0.2 0.2\nKd %.4f %.4f %.4f\nKs 0 0 0\nd 1\nillum 1\n",
         name, ((color >> 16) & 0xFF) / 255f, ((color >> 8) & 0xFF) / 255f, (color & 0xFF) / 255f)
         + (image != null ? "map_Kd " + image + "\n" : "");
@@ -559,6 +559,14 @@ public class AssistantGeneratedModel {
         }
       }
     }
+    return encodePng(pixels, size);
+  }
+
+  /**
+   * Returns the PNG image of <code>size</code> x <code>size</code> RGBA pixels,
+   * each row of <code>pixels</code> starting with its filter byte.
+   */
+  static byte [] encodePng(byte [] pixels, int size) throws IOException {
     Deflater deflater = new Deflater();
     deflater.setInput(pixels);
     deflater.finish();

@@ -220,6 +220,7 @@ public class HomeAssistantContext {
 
     List<HomePieceOfFurniture> topFurniture = home.getFurniture();
     if (!topFurniture.isEmpty()) {
+      brief.append("- ").append(AssistantLayerCommands.describeLayers(home)).append('\n');
       brief.append("- Furniture items (id at x,y cm, facing deg, width x depth cm):\n");
       int limit = Math.min(topFurniture.size(), MAX_LISTED_FURNITURE);
       for (int i = 0; i < limit; i++) {
@@ -239,6 +240,10 @@ public class HomeAssistantContext {
         appendLevel(brief, piece.getLevel(), levels);
         if (!piece.isVisible()) {
           brief.append(" (hidden)");
+        }
+        String tags = piece.getProperty(HomeItemTags.TAGS_PROPERTY);
+        if (tags != null) {
+          brief.append(", tags: ").append(tags);
         }
         Long modelSize = piece.getModelSize();
         if (modelSize != null && modelSize.longValue() >= 1024 * 1024) {
@@ -335,6 +340,20 @@ public class HomeAssistantContext {
         + "Missing sizes follow the proportions of the image)\n"
         + "  {\"action\":\"import_furniture\",\"path\":\"<absolute path of an OBJ, DAE, 3DS, KMZ or ZIP file>\",\"name\":\"<name>\","
         + "\"x\":N,\"y\":N,\"angle\":N,\"width\":N}  (a 3D model file as a new piece; give width or height in cm to size it)\n"
+        + "  {\"action\":\"create_furniture\",\"name\":\"<name>\",\"parts\":[{\"shape\":\"box|cylinder|cone|sphere\",\"x\":N,\"y\":N,\"z\":N,"
+        + "\"width\":N,\"depth\":N,\"height\":N,\"color\":\"#RRGGBB\"}],\"x\":N,\"y\":N,\"angle\":N,\"catalog\":\"<category>\"}  "
+        + "(builds a piece that is in no catalog from simple parts, in cm in the frame of the piece: part x to its right, "
+        + "y toward its front, z = height of the BOTTOM of the part above the floor, x,y = the CENTER of the part. "
+        + "E.g. a table = a top box at z 72 and four leg boxes at z 0. Optional per part: \"rotation\":N degrees around the vertical, "
+        + "\"axis\":\"x|y\" to lay a cylinder or cone down, \"diameter\":N, \"top_scale\":0..1 to taper it. "
+        + "Up to 150 parts. \"catalog\" also saves it in that category of the furniture catalog, with \"place\":false "
+        + "to save it without adding it to the home; \"tags\":[...] tags it)\n"
+        + "  {\"action\":\"add_to_catalog\",\"ids\":[\"F1\"],\"category\":\"<category>\"}  "
+        + "(saves pieces of the home, e.g. imported or created ones, in the user's furniture catalog; or \"tag\":\"<tag>\")\n"
+        + "  {\"action\":\"export_furniture_library\",\"path\":\"<absolute path>.sh3f\",\"name\":\"<library name>\",\"ids\":[\"F1\"]}  "
+        + "(writes a furniture library file to share from pieces of the home (ids, selection or \"tag\"), or from "
+        + "\"category\":\"<catalog category>\"; \"install\":true also installs it, \"replace\":true overwrites)\n"
+        + "  {\"action\":\"import_furniture_library\",\"path\":\"<absolute path>.sh3f\"}  (installs a furniture library in the catalog)\n"
         + "  {\"action\":\"import_texture\",\"image\":\"<absolute file path, or attached>\",\"name\":\"<name>\",\"width\":N,\"id\":\"R1\",\"part\":\"floor\"}  "
         + "(adds an image to the textures catalog, width = size in cm of what it shows, and applies it to the ids given)\n"
         + "  {\"action\":\"add_level\",\"name\":\"<name>\",\"elevation\":N,\"height\":N}  (adds a floor above and selects it)\n"
@@ -366,6 +385,11 @@ public class HomeAssistantContext {
         + "  {\"action\":\"set_elevation\",\"id\":\"F1\",\"elevation\":N}\n"
         + "  {\"action\":\"set_visible\",\"id\":\"F1\",\"visible\":true}\n"
         + "  {\"action\":\"rename\",\"id\":\"F1\",\"name\":\"<new name>\"}\n"
+        + "  {\"action\":\"add_tags\",\"ids\":[\"F1\",\"F2\"],\"tags\":[\"kitchen\",\"to buy\"]}  "
+        + "(tags furniture, doors and windows; a piece may have several tags. Also remove_tags and set_tags (replaces them). "
+        + "Instead of ids: \"type\":\"furniture|doors_and_windows|lights|stairs|groups\" and / or \"with_tag\":\"<tag>\")\n"
+        + "  {\"action\":\"hide_layer\",\"tag\":\"<tag>\"}  (hides every piece with that tag; or \"type\":\"lights\"; "
+        + "show_layer shows them again, select_layer selects them, \"tag\":\"untagged\" = the pieces without tag)\n"
         + "  {\"action\":\"delete\",\"ids\":[\"F1\",\"W2\"]}  (or \"target\":\"selection\")\n"
         + "  {\"action\":\"reduce_detail\",\"ids\":[\"F1\"]}  (or \"target\":\"selection\" or \"all\"; "
         + "shows the piece's reduced low-poly model in the 3D view to make large scenes faster. "

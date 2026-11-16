@@ -1465,6 +1465,20 @@ public class HomePane extends JRootPane implements HomeView {
       };
     helpMenu.add(new JMenuItem(mcpServerAction));
 
+    // Tags of furniture and layers
+    furnitureMenu.addSeparator();
+    furnitureMenu.add(FurnitureLayersView.createTagsMenu(
+        preferences.getLocalizedString(HomePane.class, "tagsMenu"),
+        preferences.getLocalizedString(HomePane.class, "layersAndTags"),
+        this, home, controller));
+    Action layersAction = new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "layersAndTags")) {
+        public void actionPerformed(ActionEvent ev) {
+          FurnitureLayersView.showLayersDialog(HomePane.this, home, controller);
+        }
+      };
+    furnitureMenu.add(new JMenuItem(layersAction));
+
     // Add menus to menu bar
     JMenuBar menuBar = new JMenuBar();
     menuBar.add(fileMenu);
@@ -1789,7 +1803,10 @@ public class HomePane extends JRootPane implements HomeView {
     for (int i = sortMenu.getMenuComponentCount() - 1; i > 0; i--) {
       JComponent menuComponent = (JComponent)sortMenu.getMenuComponent(i);
       if (menuComponent instanceof JMenuItem) {
-        String actionPrefix = (String)((JMenuItem)menuComponent).getAction().getValue(ResourceAction.RESOURCE_PREFIX);
+        // Items added without action (fork additions) aren't additional properties
+        Action menuItemAction = ((JMenuItem)menuComponent).getAction();
+        String actionPrefix = menuItemAction != null
+            ? (String)menuItemAction.getValue(ResourceAction.RESOURCE_PREFIX) : null;
         if (actionPrefix != null && actionPrefix.startsWith(SORT_HOME_FURNITURE_ADDITIONAL_PROPERTY_ACTION_PREFIX)) {
           sortMenu.remove(menuComponent);
           lastRemovedMenuItem = i;
@@ -1949,7 +1966,10 @@ public class HomePane extends JRootPane implements HomeView {
     for (int i = displayPropertyMenu.getMenuComponentCount() - 1; i > 0; i--) {
       JComponent menuComponent = (JComponent)displayPropertyMenu.getMenuComponent(i);
       if (menuComponent instanceof JMenuItem) {
-        String actionPrefix = (String)((JMenuItem)menuComponent).getAction().getValue(ResourceAction.RESOURCE_PREFIX);
+        // Items added without action (fork additions) aren't additional properties
+        Action menuItemAction = ((JMenuItem)menuComponent).getAction();
+        String actionPrefix = menuItemAction != null
+            ? (String)menuItemAction.getValue(ResourceAction.RESOURCE_PREFIX) : null;
         if (actionPrefix != null && actionPrefix.startsWith(DISPLAY_HOME_FURNITURE_ADDITIONAL_PROPERTY_ACTION_PREFIX)) {
           displayPropertyMenu.remove(menuComponent);
           lastRemovedMenuItem = i;
@@ -3366,6 +3386,11 @@ public class HomePane extends JRootPane implements HomeView {
           }
         });
       furnitureViewPopup.add(visibleOffItem);
+      // Tags of the selected furniture and layers they make
+      furnitureViewPopup.add(FurnitureLayersView.createTagsMenu(
+          this.preferences.getLocalizedString(HomePane.class, "tagsMenu"),
+          this.preferences.getLocalizedString(HomePane.class, "layersAndTags"),
+          furnitureTableView, home, controller));
       // Reduced detail (low poly) toggles for the 3D view
       furnitureViewPopup.addSeparator();
       JMenuItem reducedDetailItem = new JMenuItem(
@@ -3564,6 +3589,10 @@ public class HomePane extends JRootPane implements HomeView {
       addActionToPopupMenu(ActionType.FLIP_HORIZONTALLY, planViewPopup);
       addActionToPopupMenu(ActionType.FLIP_VERTICALLY, planViewPopup);
       addActionToPopupMenu(ActionType.MODIFY_FURNITURE, planViewPopup);
+      planViewPopup.add(FurnitureLayersView.createTagsMenu(
+          this.preferences.getLocalizedString(HomePane.class, "tagsMenu"),
+          this.preferences.getLocalizedString(HomePane.class, "layersAndTags"),
+          planView, home, controller));
       addActionToPopupMenu(ActionType.GROUP_FURNITURE, planViewPopup);
       addActionToPopupMenu(ActionType.UNGROUP_FURNITURE, planViewPopup);
       planViewPopup.add(createAlignOrDistributeMenu(home, preferences, true));

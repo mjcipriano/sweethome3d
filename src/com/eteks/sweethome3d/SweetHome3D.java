@@ -544,6 +544,11 @@ public class SweetHome3D extends HomeApplication {
         }
       }
     }
+    // The tags of furniture are always available as a column of the furniture list
+    ObjectProperty tagsProperty = com.eteks.sweethome3d.viewcontroller.HomeItemTags.createTagsProperty();
+    if (!additionalFurnitureProperties.contains(tagsProperty)) {
+      additionalFurnitureProperties.add(tagsProperty);
+    }
     return additionalFurnitureProperties;
   }
 
