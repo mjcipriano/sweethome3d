@@ -40,6 +40,24 @@ public class WebXRSceneDescription {
   }
 
   /**
+   * Returns the key that designates an item of a home in the scene
+   * description and in the names of its shapes in the exported model.
+   */
+  public static String getKey(com.eteks.sweethome3d.model.HomeObject item) {
+    return item.getId().replaceAll("[^A-Za-z0-9]", "");
+  }
+
+  private static void collectFurniture(List<HomePieceOfFurniture> furniture, List<HomePieceOfFurniture> pieces) {
+    for (HomePieceOfFurniture piece : furniture) {
+      if (piece instanceof com.eteks.sweethome3d.model.HomeFurnitureGroup) {
+        collectFurniture(((com.eteks.sweethome3d.model.HomeFurnitureGroup)piece).getFurniture(), pieces);
+      } else {
+        pieces.add(piece);
+      }
+    }
+  }
+
+  /**
    * Returns the JSON description of the given <code>home</code>.
    */
   public static String toJSON(Home home) {
@@ -88,6 +106,8 @@ public class WebXRSceneDescription {
           .append(",\"z2\":").append(meters(wall.getYEnd()))
           .append(",\"thickness\":").append(meters(wall.getThickness()))
           .append(",\"arcExtent\":").append(number(arcExtent != null ? arcExtent.floatValue() : 0))
+          .append(",\"height\":").append(meters(wall.getHeight() != null ? wall.getHeight().floatValue() : home.getWallHeight()))
+          .append(",\"key\":").append(quote(getKey(wall)))
           .append(",\"level\":").append(levelIndex).append('}');
     }
 
@@ -111,7 +131,60 @@ public class WebXRSceneDescription {
           .append(",\"angle\":").append(number(piece.getAngle()))
           .append(",\"sill\":").append(meters(piece.getElevation()))
           .append(",\"height\":").append(meters(piece.getHeight()))
+          // Someone walks through a door, not through a window
+          .append(",\"door\":").append(piece.getElevation() < 10 && piece.getHeight() > 150)
+          .append(",\"key\":").append(quote(getKey(piece)))
           .append(",\"level\":").append(levelIndex).append('}');
+    }
+
+    // Furniture as boxes, for the game mode: what stops someone, what he may stand on or break
+    json.append("],\"furniture\":[");
+    first = true;
+    List<HomePieceOfFurniture> allFurniture = new ArrayList<HomePieceOfFurniture>();
+    collectFurniture(home.getFurniture(), allFurniture);
+    for (HomePieceOfFurniture piece : allFurniture) {
+      int levelIndex = getLevelIndex(piece.getLevel(), levels, implicitLevel);
+      if (levelIndex < 0 || !piece.isVisible() || piece.isDoorOrWindow()) {
+        continue;
+      }
+      if (!first) {
+        json.append(',');
+      }
+      first = false;
+      json.append("{\"x\":").append(meters(piece.getX()))
+          .append(",\"z\":").append(meters(piece.getY()))
+          .append(",\"width\":").append(meters(piece.getWidth()))
+          .append(",\"depth\":").append(meters(piece.getDepth()))
+          .append(",\"angle\":").append(number(piece.getAngle()))
+          .append(",\"elevation\":").append(meters(piece.getElevation()))
+          .append(",\"height\":").append(meters(piece.getHeight()))
+          .append(",\"stairs\":").append(piece.getStaircaseCutOutShape() != null
+              || piece.getProperty(AssistantGeneratedModel.STAIRS_FLIGHTS_PROPERTY) != null)
+          .append(",\"name\":").append(quote(piece.getName() != null ? piece.getName() : ""))
+          .append(",\"key\":").append(quote(getKey(piece)))
+          .append(",\"level\":").append(levelIndex).append('}');
+    }
+
+    // Rooms: where each level has a floor
+    json.append("],\"rooms\":[");
+    first = true;
+    for (Room room : home.getRooms()) {
+      int levelIndex = getLevelIndex(room.getLevel(), levels, implicitLevel);
+      if (levelIndex < 0 || !room.isFloorVisible()) {
+        continue;
+      }
+      if (!first) {
+        json.append(',');
+      }
+      first = false;
+      json.append("{\"level\":").append(levelIndex).append(",\"key\":").append(quote(getKey(room)))
+          .append(",\"points\":[");
+      float [][] points = room.getPoints();
+      for (int i = 0; i < points.length; i++) {
+        json.append(i > 0 ? "," : "").append('[').append(meters(points [i][0])).append(',')
+            .append(meters(points [i][1])).append(']');
+      }
+      json.append("]}");
     }
 
     // Stairs the visitor can climb: the ones which describe their flights
@@ -215,7 +288,7 @@ public class WebXRSceneDescription {
           }
         }
       }
-      return "{\"level\":" + levelIndex + ",\"topLevel\":" + topLevel
+      return "{\"level\":" + levelIndex + ",\"key\":" + quote(getKey(piece)) + ",\"topLevel\":" + topLevel
           + ",\"x\":" + meters(piece.getX()) + ",\"z\":" + meters(piece.getY())
           + ",\"angle\":" + number(piece.getAngle()) + ",\"base\":" + meters(piece.getElevation())
           + ",\"rise\":" + meters(rise) + ",\"flights\":[" + flights + "]}";

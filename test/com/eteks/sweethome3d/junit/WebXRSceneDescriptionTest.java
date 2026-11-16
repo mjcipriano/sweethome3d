@@ -162,10 +162,45 @@ public class WebXRSceneDescriptionTest {
     assertEquals(2.7, number(catalogFlights.get(0), "h1"), 1e-4);
     home.deletePieceOfFurniture(catalogStairs);
 
+    // What the game mode needs: the boxes of the furniture, the rooms, and keys shared with the model
+    List<Object> furniture = (List<Object>)scene.get("furniture");
+    assertEquals(1, furniture.size());
+    assertEquals(Boolean.TRUE, ((Map<String, Object>)furniture.get(0)).get("stairs"));
+    assertEquals(2, number(furniture.get(0), "width"), 1e-4);
+    assertEquals(2.7, number(furniture.get(0), "height"), 1e-4);
+    assertEquals(WebXRSceneDescription.getKey(stairs), ((Map<String, Object>)furniture.get(0)).get("key"));
+    assertEquals(WebXRSceneDescription.getKey(stairs), ((Map<String, Object>)allStairs.get(0)).get("key"));
+    assertTrue(WebXRSceneDescription.getKey(stairs).matches("[A-Za-z0-9]+"));
+    List<Object> rooms = (List<Object>)scene.get("rooms");
+    assertEquals(2, rooms.size());
+    assertEquals(1, number(rooms.get(1), "level"), 0);
+    List<Object> roomPoints = (List<Object>)((Map<String, Object>)rooms.get(0)).get("points");
+    assertEquals(4, roomPoints.size());
+    assertEquals(4, ((Number)((List<Object>)roomPoints.get(1)).get(0)).doubleValue(), 1e-4);
+    com.eteks.sweethome3d.model.HomePieceOfFurniture door = new com.eteks.sweethome3d.model.HomeDoorOrWindow(
+        new com.eteks.sweethome3d.model.CatalogDoorOrWindow("Door", null, null, 90, 10, 200, 0, true, 1, 0,
+            new com.eteks.sweethome3d.model.Sash [0], null, null, false, 0f, true));
+    com.eteks.sweethome3d.model.HomePieceOfFurniture window = door.clone();
+    window.setElevation(90);
+    window.setHeight(120);
+    home.addPieceOfFurniture(door);
+    home.addPieceOfFurniture(window);
+    door.setLevel(ground);
+    window.setLevel(ground);
+    List<Object> openings = (List<Object>)((Map<String, Object>)JSONParser.parse(WebXRSceneDescription.toJSON(home))).get("openings");
+    assertEquals(2, openings.size());
+    assertEquals(Boolean.TRUE, ((Map<String, Object>)openings.get(0)).get("door"));
+    assertEquals(Boolean.FALSE, ((Map<String, Object>)openings.get(1)).get("door"));
+    assertEquals(WebXRSceneDescription.getKey(door), ((Map<String, Object>)openings.get(0)).get("key"));
+    home.deletePieceOfFurniture(door);
+    home.deletePieceOfFurniture(window);
+
     List<Object> walls = (List<Object>)scene.get("walls");
     assertEquals("Wall of the hidden level not exported", 2, walls.size());
     assertEquals(0, number(walls.get(0), "level"), 0);
     assertEquals(1, number(walls.get(1), "level"), 0);
+    assertEquals(2.5, number(walls.get(0), "height"), 1e-4);
+    assertTrue(((Map<String, Object>)walls.get(0)).get("key").toString().startsWith("wall"));
     assertEquals("Visitor starts at the selected level", 1, number(scene.get("start"), "level"), 0);
     assertEquals("Eye height is relative to the level", 1.65, number(scene.get("start"), "eyeHeight"), 1e-4);
   }
@@ -178,6 +213,13 @@ public class WebXRSceneDescriptionTest {
       assertEquals("index.html", page.getName());
       String html = new String(Files.readAllBytes(page.toPath()), "UTF-8");
       assertTrue(html.contains("webxr-viewer.js"));
+      // The game mode comes with the viewer
+      assertTrue(html.contains("game.html"));
+      String game = new String(Files.readAllBytes(new File(folder, "game.html").toPath()), "UTF-8");
+      assertTrue(game.contains("webxr-game.js"));
+      String gameScript = new String(Files.readAllBytes(new File(folder, "webxr-game.js").toPath()), "UTF-8");
+      assertTrue(gameScript.contains("./webxr-game-physics.js"));
+      assertTrue(new File(folder, "webxr-game-physics.js").isFile());
       String viewer = new String(Files.readAllBytes(new File(folder, "webxr-viewer.js").toPath()), "UTF-8");
       assertTrue(viewer.contains("./webxr-walk.js"));
       assertTrue(new File(folder, "webxr-walk.js").length() > 0);

@@ -66,12 +66,13 @@ public class WebXRPreviewPlugin extends Plugin {
   private static final float MIN_REDUCTION_RATIO = 0.01f;
 
   /** The files of the viewer copied from the plugin resources to each export. */
-  private static final String [] VIEWER_RESOURCES = {"webxr-viewer.js", "webxr-walk.js", "webxr-merge.js"};
+  private static final String [] VIEWER_RESOURCES = {"webxr-viewer.js", "webxr-walk.js", "webxr-merge.js",
+                                                     "webxr-game.js", "webxr-game-physics.js"};
 
   private final PluginAction[] actions;
 
   public WebXRPreviewPlugin() {
-    this.actions = new PluginAction[] { new WebXRPreviewAction(), new WebPageExportAction() };
+    this.actions = new PluginAction[] { new WebXRPreviewAction(), new GameModeAction(), new WebPageExportAction() };
   }
 
   @Override
@@ -212,7 +213,47 @@ public class WebXRPreviewPlugin extends Plugin {
     }
   }
 
+  /**
+   * Opens the game mode: the home in the browser of this computer, to walk,
+   * jump, climb and fly in it as in a video game.
+   */
+  private class GameModeAction extends PluginAction {
+    GameModeAction() {
+      putPropertyValue(Property.NAME, "Game mode...");
+      putPropertyValue(Property.SHORT_DESCRIPTION, "Walk, jump, climb and fly in the home as in a video game");
+      putPropertyValue(Property.MENU, "Tools");
+      setEnabled(true);
+    }
+
+    @Override
+    public void execute() {
+      final GameModeAction self = this;
+      self.setEnabled(false);
+      Thread worker = new Thread(new Runnable() {
+        public void run() {
+          try {
+            launchPreview(true);
+          } catch (Exception ex) {
+            showError("Game mode failed: " + ex.getMessage(), ex);
+          } finally {
+            SwingUtilities.invokeLater(new Runnable() {
+              public void run() {
+                self.setEnabled(true);
+              }
+            });
+          }
+        }
+      }, "WebXRGameMode");
+      worker.setDaemon(true);
+      worker.start();
+    }
+  }
+
   private void launchPreview() throws Exception {
+    launchPreview(false);
+  }
+
+  private void launchPreview(boolean gameMode) throws Exception {
     Home home = getHome();
     if (home == null) {
       throw new IllegalStateException("No home is loaded.");
@@ -236,8 +277,14 @@ public class WebXRPreviewPlugin extends Plugin {
       this.previewServer = server;
       this.previewDir = exportDir;
     }
-    openInBrowser(new URL(server.getLocalUrl()), indexFile);
-    showConnectInstructions(server);
+    if (gameMode) {
+      // The game is played with the mouse and the keyboard of this computer
+      openInBrowser(new URL(server.getLocalUrl().replace("index.html", "game.html")),
+          new File(exportDir, "game.html"));
+    } else {
+      openInBrowser(new URL(server.getLocalUrl()), indexFile);
+      showConnectInstructions(server);
+    }
   }
 
   /**
@@ -452,6 +499,7 @@ public class WebXRPreviewPlugin extends Plugin {
    */
   public static File writeViewer(File exportDir, Home home) throws IOException {
     copyResource("webxr-viewer.html", new File(exportDir, "index.html"));
+    copyResource("webxr-game.html", new File(exportDir, "game.html"));
     for (String resource : VIEWER_RESOURCES) {
       copyResource(resource, new File(exportDir, resource));
     }
@@ -581,8 +629,12 @@ public class WebXRPreviewPlugin extends Plugin {
         for (Selectable item : exportedItems) {
           Node node = (Node)object3dFactory.createObject3D(home, item, true);
           if (node != null) {
+            // Shapes are named after the item they belong to, which the game mode
+            // needs to open a door or to break a piece of furniture
             if (item instanceof HomePieceOfFurniture) {
-              writer.writeNode(node);
+              writer.writeNode(node, "piece_" + WebXRSceneDescription.getKey((HomePieceOfFurniture)item));
+            } else if (item instanceof Wall) {
+              writer.writeNode(node, "wall_" + WebXRSceneDescription.getKey((Wall)item));
             } else if (!(item instanceof DimensionLine)) {
               writer.writeNode(node, item.getClass().getSimpleName().toLowerCase(Locale.US) + "_" + ++i);
             }

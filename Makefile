@@ -299,6 +299,9 @@ webxr-plugin: $(INSTALL_JAR)
 	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-viewer.js \
 	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-walk.js \
 	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-merge.js \
+	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-game.html \
+	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-game.js \
+	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-game-physics.js \
 	  .plugin-build/webxr/com/eteks/sweethome3d/plugin/webxr/
 	$(JAR) cf plugins/WebXRPreview.sh3p -C .plugin-build/webxr .
 	rm -rf .plugin-build/webxr
@@ -308,6 +311,7 @@ webxr-plugin: $(INSTALL_JAR)
 test-webxr-walk:
 	node test/webxr/walk.test.mjs
 	node test/webxr/merge.test.mjs
+	node test/webxr/game.test.mjs
 
 # Build WebXR plugin and launch app with plugins folder set
 run-webxr-preview: webxr-plugin
