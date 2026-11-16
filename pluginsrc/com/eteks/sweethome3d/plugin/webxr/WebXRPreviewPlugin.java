@@ -73,7 +73,7 @@ public class WebXRPreviewPlugin extends Plugin {
   private final PluginAction[] actions;
 
   public WebXRPreviewPlugin() {
-    this.actions = new PluginAction[] { new WebXRPreviewAction(), new GameModeAction(), new ReviewNotesAction(), new WebPageExportAction() };
+    this.actions = new PluginAction[] { new WebXRPreviewAction(), new GameModeAction(), new ReviewNotesAction(), new WebPageExportAction(), new ViewWebPageAction() };
   }
 
   @Override
@@ -142,13 +142,25 @@ public class WebXRPreviewPlugin extends Plugin {
       Thread worker = new Thread(new Runnable() {
         public void run() {
           try {
-            File folder = exportWebPage(getHome(), parentFolder);
-            showInfo("The 3D web page of the home is in\n" + folder + "\n\n"
-                + "Put this folder on any web site (GitHub Pages, Netlify, your own server...)\n"
-                + "and share the address of its index.html: visitors walk through the home\n"
-                + "in their browser, and in VR from a headset if the site uses https.\n\n"
-                + "Opening index.html directly from the disk doesn't work: browsers only\n"
-                + "load the home from a web server. See README.txt in the folder.");
+            final File folder = exportWebPage(getHome(), parentFolder);
+            SwingUtilities.invokeLater(new Runnable() {
+                public void run() {
+                  Object [] options = {"View it now", "Close"};
+                  int option = JOptionPane.showOptionDialog(null,
+                      "The 3D web page of the home is in\n" + folder + "\n\n"
+                      + "To see it on any computer, copy the folder and double-click its launcher:\n"
+                      + "\"" + com.eteks.sweethome3d.tools.WebFolderLaunchers.WINDOWS_LAUNCHER + "\" or \""
+                      + com.eteks.sweethome3d.tools.WebFolderLaunchers.MAC_LAUNCHER + "\".\n"
+                      + "It shows the folder in the browser with what the computer already has: no web\n"
+                      + "server to install, nothing sent anywhere. See README.txt in the folder.\n\n"
+                      + "To share it as a link, put the folder on a web site (https for VR in a headset).",
+                      "Export 3D web page", JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE,
+                      null, options, options [0]);
+                  if (option == 0) {
+                    viewFolder(folder);
+                  }
+                }
+              });
           } catch (Exception ex) {
             showError("Export of the 3D web page failed: " + ex.getMessage(), ex);
           } finally {
@@ -162,6 +174,57 @@ public class WebXRPreviewPlugin extends Plugin {
       }, "WebPageExport");
       worker.setDaemon(true);
       worker.start();
+    }
+  }
+
+  /**
+   * Shows in the browser a folder exported earlier with <i>Export 3D web page</i>.
+   */
+  private class ViewWebPageAction extends PluginAction {
+    ViewWebPageAction() {
+      putPropertyValue(Property.NAME, "View 3D web page folder...");
+      putPropertyValue(Property.SHORT_DESCRIPTION, "Show in the browser a folder exported with Export 3D web page");
+      putPropertyValue(Property.MENU, "Tools");
+      setEnabled(true);
+    }
+
+    @Override
+    public void execute() {
+      javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
+      chooser.setDialogTitle("Folder of a 3D web page (the one that contains index.html)");
+      chooser.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
+      if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
+        viewFolder(chooser.getSelectedFile());
+      }
+    }
+  }
+
+  private WebXRPreviewServer folderServer;
+
+  /**
+   * Serves an exported folder to this computer with the server of the
+   * application and opens it in the browser. Only one folder is served at a time.
+   */
+  void viewFolder(File folder) {
+    try {
+      if (folder == null || !new File(folder, "index.html").isFile()) {
+        throw new IOException("This folder has no index.html: choose a folder written by Export 3D web page");
+      }
+      WebXRPreviewServer server = new WebXRPreviewServer(folder);
+      // Nothing is added to a folder the user keeps
+      server.setLogEnabled(false);
+      server.start();
+      WebXRPreviewServer previous;
+      synchronized (this) {
+        previous = this.folderServer;
+        this.folderServer = server;
+      }
+      if (previous != null) {
+        previous.stop();
+      }
+      openInBrowser(new URL(server.getLocalUrl()), new File(folder, "index.html"));
+    } catch (Exception ex) {
+      showError("The folder can't be shown: " + ex.getMessage(), ex);
     }
   }
 
@@ -186,6 +249,7 @@ public class WebXRPreviewPlugin extends Plugin {
       Home exportedHome = exportHome(folder, home);
       writeViewer(folder, exportedHome);
       writeWebPageReadme(folder);
+      com.eteks.sweethome3d.tools.WebFolderLaunchers.write(folder, "index.html");
     } catch (Exception ex) {
       deleteDirectory(folder);
       throw ex;
@@ -195,17 +259,17 @@ public class WebXRPreviewPlugin extends Plugin {
 
   static void writeWebPageReadme(File folder) throws IOException {
     String text = "3D web page of a home, exported by Sweet Home 3D\r\n\r\n"
-        + "Put the whole folder on a web site and open index.html from its address.\r\n"
+        + com.eteks.sweethome3d.tools.WebFolderLaunchers.getNotice() + "\r\n"
+        + "Opening index.html directly from the disk doesn't work: browsers refuse to load\r\n"
+        + "a 3D scene that way, which is why the launchers above exist.\r\n\r\n"
+        + "To share it as a link, put the whole folder on a web site and open index.html\r\n"
+        + "from its address:\r\n"
         + "- GitHub Pages, Netlify, Cloudflare Pages or any static web hosting work.\r\n"
         + "- The site must use https for the Enter VR button to appear in a headset.\r\n"
-        + "- To try it on this computer, run in this folder:  python -m http.server 8000\r\n"
-        + "  then open http://localhost:8000/index.html\r\n"
-        + "- Opening index.html from the disk (file://) doesn't work: browsers refuse\r\n"
-        + "  to load the home that way.\r\n"
-        + "- The page loads the three.js library from the unpkg.com CDN, so visitors\r\n"
-        + "  need an Internet access.\r\n\r\n"
-        + "Anyone who has the address can see the whole home: its plan, its furniture\r\n"
-        + "and its textures.\r\n";
+        + "- Anyone who has the address can see the whole home: its plan, its furniture\r\n"
+        + "  and its textures.\r\n\r\n"
+        + "The page loads the three.js library from the unpkg.com CDN, so the computer\r\n"
+        + "needs an Internet access, with a launcher too.\r\n";
     OutputStream out = new java.io.FileOutputStream(new File(folder, "README.txt"));
     try {
       out.write(text.getBytes(StandardCharsets.UTF_8));
@@ -434,6 +498,14 @@ public class WebXRPreviewPlugin extends Plugin {
   @Override
   public void destroy() {
     stopPreview();
+    WebXRPreviewServer server;
+    synchronized (this) {
+      server = this.folderServer;
+      this.folderServer = null;
+    }
+    if (server != null) {
+      server.stop();
+    }
   }
 
   private static void deleteDirectory(File directory) {

@@ -77,6 +77,7 @@ CORE_TEST_SOURCES := \
   test/com/eteks/sweethome3d/junit/HomeSaveOverOpenedFileTest.java \
   test/com/eteks/sweethome3d/junit/ModelLODTest.java \
   test/com/eteks/sweethome3d/junit/OperatingSystemTest.java \
+  test/com/eteks/sweethome3d/junit/WebFolderLaunchersTest.java \
   test/com/eteks/sweethome3d/junit/PackageDependenciesTest.java
 ifneq ($(strip $(TEST_SOURCES)),)
   FILTERED_TEST_SOURCES := $(TEST_SOURCES)
