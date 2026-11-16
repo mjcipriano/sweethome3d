@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.22.0](https://github.com/mjcipriano/sweethome3d/compare/v7.21.0...v7.22.0) (2026-11-16)
+
+
+### Features
+
+* exported web folders are viewed without installing a web server ([17e50cf](https://github.com/mjcipriano/sweethome3d/commit/17e50cf7407d8658f35cdeb21be40c0498b79dfa))
+* exported web folders are viewed without installing a web server ([2ce9fcc](https://github.com/mjcipriano/sweethome3d/commit/2ce9fcce3f8233dce43f82dca105deefcd0b2109))
+
 ## [7.21.0](https://github.com/mjcipriano/sweethome3d/compare/v7.20.0...v7.21.0) (2026-11-16)
 
 
