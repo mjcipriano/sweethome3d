@@ -24,6 +24,11 @@ public class ModelLOD implements Serializable {
    * The original model is always kept and used for rendering and exports.
    */
   public static final String LOW_POLY_PROPERTY = "lowPolyInView";
+  /**
+   * Home property set to <code>false</code> when the reduced models should be
+   * displayed only for the pieces opted in with {@link #LOW_POLY_PROPERTY}.
+   */
+  public static final String AUTOMATIC_PROPERTY = "automaticModelLODs";
 
   private final Content content;
   private final int     sourceVertexCount;
@@ -59,6 +64,37 @@ public class ModelLOD implements Serializable {
   }
 
   /**
+   * Returns <code>true</code> if the given <code>piece</code> is set to be
+   * always displayed with its original model in the 3D view, even when the
+   * reduced models are chosen automatically.
+   */
+  public static boolean isFullDetailInView(HomePieceOfFurniture piece) {
+    return "false".equalsIgnoreCase(piece.getProperty(LOW_POLY_PROPERTY));
+  }
+
+  /**
+   * Returns <code>true</code> if the 3D view displays the reduced model of
+   * the given <code>piece</code> of <code>home</code>.
+   */
+  public static boolean isReducedDetailDisplayed(HomePieceOfFurniture piece, Home home) {
+    return piece.getModel() != null
+        && getDisplayedModel(piece, home, true) != piece.getModel();
+  }
+
+  /**
+   * Returns <code>true</code> if the pieces of <code>home</code> that have a
+   * reduced model display it without being asked to, which is the default.
+   * The home property {@link #AUTOMATIC_PROPERTY} or the system property
+   * <code>com.eteks.sweethome3d.j3d.automaticModelLODs</code> set to
+   * <code>false</code> restrict the reduced models to the pieces opted in.
+   */
+  public static boolean isAutomatic(Home home) {
+    return home != null
+        && !"false".equalsIgnoreCase(home.getProperty(AUTOMATIC_PROPERTY))
+        && !"false".equalsIgnoreCase(System.getProperty("com.eteks.sweethome3d.j3d.automaticModelLODs"));
+  }
+
+  /**
    * Returns the model content that should be displayed for the given
    * <code>piece</code>: the reduced LOD content when the piece is set to use
    * reduced detail, a matching LOD exists in <code>home</code> and
@@ -71,7 +107,8 @@ public class ModelLOD implements Serializable {
     if (useModelLODs
         && home != null
         && !"false".equalsIgnoreCase(System.getProperty("com.eteks.sweethome3d.j3d.useModelLODs"))
-        && isReducedDetailInView(piece)) {
+        && (isReducedDetailInView(piece)
+            || isAutomatic(home) && !isFullDetailInView(piece))) {
       ModelLOD modelLOD = home.getModelLOD(piece.getModel());
       if (modelLOD != null) {
         return modelLOD.getContent();

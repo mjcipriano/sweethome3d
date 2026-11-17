@@ -3250,7 +3250,19 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       addFurnitureListener(homeRoot);
       this.modelLODListener = new PropertyChangeListener() {
           public void propertyChange(PropertyChangeEvent ev) {
-            updateObjects(getHomeObjects(HomePieceOfFurniture.class));
+            // Update only the pieces which use the model that got or lost its reduced version
+            List<HomePieceOfFurniture> pieces = new ArrayList<HomePieceOfFurniture>();
+            for (HomePieceOfFurniture piece : getHomeObjects(HomePieceOfFurniture.class)) {
+              ModelLOD modelLOD = piece.getModel() != null
+                  ? home.getModelLOD(piece.getModel())
+                  : null;
+              if (ev.getOldValue() == null && ev.getNewValue() == null
+                  || modelLOD != null && modelLOD == ev.getNewValue()
+                  || ev.getNewValue() == null && modelLOD == null && piece.getModel() != null) {
+                pieces.add(piece);
+              }
+            }
+            updateObjects(pieces);
           }
         };
       this.home.addPropertyChangeListener(Home.Property.MODEL_LODS, this.modelLODListener);
@@ -4024,6 +4036,16 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       if (this.home != null) {
         updateObjects(getHomeObjects(HomePieceOfFurniture.class));
       }
+    }
+  }
+
+  /**
+   * Updates the furniture of the 3D view, after a change of the way their
+   * displayed model is chosen.
+   */
+  public void updateFurnitureModels() {
+    if (this.home != null && !this.homeObjects.isEmpty()) {
+      updateObjects(getHomeObjects(HomePieceOfFurniture.class));
     }
   }
 

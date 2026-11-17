@@ -43,8 +43,20 @@ public class LowPolyModelDisplayTest {
     HomePieceOfFurniture piece = newPiece(model);
     home.addPieceOfFurniture(piece);
 
-    // Not opted in: original model is displayed even though a LOD exists.
+    // Not opted in: the reduced model is chosen automatically by default...
     assertFalse(ModelLOD.isReducedDetailInView(piece));
+    assertTrue(ModelLOD.isAutomatic(home));
+    assertSame("A heavy model must show its reduced version by default",
+        reduced, ModelLOD.getDisplayedModel(piece, home, true));
+    // ... except for a piece kept at full detail
+    piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, "false");
+    assertSame("A piece kept at full detail must show its original model",
+        model, ModelLOD.getDisplayedModel(piece, home, true));
+    piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, null);
+
+    // Automatic choice switched off: original model is displayed even though a LOD exists.
+    home.setProperty(ModelLOD.AUTOMATIC_PROPERTY, "false");
+    assertFalse(ModelLOD.isAutomatic(home));
     assertSame("A piece that didn't opt in must show its original model",
         model, ModelLOD.getDisplayedModel(piece, home, true));
 

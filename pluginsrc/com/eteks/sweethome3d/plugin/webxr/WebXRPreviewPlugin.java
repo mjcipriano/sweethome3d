@@ -638,7 +638,7 @@ public class WebXRPreviewPlugin extends Plugin {
       } else if (piece.getModel() != null && piece.isVisible()
           && (piece.getLevel() == null || piece.getLevel().isViewable())) {
         // Pieces keep the full model unless the budget asks to reduce it
-        piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, null);
+        piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, "false");
         pieces.add(piece);
       }
     }

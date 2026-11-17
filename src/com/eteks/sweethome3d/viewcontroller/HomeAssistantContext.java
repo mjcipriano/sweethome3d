@@ -251,7 +251,7 @@ public class HomeAssistantContext {
               .append(" MB");
         }
         if (piece.getModel() != null && home.getModelLOD(piece.getModel()) != null) {
-          brief.append(ModelLOD.isReducedDetailInView(piece)
+          brief.append(ModelLOD.isReducedDetailDisplayed(piece, home)
               ? ", reduced detail ON" : ", reduced model available");
         }
         brief.append('\n');
