@@ -131,6 +131,24 @@ public class TextureManager {
   public void loadTexture(final Content content, final TextureObserver textureObserver) {
     loadTexture(content, false, textureObserver);
   }
+
+  private static final List<Runnable> textureLoadingListeners =
+      new java.util.concurrent.CopyOnWriteArrayList<Runnable>();
+
+  /**
+   * Adds a listener run in the Event Dispatch Thread each time a texture
+   * loaded in the background was notified to its observers.
+   */
+  public static void addTextureLoadingListener(Runnable listener) {
+    textureLoadingListeners.add(listener);
+  }
+
+  /**
+   * Removes the given listener.
+   */
+  public static void removeTextureLoadingListener(Runnable listener) {
+    textureLoadingListeners.remove(listener);
+  }
   
   /**
    * Reads a texture image from <code>content</code> notified to <code>textureObserver</code>. 
@@ -216,6 +234,9 @@ public class TextureManager {
                         for (TextureObserver observer : observers) {
                           observer.textureUpdated(texture);
                         }
+                      }
+                      for (Runnable listener : textureLoadingListeners) {
+                        listener.run();
                       }
                     }
                   });

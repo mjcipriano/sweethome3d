@@ -1479,6 +1479,28 @@ public class HomePane extends JRootPane implements HomeView {
         }
       });
     preview3DMenu.add(automaticModelLODsMenuItem);
+    // Choice of the renderer of the 3D view
+    final JCheckBoxMenuItem openGLRendererMenuItem = new JCheckBoxMenuItem(
+        preferences.getLocalizedString(HomePane.class, "openGLRenderer"));
+    openGLRendererMenuItem.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          HomeComponent3D.setOpenGLRendererSelected(openGLRendererMenuItem.isSelected());
+          View view3D = controller.getHomeController3D().getView();
+          if (view3D instanceof HomeComponent3D) {
+            ((HomeComponent3D)view3D).updateRenderer();
+          }
+        }
+      });
+    preview3DMenu.addMenuListener(new MenuListener() {
+        public void menuSelected(MenuEvent ev) {
+          openGLRendererMenuItem.setSelected(HomeComponent3D.isOpenGLRendererSelected());
+        }
+        public void menuDeselected(MenuEvent ev) {
+        }
+        public void menuCanceled(MenuEvent ev) {
+        }
+      });
+    preview3DMenu.add(openGLRendererMenuItem);
     // Doll house display: the walls in front of the camera are left out of the aerial view
     final JCheckBoxMenuItem dollHouseMenuItem = new JCheckBoxMenuItem(
         preferences.getLocalizedString(HomePane.class, "dollHouseView"));

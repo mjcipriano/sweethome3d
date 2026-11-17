@@ -223,6 +223,13 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
   private Collection<Selectable>                   lightScopeObjectsToUpdate;
   private Component                                component3D;
   private SimpleUniverse                           onscreenUniverse;
+  // OpenGL renderer used instead of Java 3D to display the scene, and its scene
+  private final boolean                            openGLRendererAllowed;
+  private OpenGLView3D                             openGLView;
+  private BranchGroup                              openGLSceneRoot;
+  private Object3DBranch.ChangeObserver            openGLObjectObserver;
+  private Runnable                                 openGLTextureListener;
+  private AncestorListener                         component3DAncestorListener;
   private Camera                                   camera;
   // Listeners bound to home that updates 3D scene objects
   private PropertyChangeListener                   cameraChangeListener;
@@ -360,6 +367,13 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
         ? object3dFactory
         : new Object3DBranchFactory(preferences, this);
     this.projection = projection;
+    // The OpenGL renderer replaces Java 3D only in the interactive view of a home
+    // (or in any view when the renderer is forced with its system property, for benchmarks)
+    this.openGLRendererAllowed = (controller != null
+            || "opengl".equalsIgnoreCase(System.getProperty(RENDERER_PROPERTY)))
+        && object3dFactory == null
+        && projection == Projection.PERSPECTIVE
+        && !displayShadowOnFloor;
 
     if (controller != null) {
       createActions(controller);
@@ -406,7 +420,12 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
                   : GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().getDefaultConfiguration();
               createComponent3D(graphicsConfiguration, preferences, controller);
             }
-            if (onscreenUniverse == null) {
+            if (openGLView != null) {
+              if (openGLSceneRoot == null) {
+                createOpenGLScene();
+                updateNavigationPanelImage();
+              }
+            } else if (onscreenUniverse == null) {
               onscreenUniverse = createUniverse(displayShadowOnFloor, true, false);
               // Bind universe to canvas3D
               onscreenUniverse.getViewer().getView().addCanvas3D(getCanvas3D());
@@ -421,6 +440,20 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
             onscreenUniverse.cleanup();
             removeHomeListeners();
             onscreenUniverse = null;
+          }
+          if (openGLSceneRoot != null) {
+            removeHomeListeners();
+            Object3DBranch.removeChangeObserver(openGLObjectObserver);
+            for (HomeEnvironment.Property property : HomeEnvironment.Property.values()) {
+              home.getEnvironment().removePropertyChangeListener(property, openGLEnvironmentListener);
+            }
+            com.eteks.sweethome3d.j3d.TextureManager.removeTextureLoadingListener(openGLTextureListener);
+            homeObjects.clear();
+            openGLSceneRoot = null;
+          }
+          if (openGLView != null) {
+            openGLView.dispose();
+            openGLView = null;
           }
           if (component3D != null) {
             removeAll();
@@ -442,6 +475,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
         }
       };
 
+    this.component3DAncestorListener = ancestorListener;
     addAncestorListener(ancestorListener);
     addComponentListener(new ComponentAdapter() {
         @Override
@@ -450,7 +484,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
           if (getHeight() > insets.top + insets.bottom
               && getWidth() > insets.left + insets.right) {
             Component root = SwingUtilities.getRoot(HomeComponent3D.this);
-            if (root != null && onscreenUniverse == null) {
+            if (root != null && onscreenUniverse == null && openGLSceneRoot == null) {
               ancestorListener.ancestorAdded(null);
               // Force a resize event to make the component 3D appear
               root.dispatchEvent(new ComponentEvent(root, ComponentEvent.COMPONENT_RESIZED));
@@ -550,7 +584,8 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    * console, so it is also appended to a graphics log file).
    */
   private static void initRenderingStatistics(Canvas3D canvas3D) {
-    if (renderingStatistics == null) {
+    if (renderingStatistics == null
+        || renderingStatistics.getOpenGLRenderer().endsWith(OPENGL_RENDERER_SUFFIX)) {
       Map<?, ?> properties = canvas3D.queryProperties();
       RenderingStatistics statistics = new RenderingStatistics(
           String.valueOf(properties.get("native.vendor")),
@@ -622,7 +657,51 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
   private void createComponent3D(GraphicsConfiguration configuration,
                                  UserPreferences  preferences,
                                  HomeController3D controller) {
-    if (Boolean.getBoolean("com.eteks.sweethome3d.j3d.useOffScreen3DView")) {
+    if (this.openGLRendererAllowed && isOpenGLRendererSelected()) {
+      try {
+        this.openGLView = new OpenGLView3D(new OpenGLView3D.Client() {
+            public Transform3D getCameraTransform() {
+              Camera camera = home.getCamera();
+              Transform3D transform = new Transform3D();
+              updateViewPlatformTransform(transform, camera.getX(), camera.getY(),
+                  camera.getZ(), camera.getYaw(), camera.getPitch());
+              return transform;
+            }
+
+            public double getFieldOfView() {
+              float fieldOfView = home.getCamera().getFieldOfView();
+              return fieldOfView != 0
+                  ? fieldOfView
+                  : Math.PI * 63 / 180;
+            }
+
+            public double [] getClipDistances(int width, int height) {
+              return HomeComponent3D.this.getClipDistances(home.getCamera(), width, height, 24);
+            }
+
+            public void frameRendered(OpenGLView3D view) {
+              renderedFrameCount++;
+              RenderingStatistics statistics = renderingStatistics;
+              if (statistics == null
+                  || !statistics.getOpenGLRenderer().endsWith(OPENGL_RENDERER_SUFFIX)) {
+                renderingStatistics = statistics = new RenderingStatistics(view.getVendor(),
+                    view.getRendererName() + OPENGL_RENDERER_SUFFIX, view.getVersion(), view.isAntialiasing());
+                logRenderingStatistics(statistics);
+              }
+              statistics.framesPerSecond = view.getFramesPerSecond();
+            }
+          }, !"speed".equalsIgnoreCase(
+                System.getProperty(GraphicsEnvironmentConfiguration.RENDERING_QUALITY_PROPERTY)));
+        this.component3D = this.openGLView.getComponent();
+      } catch (Throwable ex) {
+        // JOGL classes or an OpenGL context aren't available: use Java 3D
+        System.err.println("OpenGL renderer unavailable, Java 3D used instead: " + ex);
+        this.openGLView = null;
+      }
+    }
+    if (this.openGLView != null) {
+      // Component 3D created
+    } else if (Boolean.getBoolean("com.eteks.sweethome3d.j3d.useOffScreen3DView")) {
       GraphicsConfigTemplate3D template = new GraphicsConfigTemplate3D();
       template.setSceneAntialiasing(GraphicsConfigTemplate3D.PREFERRED);
       // Request depth size equal to 24 if supported
@@ -1038,11 +1117,159 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
         g2D.dispose();
         // Navigation panel image ready to be displayed
         this.navigationPanelImage = updatedImage;
+        if (this.openGLView != null) {
+          this.openGLView.setOverlayImage(updatedImage);
+        }
         return;
       }
     }
     this.navigationPanelImage = null;
+    if (this.openGLView != null) {
+      this.openGLView.setOverlayImage(null);
+    }
   }
+
+  private static final String OPENGL_RENDERER_SUFFIX = " (OpenGL renderer)";
+  private static final String RENDERER_PROPERTY = "com.eteks.sweethome3d.j3d.renderer";
+  private static final String RENDERER_PREFERENCE = "renderer3D";
+
+  /**
+   * Returns <code>true</code> if the 3D view of homes should be displayed by the
+   * OpenGL renderer rather than by Java 3D. The system property
+   * <code>com.eteks.sweethome3d.j3d.renderer</code> set to <code>opengl</code>
+   * or <code>java3d</code> has the priority on the choice of the user.
+   */
+  public static boolean isOpenGLRendererSelected() {
+    try {
+      String renderer = System.getProperty(RENDERER_PROPERTY);
+      if (renderer == null) {
+        renderer = java.util.prefs.Preferences.userNodeForPackage(HomeComponent3D.class).get(RENDERER_PREFERENCE, null);
+      }
+      return "opengl".equalsIgnoreCase(renderer);
+    } catch (RuntimeException ex) {
+      return false;
+    }
+  }
+
+  /**
+   * Sets whether the 3D view of homes should be displayed by the OpenGL renderer.
+   * Call {@link #updateRenderer() updateRenderer} to apply this choice to a displayed view.
+   */
+  public static void setOpenGLRendererSelected(boolean selected) {
+    try {
+      java.util.prefs.Preferences.userNodeForPackage(HomeComponent3D.class).put(
+          RENDERER_PREFERENCE, selected ? "opengl" : "java3d");
+    } catch (RuntimeException ex) {
+      // The choice lasts until the program is quit
+      System.setProperty(RENDERER_PROPERTY, selected ? "opengl" : "java3d");
+    }
+  }
+
+  /**
+   * Returns <code>true</code> if this view is displayed by the OpenGL renderer.
+   */
+  public boolean isOpenGLRendererUsed() {
+    return this.openGLView != null;
+  }
+
+  /**
+   * Displays this view with the renderer chosen by the user if it changed.
+   */
+  public void updateRenderer() {
+    if (this.openGLRendererAllowed
+        && this.component3D != null
+        && (this.openGLView != null) != isOpenGLRendererSelected()) {
+      this.component3DAncestorListener.ancestorRemoved(null);
+      this.component3DAncestorListener.ancestorAdded(null);
+      revalidate();
+      repaint();
+    }
+  }
+
+  /**
+   * Returns an image of the frame displayed by the OpenGL renderer,
+   * or <code>null</code> if this view isn't displayed by this renderer.
+   */
+  BufferedImage getOpenGLImage() {
+    return this.openGLView != null
+        ? this.openGLView.createImage()
+        : null;
+  }
+
+  /**
+   * Returns information about the last frame drawn by the OpenGL renderer.
+   */
+  String getOpenGLFrameInformation() {
+    return this.openGLView != null
+        ? "items=" + this.openGLView.getDrawnItemCount()
+            + " vertices=" + this.openGLView.getDrawnVertexCount()
+            + " frameMs=" + this.openGLView.getLastFrameDuration()
+            + " pending=" + this.openGLView.isFramePending()
+        : null;
+  }
+
+  /**
+   * Creates the scene displayed by the OpenGL renderer. Its nodes are the ones
+   * that Java 3D would display, but they aren't attached to a universe: they are
+   * updated by the same listeners, and read by the renderer.
+   */
+  private void createOpenGLScene() {
+    this.openGLSceneRoot = createSceneTree(false, true, false);
+    this.openGLView.setScene(this.openGLSceneRoot, (Group)this.openGLSceneRoot.getChild(0));
+    this.component3D.setFocusable(false);
+
+    this.cameraChangeListener = new PropertyChangeListener() {
+        public void propertyChange(PropertyChangeEvent ev) {
+          if (dollHouseView) {
+            updateDollHouseView();
+          }
+          if (openGLView != null) {
+            openGLView.repaint();
+          }
+        }
+      };
+    this.home.getCamera().addPropertyChangeListener(this.cameraChangeListener);
+    this.homeCameraListener = new PropertyChangeListener() {
+        public void propertyChange(PropertyChangeEvent ev) {
+          ((Camera)ev.getOldValue()).removePropertyChangeListener(cameraChangeListener);
+          home.getCamera().addPropertyChangeListener(cameraChangeListener);
+          cameraChangeListener.propertyChange(null);
+        }
+      };
+    this.home.addPropertyChangeListener(Home.Property.CAMERA, this.homeCameraListener);
+
+    // Models and textures are loaded in the background
+    this.openGLObjectObserver = new Object3DBranch.ChangeObserver() {
+        public void object3DChanged(Object3DBranch object3D) {
+          if (openGLView != null) {
+            openGLView.markObjectDirty(object3D);
+            openGLView.repaint();
+          }
+        }
+      };
+    Object3DBranch.addChangeObserver(this.openGLObjectObserver);
+    this.openGLTextureListener = new Runnable() {
+        public void run() {
+          if (openGLView != null) {
+            openGLView.markAllObjectsDirty();
+            openGLView.repaint();
+          }
+        }
+      };
+    com.eteks.sweethome3d.j3d.TextureManager.addTextureLoadingListener(this.openGLTextureListener);
+    // Sky, ground and light colors
+    for (HomeEnvironment.Property property : HomeEnvironment.Property.values()) {
+      this.home.getEnvironment().addPropertyChangeListener(property, this.openGLEnvironmentListener);
+    }
+  }
+
+  private final PropertyChangeListener openGLEnvironmentListener = new PropertyChangeListener() {
+      public void propertyChange(PropertyChangeEvent ev) {
+        if (openGLView != null) {
+          openGLView.repaint();
+        }
+      }
+    };
 
   /**
    * Returns a new 3D universe that displays <code>home</code> objects.
@@ -1259,6 +1486,11 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    * call {@link #endOffscreenImagesCreation() endOffscreenImagesCreation} method to free resources.
    */
   public void startOffscreenImagesCreation() {
+    if (this.openGLSceneRoot != null) {
+      // Each image will be created with a universe of its own, to keep
+      // the scene displayed by the OpenGL renderer and its listeners
+      return;
+    }
     if (this.offscreenUniverse == null) {
       if (this.onscreenUniverse != null) {
         throw new IllegalStateException("Can't listen to home changes offscreen and onscreen at the same time");
@@ -1407,44 +1639,57 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       view.setFrontClipDistance(0.001f);
       view.setBackClipDistance(5000);
     } else {
-      double frontClipDistance = 2.5f;
-      float frontBackDistanceRatio = 500000; // More than 10 km for a 2.5 cm front distance
-      if (Component3DManager.getInstance().getDepthSize() <= 16) {
-        // It's recommended to keep ratio between back and front clip distances under 3000 for a 16 bit Z-buffer
-        frontBackDistanceRatio = 3000;
-        BoundingBox approximateHomeBounds = getApproximateHomeBounds();
-        // If camera is out of home bounds, adjust the front clip distance to the distance to home bounds
-        if (approximateHomeBounds != null
-            && !approximateHomeBounds.intersect(new Point3d(camera.getX(), camera.getY(), camera.getZ()))) {
-          float distanceToClosestBoxSide = getDistanceToBox(camera.getX(), camera.getY(), camera.getZ(), approximateHomeBounds);
-          if (!Float.isNaN(distanceToClosestBoxSide)) {
-            frontClipDistance = Math.max(frontClipDistance, 0.1f * distanceToClosestBoxSide);
-          }
-        }
-      } else {
-        float homeHeight = getHomeHeight();
-        if (camera.getZ() > homeHeight) {
-          frontClipDistance = Math.max(frontClipDistance, (camera.getZ() - homeHeight) / 10);
-        }
-      }
-      if (camera.getZ() > 0 && width != 0 && height != 0) {
-        float halfVerticalFieldOfView = (float)Math.atan(Math.tan(fieldOfView / 2) * height / width);
-        float fieldOfViewBottomAngle = camera.getPitch() + halfVerticalFieldOfView;
-        // If the horizon is above the frustrum bottom, take into account the distance to the ground
-        if (fieldOfViewBottomAngle > 0) {
-          float distanceToGroundAtFieldOfViewBottomAngle = (float)(camera.getZ() / Math.sin(fieldOfViewBottomAngle));
-          frontClipDistance = Math.min(frontClipDistance, 0.35f * distanceToGroundAtFieldOfViewBottomAngle);
-          if (frontClipDistance * frontBackDistanceRatio < distanceToGroundAtFieldOfViewBottomAngle) {
-            // Ensure the ground is always visible at the back clip distance
-            frontClipDistance = distanceToGroundAtFieldOfViewBottomAngle / frontBackDistanceRatio;
-          }
-        }
-      }
+      double [] clipDistances = getClipDistances(camera, width, height, Component3DManager.getInstance().getDepthSize());
       // Update front and back clip distance
-      view.setFrontClipDistance(frontClipDistance);
-      view.setBackClipDistance(frontClipDistance * frontBackDistanceRatio);
+      view.setFrontClipDistance(clipDistances [0]);
+      view.setBackClipDistance(clipDistances [1]);
     }
     clearPrintedImageCache();
+  }
+
+  /**
+   * Returns the front and back clip distances of a perspective view
+   * of the given size seen from <code>camera</code>.
+   */
+  private double [] getClipDistances(Camera camera, int width, int height, int depthSize) {
+    float fieldOfView = camera.getFieldOfView();
+    if (fieldOfView == 0) {
+      fieldOfView = (float)(Math.PI * 63 / 180);
+    }
+    double frontClipDistance = 2.5f;
+    float frontBackDistanceRatio = 500000; // More than 10 km for a 2.5 cm front distance
+    if (depthSize <= 16) {
+      // It's recommended to keep ratio between back and front clip distances under 3000 for a 16 bit Z-buffer
+      frontBackDistanceRatio = 3000;
+      BoundingBox approximateHomeBounds = getApproximateHomeBounds();
+      // If camera is out of home bounds, adjust the front clip distance to the distance to home bounds
+      if (approximateHomeBounds != null
+          && !approximateHomeBounds.intersect(new Point3d(camera.getX(), camera.getY(), camera.getZ()))) {
+        float distanceToClosestBoxSide = getDistanceToBox(camera.getX(), camera.getY(), camera.getZ(), approximateHomeBounds);
+        if (!Float.isNaN(distanceToClosestBoxSide)) {
+          frontClipDistance = Math.max(frontClipDistance, 0.1f * distanceToClosestBoxSide);
+        }
+      }
+    } else {
+      float homeHeight = getHomeHeight();
+      if (camera.getZ() > homeHeight) {
+        frontClipDistance = Math.max(frontClipDistance, (camera.getZ() - homeHeight) / 10);
+      }
+    }
+    if (camera.getZ() > 0 && width != 0 && height != 0) {
+      float halfVerticalFieldOfView = (float)Math.atan(Math.tan(fieldOfView / 2) * height / width);
+      float fieldOfViewBottomAngle = camera.getPitch() + halfVerticalFieldOfView;
+      // If the horizon is above the frustrum bottom, take into account the distance to the ground
+      if (fieldOfViewBottomAngle > 0) {
+        float distanceToGroundAtFieldOfViewBottomAngle = (float)(camera.getZ() / Math.sin(fieldOfViewBottomAngle));
+        frontClipDistance = Math.min(frontClipDistance, 0.35f * distanceToGroundAtFieldOfViewBottomAngle);
+        if (frontClipDistance * frontBackDistanceRatio < distanceToGroundAtFieldOfViewBottomAngle) {
+          // Ensure the ground is always visible at the back clip distance
+          frontClipDistance = distanceToGroundAtFieldOfViewBottomAngle / frontBackDistanceRatio;
+        }
+      }
+    }
+    return new double [] {frontClipDistance, frontClipDistance * frontBackDistanceRatio};
   }
 
   /**
@@ -2577,6 +2822,18 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    * or <code>null</code> if not found.
    */
   public Selectable getClosestSelectableItemAt(int x, int y) {
+    if (this.openGLView != null) {
+      Point canvasPoint = SwingUtilities.convertPoint(this, x, y, this.component3D);
+      Node pickedNode = this.openGLView.pickObject(canvasPoint.x, canvasPoint.y);
+      if (pickedNode != null) {
+        for (Map.Entry<Selectable, Object3DBranch> entry : this.homeObjects.entrySet()) {
+          if (entry.getValue() == pickedNode) {
+            return entry.getKey();
+          }
+        }
+      }
+      return null;
+    }
     if (this.component3D != null) {
       Canvas3D canvas3D = getCanvas3D();
       PickCanvas pickCanvas = new PickCanvas(canvas3D, this.onscreenUniverse.getLocale());
@@ -2607,6 +2864,16 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    * Returns the 3D point matching the point (x, y) in component coordinates space.
    */
   private Point3d convertPixelLocationToVirtualWorldPoint(int x, int y) {
+    if (this.openGLView != null) {
+      Point canvasPoint = SwingUtilities.convertPoint(this, x, y, this.component3D);
+      double [] ray = this.openGLView.getPixelRay(canvasPoint.x, canvasPoint.y);
+      if (ray != null) {
+        return new Point3d(ray [0], ray [1], ray [2]);
+      } else {
+        Camera camera = this.home.getCamera();
+        return new Point3d(camera.getX(), camera.getZ(), camera.getY());
+      }
+    }
     Canvas3D canvas3D = getCanvas3D();
     Transform3D transform = new Transform3D();
     canvas3D.getImagePlateToVworld(transform);
@@ -3935,6 +4202,9 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     } else {
       group.insertChild(object3D, index);
     }
+    if (this.openGLView != null) {
+      this.openGLView.repaint();
+    }
     clearPrintedImageCache();
     return object3D;
   }
@@ -4012,6 +4282,15 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
         ((com.eteks.sweethome3d.j3d.HomePieceOfFurniture3D)entry.getValue()).setHiddenInView(
             hiddenFurniture.contains(entry.getKey()));
       }
+      if (this.openGLView != null
+          && (entry.getKey() instanceof Wall
+              || entry.getKey() instanceof HomePieceOfFurniture
+                  && ((HomePieceOfFurniture)entry.getKey()).isDoorOrWindow())) {
+        this.openGLView.markObjectDirty(entry.getValue());
+      }
+    }
+    if (this.openGLView != null) {
+      this.openGLView.repaint();
     }
   }
 
@@ -4059,6 +4338,9 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
         && this.homeObjectsToUpdate.contains(homeObject)) {
       this.homeObjectsToUpdate.remove(homeObject);
     }
+    if (this.openGLView != null) {
+      this.openGLView.repaint();
+    }
     clearPrintedImageCache();
   }
 
@@ -4091,7 +4373,13 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
             // Check object wasn't deleted since updateObjects call
             if (objectBranch != null) {
               objectBranch.update();
+              if (openGLView != null) {
+                openGLView.markObjectDirty(objectBranch);
+              }
             }
+          }
+          if (openGLView != null) {
+            openGLView.repaint();
           }
           homeObjectsToUpdate = null;
         }
