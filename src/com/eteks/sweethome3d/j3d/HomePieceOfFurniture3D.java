@@ -118,6 +118,7 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
   // Whether reduced (low poly) models may be displayed for opted-in pieces;
   // false for the rendering and export scenes that always use the original model
   private boolean useModelLODs = true;
+  private BranchGroup preparedModelBranch;
 
   /**
    * Creates the 3D piece matching the given home <code>piece</code>.
@@ -407,17 +408,26 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
    * Returns the node of the filled model.
    */
   private Node getFilledModelNode() {
-    TransformGroup transformGroup = (TransformGroup)getChild(0);
-    BranchGroup branchGroup = (BranchGroup)transformGroup.getChild(0);
-    return branchGroup.getChild(0);
+    return getModelBranch().getChild(0);
+  }
+
+  /**
+   * Returns the branch which contains the model, its selection box and its outline.
+   */
+  private BranchGroup getModelBranch() {
+    if (this.preparedModelBranch != null) {
+      // Branch being prepared before it's added to the scene
+      return this.preparedModelBranch;
+    } else {
+      return (BranchGroup)((TransformGroup)getChild(0)).getChild(0);
+    }
   }
 
   /**
    * Returns the selection node of the model.
    */
   private Node getSelectionNode() {
-    TransformGroup transformGroup = (TransformGroup)getChild(0);
-    BranchGroup branchGroup = (BranchGroup)transformGroup.getChild(0);
+    BranchGroup branchGroup = getModelBranch();
     if (branchGroup.numChildren() > 1
         && branchGroup.getChild(1) instanceof Shape3D) {
       return branchGroup.getChild(1);
@@ -430,8 +440,7 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
    * Returns the node of the outline model.
    */
   private Node getOutlineModelNode() {
-    TransformGroup transformGroup = (TransformGroup)getChild(0);
-    BranchGroup branchGroup = (BranchGroup)transformGroup.getChild(0);
+    BranchGroup branchGroup = getModelBranch();
     if (branchGroup.numChildren() > 2) {
       return branchGroup.getChild(2);
     } else if (branchGroup.numChildren() > 1
@@ -630,6 +639,22 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
       setTransparentShapeNotPickable(modelNode);
     }
 
+    // Update the color, the texture and the visibility of the model before it's
+    // added to the scene: once the model is live, each change of its shapes is
+    // a message sent to Java 3D, which blocks the calling thread for seconds
+    // when a home with many pieces is loaded
+    this.preparedModelBranch = modelBranch;
+    try {
+      if (piece.isBackFaceShown()) {
+        // Flip normals if back faces of model are shown
+        setBackFaceNormalFlip(getFilledModelNode(), true);
+      }
+      updatePieceOfFurnitureColorAndTexture(waitTextureLoadingEnd);
+      updatePieceOfFurnitureVisibility();
+    } finally {
+      this.preparedModelBranch = null;
+    }
+
     TransformGroup transformGroup = (TransformGroup)getChild(0);
     // Remove previous nodes
     transformGroup.removeAllChildren();
@@ -656,15 +681,7 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
       addChild(lightBranch);
     }
 
-    // Flip normals if back faces of model are shown
-    if (piece.isBackFaceShown()) {
-      setBackFaceNormalFlip(getFilledModelNode(), true);
-    }
-    // Update piece color, visibility and model mirror in dispatch thread as
-    // these attributes may be changed in that thread
-    updatePieceOfFurnitureColorAndTexture(waitTextureLoadingEnd);
     updateLight();
-    updatePieceOfFurnitureVisibility();
   }
 
   /**
