@@ -356,7 +356,7 @@ public class HomeDiagnostics {
         }
         Long modelSize = piece.getModelSize();
         if (modelSize != null && modelSize.longValue() >= HEAVY_MODEL_SIZE
-            && !com.eteks.sweethome3d.model.ModelLOD.isReducedDetailInView(piece)) {
+            && !com.eteks.sweethome3d.model.ModelLOD.isReducedDetailDisplayed(piece, home)) {
           add(issues, counts, new Issue(Type.HEAVY_MODEL, id + " has a "
               + (modelSize.longValue() / 1024 / 1024) + " MB model displayed at full detail"
               + " (reduce_detail makes the 3D view faster)", piece, null));

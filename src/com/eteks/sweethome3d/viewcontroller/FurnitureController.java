@@ -841,12 +841,14 @@ public class FurnitureController implements Controller {
    * displayed with their reduced (low poly) model in the 3D view.
    */
   public void setFurnitureReducedDetail(List<HomePieceOfFurniture> pieces, boolean reduced) {
-    String newValue = reduced ? "true" : null;
+    // Full detail is stored too, to keep the original model of a piece
+    // when the reduced models are chosen automatically
+    String newValue = reduced ? "true" : "false";
     List<HomePieceOfFurniture> modifiedPieces = new ArrayList<HomePieceOfFurniture>();
     List<String> oldValues = new ArrayList<String>();
     for (HomePieceOfFurniture piece : pieces) {
       String oldValue = piece.getProperty(ModelLOD.LOW_POLY_PROPERTY);
-      if (reduced != "true".equalsIgnoreCase(oldValue)) {
+      if (!newValue.equalsIgnoreCase(oldValue)) {
         modifiedPieces.add(piece);
         oldValues.add(oldValue);
         piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, newValue);

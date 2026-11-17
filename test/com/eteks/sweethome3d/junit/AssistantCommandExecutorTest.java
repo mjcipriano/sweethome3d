@@ -218,6 +218,8 @@ public class AssistantCommandExecutorTest {
           new CatalogPieceOfFurniture("Plant", icon, plantModel, 50, 50, 120, true, false)); // F2
       home.addPieceOfFurniture(sofa);
       home.addPieceOfFurniture(plant);
+      // Reduced models are displayed only for the pieces opted in
+      home.setProperty(ModelLOD.AUTOMATIC_PROPERTY, "false");
       // Only the sofa has a generated reduced model
       Content sofaLOD = new URLContent(new File("sofa-lod.obj").toURI().toURL());
       home.setModelLOD(sofa.getModel(), new ModelLOD(sofaLOD, 100000, 10000));

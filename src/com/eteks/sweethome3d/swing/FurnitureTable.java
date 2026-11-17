@@ -2223,7 +2223,7 @@ public class FurnitureTable extends JTable implements FurnitureView, Printable {
             String toolTip = this.integerFormat.format(vertexCount) + " vertices";
             // Show the reduced vertex count for pieces displayed with reduced detail
             ModelLOD modelLOD = home != null && content != null ? home.getModelLOD(content) : null;
-            if (modelLOD != null && piece != null && ModelLOD.isReducedDetailInView(piece)) {
+            if (modelLOD != null && piece != null && ModelLOD.isReducedDetailDisplayed(piece, home)) {
               // The LOD stores its own before/after pair, so scale it to the
               // displayed count rather than mixing two ways of counting vertices
               int reducedCount = modelLOD.getSourceVertexCount() > 0

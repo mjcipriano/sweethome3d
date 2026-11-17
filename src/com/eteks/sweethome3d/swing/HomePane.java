@@ -303,6 +303,20 @@ public class HomePane extends JRootPane implements HomeView {
           }
         }
       });
+    if (!home.getFurniture().isEmpty()
+        && !"false".equalsIgnoreCase(System.getProperty("com.eteks.sweethome3d.j3d.generateModelLODsAtOpening"))) {
+      // Prepare in the background the reduced models of the heavy furniture of an
+      // existing home, once its views had time to be displayed
+      javax.swing.Timer modelLODsTimer = new javax.swing.Timer(4000, new ActionListener() {
+          public void actionPerformed(ActionEvent ev) {
+            Set<Content> models = new HashSet<Content>();
+            collectLODModels(HomePane.this.home.getFurniture(), models);
+            generateModelLODs(models, null, false, true);
+          }
+        });
+      modelLODsTimer.setRepeats(false);
+      modelLODsTimer.start();
+    }
 
     if (!Boolean.getBoolean("com.eteks.sweethome3d.j3d.useOffScreen3DView")) {
       JPopupMenu.setDefaultLightWeightPopupEnabled(false);
@@ -1447,6 +1461,24 @@ public class HomePane extends JRootPane implements HomeView {
         }
       });
     preview3DMenu.add(showFullDetailMenuItem);
+    // Choice of the reduced model for all the heavy furniture or only for the pieces opted in
+    final JCheckBoxMenuItem automaticModelLODsMenuItem = new JCheckBoxMenuItem(
+        preferences.getLocalizedString(HomePane.class, "automaticModelLODs"));
+    automaticModelLODsMenuItem.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          setModelLODsAutomatic(automaticModelLODsMenuItem.isSelected());
+        }
+      });
+    preview3DMenu.addMenuListener(new MenuListener() {
+        public void menuSelected(MenuEvent ev) {
+          automaticModelLODsMenuItem.setSelected(ModelLOD.isAutomatic(home));
+        }
+        public void menuDeselected(MenuEvent ev) {
+        }
+        public void menuCanceled(MenuEvent ev) {
+        }
+      });
+    preview3DMenu.add(automaticModelLODsMenuItem);
     // Doll house display: the walls in front of the camera are left out of the aerial view
     final JCheckBoxMenuItem dollHouseMenuItem = new JCheckBoxMenuItem(
         preferences.getLocalizedString(HomePane.class, "dollHouseView"));
@@ -6370,6 +6402,17 @@ public class HomePane extends JRootPane implements HomeView {
    * the automatic level and skips models below the size threshold.
    */
   private void generateModelLODs(Set<Content> models, final Float targetRatio, final boolean showStatus) {
+    generateModelLODs(models, targetRatio, showStatus, false);
+  }
+
+  /**
+   * Generates LOD models for the given <code>models</code>. If
+   * <code>keepHomeUnmodified</code> is <code>true</code>, a home that wasn't
+   * modified remains so: the generated models are saved with the next
+   * modification, and generated again otherwise.
+   */
+  private void generateModelLODs(Set<Content> models, final Float targetRatio, final boolean showStatus,
+                                 final boolean keepHomeUnmodified) {
     if (models.isEmpty()) {
       if (showStatus) {
         JOptionPane.showMessageDialog(this,
@@ -6446,7 +6489,11 @@ public class HomePane extends JRootPane implements HomeView {
               if (modelLOD != null) {
                 EventQueue.invokeLater(new Runnable() {
                     public void run() {
+                      boolean modified = home.isModified();
                       home.setModelLOD(model, modelLOD);
+                      if (keepHomeUnmodified && !modified) {
+                        home.setModified(false);
+                      }
                     }
                   });
                 generatedCount [0]++;
@@ -6503,6 +6550,10 @@ public class HomePane extends JRootPane implements HomeView {
         }
       };
     generatorThread.setDaemon(true);
+    if (automatic) {
+      // Leave the processor to the views
+      generatorThread.setPriority(Thread.MIN_PRIORITY);
+    }
     generatorThread.start();
   }
 
@@ -6656,8 +6707,20 @@ public class HomePane extends JRootPane implements HomeView {
       this.controller.getFurnitureController().setFurnitureReducedDetail(pieces, reduced);
     } else {
       for (HomePieceOfFurniture piece : pieces) {
-        piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, reduced ? "true" : null);
+        piece.setProperty(ModelLOD.LOW_POLY_PROPERTY, reduced ? "true" : "false");
       }
+    }
+  }
+
+  /**
+   * Sets whether the furniture of the home that has a reduced model displays it
+   * in the 3D view without being asked to.
+   */
+  private void setModelLODsAutomatic(boolean automatic) {
+    this.home.setProperty(ModelLOD.AUTOMATIC_PROPERTY, automatic ? null : "false");
+    View view3D = this.controller.getHomeController3D().getView();
+    if (view3D instanceof HomeComponent3D) {
+      ((HomeComponent3D)view3D).updateFurnitureModels();
     }
   }
 

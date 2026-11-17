@@ -381,8 +381,9 @@ public class AssistantCommandExecutor {
       return false;
     } else if ("restore_detail".equals(action)) {
       if (item instanceof HomePieceOfFurniture
-          && ModelLOD.isReducedDetailInView((HomePieceOfFurniture)item)) {
-        ((HomePieceOfFurniture)item).setProperty(ModelLOD.LOW_POLY_PROPERTY, null);
+          && ModelLOD.isReducedDetailDisplayed((HomePieceOfFurniture)item, this.home)) {
+        // Stored to keep the original model when reduced models are chosen automatically
+        ((HomePieceOfFurniture)item).setProperty(ModelLOD.LOW_POLY_PROPERTY, "false");
         return true;
       }
       return false;
