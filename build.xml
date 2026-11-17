@@ -88,6 +88,9 @@
         <pathelement location="libtest/AppleJavaExtensions.jar"/>
         <pathelement location="libtest/javaAwtDesktop.jar"/>
         <pathelement location="libtest/jnlp.jar"/>
+        <!-- JOGL classes used by the OpenGL renderer of the 3D view -->
+        <pathelement location="lib/java3d-1.6/jogl-all.jar"/>
+        <pathelement location="lib/java3d-1.6/gluegen-rt.jar"/>
       </classpath>
     </javac>
 
@@ -527,6 +530,9 @@
         <pathelement location="libtest/AppleJavaExtensions.jar"/>
         <pathelement location="libtest/javaAwtDesktop.jar"/>
         <pathelement location="libtest/jnlp.jar"/>
+        <!-- JOGL classes used by the OpenGL renderer of the 3D view -->
+        <pathelement location="lib/java3d-1.6/jogl-all.jar"/>
+        <pathelement location="lib/java3d-1.6/gluegen-rt.jar"/>
       </classpath>
     </javac>
 
@@ -1773,6 +1779,9 @@
         <fileset dir="lib"/>
         <pathelement location="libtest/AppleJavaExtensions.jar"/>
         <pathelement location="libtest/jnlp.jar"/>
+        <!-- JOGL classes used by the OpenGL renderer of the 3D view -->
+        <pathelement location="lib/java3d-1.6/jogl-all.jar"/>
+        <pathelement location="lib/java3d-1.6/gluegen-rt.jar"/>
       </classpath>
     </javadoc>
 

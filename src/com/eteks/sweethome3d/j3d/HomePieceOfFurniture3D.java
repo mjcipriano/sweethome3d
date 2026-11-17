@@ -682,6 +682,7 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
     }
 
     updateLight();
+    notifyChangeObservers();
   }
 
   /**

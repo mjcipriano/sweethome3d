@@ -49,6 +49,9 @@ UTF-8/ASCII.
 - `docs/REVIEW_NOTES.md`: notes pinned to walls, furniture and rooms while
   visiting the home (N in the walk-through and the game mode), stored with the
   home and read by Claude with the `get_notes` MCP tool.
+- `docs/OPENGL_RENDERER.md`: the optional OpenGL renderer of the 3D view
+  (3D view > Use OpenGL renderer), which draws the Java 3D scene description
+  from buffers kept by the graphics card, its measurements and its limits.
 - `docs/WEBXR_VR.md`: the WebXR preview plugin (Tools > WebXR Preview...) —
   viewing a home in a Meta Quest 2/3 or SteamVR headset, and how its
   HTTP/HTTPS preview server works.

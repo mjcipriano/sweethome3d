@@ -153,6 +153,41 @@ public abstract class Object3DBranch extends BranchGroup {
    */
   public abstract void update();
 
+  private static final java.util.List<ChangeObserver> changeObservers =
+      new java.util.concurrent.CopyOnWriteArrayList<ChangeObserver>();
+
+  /**
+   * An observer notified when the nodes of a branch change out of a call to
+   * its {@link #update() update} method, like once its model is loaded.
+   */
+  public static interface ChangeObserver {
+    public void object3DChanged(Object3DBranch object3D);
+  }
+
+  /**
+   * Adds an observer notified of the changes of the branches that happen
+   * out of a call to their <code>update</code> method.
+   */
+  public static void addChangeObserver(ChangeObserver observer) {
+    changeObservers.add(observer);
+  }
+
+  /**
+   * Removes the given observer.
+   */
+  public static void removeChangeObserver(ChangeObserver observer) {
+    changeObservers.remove(observer);
+  }
+
+  /**
+   * Notifies observers that the nodes of this branch changed.
+   */
+  protected void notifyChangeObservers() {
+    for (ChangeObserver observer : changeObservers) {
+      observer.object3DChanged(this);
+    }
+  }
+
   /**
    * Returns a cloned instance of texture shared per <code>home</code> or
    * the texture itself if <code>home</code> is <code>null</code>.

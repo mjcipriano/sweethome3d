@@ -90,6 +90,11 @@ public class PackageDependenciesTest extends TestCase {
     JavaPackage sun3dUtilsImage = constraint.addPackage("com.sun.j3d.utils.image");
     JavaPackage sun3dUtilsUniverse = constraint.addPackage("com.sun.j3d.utils.universe");
     JavaPackage sun3dExpSwing = constraint.addPackage("com.sun.j3d.exp.swing");
+    // JOGL used by the OpenGL renderer of the 3D view
+    JavaPackage jogl = constraint.addPackage("com.jogamp.opengl");
+    JavaPackage joglFixedFunc = constraint.addPackage("com.jogamp.opengl.fixedfunc");
+    JavaPackage joglAwt = constraint.addPackage("com.jogamp.opengl.awt");
+    JavaPackage joglUtilAwt = constraint.addPackage("com.jogamp.opengl.util.awt");
     // XML
     JavaPackage xmlParsers = constraint.addPackage("javax.xml.parsers");
     JavaPackage xmlSax = constraint.addPackage("org.xml.sax");
@@ -173,6 +178,8 @@ public class PackageDependenciesTest extends TestCase {
     sweetHome3DJava3D.dependsUpon(xmlSax);
     sweetHome3DJava3D.dependsUpon(xmlSaxHelpers);
     sweetHome3DJava3D.dependsUpon(orgApacheBatikParser);
+    sweetHome3DJava3D.dependsUpon(jogl);
+    sweetHome3DJava3D.dependsUpon(joglFixedFunc);
 
     sweetHome3DSwing.dependsUpon(sweetHome3DModel);
     sweetHome3DSwing.dependsUpon(sweetHome3DTools);
@@ -201,6 +208,10 @@ public class PackageDependenciesTest extends TestCase {
     sweetHome3DSwing.dependsUpon(sun3dUtilsPicking);
     sweetHome3DSwing.dependsUpon(sun3dUtilsUniverse);
     sweetHome3DSwing.dependsUpon(sun3dExpSwing);
+    sweetHome3DSwing.dependsUpon(jogl);
+    sweetHome3DSwing.dependsUpon(joglFixedFunc);
+    sweetHome3DSwing.dependsUpon(joglAwt);
+    sweetHome3DSwing.dependsUpon(joglUtilAwt);
     sweetHome3DSwing.dependsUpon(jmf);
     sweetHome3DSwing.dependsUpon(jmfControl);
     sweetHome3DSwing.dependsUpon(jmfDataSink);
