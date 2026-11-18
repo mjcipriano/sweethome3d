@@ -51,7 +51,9 @@ UTF-8/ASCII.
   home and read by Claude with the `get_notes` MCP tool.
 - `docs/OPENGL_RENDERER.md`: the optional OpenGL renderer of the 3D view
   (3D view > Use OpenGL renderer), which draws the Java 3D scene description
-  from buffers kept by the graphics card, its measurements and its limits.
+  from buffers kept by the graphics card: its threads, its quality options
+  (antialiasing, shadows, ambient occlusion), the images it creates for
+  photos and printing, its measurements and its limits.
 - `docs/WEBXR_VR.md`: the WebXR preview plugin (Tools > WebXR Preview...) —
   viewing a home in a Meta Quest 2/3 or SteamVR headset, and how its
   HTTP/HTTPS preview server works.
