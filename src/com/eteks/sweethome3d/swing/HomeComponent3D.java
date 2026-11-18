@@ -1218,8 +1218,9 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    * Returns <code>true</code> if the OpenGL renderer smooths the edges of the objects.
    */
   public static boolean isOpenGLAntialiasingSelected() {
-    return isOpenGLOptionSelected(OPENGL_ANTIALIASING, !"speed".equalsIgnoreCase(
-        System.getProperty(GraphicsEnvironmentConfiguration.RENDERING_QUALITY_PROPERTY)));
+    // Selected by default, whatever the rendering quality chosen for Java 3D,
+    // which is set to speed under Windows to spare integrated graphics cards
+    return isOpenGLOptionSelected(OPENGL_ANTIALIASING, true);
   }
 
   /**

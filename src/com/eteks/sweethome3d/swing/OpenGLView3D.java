@@ -437,8 +437,17 @@ class OpenGLView3D {
                                    final boolean shadows, final boolean ambientOcclusion) {
     final OpenGLSceneRenderer.Frame frame = createFrame(width, height);
     final BufferedImage [] image = {null};
+    // Set once this method returns, if the canvas couldn't run the task at once
+    final boolean [] abandoned = {false};
+    final boolean [] done = {false};
     this.canvas.invoke(true, new GLRunnable() {
         public boolean run(GLAutoDrawable drawable) {
+          synchronized (abandoned) {
+            if (abandoned [0]) {
+              return true;
+            }
+            done [0] = true;
+          }
           int previousSamples = renderer.getAntialiasingSamples();
           boolean previousShadows = renderer.isShadows();
           boolean previousAmbientOcclusion = renderer.isAmbientOcclusion();
@@ -458,7 +467,13 @@ class OpenGLView3D {
           return false;
         }
       });
-    requestFrame();
+    synchronized (abandoned) {
+      if (!done [0]) {
+        abandoned [0] = true;
+      }
+    }
+    // Describe the scene again for the size of the view
+    repaint();
     return image [0];
   }
 

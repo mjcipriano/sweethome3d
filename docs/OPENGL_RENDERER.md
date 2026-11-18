@@ -129,9 +129,9 @@ geometries to the graphics card is slow:
 | | First photo | Next photos |
 | --- | --- | --- |
 | Java 3D, fastest quality | 2.5 s | 2.5 s |
-| OpenGL, fastest quality | 6.6 s | 1.0 s |
+| OpenGL, fastest quality | 6.5 s | 1.1 s |
 | Java 3D, shadows on the floor | 7.6 s | 7.6 s |
-| OpenGL, shadows and ambient occlusion | 10.3 s | 3.2 s |
+| OpenGL, shadows and ambient occlusion | 11.2 s | 4.6 s |
 
 The first OpenGL photo is slower than Java 3D there: it copies the models to
 the graphics card, all of them when they cast shadows. Under native Windows a
@@ -156,6 +156,9 @@ make build
   computes them at each vertex.
 - Transparent shapes are sorted by the center of each shape.
 - With **Shadows**, the lights differ on purpose (see above).
+- An image of the displayed view (printing) is made of what the view displays:
+  the marks of a selection shown in the 3D view are in the image, and
+  furniture still loading isn't.
 - Two parts of a model which overlap exactly flicker differently: which one
   shows depends on the size of the view, as it depends on the order of
   drawing in Java 3D.

@@ -195,6 +195,7 @@ public class OpenGLSceneRenderer {
   private boolean  pendingUploads;
   private boolean  uploadsDone;
   private boolean  shadowUpdateDeferred;
+  private boolean  shadowCasterSkipped;
   private int      vertexUploadBudget;
   private int      pixelUploadBudget;
   // Time left in nanoseconds to copy geometries and textures during the frame
@@ -212,6 +213,8 @@ public class OpenGLSceneRenderer {
   private int      frameItemCount;
   private long     frameVertexCount;
   private int      frameMissingItemCount;
+  // Count of shapes of the frame waiting for their geometry or their texture
+  private int      frameWaitingItemCount;
   // Time when the shadow map was drawn and how long it took
   private long     shadowMapTime;
   private long     shadowMapDuration;
@@ -241,13 +244,11 @@ public class OpenGLSceneRenderer {
   private int  sceneProgram;
   private final Map<String, Integer> sceneUniforms = new HashMap<String, Integer>();
   private int  occlusionProgram;
-  private int  blurProgram;
   private int  compositionProgram;
   // Frame buffers
   private Target  sceneTarget;
   private Target  resolvedTarget;
   private Target  occlusionTarget;
-  private Target  blurTarget;
   private Target  imageTarget;
   private int     shadowFramebuffer;
   private int     shadowTexture;
@@ -1090,7 +1091,7 @@ public class OpenGLSceneRenderer {
     // and the frame is drawn again until they are all displayed
     this.imageRendering = true;
     try {
-      this.imageTarget = getTarget(gl, this.imageTarget, width, height, 0, true, false);
+      this.imageTarget = getTarget(gl, this.imageTarget, width, height, 0, true, true);
       if (this.imageTarget == null) {
         throw new IllegalStateException("No frame buffer");
       }
@@ -1099,10 +1100,14 @@ public class OpenGLSceneRenderer {
       this.imageLoading = this.shadows;
       while (true) {
         renderFrame(gl, frame, width, height, this.imageTarget.framebuffer, false);
-        if (isLoading()) {
+        // The image is complete once a frame displayed all its shapes,
+        // and their shadows without copying any geometry after they were drawn
+        if (isLoading()
+            || this.frameWaitingItemCount > 0
+            || this.uploadsDone && this.shadows && !this.imageLoading) {
           if (System.currentTimeMillis() - start > 120000) {
             break;
-          } else if (!this.pendingUploads) {
+          } else if (!this.pendingUploads && !this.uploadsDone) {
             // Wait for the geometries and textures that worker threads are preparing
             try {
               Thread.sleep(3);
@@ -1129,11 +1134,14 @@ public class OpenGLSceneRenderer {
         ((java.nio.Buffer)pixels).position((height - 1 - y) * width);
         pixels.get(data, y * width, width);
       }
-      // Don't keep a large image in the memory of the graphics card
-      this.imageTarget = deleteTarget(gl, this.imageTarget);
       return image;
     } finally {
       this.imageRendering = false;
+      // Don't keep buffers at the size of the image in the memory of the graphics card
+      this.imageTarget = deleteTarget(gl, this.imageTarget);
+      this.sceneTarget = deleteTarget(gl, this.sceneTarget);
+      this.resolvedTarget = deleteTarget(gl, this.resolvedTarget);
+      this.occlusionTarget = deleteTarget(gl, this.occlusionTarget);
     }
   }
 
@@ -1153,6 +1161,7 @@ public class OpenGLSceneRenderer {
     this.frameItemCount = 0;
     this.frameVertexCount = 0;
     this.frameMissingItemCount = 0;
+    this.frameWaitingItemCount = 0;
     releaseResources(gl, frame);
 
     double aspect = height > 0 ? (double)width / height : 1;
@@ -1189,6 +1198,14 @@ public class OpenGLSceneRenderer {
       samples = 0;
     }
     int sceneFramebuffer = targetFramebuffer;
+    if (!occlusion) {
+      // Free the buffers of an option which was turned off
+      this.resolvedTarget = deleteTarget(gl, this.resolvedTarget);
+      this.occlusionTarget = deleteTarget(gl, this.occlusionTarget);
+      if (samples == 0) {
+        this.sceneTarget = deleteTarget(gl, this.sceneTarget);
+      }
+    }
     if (samples > 0 || occlusion) {
       this.sceneTarget = getTarget(gl, this.sceneTarget, width, height, samples, false, true);
       if (this.sceneTarget != null) {
@@ -1415,7 +1432,16 @@ public class OpenGLSceneRenderer {
             && released.generation <= frame.generation; ) {
       this.releasedMeshes.poll();
       Mesh mesh = released.mesh;
+      if (mesh.loadState == MESH_PREPARING) {
+        // The worker thread which prepares it will forget its vertices
+        mesh.released = true;
+        if (mesh.loadState == MESH_PREPARING) {
+          this.uploadedMeshes.remove(mesh);
+          continue;
+        }
+      }
       synchronized (mesh) {
+        mesh.released = false;
         if (mesh.buffer != 0) {
           gl.glDeleteBuffers(1, new int [] {mesh.buffer}, 0);
           mesh.buffer = 0;
@@ -1685,6 +1711,9 @@ public class OpenGLSceneRenderer {
         return;
       } else if (!upload(gl, mesh, false)) {
         this.frameMissingItemCount++;
+        if (mesh.loadState != MESH_FAILED) {
+          this.frameWaitingItemCount++;
+        }
         return;
       }
     }
@@ -1702,6 +1731,9 @@ public class OpenGLSceneRenderer {
           // Draw the shape once its texture is ready
           if (!this.depthOnlyPass) {
             this.frameMissingItemCount++;
+            this.frameWaitingItemCount++;
+          } else {
+            this.shadowCasterSkipped = true;
           }
           return;
         }
@@ -2131,6 +2163,11 @@ public class OpenGLSceneRenderer {
    * @param background  <code>true</code> if the geometry isn't displayed in the current frame
    */
   private boolean upload(GL2 gl, final Mesh mesh, boolean background) {
+    // Don't wait for a worker thread
+    int loadState = mesh.loadState;
+    if (loadState == MESH_PREPARING || loadState == MESH_FAILED) {
+      return false;
+    }
     synchronized (mesh) {
       switch (mesh.loadState) {
         case MESH_UPLOADED :
@@ -2160,7 +2197,8 @@ public class OpenGLSceneRenderer {
             break;
           } else {
             // Keep half of the vertices prepared in advance for the geometries in sight
-            if (this.preparedBytes.get() < (background ? MAX_PREPARED_BYTES / 2 : MAX_PREPARED_BYTES)) {
+            if (this.imageRendering && !background
+                || this.preparedBytes.get() < (background ? MAX_PREPARED_BYTES / 2 : MAX_PREPARED_BYTES)) {
               final long size = mesh.getEstimatedSize();
               mesh.loadState = MESH_PREPARING;
               mesh.released = false;
@@ -2273,7 +2311,9 @@ public class OpenGLSceneRenderer {
   private boolean isOutOfSight(Item item, double [][] planes) {
     if (item.mesh.loadState != MESH_UPLOADED
         && !item.mesh.boundsKnown
-        && !item.mesh.computeBounds()) {
+        && (item.mesh.loadState == MESH_PREPARING
+            || !item.mesh.computeBounds())) {
+      // Bounds unknown, or about to be known without waiting for a worker thread
       return false;
     }
     updateBounds(item);
@@ -2443,6 +2483,7 @@ public class OpenGLSceneRenderer {
     loadMatrix(gl, GLMatrixFunc.GL_PROJECTION, matrix);
     double [] identity = {1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1};
     this.depthOnlyPass = true;
+    this.shadowCasterSkipped = false;
     for (Item item : frame.opaqueItems) {
       if (isShadowCaster(item)) {
         drawItem(gl, frame, item, identity, false);
@@ -2453,7 +2494,8 @@ public class OpenGLSceneRenderer {
     gl.glColorMask(true, true, true, true);
     gl.glBindBuffer(GL.GL_ARRAY_BUFFER, 0);
     gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, this.defaultFramebuffer);
-    this.shadowMapValid = !this.pendingUploads;
+    // Draw it again once the textures of the shapes which were left out are ready
+    this.shadowMapValid = !this.pendingUploads && !this.shadowCasterSkipped;
     gl.glFinish();
     this.shadowMapTime = System.nanoTime();
     this.shadowMapDuration = this.shadowMapTime - shadowMapStart;
@@ -3328,7 +3370,9 @@ public class OpenGLSceneRenderer {
     private volatile int loadState = MESH_NEW;
     private FloatBuffer  data;
     private long         preparedSize;
-    private boolean      released;
+    private volatile boolean released;
+    // Lock taken while the geometry is read, distinct from the one of the load state
+    private final Object creationLock = new Object();
     private volatile boolean boundsKnown;
     private float []   center = {0, 0, 0};
     private float      radius;
@@ -3367,7 +3411,13 @@ public class OpenGLSceneRenderer {
      * Computes the bounds of this mesh from the coordinates of its geometry, without
      * preparing its vertices, and returns <code>false</code> if they can't be read.
      */
-    public synchronized boolean computeBounds() {
+    public boolean computeBounds() {
+      synchronized (this.creationLock) {
+        return computeBoundsWithLock();
+      }
+    }
+
+    private boolean computeBoundsWithLock() {
       if (!this.boundsKnown) {
         try {
           GeometryArray geometry = this.geometry;
@@ -3437,7 +3487,13 @@ public class OpenGLSceneRenderer {
     /**
      * Returns the coordinates of the vertices of the triangles of this mesh.
      */
-    public synchronized float [] getPositions() {
+    public float [] getPositions() {
+      synchronized (this.creationLock) {
+        return getPositionsWithLock();
+      }
+    }
+
+    private float [] getPositionsWithLock() {
       float [] positions = this.positions != null
           ? this.positions.get()
           : null;
@@ -3468,7 +3524,13 @@ public class OpenGLSceneRenderer {
      * for each vertex its coordinates, then its normal, its texture coordinates
      * and its color if they exist.
      */
-    public synchronized FloatBuffer createVertices() {
+    public FloatBuffer createVertices() {
+      synchronized (this.creationLock) {
+        return createVerticesWithLock();
+      }
+    }
+
+    private FloatBuffer createVerticesWithLock() {
       GeometryArray geometry = this.geometry;
       int format = geometry.getVertexFormat();
       int vertexCount = geometry.getVertexCount();
