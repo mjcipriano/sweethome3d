@@ -1,5 +1,28 @@
 # Changelog
 
+## [7.23.0](https://github.com/mjcipriano/sweethome3d/compare/v7.22.0...v7.23.0) (2026-11-18)
+
+
+### Features
+
+* heavy furniture models display their reduced version automatically ([f5d5a97](https://github.com/mjcipriano/sweethome3d/commit/f5d5a97abda5c0701c2d6473d2308d21c1fcfa9c))
+* heavy furniture models display their reduced version automatically ([bef434f](https://github.com/mjcipriano/sweethome3d/commit/bef434fd78630cc374733443dafd9700e712c445))
+* OpenGL renderer draws in its own thread, with lamps, shadows and images ([4e78513](https://github.com/mjcipriano/sweethome3d/commit/4e78513dd14d0f12a257fd69c8fb21502297efa0))
+* OpenGL renderer draws in its own thread, with lamps, shadows and images ([e5c02e2](https://github.com/mjcipriano/sweethome3d/commit/e5c02e259f56ea7810929c625aa563dea497fed0))
+* optional OpenGL renderer for the 3D view ([dfb3d92](https://github.com/mjcipriano/sweethome3d/commit/dfb3d928d33b3a3ed237a6bba676b71b9c28d421))
+* optional OpenGL renderer for the 3D view ([d88aefe](https://github.com/mjcipriano/sweethome3d/commit/d88aefebf29110671d0d0a4f0a605bbd67c8f3eb))
+
+
+### Bug Fixes
+
+* complete images, no wait on worker threads and antialiasing by default ([8dfbc26](https://github.com/mjcipriano/sweethome3d/commit/8dfbc2699eab318ffa65c110179f347124260d1e))
+
+
+### Performance Improvements
+
+* furniture models are prepared before being attached to the 3D scene ([98c2a50](https://github.com/mjcipriano/sweethome3d/commit/98c2a503ea82cbe457548186829abc248488e68c))
+* furniture models are prepared before being attached to the 3D scene ([8c1327a](https://github.com/mjcipriano/sweethome3d/commit/8c1327a0eaffc704204304ca54e6773282e849a8))
+
 ## [7.22.0](https://github.com/mjcipriano/sweethome3d/compare/v7.21.0...v7.22.0) (2026-11-16)
 
 
