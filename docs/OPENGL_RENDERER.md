@@ -68,6 +68,12 @@ the time the frame takes to draw if longer,
 between the frames it draws on its own while a home loads. Windows doesn't
 share this lock, and neither limit applies there.
 
+Under Windows, AWT must not erase the background of the canvas: its drawing
+hides the frames drawn by OpenGL in an other thread, and the view stays empty.
+`SweetHome3D` sets `sun.awt.noerasebackground` to `true` at launch, before AWT
+starts. A program which shows `HomeComponent3D` with this renderer under
+Windows without `SweetHome3D` has to set this property too.
+
 ### Camera
 
 The point of view moves to the camera of the home in 150 ms, as the

@@ -1214,7 +1214,9 @@ public class OpenGLSceneRenderer {
         occlusion = false;
       }
     }
-    gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, sceneFramebuffer);
+    if (this.framebufferAvailable) {
+      gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, sceneFramebuffer);
+    }
     drawScene(gl, frame, width, height, projectionMatrix);
 
     if (sceneFramebuffer != targetFramebuffer) {
