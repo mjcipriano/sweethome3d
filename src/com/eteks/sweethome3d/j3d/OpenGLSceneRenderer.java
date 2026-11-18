@@ -20,25 +20,38 @@
 package com.eteks.sweethome3d.j3d;
 
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferInt;
 import java.awt.image.RenderedImage;
 import java.lang.ref.SoftReference;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import javax.media.j3d.AmbientLight;
 import javax.media.j3d.Appearance;
 import javax.media.j3d.Background;
+import javax.media.j3d.BoundingBox;
+import javax.media.j3d.BoundingLeaf;
+import javax.media.j3d.BoundingSphere;
+import javax.media.j3d.Bounds;
 import javax.media.j3d.ColoringAttributes;
 import javax.media.j3d.DirectionalLight;
 import javax.media.j3d.Geometry;
@@ -62,6 +75,7 @@ import javax.media.j3d.LineStripArray;
 import javax.media.j3d.Link;
 import javax.media.j3d.Material;
 import javax.media.j3d.Node;
+import javax.media.j3d.PointLight;
 import javax.media.j3d.PolygonAttributes;
 import javax.media.j3d.QuadArray;
 import javax.media.j3d.RenderingAttributes;
@@ -97,57 +111,151 @@ import com.jogamp.opengl.fixedfunc.GLPointerFunc;
  * the description of the scene: their geometries are copied once in buffers
  * kept by the graphics card and shared by all the shapes which use them, and
  * each frame draws these buffers without going through Java 3D.
- * All the methods of this class must be called in the same thread, the ones
- * that receive a <code>GL2</code> parameter with its OpenGL context current.
+ * <p>Three kinds of threads may use an instance of this class:<ul>
+ * <li>the <i>scene thread</i>, i.e. the only thread which modifies the nodes
+ * of the scene, calls {@link #setScene(Node, Group) setScene}, the methods which
+ * mark objects as modified, {@link #prepareFrame(Transform3D, double, double, double)
+ * prepareFrame} which returns an immutable description of the scene, and the picking methods</li>
+ * <li>the <i>rendering thread</i>, with an OpenGL context current, calls
+ * {@link #init(GL2) init}, {@link #renderFrame(GL2, Frame, int, int) renderFrame},
+ * {@link #renderImage(GL2, Frame, int, int) renderImage} and {@link #dispose(GL2) dispose}</li>
+ * <li>worker threads, one per available processor, prepare the vertices of the
+ * geometries and the pixels of the textures before the rendering thread copies
+ * them to the graphics card.</li></ul>
+ * The scene thread and the rendering thread may be the same one.
  * @author Emmanuel Puybaret
  */
 public class OpenGLSceneRenderer {
   private static final int MAX_LIGHTS = 8;
+  private static final int MAX_POINT_LIGHTS = 8;
   // Maximum count of vertices copied to the graphics card during a frame,
   // to keep the frames short while the models of a home are being loaded
   private static final int VERTEX_UPLOAD_BUDGET =
       Integer.getInteger("com.eteks.sweethome3d.opengl.vertexUploadBudget", 1500000);
+  // Maximum time in nanoseconds spent to copy geometries and textures to the graphics card during
+  // a frame under Linux, where the rendering thread takes the lock of AWT while it draws a frame
+  // and blocks the event dispatch thread as soon as it draws too
+  private static final long UPLOAD_TIME_BUDGET = com.eteks.sweethome3d.tools.OperatingSystem.isLinux()
+      ? Long.getLong("com.eteks.sweethome3d.opengl.uploadTimeBudget", 40) * 1000000L
+      : Long.MAX_VALUE / 2;
+  // Maximum count of pixels of textures copied to the graphics card during a frame
+  private static final int PIXEL_UPLOAD_BUDGET = 8 * 1024 * 1024;
+  // Maximum size of the vertices prepared in advance by the worker threads
+  private static final long MAX_PREPARED_BYTES = 192L * 1024 * 1024;
+  private static final int SHADOW_MAP_MAX_SIZE = 4096;
+  // Lights when shadows are displayed: a main light which casts shadows is added from
+  // the side of the first directional light but higher, and the lights of the scene fill the shadows
+  private static final float SHADOW_KEY_LIGHT_FACTOR = 0.8f;
+  private static final float SHADOW_FILL_LIGHT_FACTOR = 0.45f;
+  private static final double SHADOW_KEY_LIGHT_ELEVATION = Math.toRadians(58);
 
+  private static final int MESH_NEW = 0;
+  private static final int MESH_PREPARING = 1;
+  private static final int MESH_READY = 2;
+  private static final int MESH_UPLOADED = 3;
+  private static final int MESH_FAILED = 4;
+
+  private static ExecutorService preparationExecutor;
+
+  // ---- Fields used by the scene thread
   private Node   sceneRoot;
   private Group  objectsGroup;
-
   private final Map<Node, ObjectEntry>  objects = new IdentityHashMap<Node, ObjectEntry>();
   private final Map<Geometry, Mesh>     meshes = new IdentityHashMap<Geometry, Mesh>();
-  private final Map<Texture, GLTexture> textures = new IdentityHashMap<Texture, GLTexture>();
   private final Map<State, State>       states = new HashMap<State, State>();
-
+  private Map<Group, Integer>  lightScopes = new IdentityHashMap<Group, Integer>();
   private boolean     allObjectsDirty = true;
   private boolean     listsDirty = true;
-  private boolean     resourcesDirty;
-  private long        frame;
+  private long        preparedFrameCount;
+  private long        generation;
   private List<Item>  opaqueItems = new ArrayList<Item>();
   private List<Item>  transparentItems = new ArrayList<Item>();
-  private List<Item>  environmentItems = new ArrayList<Item>();
-  private List<Item>  backgroundItems = new ArrayList<Item>();
-  private List<LightState> lights = new ArrayList<LightState>();
-  private List<LightState> backgroundLights = new ArrayList<LightState>();
-  private float []    backgroundColor = {0.9f, 0.9f, 0.9f};
+  private PointLightState [] pointLights = {};
+  private int         meshOrder;
 
-  // Camera of the last frame
-  private final double [] viewMatrix = new double [16];
-  private final double [] projectionMatrix = new double [16];
-  private int      viewWidth;
-  private int      viewHeight;
+  // ---- Fields shared by threads
+  private final ConcurrentLinkedQueue<ReleasedMesh> releasedMeshes = new ConcurrentLinkedQueue<ReleasedMesh>();
+  private final AtomicLong    preparedBytes = new AtomicLong();
+  private final AtomicInteger preparationCount = new AtomicInteger();
+  private volatile ViewState  lastView;
+  private volatile Runnable   frameRequester;
+  private volatile boolean    synchronousLoading;
+  private volatile int        antialiasingSamples;
+  private volatile boolean    shadows;
+  private volatile int        shadowMapMaxSize = SHADOW_MAP_MAX_SIZE;
+  private volatile boolean    ambientOcclusion;
+  private volatile boolean    disposed;
+  private volatile int        maxTextureSize = 2048;
+
+  // ---- Fields used by the rendering thread
+  private final Map<Texture, GLTexture> textures = new IdentityHashMap<Texture, GLTexture>();
+  private final Map<Mesh, Boolean>      uploadedMeshes = new IdentityHashMap<Mesh, Boolean>();
+  private long     renderedGeneration = -1;
+  private int      framesSinceTextureCheck;
   private boolean  pendingUploads;
-
+  private boolean  uploadsDone;
+  private boolean  shadowUpdateDeferred;
+  private boolean  shadowCasterSkipped;
+  private int      vertexUploadBudget;
+  private int      pixelUploadBudget;
+  // Time left in nanoseconds to copy geometries and textures during the frame
+  private long     uploadTimeBudget;
+  private long     lastDrawingDuration;
+  // true while an image is created: all that is ready is copied at each frame
+  private boolean  imageRendering;
+  private boolean  imageLoading;
   // Statistics of the last frame
-  private int      drawnItemCount;
-  private long     drawnVertexCount;
-  private int      culledItemCount;
-
+  private volatile int   drawnItemCount;
+  private volatile long  drawnVertexCount;
+  private volatile int   culledItemCount;
+  private volatile int   missingItemCount;
+  // Statistics of the frame being drawn
+  private int      frameItemCount;
+  private long     frameVertexCount;
+  private int      frameMissingItemCount;
+  // Count of shapes of the frame waiting for their geometry or their texture
+  private int      frameWaitingItemCount;
+  // Time when the shadow map was drawn and how long it took
+  private long     shadowMapTime;
+  private long     shadowMapDuration;
   // Current OpenGL state
   private State    currentState;
   private Mesh     currentMesh;
   private int      currentTexture;
-  private boolean  currentFrontFaceClockwise;
+  private LightSet currentLightSet;
+  private int []   currentPointLights;
+  private boolean  depthOnlyPass;
+  private final float [] modelView = new float [16];
+  // Capabilities of the OpenGL context
   private boolean  generateMipmapAvailable;
-  private int      maxTextureSize;
-  private int      vertexUploadBudget;
+  private boolean  framebufferAvailable;
+  private boolean  shadersAvailable;
+  private float    maxAnisotropy;
+  private int      maxSamples;
+  private int      defaultFramebuffer;
+  // Lights of the frame being drawn
+  private final Map<Integer, LightSet> lightSets = new HashMap<Integer, LightSet>();
+  private LightSet  backgroundLightSet;
+  private float []  pointLightEyePositions;
+  private boolean   frameShadows;
+  private boolean   frameShadowCasters;
+  private float []  shadowMatrix;
+  // Programs and their uniform variables
+  private int  sceneProgram;
+  private final Map<String, Integer> sceneUniforms = new HashMap<String, Integer>();
+  private int  occlusionProgram;
+  private int  compositionProgram;
+  // Frame buffers
+  private Target  sceneTarget;
+  private Target  resolvedTarget;
+  private Target  occlusionTarget;
+  private Target  imageTarget;
+  private int     shadowFramebuffer;
+  private int     shadowTexture;
+  private int     shadowMapSize;
+  private boolean shadowMapValid;
+  private float [] shadowMapLightDirection;
+  private double [] shadowWorldMatrix;
 
   /**
    * Sets the root of the scene displayed by this renderer and the group among
@@ -159,7 +267,6 @@ public class OpenGLSceneRenderer {
     this.objects.clear();
     this.allObjectsDirty = true;
     this.listsDirty = true;
-    this.resourcesDirty = true;
   }
 
   /**
@@ -180,11 +287,84 @@ public class OpenGLSceneRenderer {
   }
 
   /**
+   * Sets the object called from any thread when a new frame should be drawn
+   * because some geometries or textures are ready to be displayed.
+   */
+  public void setFrameRequester(Runnable frameRequester) {
+    this.frameRequester = frameRequester;
+  }
+
+  /**
+   * Sets whether geometries and textures should be prepared in the rendering thread
+   * to draw complete frames, or by worker threads to draw the first frames sooner.
+   */
+  public void setSynchronousLoading(boolean synchronousLoading) {
+    this.synchronousLoading = synchronousLoading;
+  }
+
+  /**
+   * Sets the count of samples per pixel used to smooth edges, 0 or 1 for none.
+   */
+  public void setAntialiasingSamples(int antialiasingSamples) {
+    this.antialiasingSamples = antialiasingSamples;
+  }
+
+  public int getAntialiasingSamples() {
+    return this.antialiasingSamples;
+  }
+
+  /**
+   * Sets whether the objects cast shadows from the first directional light of the scene.
+   */
+  public void setShadows(boolean shadows) {
+    this.shadows = shadows;
+  }
+
+  public boolean isShadows() {
+    return this.shadows;
+  }
+
+  /**
+   * Sets the maximum width in pixels of the image of the depths viewed from
+   * the light where shadows are searched: the larger, the sharper the shadows.
+   */
+  public void setShadowMapMaxSize(int shadowMapMaxSize) {
+    this.shadowMapMaxSize = shadowMapMaxSize;
+  }
+
+  /**
+   * Sets whether corners and the surfaces close to an other one are darkened.
+   */
+  public void setAmbientOcclusion(boolean ambientOcclusion) {
+    this.ambientOcclusion = ambientOcclusion;
+  }
+
+  public boolean isAmbientOcclusion() {
+    return this.ambientOcclusion;
+  }
+
+  /**
+   * Returns <code>true</code> if lights are computed for each pixel, and if
+   * shadows and ambient occlusion may be displayed.
+   */
+  public boolean isAdvancedRenderingAvailable() {
+    return this.shadersAvailable && this.framebufferAvailable;
+  }
+
+  /**
    * Returns <code>true</code> if some geometries weren't copied to the graphics
    * card during the last frame, which should be followed by an other one.
    */
   public boolean isFramePending() {
     return this.pendingUploads;
+  }
+
+  /**
+   * Returns <code>true</code> if some geometries or textures of the last frame
+   * weren't displayed because they were still being prepared.
+   */
+  public boolean isLoading() {
+    return this.pendingUploads || this.preparationCount.get() > 0;
   }
 
   /**
@@ -209,257 +389,207 @@ public class OpenGLSceneRenderer {
   }
 
   /**
-   * Initializes the OpenGL context.
+   * Returns the count of shapes which weren't drawn in the last frame because
+   * their geometry or their texture wasn't ready, or couldn't be read.
    */
-  public void init(GL2 gl) {
-    // Buffers and textures of a previous context are lost
-    for (Mesh mesh : this.meshes.values()) {
-      mesh.buffer = 0;
-      mesh.uploaded = false;
-    }
-    this.textures.clear();
-    this.generateMipmapAvailable = gl.isFunctionAvailable("glGenerateMipmap");
-    int [] value = new int [1];
-    gl.glGetIntegerv(GL.GL_MAX_TEXTURE_SIZE, value, 0);
-    this.maxTextureSize = Math.max(256, value [0]);
+  public int getMissingItemCount() {
+    return this.missingItemCount;
   }
 
   /**
-   * Frees the resources kept by the OpenGL context.
+   * Returns the threads which prepare geometries and textures.
    */
-  public void dispose(GL2 gl) {
-    for (Mesh mesh : this.meshes.values()) {
-      if (mesh.buffer != 0) {
-        gl.glDeleteBuffers(1, new int [] {mesh.buffer}, 0);
-        mesh.buffer = 0;
-        mesh.uploaded = false;
-      }
+  private static synchronized ExecutorService getPreparationExecutor() {
+    if (preparationExecutor == null) {
+      int threadCount = Math.max(1, Math.min(16, Runtime.getRuntime().availableProcessors() - 1));
+      preparationExecutor = Executors.newFixedThreadPool(threadCount, new ThreadFactory() {
+          private final AtomicInteger count = new AtomicInteger();
+
+          public Thread newThread(Runnable runnable) {
+            Thread thread = new Thread(runnable, "OpenGL scene preparation " + this.count.incrementAndGet());
+            thread.setDaemon(true);
+            thread.setPriority(Thread.NORM_PRIORITY - 1);
+            return thread;
+          }
+        });
     }
-    for (GLTexture texture : this.textures.values()) {
-      if (texture.id != 0) {
-        gl.glDeleteTextures(1, new int [] {texture.id}, 0);
-      }
-    }
-    this.textures.clear();
+    return preparationExecutor;
   }
 
+  // ------------------------------------------------------------------
+  // Scene thread
+  // ------------------------------------------------------------------
+
   /**
-   * Draws the scene viewed from the given camera in a viewport of the given size.
+   * Returns the description of the scene at this moment viewed from the given camera.
+   * This method must be called in the thread which modifies the nodes of the scene.
    * @param cameraTransform  the transformation of the camera in the scene
    * @param fieldOfView      the horizontal field of view in radians
    */
-  public void render(GL2 gl, int width, int height,
-                     Transform3D cameraTransform, double fieldOfView,
-                     double frontClipDistance, double backClipDistance) {
-    this.frame++;
-    this.viewWidth = width;
-    this.viewHeight = height;
-    this.vertexUploadBudget = VERTEX_UPLOAD_BUDGET;
-    this.pendingUploads = false;
-    this.drawnItemCount = 0;
-    this.drawnVertexCount = 0;
-    this.culledItemCount = 0;
-
-    updateScene();
-
-    // Camera matrices
+  public Frame prepareFrame(Transform3D cameraTransform, double fieldOfView,
+                            double frontClipDistance, double backClipDistance) {
+    Frame frame = new Frame();
+    this.preparedFrameCount++;
+    frame.fieldOfView = fieldOfView;
+    frame.frontClipDistance = frontClipDistance;
+    frame.backClipDistance = backClipDistance;
+    cameraTransform.get(frame.cameraMatrix);
     Transform3D view = new Transform3D(cameraTransform);
     view.invert();
-    view.get(this.viewMatrix);
-    double aspect = height > 0 ? (double)width / height : 1;
-    double halfWidth = Math.tan(fieldOfView / 2) * frontClipDistance;
-    double halfHeight = halfWidth / aspect;
-    setFrustum(this.projectionMatrix, -halfWidth, halfWidth, -halfHeight, halfHeight, frontClipDistance, backClipDistance);
+    view.get(frame.viewMatrix);
 
-    gl.glViewport(0, 0, width, height);
-    gl.glDepthMask(true);
-    gl.glClearColor(this.backgroundColor [0], this.backgroundColor [1], this.backgroundColor [2], 1);
-    gl.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT);
-
-    gl.glEnable(GLLightingFunc.GL_NORMALIZE);
-    gl.glLightModeli(GL2.GL_LIGHT_MODEL_COLOR_CONTROL, GL2.GL_SEPARATE_SPECULAR_COLOR);
-    gl.glLightModeli(GL2.GL_LIGHT_MODEL_LOCAL_VIEWER, 0);
-    gl.glEnableClientState(GLPointerFunc.GL_VERTEX_ARRAY);
-    gl.glDepthFunc(GL.GL_LEQUAL);
-    gl.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA);
-    gl.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 1);
-    resetState(gl);
-
-    if (!this.backgroundItems.isEmpty()) {
-      // Draw the background around the camera, whatever its location
-      double [] backgroundProjection = new double [16];
-      double backgroundHalfWidth = Math.tan(fieldOfView / 2) * 0.1;
-      setFrustum(backgroundProjection, -backgroundHalfWidth, backgroundHalfWidth,
-          -backgroundHalfWidth / aspect, backgroundHalfWidth / aspect, 0.1, 10);
-      double [] backgroundView = this.viewMatrix.clone();
-      backgroundView [3] = 0;
-      backgroundView [7] = 0;
-      backgroundView [11] = 0;
-      loadMatrix(gl, GLMatrixFunc.GL_PROJECTION, backgroundProjection);
-      loadMatrix(gl, GLMatrixFunc.GL_MODELVIEW, backgroundView);
-      setLights(gl, this.backgroundLights);
-      gl.glDisable(GL.GL_DEPTH_TEST);
-      gl.glDepthMask(false);
-      for (Item item : this.backgroundItems) {
-        drawItem(gl, item, backgroundView, true);
-      }
-      gl.glDepthMask(true);
-      resetState(gl);
-    }
-
-    loadMatrix(gl, GLMatrixFunc.GL_PROJECTION, this.projectionMatrix);
-    loadMatrix(gl, GLMatrixFunc.GL_MODELVIEW, this.viewMatrix);
-    setLights(gl, this.lights);
-    gl.glEnable(GL.GL_DEPTH_TEST);
-
-    double [][] frustumPlanes = getFrustumPlanes(this.projectionMatrix, this.viewMatrix);
-    List<Item> blendedItems = new ArrayList<Item>();
-    for (Item item : this.environmentItems) {
-      if (item.isBlended(this)) {
-        blendedItems.add(item);
-      } else {
-        drawItem(gl, item, this.viewMatrix, false);
-      }
-    }
-    for (Item item : this.opaqueItems) {
-      if (isOutOfSight(item, frustumPlanes)) {
-        this.culledItemCount++;
-      } else if (item.isBlended(this)) {
-        // Its texture, loaded since the lists were built, is partly transparent
-        blendedItems.add(item);
-      } else {
-        drawItem(gl, item, this.viewMatrix, false);
-      }
-    }
-    for (Item item : this.transparentItems) {
-      if (isOutOfSight(item, frustumPlanes)) {
-        this.culledItemCount++;
-      } else {
-        blendedItems.add(item);
-      }
-    }
-    if (!blendedItems.isEmpty()) {
-      // Draw transparent shapes from the farthest to the closest one
-      for (Item item : blendedItems) {
-        item.viewDepth = getViewDepth(item, this.viewMatrix);
-      }
-      Collections.sort(blendedItems, new Comparator<Item>() {
-          public int compare(Item item1, Item item2) {
-            return Double.compare(item1.viewDepth, item2.viewDepth);
+    List<Item> environmentItems = new ArrayList<Item>();
+    List<Item> backgroundItems = new ArrayList<Item>();
+    List<LightState> lights = new ArrayList<LightState>();
+    List<LightState> backgroundLights = new ArrayList<LightState>();
+    if (this.sceneRoot != null) {
+      Transform3D identity = new Transform3D();
+      if (this.sceneRoot instanceof Group) {
+        Group root = (Group)this.sceneRoot;
+        // Lights first, to know the groups they are limited to
+        for (int i = 0, n = root.numChildren(); i < n; i++) {
+          Node child = root.getChild(i);
+          if (child != this.objectsGroup && !(child instanceof Background)) {
+            extractLights(child, identity, lights);
           }
-        });
-      for (Item item : blendedItems) {
-        drawItem(gl, item, this.viewMatrix, false);
-      }
-    }
-
-    resetState(gl);
-    gl.glBindBuffer(GL.GL_ARRAY_BUFFER, 0);
-    deleteUnusedResources(gl);
-  }
-
-  /**
-   * Updates the description of the scene from its nodes.
-   */
-  private void updateScene() {
-    if (this.sceneRoot == null) {
-      return;
-    }
-    // Environment: background, ground and lights are described again at each frame
-    this.environmentItems = new ArrayList<Item>();
-    this.backgroundItems = new ArrayList<Item>();
-    this.lights = new ArrayList<LightState>();
-    this.backgroundLights = new ArrayList<LightState>();
-    Transform3D identity = new Transform3D();
-    if (this.sceneRoot instanceof Group) {
-      Group root = (Group)this.sceneRoot;
-      for (int i = 0, n = root.numChildren(); i < n; i++) {
-        Node child = root.getChild(i);
-        if (child != this.objectsGroup) {
-          extractEnvironment(child, identity);
+        }
+        Map<Group, Integer> lightScopes = new IdentityHashMap<Group, Integer>();
+        int scopedLightCount = 0;
+        for (LightState light : lights) {
+          if (light.scopes != null && scopedLightCount < 31) {
+            light.scopeBit = 1 << scopedLightCount++;
+            for (Group group : light.scopes) {
+              Integer mask = lightScopes.get(group);
+              lightScopes.put(group, mask != null ? mask | light.scopeBit : light.scopeBit);
+            }
+          }
+          light.scopes = null;
+        }
+        if (!lightScopes.equals(this.lightScopes)) {
+          this.lightScopes = lightScopes;
+          this.allObjectsDirty = true;
+        }
+        // Environment: background and ground are described again at each frame
+        for (int i = 0, n = root.numChildren(); i < n; i++) {
+          Node child = root.getChild(i);
+          if (child instanceof Background) {
+            Background background = (Background)child;
+            Color3f color = new Color3f();
+            background.getColor(color);
+            frame.backgroundColor = new float [] {color.x, color.y, color.z};
+            if (background.getGeometry() != null) {
+              extractLights(background.getGeometry(), identity, backgroundLights);
+              extract(background.getGeometry(), identity, false, null, 0, backgroundItems, null);
+            }
+          } else if (child != this.objectsGroup) {
+            extract(child, identity, false, null, 0, environmentItems, null);
+          }
         }
       }
-    }
 
-    // Objects
-    if (this.objectsGroup != null) {
-      boolean changed = false;
-      int count = this.objectsGroup.numChildren();
-      for (int i = 0; i < count; i++) {
-        Node child = this.objectsGroup.getChild(i);
-        ObjectEntry entry = this.objects.get(child);
-        if (entry == null) {
-          entry = new ObjectEntry();
-          this.objects.put(child, entry);
-          entry.dirty = true;
-        }
-        entry.frame = this.frame;
-        if (entry.dirty || this.allObjectsDirty) {
-          entry.items = new ArrayList<Item>();
-          extract(child, identity, true, child, entry.items, null);
-          entry.dirty = false;
-          changed = true;
-        }
-      }
-      if (this.objects.size() != count) {
-        // Forget removed objects
-        for (Iterator<ObjectEntry> it = this.objects.values().iterator(); it.hasNext(); ) {
-          if (it.next().frame != this.frame) {
-            it.remove();
+      // Objects
+      if (this.objectsGroup != null) {
+        boolean changed = false;
+        int count = this.objectsGroup.numChildren();
+        for (int i = 0; i < count; i++) {
+          Node child = this.objectsGroup.getChild(i);
+          ObjectEntry entry = this.objects.get(child);
+          if (entry == null) {
+            entry = new ObjectEntry();
+            this.objects.put(child, entry);
+            entry.dirty = true;
+          }
+          entry.frame = this.preparedFrameCount;
+          if (entry.dirty || this.allObjectsDirty) {
+            entry.items = new ArrayList<Item>();
+            entry.pointLights = new ArrayList<PointLightState>(0);
+            extract(child, identity, true, child, 0, entry.items, entry.pointLights);
+            entry.dirty = false;
             changed = true;
           }
         }
-      }
-      this.allObjectsDirty = false;
-      if (changed || this.listsDirty) {
-        this.opaqueItems = new ArrayList<Item>();
-        this.transparentItems = new ArrayList<Item>();
-        for (ObjectEntry entry : this.objects.values()) {
-          for (Item item : entry.items) {
-            if (item.state.isBlended()) {
-              this.transparentItems.add(item);
-            } else {
-              this.opaqueItems.add(item);
+        if (this.objects.size() != count) {
+          // Forget removed objects
+          for (Iterator<ObjectEntry> it = this.objects.values().iterator(); it.hasNext(); ) {
+            if (it.next().frame != this.preparedFrameCount) {
+              it.remove();
+              changed = true;
             }
           }
         }
-        // Sort opaque shapes to change OpenGL state as rarely as possible
-        Collections.sort(this.opaqueItems, new Comparator<Item>() {
-            public int compare(Item item1, Item item2) {
-              int order = item1.state.order - item2.state.order;
-              return order != 0
-                  ? order
-                  : item1.mesh.order - item2.mesh.order;
+        this.allObjectsDirty = false;
+        if (changed || this.listsDirty) {
+          List<Item> opaqueItems = new ArrayList<Item>();
+          List<Item> transparentItems = new ArrayList<Item>();
+          List<PointLightState> pointLights = new ArrayList<PointLightState>();
+          for (ObjectEntry entry : this.objects.values()) {
+            for (Item item : entry.items) {
+              if (item.state.isBlended()) {
+                transparentItems.add(item);
+              } else {
+                opaqueItems.add(item);
+              }
             }
-          });
-        this.listsDirty = false;
-        this.resourcesDirty = true;
+            pointLights.addAll(entry.pointLights);
+          }
+          // Sort opaque shapes to change OpenGL state as rarely as possible
+          Collections.sort(opaqueItems, new Comparator<Item>() {
+              public int compare(Item item1, Item item2) {
+                int order = item1.state.order - item2.state.order;
+                return order != 0
+                    ? order
+                    : item1.mesh.order - item2.mesh.order;
+              }
+            });
+          this.opaqueItems = opaqueItems;
+          this.transparentItems = transparentItems;
+          this.pointLights = pointLights.toArray(new PointLightState [pointLights.size()]);
+          this.listsDirty = false;
+          this.generation++;
+          releaseUnusedMeshes(environmentItems, backgroundItems);
+        }
+      }
+    }
+    frame.generation = this.generation;
+    frame.opaqueItems = this.opaqueItems;
+    frame.transparentItems = this.transparentItems;
+    frame.pointLights = this.pointLights;
+    frame.environmentItems = environmentItems;
+    frame.backgroundItems = backgroundItems;
+    frame.lights = lights.toArray(new LightState [lights.size()]);
+    frame.backgroundLights = backgroundLights.toArray(new LightState [backgroundLights.size()]);
+    return frame;
+  }
+
+  /**
+   * Forgets the geometries that no shape uses anymore.
+   */
+  private void releaseUnusedMeshes(List<Item> environmentItems, List<Item> backgroundItems) {
+    IdentityHashMap<Mesh, Boolean> usedMeshes = new IdentityHashMap<Mesh, Boolean>();
+    for (ObjectEntry entry : this.objects.values()) {
+      for (Item item : entry.items) {
+        usedMeshes.put(item.mesh, Boolean.TRUE);
+      }
+    }
+    for (Item item : environmentItems) {
+      usedMeshes.put(item.mesh, Boolean.TRUE);
+    }
+    for (Item item : backgroundItems) {
+      usedMeshes.put(item.mesh, Boolean.TRUE);
+    }
+    for (Iterator<Mesh> it = this.meshes.values().iterator(); it.hasNext(); ) {
+      Mesh mesh = it.next();
+      if (!usedMeshes.containsKey(mesh)) {
+        it.remove();
+        this.releasedMeshes.add(new ReleasedMesh(mesh, this.generation));
       }
     }
   }
 
   /**
-   * Describes a node which isn't an object of the home.
+   * Adds to <code>lights</code> the ambient and directional lights among the descendants of <code>node</code>.
    */
-  private void extractEnvironment(Node node, Transform3D transform) {
-    if (node instanceof Background) {
-      Background background = (Background)node;
-      Color3f color = new Color3f();
-      background.getColor(color);
-      this.backgroundColor = new float [] {color.x, color.y, color.z};
-      if (background.getGeometry() != null) {
-        extract(background.getGeometry(), transform, false, null, this.backgroundItems, this.backgroundLights);
-      }
-    } else {
-      extract(node, transform, false, null, this.environmentItems, this.lights);
-    }
-  }
-
-  /**
-   * Adds to <code>items</code> the visible shapes among the descendants of <code>node</code>.
-   */
-  private void extract(Node node, Transform3D parentTransform, boolean pickable, Node owner,
-                       List<Item> items, List<LightState> lights) {
+  private void extractLights(Node node, Transform3D parentTransform, List<LightState> lights) {
     if (node instanceof Group) {
       Group group = (Group)node;
       Transform3D transform = parentTransform;
@@ -469,31 +599,84 @@ public class OpenGLSceneRenderer {
         transform = new Transform3D(parentTransform);
         transform.mul(groupTransform);
       }
+      for (int i = 0, n = group.numChildren(); i < n; i++) {
+        extractLights(group.getChild(i), transform, lights);
+      }
+    } else if (node instanceof Light) {
+      Light light = (Light)node;
+      if (light.getEnable()) {
+        Color3f color = new Color3f();
+        light.getColor(color);
+        LightState lightState = null;
+        if (light instanceof AmbientLight) {
+          lightState = new LightState(color, null);
+        } else if (light instanceof DirectionalLight) {
+          Vector3f direction = new Vector3f();
+          ((DirectionalLight)light).getDirection(direction);
+          parentTransform.transform(direction);
+          if (direction.lengthSquared() > 0) {
+            direction.normalize();
+          }
+          lightState = new LightState(color, direction);
+        }
+        if (lightState != null) {
+          if (light.numScopes() > 0) {
+            lightState.scopes = new ArrayList<Group>(light.numScopes());
+            for (Enumeration<?> it = light.getAllScopes(); it.hasMoreElements(); ) {
+              lightState.scopes.add((Group)it.nextElement());
+            }
+          }
+          lights.add(lightState);
+        }
+      }
+    }
+  }
+
+  /**
+   * Adds to <code>items</code> the visible shapes among the descendants of <code>node</code>.
+   */
+  private void extract(Node node, Transform3D parentTransform, boolean pickable, Node owner, int lightScopeMask,
+                       List<Item> items, List<PointLightState> pointLights) {
+    if (node instanceof Group) {
+      Group group = (Group)node;
+      Transform3D transform = parentTransform;
+      if (node instanceof TransformGroup) {
+        Transform3D groupTransform = new Transform3D();
+        ((TransformGroup)node).getTransform(groupTransform);
+        transform = new Transform3D(parentTransform);
+        transform.mul(groupTransform);
+      }
+      if (!this.lightScopes.isEmpty()) {
+        Integer mask = this.lightScopes.get(group);
+        if (mask != null) {
+          lightScopeMask |= mask;
+        }
+      }
       boolean childrenPickable = pickable && group.getPickable();
       if (node instanceof Switch) {
         Switch switchNode = (Switch)node;
         int whichChild = switchNode.getWhichChild();
         if (whichChild == Switch.CHILD_ALL) {
           for (int i = 0, n = group.numChildren(); i < n; i++) {
-            extract(group.getChild(i), transform, childrenPickable, owner, items, lights);
+            extract(group.getChild(i), transform, childrenPickable, owner, lightScopeMask, items, pointLights);
           }
         } else if (whichChild == Switch.CHILD_MASK) {
           BitSet mask = switchNode.getChildMask();
           for (int i = 0, n = group.numChildren(); i < n; i++) {
             if (mask.get(i)) {
-              extract(group.getChild(i), transform, childrenPickable, owner, items, lights);
+              extract(group.getChild(i), transform, childrenPickable, owner, lightScopeMask, items, pointLights);
             }
           }
         } else if (whichChild >= 0 && whichChild < group.numChildren()) {
-          extract(group.getChild(whichChild), transform, childrenPickable, owner, items, lights);
+          extract(group.getChild(whichChild), transform, childrenPickable, owner, lightScopeMask, items, pointLights);
         }
       } else {
         for (int i = 0, n = group.numChildren(); i < n; i++) {
-          extract(group.getChild(i), transform, childrenPickable, owner, items, lights);
+          extract(group.getChild(i), transform, childrenPickable, owner, lightScopeMask, items, pointLights);
         }
       }
     } else if (node instanceof Link) {
-      extract(((Link)node).getSharedGroup(), parentTransform, pickable, owner, items, lights);
+      extract(((Link)node).getSharedGroup(), parentTransform, pickable, owner, lightScopeMask, items, pointLights);
     } else if (node instanceof Shape3D) {
       Shape3D shape = (Shape3D)node;
       Appearance appearance = shape.getAppearance();
@@ -508,7 +691,7 @@ public class OpenGLSceneRenderer {
           if (geometry instanceof GeometryArray) {
             Mesh mesh = this.meshes.get(geometry);
             if (mesh == null) {
-              mesh = new Mesh((GeometryArray)geometry, this.meshes.size());
+              mesh = new Mesh((GeometryArray)geometry, this.meshOrder++);
               this.meshes.put(geometry, mesh);
             }
             if (mesh.mode != -1) {
@@ -520,26 +703,50 @@ public class OpenGLSceneRenderer {
               item.mesh = mesh;
               item.state = state;
               item.matrix = matrix;
-              item.mirrored = getDeterminant(matrix) < 0;
               item.pickable = pickable && shape.getPickable();
               item.owner = owner;
+              item.lightScopeMask = lightScopeMask;
               items.add(item);
             }
           }
         }
       }
-    } else if (node instanceof Light && lights != null) {
-      Light light = (Light)node;
+    } else if (node instanceof PointLight && pointLights != null) {
+      PointLight light = (PointLight)node;
       if (light.getEnable()) {
         Color3f color = new Color3f();
         light.getColor(color);
-        if (light instanceof AmbientLight) {
-          lights.add(new LightState(color, null));
-        } else if (light instanceof DirectionalLight) {
-          Vector3f direction = new Vector3f();
-          ((DirectionalLight)light).getDirection(direction);
-          parentTransform.transform(direction);
-          lights.add(new LightState(color, direction));
+        if (color.x > 0 || color.y > 0 || color.z > 0) {
+          Point3f position = new Point3f();
+          light.getPosition(position);
+          parentTransform.transform(position);
+          Point3f attenuation = new Point3f();
+          light.getAttenuation(attenuation);
+          PointLightState lightState = new PointLightState();
+          lightState.position = new float [] {position.x, position.y, position.z};
+          lightState.color = new float [] {color.x, color.y, color.z};
+          lightState.attenuation = new float [] {attenuation.x, attenuation.y, attenuation.z};
+          BoundingLeaf boundingLeaf = light.getInfluencingBoundingLeaf();
+          Bounds bounds = boundingLeaf != null
+              ? boundingLeaf.getRegion()
+              : light.getInfluencingBounds();
+          if (bounds instanceof BoundingBox) {
+            Point3d lower = new Point3d();
+            Point3d upper = new Point3d();
+            ((BoundingBox)bounds).getLower(lower);
+            ((BoundingBox)bounds).getUpper(upper);
+            lightState.lower = new double [] {lower.x, lower.y, lower.z};
+            lightState.upper = new double [] {upper.x, upper.y, upper.z};
+          } else if (bounds instanceof BoundingSphere) {
+            Point3d center = new Point3d();
+            ((BoundingSphere)bounds).getCenter(center);
+            double radius = ((BoundingSphere)bounds).getRadius();
+            if (radius < 1E6 && !Double.isInfinite(radius)) {
+              lightState.lower = new double [] {center.x - radius, center.y - radius, center.z - radius};
+              lightState.upper = new double [] {center.x + radius, center.y + radius, center.z + radius};
+            }
+          }
+          pointLights.add(lightState);
         }
       }
     }
@@ -564,51 +771,743 @@ public class OpenGLSceneRenderer {
   }
 
   /**
+   * Returns the origin and the direction in the scene of the ray which goes
+   * through the pixel (x, y) of the last frame, y going down.
+   */
+  public double [] getPixelRay(int x, int y) {
+    ViewState lastView = this.lastView;
+    if (lastView == null || lastView.width <= 0 || lastView.height <= 0) {
+      return null;
+    }
+    Matrix4d projection = new Matrix4d(lastView.projectionMatrix);
+    Matrix4d view = new Matrix4d(lastView.viewMatrix);
+    Matrix4d inverse = new Matrix4d();
+    inverse.mul(projection, view);
+    try {
+      inverse.invert();
+    } catch (RuntimeException ex) {
+      return null;
+    }
+    double deviceX = 2. * (x + 0.5) / lastView.width - 1;
+    double deviceY = 1 - 2. * (y + 0.5) / lastView.height;
+    double [] near = unproject(inverse, deviceX, deviceY, -1);
+    double [] far = unproject(inverse, deviceX, deviceY, 1);
+    Vector3d direction = new Vector3d(far [0] - near [0], far [1] - near [1], far [2] - near [2]);
+    direction.normalize();
+    return new double [] {near [0], near [1], near [2], direction.x, direction.y, direction.z};
+  }
+
+  private static double [] unproject(Matrix4d inverse, double x, double y, double z) {
+    double [] point = {
+        inverse.m00 * x + inverse.m01 * y + inverse.m02 * z + inverse.m03,
+        inverse.m10 * x + inverse.m11 * y + inverse.m12 * z + inverse.m13,
+        inverse.m20 * x + inverse.m21 * y + inverse.m22 * z + inverse.m23};
+    double w = inverse.m30 * x + inverse.m31 * y + inverse.m32 * z + inverse.m33;
+    point [0] /= w;
+    point [1] /= w;
+    point [2] /= w;
+    return point;
+  }
+
+  /**
+   * Returns the child of the objects group displayed at the pixel (x, y) of
+   * the last frame, or <code>null</code> if there's none.
+   */
+  public Node pickObject(int x, int y) {
+    double [] ray = getPixelRay(x, y);
+    if (ray == null) {
+      return null;
+    }
+    Node closestObject = null;
+    double closestDistance = Double.POSITIVE_INFINITY;
+    for (ObjectEntry entry : this.objects.values()) {
+      for (Item item : entry.items) {
+        if (item.pickable && item.owner != null
+            && item.mesh.mode == GL.GL_TRIANGLES) {
+          double distance = getIntersectionDistance(item, ray, closestDistance);
+          if (distance < closestDistance) {
+            closestDistance = distance;
+            closestObject = item.owner;
+          }
+        }
+      }
+    }
+    return closestObject;
+  }
+
+  /**
+   * Returns the distance from the origin of <code>ray</code> to the closest
+   * triangle of a shape it goes through, or infinity.
+   */
+  private double getIntersectionDistance(Item item, double [] ray, double maxDistance) {
+    // Express the ray in the coordinates of the shape
+    Matrix4d matrix = new Matrix4d();
+    float [] m = item.matrix;
+    matrix.setRow(0, m [0], m [4], m [8], m [12]);
+    matrix.setRow(1, m [1], m [5], m [9], m [13]);
+    matrix.setRow(2, m [2], m [6], m [10], m [14]);
+    matrix.setRow(3, 0, 0, 0, 1);
+    Matrix4d inverse = new Matrix4d();
+    try {
+      inverse.invert(matrix);
+    } catch (RuntimeException ex) {
+      return Double.POSITIVE_INFINITY;
+    }
+    Point3d origin = new Point3d(ray [0], ray [1], ray [2]);
+    Vector3d direction = new Vector3d(ray [3], ray [4], ray [5]);
+    inverse.transform(origin);
+    inverse.transform(direction);
+    // The direction isn't normalized, to keep distances comparable in the scene
+
+    // Check the bounding sphere first
+    Mesh mesh = item.mesh;
+    float [] positions = null;
+    if (!mesh.boundsKnown) {
+      positions = mesh.getPositions();
+      if (positions == null) {
+        return Double.POSITIVE_INFINITY;
+      }
+    }
+    double cx = mesh.center [0] - origin.x;
+    double cy = mesh.center [1] - origin.y;
+    double cz = mesh.center [2] - origin.z;
+    double directionLengthSquared = direction.lengthSquared();
+    if (directionLengthSquared == 0) {
+      return Double.POSITIVE_INFINITY;
+    }
+    double t = (cx * direction.x + cy * direction.y + cz * direction.z) / directionLengthSquared;
+    double dx = cx - t * direction.x;
+    double dy = cy - t * direction.y;
+    double dz = cz - t * direction.z;
+    if (dx * dx + dy * dy + dz * dz > (double)mesh.radius * mesh.radius) {
+      return Double.POSITIVE_INFINITY;
+    }
+
+    if (positions == null) {
+      positions = mesh.getPositions();
+      if (positions == null) {
+        return Double.POSITIVE_INFINITY;
+      }
+    }
+    double closest = maxDistance;
+    double ox = origin.x, oy = origin.y, oz = origin.z;
+    double rx = direction.x, ry = direction.y, rz = direction.z;
+    for (int i = 0; i + 8 < positions.length; i += 9) {
+      double e1x = positions [i + 3] - positions [i];
+      double e1y = positions [i + 4] - positions [i + 1];
+      double e1z = positions [i + 5] - positions [i + 2];
+      double e2x = positions [i + 6] - positions [i];
+      double e2y = positions [i + 7] - positions [i + 1];
+      double e2z = positions [i + 8] - positions [i + 2];
+      double px = ry * e2z - rz * e2y;
+      double py = rz * e2x - rx * e2z;
+      double pz = rx * e2y - ry * e2x;
+      double determinant = e1x * px + e1y * py + e1z * pz;
+      if (determinant > -1E-12 && determinant < 1E-12) {
+        continue;
+      }
+      double inverseDeterminant = 1 / determinant;
+      double tx = ox - positions [i];
+      double ty = oy - positions [i + 1];
+      double tz = oz - positions [i + 2];
+      double u = (tx * px + ty * py + tz * pz) * inverseDeterminant;
+      if (u < 0 || u > 1) {
+        continue;
+      }
+      double qx = ty * e1z - tz * e1y;
+      double qy = tz * e1x - tx * e1z;
+      double qz = tx * e1y - ty * e1x;
+      double v = (rx * qx + ry * qy + rz * qz) * inverseDeterminant;
+      if (v < 0 || u + v > 1) {
+        continue;
+      }
+      double distance = (e2x * qx + e2y * qy + e2z * qz) * inverseDeterminant;
+      if (distance > 0 && distance < closest) {
+        closest = distance;
+      }
+    }
+    return closest < maxDistance ? closest : Double.POSITIVE_INFINITY;
+  }
+
+  // ------------------------------------------------------------------
+  // Rendering thread
+  // ------------------------------------------------------------------
+
+  /**
+   * Initializes the OpenGL context.
+   */
+  public void init(GL2 gl) {
+    // Buffers and textures of a previous context are lost
+    for (Mesh mesh : this.uploadedMeshes.keySet()) {
+      synchronized (mesh) {
+        mesh.buffer = 0;
+        if (mesh.loadState == MESH_UPLOADED) {
+          mesh.loadState = MESH_NEW;
+        }
+      }
+    }
+    this.uploadedMeshes.clear();
+    for (GLTexture texture : this.textures.values()) {
+      texture.deleted = true;
+    }
+    this.textures.clear();
+    this.sceneTarget = null;
+    this.resolvedTarget = null;
+    this.occlusionTarget = null;
+    this.imageTarget = null;
+    this.shadowFramebuffer = 0;
+    this.shadowTexture = 0;
+    this.shadowMapValid = false;
+    this.disposed = false;
+
+    this.generateMipmapAvailable = gl.isFunctionAvailable("glGenerateMipmap");
+    int [] value = new int [1];
+    gl.glGetIntegerv(GL.GL_MAX_TEXTURE_SIZE, value, 0);
+    this.maxTextureSize = Math.max(256, value [0]);
+    this.maxAnisotropy = 0;
+    if (gl.isExtensionAvailable("GL_EXT_texture_filter_anisotropic")) {
+      float [] floatValue = new float [1];
+      gl.glGetFloatv(GL.GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, floatValue, 0);
+      this.maxAnisotropy = Math.min(16, floatValue [0]);
+    }
+    this.framebufferAvailable = gl.isFunctionAvailable("glGenFramebuffers")
+        && gl.isFunctionAvailable("glBlitFramebuffer")
+        && gl.isFunctionAvailable("glRenderbufferStorageMultisample")
+        && !"false".equalsIgnoreCase(System.getProperty("com.eteks.sweethome3d.opengl.framebuffers"));
+    this.maxSamples = 0;
+    if (this.framebufferAvailable) {
+      gl.glGetIntegerv(GL2.GL_MAX_SAMPLES, value, 0);
+      this.maxSamples = value [0];
+    }
+    this.shadersAvailable = false;
+    this.sceneProgram = 0;
+    this.occlusionProgram = 0;
+    this.compositionProgram = 0;
+    if (gl.isFunctionAvailable("glCreateShader")
+        && gl.isFunctionAvailable("glUseProgram")
+        && !"false".equalsIgnoreCase(System.getProperty("com.eteks.sweethome3d.opengl.shaders"))) {
+      try {
+        this.sceneProgram = createProgram(gl, SCENE_VERTEX_SHADER, SCENE_FRAGMENT_SHADER);
+        this.sceneUniforms.clear();
+        gl.glUseProgram(this.sceneProgram);
+        gl.glUniform1i(getUniform(gl, "texture0"), 0);
+        gl.glUniform1i(getUniform(gl, "shadowMap"), 1);
+        gl.glUseProgram(0);
+        this.shadersAvailable = true;
+        if (this.framebufferAvailable) {
+          this.occlusionProgram = createProgram(gl, QUAD_VERTEX_SHADER, OCCLUSION_FRAGMENT_SHADER);
+          this.compositionProgram = createProgram(gl, QUAD_VERTEX_SHADER, COMPOSITION_FRAGMENT_SHADER);
+        }
+      } catch (RuntimeException ex) {
+        // Use the lights computed by OpenGL at each vertex
+        System.err.println("OpenGL renderer shaders unavailable: " + ex.getMessage());
+        gl.glUseProgram(0);
+        this.occlusionProgram = 0;
+        this.compositionProgram = 0;
+      }
+    }
+  }
+
+  /**
+   * Frees the resources kept by the OpenGL context.
+   */
+  public void dispose(GL2 gl) {
+    this.disposed = true;
+    for (Mesh mesh : this.uploadedMeshes.keySet()) {
+      synchronized (mesh) {
+        if (mesh.buffer != 0) {
+          gl.glDeleteBuffers(1, new int [] {mesh.buffer}, 0);
+          mesh.buffer = 0;
+        }
+        if (mesh.loadState == MESH_UPLOADED) {
+          mesh.loadState = MESH_NEW;
+        }
+      }
+    }
+    this.uploadedMeshes.clear();
+    for (GLTexture texture : this.textures.values()) {
+      if (texture.id != 0) {
+        gl.glDeleteTextures(1, new int [] {texture.id}, 0);
+      }
+      texture.deleted = true;
+    }
+    this.textures.clear();
+    this.sceneTarget = deleteTarget(gl, this.sceneTarget);
+    this.resolvedTarget = deleteTarget(gl, this.resolvedTarget);
+    this.occlusionTarget = deleteTarget(gl, this.occlusionTarget);
+    this.imageTarget = deleteTarget(gl, this.imageTarget);
+    deleteShadowMap(gl);
+    for (int program : new int [] {this.sceneProgram, this.occlusionProgram, this.compositionProgram}) {
+      if (program != 0) {
+        gl.glDeleteProgram(program);
+      }
+    }
+    this.sceneProgram = 0;
+    this.occlusionProgram = 0;
+    this.compositionProgram = 0;
+    this.shadersAvailable = false;
+  }
+
+  /**
+   * Draws at once the scene viewed from the given camera in a viewport of the given size.
+   * This method may be used when the nodes of the scene are modified in the rendering thread.
+   * @param cameraTransform  the transformation of the camera in the scene
+   * @param fieldOfView      the horizontal field of view in radians
+   */
+  public void render(GL2 gl, int width, int height,
+                     Transform3D cameraTransform, double fieldOfView,
+                     double frontClipDistance, double backClipDistance) {
+    Frame frame = prepareFrame(cameraTransform, fieldOfView, frontClipDistance, backClipDistance);
+    boolean synchronousLoading = this.synchronousLoading;
+    this.synchronousLoading = true;
+    try {
+      renderFrame(gl, frame, width, height);
+    } finally {
+      this.synchronousLoading = synchronousLoading;
+    }
+  }
+
+  /**
+   * Draws a frame in the default frame buffer of the OpenGL context.
+   */
+  public void renderFrame(GL2 gl, Frame frame, int width, int height) {
+    this.defaultFramebuffer = gl.getDefaultDrawFramebuffer();
+    renderFrame(gl, frame, width, height, this.defaultFramebuffer, true);
+  }
+
+  /**
+   * Returns the image of a frame at the given size. All the geometries and
+   * the textures of the scene are displayed in the returned image.
+   * @throws IllegalStateException if the image can't be created with this OpenGL context
+   */
+  public BufferedImage renderImage(GL2 gl, Frame frame, int width, int height) {
+    if (!this.framebufferAvailable) {
+      throw new IllegalStateException("No frame buffer");
+    } else if (width > this.maxTextureSize || height > this.maxTextureSize) {
+      throw new IllegalStateException("Image too large");
+    }
+    this.defaultFramebuffer = gl.getDefaultDrawFramebuffer();
+    // Geometries and textures are prepared by the worker threads,
+    // and the frame is drawn again until they are all displayed
+    this.imageRendering = true;
+    try {
+      this.imageTarget = getTarget(gl, this.imageTarget, width, height, 0, true, true);
+      if (this.imageTarget == null) {
+        throw new IllegalStateException("No frame buffer");
+      }
+      long start = System.currentTimeMillis();
+      // Shadows are drawn once all the geometries are copied to the graphics card
+      this.imageLoading = this.shadows;
+      while (true) {
+        renderFrame(gl, frame, width, height, this.imageTarget.framebuffer, false);
+        // The image is complete once a frame displayed all its shapes,
+        // and their shadows without copying any geometry after they were drawn
+        if (isLoading()
+            || this.frameWaitingItemCount > 0
+            || this.uploadsDone && this.shadows && !this.imageLoading) {
+          if (System.currentTimeMillis() - start > 120000) {
+            break;
+          } else if (!this.pendingUploads && !this.uploadsDone) {
+            // Wait for the geometries and textures that worker threads are preparing
+            try {
+              Thread.sleep(3);
+            } catch (InterruptedException ex) {
+              Thread.currentThread().interrupt();
+              break;
+            }
+          }
+        } else if (this.imageLoading) {
+          this.imageLoading = false;
+        } else {
+          break;
+        }
+      }
+
+      gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, this.imageTarget.framebuffer);
+      gl.glPixelStorei(GL.GL_PACK_ALIGNMENT, 1);
+      IntBuffer pixels = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.LITTLE_ENDIAN).asIntBuffer();
+      gl.glReadPixels(0, 0, width, height, GL.GL_BGRA, GL.GL_UNSIGNED_BYTE, pixels);
+      gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, this.defaultFramebuffer);
+      BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+      int [] data = ((DataBufferInt)image.getRaster().getDataBuffer()).getData();
+      for (int y = 0; y < height; y++) {
+        ((java.nio.Buffer)pixels).position((height - 1 - y) * width);
+        pixels.get(data, y * width, width);
+      }
+      return image;
+    } finally {
+      this.imageRendering = false;
+      // Don't keep buffers at the size of the image in the memory of the graphics card
+      this.imageTarget = deleteTarget(gl, this.imageTarget);
+      this.sceneTarget = deleteTarget(gl, this.sceneTarget);
+      this.resolvedTarget = deleteTarget(gl, this.resolvedTarget);
+      this.occlusionTarget = deleteTarget(gl, this.occlusionTarget);
+    }
+  }
+
+  private void renderFrame(GL2 gl, Frame frame, int width, int height, int targetFramebuffer, boolean publishView) {
+    boolean unlimitedUploads = this.synchronousLoading || this.imageRendering;
+    this.vertexUploadBudget = unlimitedUploads ? Integer.MAX_VALUE : VERTEX_UPLOAD_BUDGET;
+    this.pixelUploadBudget = unlimitedUploads ? Integer.MAX_VALUE : PIXEL_UPLOAD_BUDGET;
+    // A frame long to draw may spend as much time to copy geometries
+    this.uploadTimeBudget = unlimitedUploads
+        ? Long.MAX_VALUE / 2
+        : Math.max(UPLOAD_TIME_BUDGET, this.lastDrawingDuration);
+    long frameStart = System.nanoTime();
+    long frameUploadTimeBudget = this.uploadTimeBudget;
+    this.pendingUploads = false;
+    this.uploadsDone = false;
+    this.shadowUpdateDeferred = false;
+    this.frameItemCount = 0;
+    this.frameVertexCount = 0;
+    this.frameMissingItemCount = 0;
+    this.frameWaitingItemCount = 0;
+    releaseResources(gl, frame);
+
+    double aspect = height > 0 ? (double)width / height : 1;
+    double halfWidth = Math.tan(frame.fieldOfView / 2) * frame.frontClipDistance;
+    double halfHeight = halfWidth / aspect;
+    double [] projectionMatrix = new double [16];
+    setFrustum(projectionMatrix, -halfWidth, halfWidth, -halfHeight, halfHeight,
+        frame.frontClipDistance, frame.backClipDistance);
+    if (publishView) {
+      this.lastView = new ViewState(frame.viewMatrix, projectionMatrix, width, height);
+    }
+
+    gl.glEnable(GLLightingFunc.GL_NORMALIZE);
+    gl.glLightModeli(GL2.GL_LIGHT_MODEL_COLOR_CONTROL, GL2.GL_SEPARATE_SPECULAR_COLOR);
+    gl.glLightModeli(GL2.GL_LIGHT_MODEL_LOCAL_VIEWER, 0);
+    gl.glEnableClientState(GLPointerFunc.GL_VERTEX_ARRAY);
+    gl.glDepthFunc(GL.GL_LEQUAL);
+    gl.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA);
+    gl.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 1);
+
+    boolean advanced = isAdvancedRenderingAvailable();
+    this.frameShadows = false;
+    this.frameShadowCasters = advanced && this.shadows;
+    if (advanced && this.shadows
+        && !(this.imageRendering && this.imageLoading)) {
+      this.frameShadows = updateShadowMap(gl, frame);
+    }
+    boolean occlusion = advanced && this.ambientOcclusion
+        && this.occlusionProgram != 0 && this.compositionProgram != 0;
+    int samples = this.framebufferAvailable
+        ? Math.min(this.antialiasingSamples, this.maxSamples)
+        : 0;
+    if (samples < 2) {
+      samples = 0;
+    }
+    int sceneFramebuffer = targetFramebuffer;
+    if (!occlusion) {
+      // Free the buffers of an option which was turned off
+      this.resolvedTarget = deleteTarget(gl, this.resolvedTarget);
+      this.occlusionTarget = deleteTarget(gl, this.occlusionTarget);
+      if (samples == 0) {
+        this.sceneTarget = deleteTarget(gl, this.sceneTarget);
+      }
+    }
+    if (samples > 0 || occlusion) {
+      this.sceneTarget = getTarget(gl, this.sceneTarget, width, height, samples, false, true);
+      if (this.sceneTarget != null) {
+        sceneFramebuffer = this.sceneTarget.framebuffer;
+      } else {
+        occlusion = false;
+      }
+    }
+    gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, sceneFramebuffer);
+    drawScene(gl, frame, width, height, projectionMatrix);
+
+    if (sceneFramebuffer != targetFramebuffer) {
+      gl.glDisable(GL.GL_SCISSOR_TEST);
+      if (occlusion) {
+        this.resolvedTarget = getTarget(gl, this.resolvedTarget, width, height, 0, true, true);
+        this.occlusionTarget = getTarget(gl, this.occlusionTarget, width, height, 0, true, false);
+      }
+      if (occlusion && this.resolvedTarget != null && this.occlusionTarget != null) {
+        gl.glBindFramebuffer(GL2.GL_READ_FRAMEBUFFER, sceneFramebuffer);
+        gl.glBindFramebuffer(GL2.GL_DRAW_FRAMEBUFFER, this.resolvedTarget.framebuffer);
+        gl.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
+            GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT, GL.GL_NEAREST);
+        drawOcclusion(gl, frame, width, height, targetFramebuffer);
+      } else {
+        gl.glBindFramebuffer(GL2.GL_READ_FRAMEBUFFER, sceneFramebuffer);
+        gl.glBindFramebuffer(GL2.GL_DRAW_FRAMEBUFFER, targetFramebuffer);
+        gl.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL.GL_COLOR_BUFFER_BIT, GL.GL_NEAREST);
+      }
+      gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, targetFramebuffer);
+    }
+    if (this.shadowUpdateDeferred) {
+      this.pendingUploads = true;
+    }
+    if (this.uploadsDone && this.shadows && advanced && !this.imageRendering) {
+      // The shadows of the geometries which were just copied are still missing
+      this.shadowMapValid = false;
+      this.pendingUploads = true;
+    }
+    this.renderedGeneration = frame.generation;
+    // Time spent to draw this frame, without the copy of its geometries and textures
+    this.lastDrawingDuration = Math.max(0, System.nanoTime() - frameStart
+        - (frameUploadTimeBudget - this.uploadTimeBudget));
+    this.drawnItemCount = this.frameItemCount;
+    this.drawnVertexCount = this.frameVertexCount;
+    this.missingItemCount = this.frameMissingItemCount;
+  }
+
+  /**
+   * Draws the shapes of a frame in the current frame buffer.
+   */
+  private void drawScene(GL2 gl, Frame frame, int width, int height, double [] projectionMatrix) {
+    double aspect = height > 0 ? (double)width / height : 1;
+    gl.glViewport(0, 0, width, height);
+    gl.glDepthMask(true);
+    gl.glColorMask(true, true, true, true);
+    gl.glClearColor(frame.backgroundColor [0], frame.backgroundColor [1], frame.backgroundColor [2], 1);
+    gl.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT);
+    this.depthOnlyPass = false;
+    resetState(gl);
+
+    this.lightSets.clear();
+    this.backgroundLightSet = null;
+    if (this.shadersAvailable) {
+      gl.glUseProgram(this.sceneProgram);
+      // Location of the lights from the camera
+      PointLightState [] pointLights = frame.pointLights;
+      if (this.pointLightEyePositions == null || this.pointLightEyePositions.length < pointLights.length * 3) {
+        this.pointLightEyePositions = new float [pointLights.length * 3];
+      }
+      double [] view = frame.viewMatrix;
+      for (int i = 0; i < pointLights.length; i++) {
+        float [] position = pointLights [i].position;
+        for (int row = 0; row < 3; row++) {
+          this.pointLightEyePositions [i * 3 + row] = (float)(view [row * 4] * position [0]
+              + view [row * 4 + 1] * position [1] + view [row * 4 + 2] * position [2] + view [row * 4 + 3]);
+        }
+      }
+      gl.glUniform1i(getUniform(gl, "pointLightCount"), 0);
+      this.currentPointLights = NO_POINT_LIGHT;
+      if (this.frameShadows) {
+        gl.glActiveTexture(GL.GL_TEXTURE1);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, this.shadowTexture);
+        gl.glActiveTexture(GL.GL_TEXTURE0);
+        // Matrix from the coordinates of the camera to the ones of the shadow map
+        double [] matrix = multiply(this.shadowWorldMatrix, frame.cameraMatrix);
+        float [] columns = new float [16];
+        for (int row = 0; row < 4; row++) {
+          for (int column = 0; column < 4; column++) {
+            double coefficient = matrix [row * 4 + column];
+            if (row < 3) {
+              // From [-1, 1] to [0, 1]
+              coefficient = coefficient * 0.5 + matrix [12 + column] * 0.5;
+            }
+            columns [column * 4 + row] = (float)coefficient;
+          }
+        }
+        gl.glUniformMatrix4fv(getUniform(gl, "shadowMatrix"), 1, false, columns, 0);
+        gl.glUniform1f(getUniform(gl, "shadowTexelSize"), 1f / this.shadowMapSize);
+      }
+    }
+
+    if (!frame.backgroundItems.isEmpty()) {
+      // Draw the background around the camera, whatever its location
+      double [] backgroundProjection = new double [16];
+      double backgroundHalfWidth = Math.tan(frame.fieldOfView / 2) * 0.1;
+      setFrustum(backgroundProjection, -backgroundHalfWidth, backgroundHalfWidth,
+          -backgroundHalfWidth / aspect, backgroundHalfWidth / aspect, 0.1, 10);
+      double [] backgroundView = frame.viewMatrix.clone();
+      backgroundView [3] = 0;
+      backgroundView [7] = 0;
+      backgroundView [11] = 0;
+      loadMatrix(gl, GLMatrixFunc.GL_PROJECTION, backgroundProjection);
+      loadMatrix(gl, GLMatrixFunc.GL_MODELVIEW, backgroundView);
+      if (!this.shadersAvailable) {
+        setLights(gl, frame.backgroundLights);
+      }
+      gl.glDisable(GL.GL_DEPTH_TEST);
+      gl.glDepthMask(false);
+      for (Item item : frame.backgroundItems) {
+        drawItem(gl, frame, item, backgroundView, true);
+      }
+      gl.glDepthMask(true);
+      resetState(gl);
+    }
+
+    loadMatrix(gl, GLMatrixFunc.GL_PROJECTION, projectionMatrix);
+    loadMatrix(gl, GLMatrixFunc.GL_MODELVIEW, frame.viewMatrix);
+    if (!this.shadersAvailable) {
+      setLights(gl, frame.lights);
+    }
+    gl.glEnable(GL.GL_DEPTH_TEST);
+
+    double [][] frustumPlanes = getFrustumPlanes(projectionMatrix, frame.viewMatrix);
+    List<Item> blendedItems = new ArrayList<Item>();
+    for (Item item : frame.environmentItems) {
+      if (item.isBlended()) {
+        blendedItems.add(item);
+      } else {
+        drawItem(gl, frame, item, frame.viewMatrix, false);
+      }
+    }
+    int culledItemCount = 0;
+    // Shapes out of sight which aren't copied to the graphics card yet
+    List<Item> unloadedItems = null;
+    for (Item item : frame.opaqueItems) {
+      if (isOutOfSight(item, frustumPlanes)) {
+        culledItemCount++;
+        if (item.mesh.loadState != MESH_UPLOADED) {
+          if (unloadedItems == null) {
+            unloadedItems = new ArrayList<Item>();
+          }
+          unloadedItems.add(item);
+        }
+      } else if (item.isBlended()) {
+        // Its texture, loaded since the lists were built, is partly transparent
+        blendedItems.add(item);
+      } else {
+        drawItem(gl, frame, item, frame.viewMatrix, false);
+      }
+    }
+    for (Item item : frame.transparentItems) {
+      if (isOutOfSight(item, frustumPlanes)) {
+        culledItemCount++;
+        if (item.mesh.loadState != MESH_UPLOADED) {
+          if (unloadedItems == null) {
+            unloadedItems = new ArrayList<Item>();
+          }
+          unloadedItems.add(item);
+        }
+      } else {
+        blendedItems.add(item);
+      }
+    }
+    this.culledItemCount = culledItemCount;
+    if (!blendedItems.isEmpty()) {
+      // Draw transparent shapes from the farthest to the closest one
+      for (Item item : blendedItems) {
+        item.viewDepth = getViewDepth(item, frame.viewMatrix);
+      }
+      Collections.sort(blendedItems, new Comparator<Item>() {
+          public int compare(Item item1, Item item2) {
+            return Double.compare(item1.viewDepth, item2.viewDepth);
+          }
+        });
+      for (Item item : blendedItems) {
+        drawItem(gl, frame, item, frame.viewMatrix, false);
+      }
+    }
+
+    if (unloadedItems != null
+        && (!this.imageRendering || this.frameShadowCasters)) {
+      // Once the shapes in sight are displayed, copy the other ones to the graphics card
+      // to be ready when they come in sight or to cast their shadow
+      for (Item item : unloadedItems) {
+        if (this.vertexUploadBudget <= 0 || this.uploadTimeBudget <= 0) {
+          this.pendingUploads = true;
+          break;
+        } else if (item.mesh.loadState != MESH_UPLOADED && !upload(gl, item.mesh, true)) {
+          continue;
+        } else if (item.state.texture != null
+                   && (item.state.glTexture == null || item.state.glTexture.deleted)) {
+          item.state.glTexture = getTexture(gl, item.state.texture);
+        }
+      }
+    }
+
+    resetState(gl);
+    gl.glBindBuffer(GL.GL_ARRAY_BUFFER, 0);
+    if (this.shadersAvailable) {
+      gl.glUseProgram(0);
+      if (this.frameShadows) {
+        gl.glActiveTexture(GL.GL_TEXTURE1);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, 0);
+        gl.glActiveTexture(GL.GL_TEXTURE0);
+      }
+    }
+  }
+
+  /**
    * Deletes the buffers and the textures that no shape uses anymore.
    */
-  private void deleteUnusedResources(GL2 gl) {
-    if (this.resourcesDirty && !this.pendingUploads) {
-      this.resourcesDirty = false;
-      IdentityHashMap<Mesh, Boolean> usedMeshes = new IdentityHashMap<Mesh, Boolean>();
-      IdentityHashMap<Texture, Boolean> usedTextures = new IdentityHashMap<Texture, Boolean>();
-      List<List<Item>> lists = new ArrayList<List<Item>>();
-      lists.add(this.opaqueItems);
-      lists.add(this.transparentItems);
-      lists.add(this.environmentItems);
-      lists.add(this.backgroundItems);
-      for (List<Item> list : lists) {
-        for (Item item : list) {
-          usedMeshes.put(item.mesh, Boolean.TRUE);
-          if (item.state.texture != null) {
-            usedTextures.put(item.state.texture, Boolean.TRUE);
-          }
+  private void releaseResources(GL2 gl, Frame frame) {
+    for (ReleasedMesh released; (released = this.releasedMeshes.peek()) != null
+            && released.generation <= frame.generation; ) {
+      this.releasedMeshes.poll();
+      Mesh mesh = released.mesh;
+      if (mesh.loadState == MESH_PREPARING) {
+        // The worker thread which prepares it will forget its vertices
+        mesh.released = true;
+        if (mesh.loadState == MESH_PREPARING) {
+          this.uploadedMeshes.remove(mesh);
+          continue;
         }
       }
-      for (Iterator<Mesh> it = this.meshes.values().iterator(); it.hasNext(); ) {
-        Mesh mesh = it.next();
-        if (!usedMeshes.containsKey(mesh)) {
-          if (mesh.buffer != 0) {
-            gl.glDeleteBuffers(1, new int [] {mesh.buffer}, 0);
-          }
-          it.remove();
+      synchronized (mesh) {
+        mesh.released = false;
+        if (mesh.buffer != 0) {
+          gl.glDeleteBuffers(1, new int [] {mesh.buffer}, 0);
+          mesh.buffer = 0;
+        }
+        this.uploadedMeshes.remove(mesh);
+        if (mesh.loadState == MESH_READY) {
+          mesh.data = null;
+          this.preparedBytes.addAndGet(-mesh.preparedSize);
+        } else if (mesh.loadState == MESH_PREPARING) {
+          mesh.released = true;
+        }
+        if (mesh.loadState != MESH_PREPARING) {
+          mesh.loadState = MESH_NEW;
         }
       }
-      for (Iterator<Map.Entry<Texture, GLTexture>> it = this.textures.entrySet().iterator(); it.hasNext(); ) {
-        Map.Entry<Texture, GLTexture> entry = it.next();
-        if (!usedTextures.containsKey(entry.getKey())) {
-          if (entry.getValue().id != 0) {
-            gl.glDeleteTextures(1, new int [] {entry.getValue().id}, 0);
+    }
+    if (frame.generation != this.renderedGeneration || ++this.framesSinceTextureCheck > 600) {
+      this.framesSinceTextureCheck = 0;
+      this.shadowMapValid &= frame.generation == this.renderedGeneration;
+      if (!this.textures.isEmpty()) {
+        IdentityHashMap<Texture, Boolean> usedTextures = new IdentityHashMap<Texture, Boolean>();
+        List<List<Item>> lists = new ArrayList<List<Item>>();
+        lists.add(frame.opaqueItems);
+        lists.add(frame.transparentItems);
+        lists.add(frame.environmentItems);
+        lists.add(frame.backgroundItems);
+        for (List<Item> list : lists) {
+          for (Item item : list) {
+            if (item.state.texture != null) {
+              usedTextures.put(item.state.texture, Boolean.TRUE);
+            }
           }
-          it.remove();
+        }
+        for (Iterator<Map.Entry<Texture, GLTexture>> it = this.textures.entrySet().iterator(); it.hasNext(); ) {
+          Map.Entry<Texture, GLTexture> entry = it.next();
+          if (!usedTextures.containsKey(entry.getKey())) {
+            GLTexture texture = entry.getValue();
+            synchronized (texture) {
+              if (texture.id != 0) {
+                gl.glDeleteTextures(1, new int [] {texture.id}, 0);
+                texture.id = 0;
+              }
+              texture.pixels = null;
+              texture.deleted = true;
+            }
+            it.remove();
+          }
         }
       }
     }
   }
 
   /**
-   * Sets the lights of the scene.
+   * Asks for a new frame.
    */
-  private void setLights(GL2 gl, List<LightState> lights) {
+  private void requestFrame() {
+    Runnable frameRequester = this.frameRequester;
+    if (frameRequester != null && !this.disposed) {
+      frameRequester.run();
+    }
+  }
+
+  /**
+   * Sets the lights of the scene computed by OpenGL at each vertex.
+   */
+  private void setLights(GL2 gl, LightState [] lights) {
     float [] ambient = {0, 0, 0, 1};
     int lightIndex = 0;
     for (LightState light : lights) {
@@ -632,16 +1531,155 @@ public class OpenGLSceneRenderer {
   }
 
   /**
+   * Returns the ambient and directional lights which light the shapes
+   * belonging to the given scopes, in the coordinates of the camera.
+   */
+  private LightSet getLightSet(Frame frame, int lightScopeMask, boolean background, double [] viewMatrix) {
+    LightSet lightSet = background
+        ? this.backgroundLightSet
+        : this.lightSets.get(lightScopeMask);
+    if (lightSet == null) {
+      lightSet = new LightSet();
+      LightState [] lights = background ? frame.backgroundLights : frame.lights;
+      boolean keyLight = this.frameShadows && !background;
+      for (LightState light : lights) {
+        if (light.direction == null) {
+          lightSet.ambient [0] += light.color [0];
+          lightSet.ambient [1] += light.color [1];
+          lightSet.ambient [2] += light.color [2];
+        } else if (light.scopeBit == 0 || (lightScopeMask & light.scopeBit) != 0) {
+          if (keyLight && lightSet.count < MAX_LIGHTS) {
+            lightSet.shadowLight = lightSet.count;
+            addLight(lightSet, this.shadowMapLightDirection, light.color, SHADOW_KEY_LIGHT_FACTOR, viewMatrix);
+          }
+          if (lightSet.count < MAX_LIGHTS) {
+            addLight(lightSet, light.direction, light.color,
+                this.frameShadows && !background ? SHADOW_FILL_LIGHT_FACTOR : 1, viewMatrix);
+          }
+          keyLight = false;
+        } else {
+          keyLight = false;
+        }
+      }
+      if (background) {
+        this.backgroundLightSet = lightSet;
+      } else {
+        this.lightSets.put(lightScopeMask, lightSet);
+      }
+    }
+    return lightSet;
+  }
+
+  private void addLight(LightSet lightSet, float [] direction, float [] color, float factor, double [] viewMatrix) {
+    int i = lightSet.count++;
+    for (int row = 0; row < 3; row++) {
+      lightSet.directions [i * 3 + row] = (float)(viewMatrix [row * 4] * direction [0]
+          + viewMatrix [row * 4 + 1] * direction [1] + viewMatrix [row * 4 + 2] * direction [2]);
+      lightSet.colors [i * 3 + row] = color [row] * factor;
+    }
+  }
+
+  /**
+   * Returns the direction towards the light which casts shadows: the one of
+   * the given light, raised to light the floors of the rooms over their walls.
+   */
+  private static float [] getShadowLightDirection(float [] direction) {
+    double horizontalLength = Math.sqrt(direction [0] * direction [0] + direction [2] * direction [2]);
+    if (horizontalLength < 1E-4 || direction [1] <= 0) {
+      return direction.clone();
+    }
+    double elevation = Math.max(Math.atan2(direction [1], horizontalLength), SHADOW_KEY_LIGHT_ELEVATION);
+    double scale = Math.cos(elevation) / horizontalLength;
+    return new float [] {(float)(direction [0] * scale), (float)Math.sin(elevation), (float)(direction [2] * scale), 0};
+  }
+
+  /**
+   * Returns the indices of the point lights of the frame which light the given shape.
+   */
+  private int [] getPointLights(Frame frame, Item item) {
+    PointLightState [] pointLights = frame.pointLights;
+    if (pointLights.length == 0) {
+      return NO_POINT_LIGHT;
+    } else if (item.pointLightsSource == pointLights) {
+      return item.pointLights;
+    }
+    updateBounds(item);
+    int count = 0;
+    int [] indices = new int [pointLights.length];
+    final double [] distances = new double [pointLights.length];
+    for (int i = 0; i < pointLights.length; i++) {
+      PointLightState light = pointLights [i];
+      double distanceToBounds = 0;
+      if (light.lower != null) {
+        // Distance between the center of the shape and the box lit by the light
+        for (int axis = 0; axis < 3; axis++) {
+          double delta = Math.max(light.lower [axis] - item.center [axis],
+              Math.max(0, item.center [axis] - light.upper [axis]));
+          distanceToBounds += delta * delta;
+        }
+      }
+      if (distanceToBounds <= item.radius * item.radius) {
+        double dx = light.position [0] - item.center [0];
+        double dy = light.position [1] - item.center [1];
+        double dz = light.position [2] - item.center [2];
+        distances [i] = Math.max(0, Math.sqrt(dx * dx + dy * dy + dz * dz) - item.radius);
+        indices [count++] = i;
+      }
+    }
+    boolean cacheable = true;
+    if (count > MAX_POINT_LIGHTS) {
+      // Keep the closest lights, and among the ones in a large shape the closest to the camera
+      cacheable = false;
+      final double [] camera = {frame.cameraMatrix [3], frame.cameraMatrix [7], frame.cameraMatrix [11]};
+      Integer [] sortedIndices = new Integer [count];
+      for (int i = 0; i < count; i++) {
+        sortedIndices [i] = indices [i];
+      }
+      final PointLightState [] lights = pointLights;
+      Arrays.sort(sortedIndices, new Comparator<Integer>() {
+          public int compare(Integer index1, Integer index2) {
+            int order = Double.compare(distances [index1], distances [index2]);
+            if (order == 0) {
+              order = Double.compare(getSquareDistance(lights [index1].position, camera),
+                  getSquareDistance(lights [index2].position, camera));
+            }
+            return order;
+          }
+        });
+      count = MAX_POINT_LIGHTS;
+      for (int i = 0; i < count; i++) {
+        indices [i] = sortedIndices [i];
+      }
+    }
+    int [] itemLights = count == 0
+        ? NO_POINT_LIGHT
+        : Arrays.copyOf(indices, count);
+    if (cacheable) {
+      item.pointLightsSource = pointLights;
+      item.pointLights = itemLights;
+    }
+    return itemLights;
+  }
+
+  private static double getSquareDistance(float [] point1, double [] point2) {
+    double dx = point1 [0] - point2 [0];
+    double dy = point1 [1] - point2 [1];
+    double dz = point1 [2] - point2 [2];
+    return dx * dx + dy * dy + dz * dz;
+  }
+
+  /**
    * Forgets the current OpenGL state and sets its default values.
    */
   private void resetState(GL2 gl) {
     this.currentState = null;
     this.currentMesh = null;
     this.currentTexture = 0;
-    this.currentFrontFaceClockwise = false;
+    this.currentLightSet = null;
     gl.glFrontFace(GL.GL_CCW);
     gl.glDisable(GL.GL_BLEND);
     gl.glDisable(GL.GL_TEXTURE_2D);
+    gl.glDisable(GL2.GL_ALPHA_TEST);
     gl.glBindTexture(GL.GL_TEXTURE_2D, 0);
     gl.glDisable(GLLightingFunc.GL_LIGHTING);
     gl.glDisable(GL2.GL_TEXTURE_GEN_S);
@@ -665,33 +1703,56 @@ public class OpenGLSceneRenderer {
   /**
    * Draws a shape.
    */
-  private void drawItem(GL2 gl, Item item, double [] viewMatrix, boolean background) {
+  private void drawItem(GL2 gl, Frame frame, Item item, double [] viewMatrix, boolean background) {
     Mesh mesh = item.mesh;
-    if (!mesh.uploaded) {
-      if (mesh.failed) {
+    if (mesh.loadState != MESH_UPLOADED) {
+      if (this.depthOnlyPass) {
+        // Geometries are copied to the graphics card when the scene is drawn, the ones in sight first
         return;
-      } else if (this.vertexUploadBudget <= 0) {
-        // Leave it to a next frame
-        this.pendingUploads = true;
-        return;
-      }
-      upload(gl, mesh);
-      if (!mesh.uploaded) {
+      } else if (!upload(gl, mesh, false)) {
+        this.frameMissingItemCount++;
+        if (mesh.loadState != MESH_FAILED) {
+          this.frameWaitingItemCount++;
+        }
         return;
       }
     }
     if (mesh.vertexCount == 0) {
       return;
     }
-
     State state = item.state;
+    GLTexture texture = null;
+    if (state.texture != null) {
+      texture = state.glTexture;
+      if (texture == null || texture.deleted || texture.id == 0 && !texture.failed) {
+        texture = getTexture(gl, state.texture);
+        state.glTexture = texture;
+        if (texture == null) {
+          // Draw the shape once its texture is ready
+          if (!this.depthOnlyPass) {
+            this.frameMissingItemCount++;
+            this.frameWaitingItemCount++;
+          } else {
+            this.shadowCasterSkipped = true;
+          }
+          return;
+        }
+      }
+    }
+
+    boolean shaders = this.shadersAvailable && !this.depthOnlyPass;
     if (state != this.currentState) {
-      applyState(gl, state, background);
+      this.currentState = state;
+      if (this.depthOnlyPass) {
+        applyDepthState(gl, state, texture);
+      } else if (shaders) {
+        applyShaderState(gl, state, texture, background);
+      } else {
+        applyState(gl, state, texture, background);
+      }
     }
-    if (item.mirrored != this.currentFrontFaceClockwise) {
-      this.currentFrontFaceClockwise = item.mirrored;
-      gl.glFrontFace(item.mirrored ? GL.GL_CW : GL.GL_CCW);
-    }
+    // As in Java 3D, the front faces of a mirrored shape are the ones of its other side,
+    // and it's up to the appearance of the shape to choose the faces to display
     if (mesh != this.currentMesh) {
       this.currentMesh = mesh;
       gl.glBindBuffer(GL.GL_ARRAY_BUFFER, mesh.buffer);
@@ -719,14 +1780,39 @@ public class OpenGLSceneRenderer {
       } else {
         gl.glDisableClientState(GLPointerFunc.GL_COLOR_ARRAY);
       }
+      if (shaders) {
+        gl.glUniform1i(getUniform(gl, "vertexColors"), mesh.colors ? 1 : 0);
+      }
     }
-    if (!mesh.colors && !state.lighting) {
+    if (shaders) {
+      if (state.lighting) {
+        LightSet lightSet = getLightSet(frame, item.lightScopeMask, background, viewMatrix);
+        if (lightSet != this.currentLightSet) {
+          this.currentLightSet = lightSet;
+          gl.glUniform3fv(getUniform(gl, "ambientLight"), 1, lightSet.ambient, 0);
+          gl.glUniform1i(getUniform(gl, "directionalLightCount"), lightSet.count);
+          if (lightSet.count > 0) {
+            gl.glUniform3fv(getUniform(gl, "directionalLightDirection"), lightSet.count, lightSet.directions, 0);
+            gl.glUniform3fv(getUniform(gl, "directionalLightColor"), lightSet.count, lightSet.colors, 0);
+          }
+          gl.glUniform1i(getUniform(gl, "shadowLight"), lightSet.shadowLight);
+        }
+        int [] pointLights = background
+            ? NO_POINT_LIGHT
+            : getPointLights(frame, item);
+        if (pointLights != this.currentPointLights
+            && !Arrays.equals(pointLights, this.currentPointLights)) {
+          setPointLights(gl, frame, pointLights);
+        }
+        this.currentPointLights = pointLights;
+      }
+    } else if (!mesh.colors && !state.lighting && !this.depthOnlyPass) {
       gl.glColor4f(state.color [0], state.color [1], state.color [2], state.alpha);
     }
 
     // Model view matrix
     float [] m = item.matrix;
-    float [] modelView = new float [16];
+    float [] modelView = this.modelView;
     for (int column = 0; column < 4; column++) {
       for (int row = 0; row < 4; row++) {
         // viewMatrix is stored row by row, m and modelView column by column
@@ -738,37 +1824,52 @@ public class OpenGLSceneRenderer {
     }
     gl.glLoadMatrixf(modelView, 0);
     gl.glDrawArrays(mesh.mode, 0, mesh.vertexCount);
-    this.drawnItemCount++;
-    this.drawnVertexCount += mesh.vertexCount;
+    if (!this.depthOnlyPass) {
+      this.frameItemCount++;
+      this.frameVertexCount += mesh.vertexCount;
+    }
+  }
+
+  private void setPointLights(GL2 gl, Frame frame, int [] pointLights) {
+    int count = pointLights.length;
+    gl.glUniform1i(getUniform(gl, "pointLightCount"), count);
+    if (count > 0) {
+      float [] positions = new float [count * 3];
+      float [] colors = new float [count * 3];
+      float [] attenuations = new float [count * 3];
+      for (int i = 0; i < count; i++) {
+        PointLightState light = frame.pointLights [pointLights [i]];
+        System.arraycopy(this.pointLightEyePositions, pointLights [i] * 3, positions, i * 3, 3);
+        System.arraycopy(light.color, 0, colors, i * 3, 3);
+        System.arraycopy(light.attenuation, 0, attenuations, i * 3, 3);
+      }
+      gl.glUniform3fv(getUniform(gl, "pointLightPosition"), count, positions, 0);
+      gl.glUniform3fv(getUniform(gl, "pointLightColor"), count, colors, 0);
+      gl.glUniform3fv(getUniform(gl, "pointLightAttenuation"), count, attenuations, 0);
+    }
   }
 
   /**
-   * Sets the OpenGL state of the following shapes.
+   * Returns the location of a uniform variable of the program which draws the scene.
    */
-  private void applyState(GL2 gl, State state, boolean background) {
-    this.currentState = state;
-    if (state.lighting) {
-      gl.glEnable(GLLightingFunc.GL_LIGHTING);
-      gl.glMaterialfv(GL.GL_FRONT_AND_BACK, GLLightingFunc.GL_AMBIENT, state.ambient, 0);
-      gl.glMaterialfv(GL.GL_FRONT_AND_BACK, GLLightingFunc.GL_DIFFUSE, state.diffuse, 0);
-      gl.glMaterialfv(GL.GL_FRONT_AND_BACK, GLLightingFunc.GL_SPECULAR, state.specular, 0);
-      gl.glMaterialfv(GL.GL_FRONT_AND_BACK, GLLightingFunc.GL_EMISSION, state.emissive, 0);
-      gl.glMaterialf(GL.GL_FRONT_AND_BACK, GLLightingFunc.GL_SHININESS, state.shininess);
-    } else {
-      gl.glDisable(GLLightingFunc.GL_LIGHTING);
-      gl.glColor4f(state.color [0], state.color [1], state.color [2], state.alpha);
+  private int getUniform(GL2 gl, String name) {
+    Integer location = this.sceneUniforms.get(name);
+    if (location == null) {
+      location = gl.glGetUniformLocation(this.sceneProgram, name);
+      this.sceneUniforms.put(name, location);
     }
+    return location;
+  }
 
-    GLTexture texture = state.texture != null
-        ? getTexture(gl, state.texture)
-        : null;
+  /**
+   * Sets the state shared by the three ways to draw shapes.
+   */
+  private void applyCommonState(GL2 gl, State state, GLTexture texture) {
     if (texture != null && texture.id != 0) {
-      gl.glEnable(GL.GL_TEXTURE_2D);
       if (texture.id != this.currentTexture) {
         this.currentTexture = texture.id;
         gl.glBindTexture(GL.GL_TEXTURE_2D, texture.id);
       }
-      gl.glTexEnvi(GL2.GL_TEXTURE_ENV, GL2.GL_TEXTURE_ENV_MODE, state.textureMode);
       gl.glMatrixMode(GL.GL_TEXTURE);
       if (state.textureTransform != null) {
         gl.glLoadMatrixf(state.textureTransform, 0);
@@ -776,6 +1877,18 @@ public class OpenGLSceneRenderer {
         gl.glLoadIdentity();
       }
       gl.glMatrixMode(GLMatrixFunc.GL_MODELVIEW);
+    }
+    if (state.cullFace == PolygonAttributes.CULL_NONE) {
+      gl.glDisable(GL.GL_CULL_FACE);
+    } else {
+      gl.glEnable(GL.GL_CULL_FACE);
+      gl.glCullFace(state.cullFace == PolygonAttributes.CULL_FRONT ? GL.GL_FRONT : GL.GL_BACK);
+    }
+  }
+
+  private void applyTextureGeneration(GL2 gl, State state, GLTexture texture) {
+    if (texture != null && texture.id != 0) {
+      gl.glEnable(GL.GL_TEXTURE_2D);
       if (state.texturePlaneS != null) {
         gl.glEnable(GL2.GL_TEXTURE_GEN_S);
         gl.glEnable(GL2.GL_TEXTURE_GEN_T);
@@ -792,7 +1905,9 @@ public class OpenGLSceneRenderer {
       gl.glDisable(GL2.GL_TEXTURE_GEN_S);
       gl.glDisable(GL2.GL_TEXTURE_GEN_T);
     }
+  }
 
+  private void applyOutputState(GL2 gl, State state, GLTexture texture, boolean background) {
     boolean blended = state.isBlended() || texture != null && texture.transparent;
     if (blended) {
       gl.glEnable(GL.GL_BLEND);
@@ -807,14 +1922,6 @@ public class OpenGLSceneRenderer {
       }
       gl.glDepthMask(state.depthWrite && !blended);
     }
-
-    if (state.cullFace == PolygonAttributes.CULL_NONE) {
-      gl.glDisable(GL.GL_CULL_FACE);
-    } else {
-      gl.glEnable(GL.GL_CULL_FACE);
-      gl.glCullFace(state.cullFace == PolygonAttributes.CULL_FRONT ? GL.GL_FRONT : GL.GL_BACK);
-    }
-    gl.glLightModeli(GL2.GL_LIGHT_MODEL_TWO_SIDE, state.backFaceNormalFlip ? 1 : 0);
     gl.glPolygonMode(GL.GL_FRONT_AND_BACK, state.polygonMode == PolygonAttributes.POLYGON_LINE
         ? GL2.GL_LINE
         : (state.polygonMode == PolygonAttributes.POLYGON_POINT ? GL2.GL_POINT : GL2.GL_FILL));
@@ -828,127 +1935,348 @@ public class OpenGLSceneRenderer {
   }
 
   /**
-   * Returns the OpenGL texture matching a Java 3D texture.
+   * Sets the OpenGL state of the following shapes, lit by OpenGL at each vertex.
    */
-  private GLTexture getTexture(GL2 gl, Texture texture) {
-    GLTexture glTexture = this.textures.get(texture);
-    if (glTexture == null) {
-      glTexture = new GLTexture();
-      this.textures.put(texture, glTexture);
-      try {
-        ImageComponent imageComponent = texture.getImage(0);
-        if (imageComponent instanceof ImageComponent2D) {
-          RenderedImage renderedImage = ((ImageComponent2D)imageComponent).getRenderedImage();
-          BufferedImage image;
-          if (renderedImage instanceof BufferedImage) {
-            image = (BufferedImage)renderedImage;
-          } else {
-            image = ((ImageComponent2D)imageComponent).getImage();
-          }
-          int width = image.getWidth();
-          int height = image.getHeight();
-          if (width > this.maxTextureSize || height > this.maxTextureSize) {
-            float scale = Math.min((float)this.maxTextureSize / width, (float)this.maxTextureSize / height);
-            int scaledWidth = Math.max(1, (int)(width * scale));
-            int scaledHeight = Math.max(1, (int)(height * scale));
-            BufferedImage scaledImage = new BufferedImage(scaledWidth, scaledHeight, BufferedImage.TYPE_INT_ARGB);
-            java.awt.Graphics2D g2D = scaledImage.createGraphics();
-            g2D.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
-                java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            g2D.drawImage(image, 0, 0, scaledWidth, scaledHeight, null);
-            g2D.dispose();
-            image = scaledImage;
-            width = scaledWidth;
-            height = scaledHeight;
-          }
-          boolean flip = !imageComponent.isYUp();
-          int [] row = new int [width];
-          ByteBuffer pixels = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder());
-          boolean transparent = false;
-          boolean alpha = image.getColorModel().hasAlpha();
-          for (int y = 0; y < height; y++) {
-            image.getRGB(0, flip ? height - 1 - y : y, width, 1, row, 0, width);
-            for (int x = 0; x < width; x++) {
-              int argb = row [x];
-              pixels.put((byte)(argb >> 16));
-              pixels.put((byte)(argb >> 8));
-              pixels.put((byte)argb);
-              pixels.put((byte)(argb >>> 24));
-              if (alpha && (argb >>> 24) < 250) {
-                transparent = true;
-              }
-            }
-          }
-          // Cast required to run under Java 8 once compiled with a more recent JDK
-          ((java.nio.Buffer)pixels).flip();
-          int [] id = new int [1];
-          gl.glGenTextures(1, id, 0);
-          gl.glBindTexture(GL.GL_TEXTURE_2D, id [0]);
-          this.currentTexture = id [0];
-          gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S,
-              texture.getBoundaryModeS() == Texture.WRAP ? GL.GL_REPEAT : GL.GL_CLAMP_TO_EDGE);
-          gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T,
-              texture.getBoundaryModeT() == Texture.WRAP ? GL.GL_REPEAT : GL.GL_CLAMP_TO_EDGE);
-          gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR);
-          gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR_MIPMAP_LINEAR);
-          if (!this.generateMipmapAvailable) {
-            gl.glTexParameteri(GL.GL_TEXTURE_2D, GL2.GL_GENERATE_MIPMAP, 1);
-          }
-          gl.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, width, height, 0,
-              GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, pixels);
-          if (this.generateMipmapAvailable) {
-            gl.glGenerateMipmap(GL.GL_TEXTURE_2D);
-          }
-          glTexture.id = id [0];
-          glTexture.transparent = transparent;
-        }
-      } catch (RuntimeException ex) {
-        // Draw the shapes without their texture
-        glTexture.id = 0;
-      } catch (OutOfMemoryError ex) {
-        glTexture.id = 0;
-      }
+  private void applyState(GL2 gl, State state, GLTexture texture, boolean background) {
+    if (state.lighting) {
+      gl.glEnable(GLLightingFunc.GL_LIGHTING);
+      gl.glMaterialfv(GL.GL_FRONT_AND_BACK, GLLightingFunc.GL_AMBIENT, state.ambient, 0);
+      gl.glMaterialfv(GL.GL_FRONT_AND_BACK, GLLightingFunc.GL_DIFFUSE, state.diffuse, 0);
+      gl.glMaterialfv(GL.GL_FRONT_AND_BACK, GLLightingFunc.GL_SPECULAR, state.specular, 0);
+      gl.glMaterialfv(GL.GL_FRONT_AND_BACK, GLLightingFunc.GL_EMISSION, state.emissive, 0);
+      gl.glMaterialf(GL.GL_FRONT_AND_BACK, GLLightingFunc.GL_SHININESS, state.shininess);
+    } else {
+      gl.glDisable(GLLightingFunc.GL_LIGHTING);
+      gl.glColor4f(state.color [0], state.color [1], state.color [2], state.alpha);
     }
-    return glTexture;
+    applyCommonState(gl, state, texture);
+    applyTextureGeneration(gl, state, texture);
+    if (texture != null && texture.id != 0) {
+      gl.glTexEnvi(GL2.GL_TEXTURE_ENV, GL2.GL_TEXTURE_ENV_MODE, state.textureMode);
+    }
+    gl.glLightModeli(GL2.GL_LIGHT_MODEL_TWO_SIDE, state.backFaceNormalFlip ? 1 : 0);
+    applyOutputState(gl, state, texture, background);
   }
 
   /**
-   * Copies the vertices of a geometry to a buffer of the graphics card.
+   * Sets the OpenGL state of the following shapes, lit by the scene program at each pixel.
    */
-  private void upload(GL2 gl, Mesh mesh) {
+  private void applyShaderState(GL2 gl, State state, GLTexture texture, boolean background) {
+    gl.glUniform1i(getUniform(gl, "lighting"), state.lighting ? 1 : 0);
+    if (state.lighting) {
+      gl.glUniform4fv(getUniform(gl, "materialAmbient"), 1, state.ambient, 0);
+      gl.glUniform4fv(getUniform(gl, "materialDiffuse"), 1, state.diffuse, 0);
+      gl.glUniform4fv(getUniform(gl, "materialSpecular"), 1, state.specular, 0);
+      gl.glUniform4fv(getUniform(gl, "materialEmissive"), 1, state.emissive, 0);
+      gl.glUniform1f(getUniform(gl, "shininess"), Math.max(1, state.shininess));
+      gl.glUniform1i(getUniform(gl, "twoSided"), state.backFaceNormalFlip ? 1 : 0);
+    } else {
+      gl.glUniform4f(getUniform(gl, "flatColor"), state.color [0], state.color [1], state.color [2], state.alpha);
+    }
+    applyCommonState(gl, state, texture);
+    if (texture != null && texture.id != 0) {
+      gl.glUniform1i(getUniform(gl, "textureMode"), state.textureMode == GL2.GL_REPLACE
+          ? 1
+          : (state.textureMode == GL2.GL_DECAL ? 3 : 2));
+      gl.glUniform1i(getUniform(gl, "textureAlpha"), texture.alpha ? 1 : 0);
+      if (state.texturePlaneS != null) {
+        gl.glUniform1i(getUniform(gl, "textureGeneration"), 1);
+        gl.glUniform4fv(getUniform(gl, "texturePlaneS"), 1, state.texturePlaneS, 0);
+        gl.glUniform4fv(getUniform(gl, "texturePlaneT"), 1, state.texturePlaneT, 0);
+      } else {
+        gl.glUniform1i(getUniform(gl, "textureGeneration"), 0);
+      }
+    } else {
+      gl.glUniform1i(getUniform(gl, "textureMode"), 0);
+    }
+    applyOutputState(gl, state, texture, background);
+  }
+
+  /**
+   * Sets the OpenGL state of the following shapes drawn in a shadow map.
+   */
+  private void applyDepthState(GL2 gl, State state, GLTexture texture) {
+    applyCommonState(gl, state, texture);
+    if (texture != null && texture.transparent) {
+      // Leaves and other cut out shapes cast the shadow of their opaque pixels
+      applyTextureGeneration(gl, state, texture);
+      gl.glTexEnvi(GL2.GL_TEXTURE_ENV, GL2.GL_TEXTURE_ENV_MODE, GL2.GL_REPLACE);
+      gl.glEnable(GL2.GL_ALPHA_TEST);
+      gl.glAlphaFunc(GL.GL_GREATER, 0.5f);
+    } else {
+      applyTextureGeneration(gl, state, null);
+      gl.glDisable(GL2.GL_ALPHA_TEST);
+    }
+  }
+
+  /**
+   * Returns the OpenGL texture matching a Java 3D texture, or <code>null</code>
+   * if it isn't ready yet.
+   */
+  private GLTexture getTexture(GL2 gl, final Texture texture) {
+    GLTexture glTexture = this.textures.get(texture);
+    if (glTexture == null) {
+      final GLTexture newTexture = new GLTexture();
+      glTexture = newTexture;
+      this.textures.put(texture, glTexture);
+      if (this.synchronousLoading) {
+        prepareTexture(texture, newTexture);
+      } else {
+        this.preparationCount.incrementAndGet();
+        getPreparationExecutor().execute(new Runnable() {
+            public void run() {
+              try {
+                prepareTexture(texture, newTexture);
+              } finally {
+                preparationCount.decrementAndGet();
+                requestFrame();
+              }
+            }
+          });
+        return null;
+      }
+    }
+    synchronized (glTexture) {
+      if (glTexture.failed || glTexture.id != 0) {
+        return glTexture;
+      } else if (glTexture.pixels == null) {
+        // Still being prepared
+        return null;
+      } else if (this.pixelUploadBudget <= 0 || this.uploadTimeBudget <= 0) {
+        this.pendingUploads = true;
+        return null;
+      }
+      long uploadStart = System.nanoTime();
+      try {
+        int [] id = new int [1];
+        gl.glGenTextures(1, id, 0);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, id [0]);
+        this.currentTexture = id [0];
+        gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, glTexture.wrapS ? GL.GL_REPEAT : GL.GL_CLAMP_TO_EDGE);
+        gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, glTexture.wrapT ? GL.GL_REPEAT : GL.GL_CLAMP_TO_EDGE);
+        gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR);
+        gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR_MIPMAP_LINEAR);
+        if (this.maxAnisotropy > 1) {
+          // Keep the textures of floors and walls sharp when they are viewed at a low angle
+          gl.glTexParameterf(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAX_ANISOTROPY_EXT, this.maxAnisotropy);
+        }
+        if (!this.generateMipmapAvailable) {
+          gl.glTexParameteri(GL.GL_TEXTURE_2D, GL2.GL_GENERATE_MIPMAP, 1);
+        }
+        gl.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 1);
+        gl.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, glTexture.width, glTexture.height, 0,
+            GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, glTexture.pixels);
+        if (this.generateMipmapAvailable) {
+          gl.glGenerateMipmap(GL.GL_TEXTURE_2D);
+        }
+        glTexture.id = id [0];
+        this.pixelUploadBudget -= glTexture.width * glTexture.height;
+      } catch (RuntimeException ex) {
+        // Draw the shapes without their texture
+        glTexture.failed = true;
+      }
+      glTexture.pixels = null;
+      this.uploadTimeBudget -= System.nanoTime() - uploadStart;
+      // The state which was bound is unknown now
+      this.currentState = null;
+      return glTexture;
+    }
+  }
+
+  /**
+   * Reads the pixels of a texture. This method may be called from any thread.
+   */
+  private void prepareTexture(Texture texture, GLTexture glTexture) {
     try {
-      FloatBuffer vertices = mesh.createVertices();
-      if (vertices != null) {
+      ImageComponent imageComponent = texture.getImage(0);
+      if (!(imageComponent instanceof ImageComponent2D)) {
+        glTexture.failed = true;
+        return;
+      }
+      RenderedImage renderedImage = ((ImageComponent2D)imageComponent).getRenderedImage();
+      BufferedImage image;
+      if (renderedImage instanceof BufferedImage) {
+        image = (BufferedImage)renderedImage;
+      } else {
+        image = ((ImageComponent2D)imageComponent).getImage();
+      }
+      int width = image.getWidth();
+      int height = image.getHeight();
+      int maxTextureSize = this.maxTextureSize;
+      if (width > maxTextureSize || height > maxTextureSize) {
+        float scale = Math.min((float)maxTextureSize / width, (float)maxTextureSize / height);
+        int scaledWidth = Math.max(1, (int)(width * scale));
+        int scaledHeight = Math.max(1, (int)(height * scale));
+        BufferedImage scaledImage = new BufferedImage(scaledWidth, scaledHeight, BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D g2D = scaledImage.createGraphics();
+        g2D.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+            java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g2D.drawImage(image, 0, 0, scaledWidth, scaledHeight, null);
+        g2D.dispose();
+        image = scaledImage;
+        width = scaledWidth;
+        height = scaledHeight;
+      }
+      boolean flip = !imageComponent.isYUp();
+      int [] row = new int [width];
+      ByteBuffer pixels = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder());
+      byte [] rowBytes = new byte [width * 4];
+      boolean transparent = false;
+      boolean alpha = image.getColorModel().hasAlpha();
+      for (int y = 0; y < height; y++) {
+        image.getRGB(0, flip ? height - 1 - y : y, width, 1, row, 0, width);
+        for (int x = 0, i = 0; x < width; x++) {
+          int argb = row [x];
+          rowBytes [i++] = (byte)(argb >> 16);
+          rowBytes [i++] = (byte)(argb >> 8);
+          rowBytes [i++] = (byte)argb;
+          rowBytes [i++] = (byte)(argb >>> 24);
+          if (alpha && (argb >>> 24) < 250) {
+            transparent = true;
+          }
+        }
+        pixels.put(rowBytes);
+      }
+      // Cast required to run under Java 8 once compiled with a more recent JDK
+      ((java.nio.Buffer)pixels).flip();
+      synchronized (glTexture) {
+        if (!glTexture.deleted) {
+          glTexture.width = width;
+          glTexture.height = height;
+          glTexture.wrapS = texture.getBoundaryModeS() == Texture.WRAP;
+          glTexture.wrapT = texture.getBoundaryModeT() == Texture.WRAP;
+          glTexture.transparent = transparent;
+          glTexture.alpha = alpha;
+          glTexture.pixels = pixels;
+        }
+      }
+    } catch (RuntimeException ex) {
+      glTexture.failed = true;
+    } catch (OutOfMemoryError ex) {
+      glTexture.failed = true;
+    }
+  }
+
+  /**
+   * Copies the vertices of a geometry to a buffer of the graphics card,
+   * and returns <code>true</code> if it's ready to be drawn.
+   * @param background  <code>true</code> if the geometry isn't displayed in the current frame
+   */
+  private boolean upload(GL2 gl, final Mesh mesh, boolean background) {
+    // Don't wait for a worker thread
+    int loadState = mesh.loadState;
+    if (loadState == MESH_PREPARING || loadState == MESH_FAILED) {
+      return false;
+    }
+    synchronized (mesh) {
+      switch (mesh.loadState) {
+        case MESH_UPLOADED :
+          return true;
+        case MESH_FAILED :
+        case MESH_PREPARING :
+          return false;
+        case MESH_NEW :
+          if (this.synchronousLoading) {
+            if (this.vertexUploadBudget <= 0) {
+              this.pendingUploads = true;
+              return false;
+            }
+            try {
+              mesh.data = mesh.createVertices();
+            } catch (RuntimeException ex) {
+              mesh.data = null;
+            } catch (OutOfMemoryError ex) {
+              mesh.data = null;
+            }
+            if (mesh.data == null) {
+              mesh.loadState = MESH_FAILED;
+              return false;
+            }
+            mesh.preparedSize = 0;
+            mesh.loadState = MESH_READY;
+            break;
+          } else {
+            // Keep half of the vertices prepared in advance for the geometries in sight
+            if (this.imageRendering && !background
+                || this.preparedBytes.get() < (background ? MAX_PREPARED_BYTES / 2 : MAX_PREPARED_BYTES)) {
+              final long size = mesh.getEstimatedSize();
+              mesh.loadState = MESH_PREPARING;
+              mesh.released = false;
+              mesh.preparedSize = size;
+              this.preparedBytes.addAndGet(size);
+              this.preparationCount.incrementAndGet();
+              getPreparationExecutor().execute(new Runnable() {
+                  public void run() {
+                    FloatBuffer vertices = null;
+                    try {
+                      vertices = mesh.createVertices();
+                    } catch (RuntimeException ex) {
+                      // Shape ignored
+                    } catch (OutOfMemoryError ex) {
+                    } finally {
+                      synchronized (mesh) {
+                        if (mesh.released) {
+                          mesh.loadState = MESH_NEW;
+                          preparedBytes.addAndGet(-size);
+                        } else if (vertices != null) {
+                          mesh.data = vertices;
+                          mesh.loadState = MESH_READY;
+                        } else {
+                          mesh.loadState = MESH_FAILED;
+                          preparedBytes.addAndGet(-size);
+                        }
+                      }
+                      preparationCount.decrementAndGet();
+                      requestFrame();
+                    }
+                  }
+                });
+            } else if (!background) {
+              // Try again once some of the prepared vertices are copied
+              this.pendingUploads = true;
+            }
+            return false;
+          }
+        default :
+          break;
+      }
+      // Vertices ready
+      if (this.vertexUploadBudget <= 0 || this.uploadTimeBudget <= 0) {
+        // Leave it to a next frame
+        this.pendingUploads = true;
+        return false;
+      }
+      long uploadStart = System.nanoTime();
+      try {
         if (mesh.vertexCount > 0) {
           int [] buffer = new int [1];
           gl.glGenBuffers(1, buffer, 0);
           gl.glBindBuffer(GL.GL_ARRAY_BUFFER, buffer [0]);
-          gl.glBufferData(GL.GL_ARRAY_BUFFER, (long)vertices.capacity() * 4, vertices, GL.GL_STATIC_DRAW);
+          gl.glBufferData(GL.GL_ARRAY_BUFFER, (long)mesh.data.capacity() * 4, mesh.data, GL.GL_STATIC_DRAW);
           mesh.buffer = buffer [0];
           this.currentMesh = null;
           this.vertexUploadBudget -= mesh.vertexCount;
         }
-        mesh.uploaded = true;
-      } else {
-        mesh.failed = true;
+        mesh.loadState = MESH_UPLOADED;
+        this.uploadedMeshes.put(mesh, Boolean.TRUE);
+        this.uploadsDone = true;
+      } catch (RuntimeException ex) {
+        mesh.loadState = MESH_FAILED;
       }
-    } catch (RuntimeException ex) {
-      mesh.failed = true;
-    } catch (OutOfMemoryError ex) {
-      mesh.failed = true;
+      mesh.data = null;
+      this.uploadTimeBudget -= System.nanoTime() - uploadStart;
+      this.preparedBytes.addAndGet(-mesh.preparedSize);
+      mesh.preparedSize = 0;
+      return mesh.loadState == MESH_UPLOADED;
     }
   }
 
   /**
-   * Returns <code>true</code> if the bounding sphere of the given shape is out of the frustum.
+   * Computes the bounding sphere of a shape in the scene.
    */
-  private boolean isOutOfSight(Item item, double [][] planes) {
-    Mesh mesh = item.mesh;
-    if (!mesh.uploaded) {
-      return false;
-    }
+  private void updateBounds(Item item) {
     if (item.radius < 0) {
-      // Compute the bounding sphere in the scene
+      Mesh mesh = item.mesh;
       float [] m = item.matrix;
       float x = mesh.center [0];
       float y = mesh.center [1];
@@ -957,11 +2285,38 @@ public class OpenGLSceneRenderer {
           m [0] * x + m [4] * y + m [8] * z + m [12],
           m [1] * x + m [5] * y + m [9] * z + m [13],
           m [2] * x + m [6] * y + m [10] * z + m [14]};
-      double scaleX = Math.sqrt(m [0] * m [0] + m [1] * m [1] + m [2] * m [2]);
-      double scaleY = Math.sqrt(m [4] * m [4] + m [5] * m [5] + m [6] * m [6]);
-      double scaleZ = Math.sqrt(m [8] * m [8] + m [9] * m [9] + m [10] * m [10]);
-      item.radius = mesh.radius * Math.max(scaleX, Math.max(scaleY, scaleZ));
+      // Radius of the sphere which contains the transformed box of the geometry
+      // (the lengths of the columns of the matrix would underestimate it
+      // when a model is rotated then scaled differently along each axis)
+      float halfX = (mesh.upper [0] - mesh.lower [0]) / 2;
+      float halfY = (mesh.upper [1] - mesh.lower [1]) / 2;
+      float halfZ = (mesh.upper [2] - mesh.lower [2]) / 2;
+      double squareRadius = 0;
+      for (int i = 0; i < 4; i++) {
+        float dx = halfX;
+        float dy = (i & 1) == 0 ? halfY : -halfY;
+        float dz = (i & 2) == 0 ? halfZ : -halfZ;
+        double cornerX = m [0] * dx + m [4] * dy + m [8] * dz;
+        double cornerY = m [1] * dx + m [5] * dy + m [9] * dz;
+        double cornerZ = m [2] * dx + m [6] * dy + m [10] * dz;
+        squareRadius = Math.max(squareRadius, cornerX * cornerX + cornerY * cornerY + cornerZ * cornerZ);
+      }
+      item.radius = Math.sqrt(squareRadius);
     }
+  }
+
+  /**
+   * Returns <code>true</code> if the bounding sphere of the given shape is out of the frustum.
+   */
+  private boolean isOutOfSight(Item item, double [][] planes) {
+    if (item.mesh.loadState != MESH_UPLOADED
+        && !item.mesh.boundsKnown
+        && (item.mesh.loadState == MESH_PREPARING
+            || !item.mesh.computeBounds())) {
+      // Bounds unknown, or about to be known without waiting for a worker thread
+      return false;
+    }
+    updateBounds(item);
     for (double [] plane : planes) {
       if (plane [0] * item.center [0] + plane [1] * item.center [1] + plane [2] * item.center [2] + plane [3]
           < -item.radius) {
@@ -980,21 +2335,397 @@ public class OpenGLSceneRenderer {
     return viewMatrix [8] * x + viewMatrix [9] * y + viewMatrix [10] * z + viewMatrix [11];
   }
 
+  // ---- Shadows
+
+  /**
+   * Draws the depth of the objects viewed from the first directional light
+   * if it changed, and returns <code>true</code> if shadows can be displayed.
+   */
+  private boolean updateShadowMap(GL2 gl, Frame frame) {
+    LightState keyLight = null;
+    for (LightState light : frame.lights) {
+      if (light.direction != null) {
+        keyLight = light;
+        break;
+      }
+    }
+    if (keyLight == null) {
+      return false;
+    }
+    int shadowMapSize = Math.min(this.shadowMapMaxSize, this.maxTextureSize);
+    if (this.shadowTexture != 0 && this.shadowMapSize != shadowMapSize) {
+      deleteShadowMap(gl);
+    }
+    if (this.shadowTexture == 0) {
+      this.shadowMapSize = shadowMapSize;
+      int [] id = new int [1];
+      gl.glGenTextures(1, id, 0);
+      this.shadowTexture = id [0];
+      gl.glBindTexture(GL.GL_TEXTURE_2D, this.shadowTexture);
+      gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR);
+      gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR);
+      gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE);
+      gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE);
+      gl.glTexParameteri(GL.GL_TEXTURE_2D, GL2.GL_TEXTURE_COMPARE_MODE, GL2.GL_COMPARE_R_TO_TEXTURE);
+      gl.glTexParameteri(GL.GL_TEXTURE_2D, GL2.GL_TEXTURE_COMPARE_FUNC, GL.GL_LEQUAL);
+      gl.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_DEPTH_COMPONENT24, this.shadowMapSize, this.shadowMapSize, 0,
+          GL2.GL_DEPTH_COMPONENT, GL.GL_UNSIGNED_INT, null);
+      gl.glBindTexture(GL.GL_TEXTURE_2D, 0);
+      gl.glGenFramebuffers(1, id, 0);
+      this.shadowFramebuffer = id [0];
+      gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, this.shadowFramebuffer);
+      gl.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_DEPTH_ATTACHMENT, GL.GL_TEXTURE_2D, this.shadowTexture, 0);
+      gl.glDrawBuffer(GL.GL_NONE);
+      gl.glReadBuffer(GL.GL_NONE);
+      boolean complete = gl.glCheckFramebufferStatus(GL.GL_FRAMEBUFFER) == GL.GL_FRAMEBUFFER_COMPLETE;
+      gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, this.defaultFramebuffer);
+      if (!complete) {
+        deleteShadowMap(gl);
+        this.shadows = false;
+        return false;
+      }
+      this.shadowMapValid = false;
+    }
+    float [] lightDirection = getShadowLightDirection(keyLight.direction);
+    if (this.shadowMapValid
+        && Arrays.equals(this.shadowMapLightDirection, lightDirection)
+        && frame.generation == this.renderedGeneration) {
+      return true;
+    }
+    if (this.shadowWorldMatrix != null
+        && !this.synchronousLoading
+        && !this.imageRendering
+        && System.nanoTime() - this.shadowMapTime < Math.min(1000000000L, 4 * this.shadowMapDuration)) {
+      // Drawing all the objects from the light takes time: while the scene changes
+      // at each frame, keep the previous shadows and update them a little later
+      this.shadowMapValid = false;
+      this.shadowUpdateDeferred = true;
+      return true;
+    }
+    long shadowMapStart = System.nanoTime();
+
+    // Orthographic view from the light which contains the objects casting a shadow
+    Vector3d light = new Vector3d(lightDirection [0], lightDirection [1], lightDirection [2]);
+    light.normalize();
+    Vector3d up = Math.abs(light.y) > 0.99 ? new Vector3d(1, 0, 0) : new Vector3d(0, 1, 0);
+    Vector3d xAxis = new Vector3d();
+    xAxis.cross(up, light);
+    xAxis.normalize();
+    Vector3d yAxis = new Vector3d();
+    yAxis.cross(light, xAxis);
+    Vector3d [] axes = {xAxis, yAxis, light};
+    double [] lower = {Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY};
+    double [] upper = {Double.NEGATIVE_INFINITY, Double.NEGATIVE_INFINITY, Double.NEGATIVE_INFINITY};
+    double [] corner = new double [3];
+    for (Item item : frame.opaqueItems) {
+      if (item.mesh.loadState == MESH_UPLOADED && isShadowCaster(item)) {
+        float [] m = item.matrix;
+        float [] meshLower = item.mesh.lower;
+        float [] meshUpper = item.mesh.upper;
+        double minY = Double.POSITIVE_INFINITY;
+        double maxY = Double.NEGATIVE_INFINITY;
+        double [] itemLower = {Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY};
+        double [] itemUpper = {Double.NEGATIVE_INFINITY, Double.NEGATIVE_INFINITY, Double.NEGATIVE_INFINITY};
+        for (int i = 0; i < 8; i++) {
+          float x = (i & 1) == 0 ? meshLower [0] : meshUpper [0];
+          float y = (i & 2) == 0 ? meshLower [1] : meshUpper [1];
+          float z = (i & 4) == 0 ? meshLower [2] : meshUpper [2];
+          corner [0] = m [0] * x + m [4] * y + m [8] * z + m [12];
+          corner [1] = m [1] * x + m [5] * y + m [9] * z + m [13];
+          corner [2] = m [2] * x + m [6] * y + m [10] * z + m [14];
+          minY = Math.min(minY, corner [1]);
+          maxY = Math.max(maxY, corner [1]);
+          for (int axis = 0; axis < 3; axis++) {
+            double coordinate = axes [axis].x * corner [0] + axes [axis].y * corner [1] + axes [axis].z * corner [2];
+            itemLower [axis] = Math.min(itemLower [axis], coordinate);
+            itemUpper [axis] = Math.max(itemUpper [axis], coordinate);
+          }
+        }
+        // Lawns, paths and other flat shapes on the ground cast no visible shadow
+        // and shouldn't spread the shadow map over a large area
+        if (maxY - minY > 3 || maxY > 10) {
+          for (int axis = 0; axis < 3; axis++) {
+            lower [axis] = Math.min(lower [axis], itemLower [axis]);
+            upper [axis] = Math.max(upper [axis], itemUpper [axis]);
+          }
+        }
+      }
+    }
+    if (lower [0] > upper [0]) {
+      lower = new double [] {-100, -100, -100};
+      upper = new double [] {100, 100, 100};
+    }
+    for (int axis = 0; axis < 3; axis++) {
+      double margin = Math.max(1, (upper [axis] - lower [axis]) * 0.01);
+      lower [axis] -= margin;
+      upper [axis] += margin;
+    }
+    double width = upper [0] - lower [0];
+    double height = upper [1] - lower [1];
+    double depth = upper [2] - lower [2];
+    double [] matrix = {
+        2 * xAxis.x / width, 2 * xAxis.y / width, 2 * xAxis.z / width, -(upper [0] + lower [0]) / width,
+        2 * yAxis.x / height, 2 * yAxis.y / height, 2 * yAxis.z / height, -(upper [1] + lower [1]) / height,
+        -2 * light.x / depth, -2 * light.y / depth, -2 * light.z / depth, (upper [2] + lower [2]) / depth,
+        0, 0, 0, 1};
+    this.shadowWorldMatrix = matrix;
+    this.shadowMapLightDirection = lightDirection;
+
+    gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, this.shadowFramebuffer);
+    gl.glViewport(0, 0, this.shadowMapSize, this.shadowMapSize);
+    gl.glDepthMask(true);
+    gl.glClear(GL.GL_DEPTH_BUFFER_BIT);
+    resetState(gl);
+    gl.glColorMask(false, false, false, false);
+    gl.glEnable(GL.GL_DEPTH_TEST);
+    gl.glEnable(GL.GL_POLYGON_OFFSET_FILL);
+    gl.glPolygonOffset(2f, 4f);
+    loadMatrix(gl, GLMatrixFunc.GL_PROJECTION, matrix);
+    double [] identity = {1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1};
+    this.depthOnlyPass = true;
+    this.shadowCasterSkipped = false;
+    for (Item item : frame.opaqueItems) {
+      if (isShadowCaster(item)) {
+        drawItem(gl, frame, item, identity, false);
+      }
+    }
+    this.depthOnlyPass = false;
+    resetState(gl);
+    gl.glColorMask(true, true, true, true);
+    gl.glBindBuffer(GL.GL_ARRAY_BUFFER, 0);
+    gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, this.defaultFramebuffer);
+    // Draw it again once the textures of the shapes which were left out are ready
+    this.shadowMapValid = !this.pendingUploads && !this.shadowCasterSkipped;
+    gl.glFinish();
+    this.shadowMapTime = System.nanoTime();
+    this.shadowMapDuration = this.shadowMapTime - shadowMapStart;
+    return true;
+  }
+
+  private boolean isShadowCaster(Item item) {
+    State state = item.state;
+    return item.mesh.mode == GL.GL_TRIANGLES
+        && state.depthWrite
+        && state.depthTest
+        && state.polygonMode == PolygonAttributes.POLYGON_FILL
+        && !state.isBlended();
+  }
+
+  private void deleteShadowMap(GL2 gl) {
+    if (this.shadowFramebuffer != 0) {
+      gl.glDeleteFramebuffers(1, new int [] {this.shadowFramebuffer}, 0);
+      this.shadowFramebuffer = 0;
+    }
+    if (this.shadowTexture != 0) {
+      gl.glDeleteTextures(1, new int [] {this.shadowTexture}, 0);
+      this.shadowTexture = 0;
+    }
+    this.shadowMapValid = false;
+  }
+
+  // ---- Ambient occlusion
+
+  /**
+   * Darkens in the target frame buffer the pixels of the resolved frame
+   * which are close to an other surface.
+   */
+  private void drawOcclusion(GL2 gl, Frame frame, int width, int height, int targetFramebuffer) {
+    gl.glDisable(GL.GL_DEPTH_TEST);
+    gl.glDisable(GL.GL_CULL_FACE);
+    gl.glDisable(GL.GL_BLEND);
+    gl.glDepthMask(false);
+    gl.glViewport(0, 0, width, height);
+    float tanHalfWidth = (float)Math.tan(frame.fieldOfView / 2);
+    float tanHalfHeight = tanHalfWidth * height / width;
+
+    gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, this.occlusionTarget.framebuffer);
+    gl.glUseProgram(this.occlusionProgram);
+    gl.glBindTexture(GL.GL_TEXTURE_2D, this.resolvedTarget.depthBuffer);
+    gl.glUniform1i(gl.glGetUniformLocation(this.occlusionProgram, "depthTexture"), 0);
+    gl.glUniform4f(gl.glGetUniformLocation(this.occlusionProgram, "projection"),
+        tanHalfWidth, tanHalfHeight, (float)frame.frontClipDistance, (float)frame.backClipDistance);
+    gl.glUniform2f(gl.glGetUniformLocation(this.occlusionProgram, "pixelSize"), 1f / width, 1f / height);
+    drawQuad(gl);
+
+    gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, targetFramebuffer);
+    gl.glUseProgram(this.compositionProgram);
+    gl.glUniform1i(gl.glGetUniformLocation(this.compositionProgram, "colorTexture"), 0);
+    gl.glUniform1i(gl.glGetUniformLocation(this.compositionProgram, "occlusionTexture"), 1);
+    gl.glUniform1i(gl.glGetUniformLocation(this.compositionProgram, "depthTexture"), 2);
+    gl.glUniform2f(gl.glGetUniformLocation(this.compositionProgram, "pixelSize"), 1f / width, 1f / height);
+    gl.glUniform2f(gl.glGetUniformLocation(this.compositionProgram, "clipDistances"),
+        (float)frame.frontClipDistance, (float)frame.backClipDistance);
+    gl.glActiveTexture(GL.GL_TEXTURE2);
+    gl.glBindTexture(GL.GL_TEXTURE_2D, this.resolvedTarget.depthBuffer);
+    gl.glActiveTexture(GL.GL_TEXTURE1);
+    gl.glBindTexture(GL.GL_TEXTURE_2D, this.occlusionTarget.colorBuffer);
+    gl.glActiveTexture(GL.GL_TEXTURE0);
+    gl.glBindTexture(GL.GL_TEXTURE_2D, this.resolvedTarget.colorBuffer);
+    drawQuad(gl);
+    gl.glActiveTexture(GL.GL_TEXTURE2);
+    gl.glBindTexture(GL.GL_TEXTURE_2D, 0);
+    gl.glActiveTexture(GL.GL_TEXTURE1);
+    gl.glBindTexture(GL.GL_TEXTURE_2D, 0);
+    gl.glActiveTexture(GL.GL_TEXTURE0);
+    gl.glBindTexture(GL.GL_TEXTURE_2D, 0);
+    gl.glUseProgram(0);
+    gl.glDepthMask(true);
+  }
+
+  private void drawQuad(GL2 gl) {
+    gl.glBegin(GL2.GL_QUADS);
+    gl.glTexCoord2f(0, 0);
+    gl.glVertex2f(-1, -1);
+    gl.glTexCoord2f(1, 0);
+    gl.glVertex2f(1, -1);
+    gl.glTexCoord2f(1, 1);
+    gl.glVertex2f(1, 1);
+    gl.glTexCoord2f(0, 1);
+    gl.glVertex2f(-1, 1);
+    gl.glEnd();
+  }
+
+  // ---- Frame buffers and programs
+
+  /**
+   * Returns a frame buffer of the given size, which reuses <code>target</code> if it matches.
+   * @param textures  if <code>true</code> the buffers are textures that programs may read
+   * @return the frame buffer or <code>null</code> if it can't be created
+   */
+  private Target getTarget(GL2 gl, Target target, int width, int height, int samples, boolean textures, boolean depth) {
+    if (target != null
+        && target.width == width
+        && target.height == height
+        && target.samples == samples) {
+      return target;
+    }
+    deleteTarget(gl, target);
+    target = new Target();
+    target.width = width;
+    target.height = height;
+    target.samples = samples;
+    target.textures = textures;
+    int [] id = new int [1];
+    gl.glGenFramebuffers(1, id, 0);
+    target.framebuffer = id [0];
+    gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, target.framebuffer);
+    if (textures) {
+      gl.glGenTextures(1, id, 0);
+      target.colorBuffer = id [0];
+      gl.glBindTexture(GL.GL_TEXTURE_2D, target.colorBuffer);
+      gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR);
+      gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR);
+      gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE);
+      gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE);
+      gl.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA8, width, height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, null);
+      gl.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_COLOR_ATTACHMENT0, GL.GL_TEXTURE_2D, target.colorBuffer, 0);
+      if (depth) {
+        gl.glGenTextures(1, id, 0);
+        target.depthBuffer = id [0];
+        gl.glBindTexture(GL.GL_TEXTURE_2D, target.depthBuffer);
+        gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_NEAREST);
+        gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_NEAREST);
+        gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE);
+        gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE);
+        gl.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_DEPTH_COMPONENT24, width, height, 0,
+            GL2.GL_DEPTH_COMPONENT, GL.GL_UNSIGNED_INT, null);
+        gl.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_DEPTH_ATTACHMENT, GL.GL_TEXTURE_2D, target.depthBuffer, 0);
+      }
+      gl.glBindTexture(GL.GL_TEXTURE_2D, 0);
+    } else {
+      gl.glGenRenderbuffers(1, id, 0);
+      target.colorBuffer = id [0];
+      gl.glBindRenderbuffer(GL.GL_RENDERBUFFER, target.colorBuffer);
+      gl.glRenderbufferStorageMultisample(GL.GL_RENDERBUFFER, samples, GL.GL_RGBA8, width, height);
+      gl.glFramebufferRenderbuffer(GL.GL_FRAMEBUFFER, GL.GL_COLOR_ATTACHMENT0, GL.GL_RENDERBUFFER, target.colorBuffer);
+      if (depth) {
+        gl.glGenRenderbuffers(1, id, 0);
+        target.depthBuffer = id [0];
+        gl.glBindRenderbuffer(GL.GL_RENDERBUFFER, target.depthBuffer);
+        gl.glRenderbufferStorageMultisample(GL.GL_RENDERBUFFER, samples, GL.GL_DEPTH_COMPONENT24, width, height);
+        gl.glFramebufferRenderbuffer(GL.GL_FRAMEBUFFER, GL.GL_DEPTH_ATTACHMENT, GL.GL_RENDERBUFFER, target.depthBuffer);
+      }
+      gl.glBindRenderbuffer(GL.GL_RENDERBUFFER, 0);
+    }
+    boolean complete = gl.glCheckFramebufferStatus(GL.GL_FRAMEBUFFER) == GL.GL_FRAMEBUFFER_COMPLETE
+        && gl.glGetError() == GL.GL_NO_ERROR;
+    gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, this.defaultFramebuffer);
+    if (!complete) {
+      deleteTarget(gl, target);
+      return null;
+    }
+    return target;
+  }
+
+  private Target deleteTarget(GL2 gl, Target target) {
+    if (target != null) {
+      int [] id = new int [1];
+      if (target.framebuffer != 0) {
+        id [0] = target.framebuffer;
+        gl.glDeleteFramebuffers(1, id, 0);
+      }
+      for (int buffer : new int [] {target.colorBuffer, target.depthBuffer}) {
+        if (buffer != 0) {
+          id [0] = buffer;
+          if (target.textures) {
+            gl.glDeleteTextures(1, id, 0);
+          } else {
+            gl.glDeleteRenderbuffers(1, id, 0);
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Returns a program built from the given shaders.
+   */
+  private static int createProgram(GL2 gl, String vertexShaderSource, String fragmentShaderSource) {
+    int vertexShader = createShader(gl, GL2.GL_VERTEX_SHADER, vertexShaderSource);
+    int fragmentShader = createShader(gl, GL2.GL_FRAGMENT_SHADER, fragmentShaderSource);
+    int program = gl.glCreateProgram();
+    gl.glAttachShader(program, vertexShader);
+    gl.glAttachShader(program, fragmentShader);
+    gl.glLinkProgram(program);
+    gl.glDeleteShader(vertexShader);
+    gl.glDeleteShader(fragmentShader);
+    int [] status = new int [1];
+    gl.glGetProgramiv(program, GL2.GL_LINK_STATUS, status, 0);
+    if (status [0] == 0) {
+      byte [] log = new byte [4096];
+      int [] length = new int [1];
+      gl.glGetProgramInfoLog(program, log.length, length, 0, log, 0);
+      gl.glDeleteProgram(program);
+      throw new IllegalStateException("Program not linked: " + new String(log, 0, Math.max(0, length [0])));
+    }
+    return program;
+  }
+
+  private static int createShader(GL2 gl, int type, String source) {
+    int shader = gl.glCreateShader(type);
+    gl.glShaderSource(shader, 1, new String [] {source}, new int [] {source.length()}, 0);
+    gl.glCompileShader(shader);
+    int [] status = new int [1];
+    gl.glGetShaderiv(shader, GL2.GL_COMPILE_STATUS, status, 0);
+    if (status [0] == 0) {
+      byte [] log = new byte [4096];
+      int [] length = new int [1];
+      gl.glGetShaderInfoLog(shader, log.length, length, 0, log, 0);
+      gl.glDeleteShader(shader);
+      throw new IllegalStateException("Shader not compiled: " + new String(log, 0, Math.max(0, length [0])));
+    }
+    return shader;
+  }
+
+  // ---- Matrices
+
   /**
    * Returns the six planes of the frustum in scene coordinates, their normal pointing inside.
    */
   private static double [][] getFrustumPlanes(double [] projection, double [] view) {
     // Rows of projection * view (both stored row by row)
-    double [] m = new double [16];
-    for (int row = 0; row < 4; row++) {
-      for (int column = 0; column < 4; column++) {
-        double sum = 0;
-        for (int k = 0; k < 4; k++) {
-          sum += projection [row * 4 + k] * view [k * 4 + column];
-        }
-        m [row * 4 + column] = sum;
-      }
-    }
+    double [] m = multiply(projection, view);
     double [][] planes = new double [6][4];
     for (int i = 0; i < 4; i++) {
       planes [0][i] = m [12 + i] + m [i];       // Left
@@ -1013,6 +2744,23 @@ public class OpenGLSceneRenderer {
       }
     }
     return planes;
+  }
+
+  /**
+   * Returns the product of two matrices stored row by row.
+   */
+  private static double [] multiply(double [] matrix1, double [] matrix2) {
+    double [] m = new double [16];
+    for (int row = 0; row < 4; row++) {
+      for (int column = 0; column < 4; column++) {
+        double sum = 0;
+        for (int k = 0; k < 4; k++) {
+          sum += matrix1 [row * 4 + k] * matrix2 [k * 4 + column];
+        }
+        m [row * 4 + column] = sum;
+      }
+    }
+    return m;
   }
 
   /**
@@ -1060,159 +2808,265 @@ public class OpenGLSceneRenderer {
     return columns;
   }
 
-  private static float getDeterminant(float [] m) {
-    return m [0] * (m [5] * m [10] - m [9] * m [6])
-        - m [4] * (m [1] * m [10] - m [9] * m [2])
-        + m [8] * (m [1] * m [6] - m [5] * m [2]);
+  // ---- Shaders
+
+  private static final int [] NO_POINT_LIGHT = {};
+
+  private static final String SCENE_VERTEX_SHADER =
+        "#version 120\n"
+      + "uniform bool textureGeneration;\n"
+      + "uniform vec4 texturePlaneS;\n"
+      + "uniform vec4 texturePlaneT;\n"
+      + "uniform mat4 shadowMatrix;\n"
+      + "varying vec3 eyePosition;\n"
+      + "varying vec3 eyeNormal;\n"
+      + "varying vec4 shadowCoordinates;\n"
+      + "varying vec4 vertexColor;\n"
+      + "void main() {\n"
+      + "  vec4 position = gl_ModelViewMatrix * gl_Vertex;\n"
+      + "  eyePosition = position.xyz;\n"
+      + "  eyeNormal = gl_NormalMatrix * gl_Normal;\n"
+      + "  vec4 coordinates = textureGeneration\n"
+      + "      ? vec4(dot(gl_Vertex, texturePlaneS), dot(gl_Vertex, texturePlaneT), 0., 1.)\n"
+      + "      : gl_MultiTexCoord0;\n"
+      + "  gl_TexCoord[0] = gl_TextureMatrix[0] * coordinates;\n"
+      + "  vertexColor = gl_Color;\n"
+      + "  shadowCoordinates = shadowMatrix * position;\n"
+      + "  gl_Position = gl_ProjectionMatrix * position;\n"
+      + "}\n";
+
+  private static final String SCENE_FRAGMENT_SHADER =
+        "#version 120\n"
+      + "uniform sampler2D texture0;\n"
+      + "uniform sampler2DShadow shadowMap;\n"
+      + "uniform int textureMode;\n"
+      + "uniform bool textureAlpha;\n"
+      + "uniform bool lighting;\n"
+      + "uniform bool twoSided;\n"
+      + "uniform bool vertexColors;\n"
+      + "uniform vec4 materialAmbient;\n"
+      + "uniform vec4 materialDiffuse;\n"
+      + "uniform vec4 materialSpecular;\n"
+      + "uniform vec4 materialEmissive;\n"
+      + "uniform float shininess;\n"
+      + "uniform vec4 flatColor;\n"
+      + "uniform vec3 ambientLight;\n"
+      + "uniform int directionalLightCount;\n"
+      + "uniform vec3 directionalLightDirection[" + MAX_LIGHTS + "];\n"
+      + "uniform vec3 directionalLightColor[" + MAX_LIGHTS + "];\n"
+      + "uniform int pointLightCount;\n"
+      + "uniform vec3 pointLightPosition[" + MAX_POINT_LIGHTS + "];\n"
+      + "uniform vec3 pointLightColor[" + MAX_POINT_LIGHTS + "];\n"
+      + "uniform vec3 pointLightAttenuation[" + MAX_POINT_LIGHTS + "];\n"
+      + "uniform int shadowLight;\n"
+      + "uniform float shadowTexelSize;\n"
+      + "varying vec3 eyePosition;\n"
+      + "varying vec3 eyeNormal;\n"
+      + "varying vec4 shadowCoordinates;\n"
+      + "varying vec4 vertexColor;\n"
+      + "float getLitPart(float normalDotLight) {\n"
+      + "  vec3 c = shadowCoordinates.xyz / shadowCoordinates.w;\n"
+      + "  if (c.x <= 0. || c.x >= 1. || c.y <= 0. || c.y >= 1. || c.z >= 1.) {\n"
+      + "    return 1.;\n"
+      + "  }\n"
+      + "  float slope = sqrt(max(0., 1. - normalDotLight * normalDotLight)) / max(normalDotLight, 0.05);\n"
+      + "  float bias = clamp(0.0005 * slope, 0.0002, 0.005);\n"
+      + "  float angle = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2832;\n"
+      + "  float sum = 0.;\n"
+      + "  for (int i = 0; i < 12; i++) {\n"
+      + "    float sampleAngle = angle + float(i) * 2.39996;\n"
+      + "    float radius = sqrt((float(i) + 0.5) / 12.) * 2.5 * shadowTexelSize;\n"
+      + "    sum += shadow2D(shadowMap, vec3(c.xy + vec2(cos(sampleAngle), sin(sampleAngle)) * radius, c.z - bias)).r;\n"
+      + "  }\n"
+      + "  return sum / 12.;\n"
+      + "}\n"
+      + "void main() {\n"
+      + "  vec4 color;\n"
+      + "  vec3 specular = vec3(0.);\n"
+      + "  if (lighting) {\n"
+      + "    vec3 normal = normalize(eyeNormal);\n"
+      + "    if (twoSided && !gl_FrontFacing) {\n"
+      + "      normal = -normal;\n"
+      + "    }\n"
+      + "    vec3 viewer = normalize(-eyePosition);\n"
+      + "    vec3 diffuse = vec3(0.);\n"
+      + "    for (int i = 0; i < " + MAX_LIGHTS + "; i++) {\n"
+      + "      if (i >= directionalLightCount) {\n"
+      + "        break;\n"
+      + "      }\n"
+      + "      vec3 light = directionalLightDirection[i];\n"
+      + "      float normalDotLight = dot(normal, light);\n"
+      + "      if (normalDotLight > 0.) {\n"
+      + "        float lit = i == shadowLight ? getLitPart(normalDotLight) : 1.;\n"
+      + "        diffuse += lit * normalDotLight * directionalLightColor[i];\n"
+      + "        specular += lit * pow(max(dot(normal, normalize(light + viewer)), 0.), shininess) * directionalLightColor[i];\n"
+      + "      }\n"
+      + "    }\n"
+      + "    for (int i = 0; i < " + MAX_POINT_LIGHTS + "; i++) {\n"
+      + "      if (i >= pointLightCount) {\n"
+      + "        break;\n"
+      + "      }\n"
+      + "      vec3 light = pointLightPosition[i] - eyePosition;\n"
+      + "      float range = length(light);\n"
+      + "      light /= range;\n"
+      + "      float normalDotLight = dot(normal, light);\n"
+      + "      if (normalDotLight > 0.) {\n"
+      + "        vec3 attenuation = pointLightAttenuation[i];\n"
+      + "        vec3 lightColor = pointLightColor[i] / (attenuation.x + attenuation.y * range + attenuation.z * range * range);\n"
+      + "        diffuse += normalDotLight * lightColor;\n"
+      + "        specular += pow(max(dot(normal, normalize(light + viewer)), 0.), shininess) * lightColor;\n"
+      + "      }\n"
+      + "    }\n"
+      + "    vec4 diffuseColor = vertexColors ? vertexColor : materialDiffuse;\n"
+      + "    color = vec4(materialEmissive.rgb + ambientLight * materialAmbient.rgb + diffuse * diffuseColor.rgb, materialDiffuse.a);\n"
+      + "    color = clamp(color, 0., 1.);\n"
+      + "    specular *= materialSpecular.rgb;\n"
+      + "  } else {\n"
+      + "    color = vertexColors ? vertexColor : flatColor;\n"
+      + "  }\n"
+      + "  if (textureMode != 0) {\n"
+      + "    vec4 texel = texture2D(texture0, gl_TexCoord[0].st);\n"
+      + "    if (textureMode == 1) {\n"
+      + "      color.rgb = texel.rgb;\n"
+      + "      if (textureAlpha) {\n"
+      + "        color.a = texel.a;\n"
+      + "      }\n"
+      + "    } else if (textureMode == 3) {\n"
+      + "      color.rgb = mix(color.rgb, texel.rgb, texel.a);\n"
+      + "    } else {\n"
+      + "      color.rgb *= texel.rgb;\n"
+      + "      if (textureAlpha) {\n"
+      + "        color.a *= texel.a;\n"
+      + "      }\n"
+      + "    }\n"
+      + "  }\n"
+      + "  gl_FragColor = vec4(color.rgb + specular, color.a);\n"
+      + "}\n";
+
+  private static final String QUAD_VERTEX_SHADER =
+        "#version 120\n"
+      + "void main() {\n"
+      + "  gl_TexCoord[0] = gl_MultiTexCoord0;\n"
+      + "  gl_Position = gl_Vertex;\n"
+      + "}\n";
+
+  // Scalable ambient obscurance computed from the depth of the frame
+  private static final String OCCLUSION_FRAGMENT_SHADER =
+        "#version 120\n"
+      + "uniform sampler2D depthTexture;\n"
+      + "uniform vec4 projection;\n"
+      + "uniform vec2 pixelSize;\n"
+      + "const float radius = 45.;\n"
+      + "const float intensity = 0.3;\n"
+      + "vec3 getPosition(vec2 uv) {\n"
+      + "  float depth = texture2D(depthTexture, uv).r;\n"
+      + "  float z = 2. * projection.z * projection.w\n"
+      + "      / (projection.w + projection.z - (2. * depth - 1.) * (projection.w - projection.z));\n"
+      + "  return vec3((2. * uv - 1.) * projection.xy * z, -z);\n"
+      + "}\n"
+      + "void main() {\n"
+      + "  vec2 uv = gl_TexCoord[0].st;\n"
+      + "  float depth = texture2D(depthTexture, uv).r;\n"
+      + "  vec3 position = getPosition(uv);\n"
+      + "  float range = -position.z;\n"
+      + "  vec2 uvRadius = radius / range / (2. * projection.xy);\n"
+      + "  if (depth >= 1. || range > 6000. || uvRadius.x < 2. * pixelSize.x) {\n"
+      + "    gl_FragColor = vec4(1.);\n"
+      + "    return;\n"
+      + "  }\n"
+      + "  vec3 right = getPosition(uv + vec2(pixelSize.x, 0.)) - position;\n"
+      + "  vec3 left = position - getPosition(uv - vec2(pixelSize.x, 0.));\n"
+      + "  vec3 top = getPosition(uv + vec2(0., pixelSize.y)) - position;\n"
+      + "  vec3 bottom = position - getPosition(uv - vec2(0., pixelSize.y));\n"
+      + "  vec3 normal = normalize(cross(abs(right.z) < abs(left.z) ? right : left,\n"
+      + "      abs(top.z) < abs(bottom.z) ? top : bottom));\n"
+      + "  float angle = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2832;\n"
+      + "  float bias = 1. + 0.004 * range;\n"
+      + "  float sum = 0.;\n"
+      + "  for (int i = 0; i < 16; i++) {\n"
+      + "    float ratio = (float(i) + 0.5) / 16.;\n"
+      + "    float sampleAngle = angle + ratio * 6.2832 * 5.;\n"
+      + "    vec2 sampleUv = uv + vec2(cos(sampleAngle), sin(sampleAngle)) * ratio * uvRadius;\n"
+      + "    vec3 v = getPosition(sampleUv) - position;\n"
+      + "    float vv = dot(v, v);\n"
+      + "    float f = max(radius * radius - vv, 0.);\n"
+      + "    sum += f * f * f * max((dot(v, normal) - bias) / (vv + 1.), 0.);\n"
+      + "  }\n"
+      + "  float occlusion = max(0., 1. - sum * radius * intensity * 5. / (pow(radius, 6.) * 16.));\n"
+      + "  occlusion = mix(occlusion, 1., smoothstep(3000., 6000., range));\n"
+      + "  gl_FragColor = vec4(occlusion, occlusion, occlusion, 1.);\n"
+      + "}\n";
+
+  // Multiplies the frame by its occlusion, smoothed among the pixels at a close depth
+  private static final String COMPOSITION_FRAGMENT_SHADER =
+        "#version 120\n"
+      + "uniform sampler2D colorTexture;\n"
+      + "uniform sampler2D occlusionTexture;\n"
+      + "uniform sampler2D depthTexture;\n"
+      + "uniform vec2 pixelSize;\n"
+      + "uniform vec2 clipDistances;\n"
+      + "float getDistance(vec2 uv) {\n"
+      + "  float depth = texture2D(depthTexture, uv).r;\n"
+      + "  return 2. * clipDistances.x * clipDistances.y\n"
+      + "      / (clipDistances.y + clipDistances.x - (2. * depth - 1.) * (clipDistances.y - clipDistances.x));\n"
+      + "}\n"
+      + "void main() {\n"
+      + "  vec2 uv = gl_TexCoord[0].st;\n"
+      + "  float range = getDistance(uv);\n"
+      + "  float sum = 0.;\n"
+      + "  float weights = 0.;\n"
+      + "  for (int x = -2; x <= 2; x++) {\n"
+      + "    for (int y = -2; y <= 2; y++) {\n"
+      + "      vec2 sampleUv = uv + vec2(float(x), float(y)) * pixelSize;\n"
+      + "      float weight = max(0.001, 1. - abs(getDistance(sampleUv) - range) / (0.02 * range + 1.));\n"
+      + "      sum += texture2D(occlusionTexture, sampleUv).r * weight;\n"
+      + "      weights += weight;\n"
+      + "    }\n"
+      + "  }\n"
+      + "  gl_FragColor = vec4(texture2D(colorTexture, uv).rgb * (sum / weights), 1.);\n"
+      + "}\n";
+
+  // ---- Data
+
+  /**
+   * The description of the scene at a given moment viewed from a camera.
+   */
+  public static final class Frame {
+    private long        generation;
+    private List<Item>  opaqueItems = Collections.emptyList();
+    private List<Item>  transparentItems = Collections.emptyList();
+    private List<Item>  environmentItems = Collections.emptyList();
+    private List<Item>  backgroundItems = Collections.emptyList();
+    private LightState []      lights = {};
+    private LightState []      backgroundLights = {};
+    private PointLightState [] pointLights = {};
+    private float []    backgroundColor = {0.9f, 0.9f, 0.9f};
+    // Matrices stored row by row
+    private final double [] viewMatrix = new double [16];
+    private final double [] cameraMatrix = new double [16];
+    private double      fieldOfView;
+    private double      frontClipDistance;
+    private double      backClipDistance;
+
+    private Frame() {
+    }
   }
 
   /**
-   * Returns the origin and the direction in the scene of the ray which goes
-   * through the pixel (x, y) of the last frame, y going down.
+   * The point of view of the last frame drawn on screen.
    */
-  public double [] getPixelRay(int x, int y) {
-    if (this.viewWidth <= 0 || this.viewHeight <= 0) {
-      return null;
-    }
-    Matrix4d projection = new Matrix4d(this.projectionMatrix);
-    Matrix4d view = new Matrix4d(this.viewMatrix);
-    Matrix4d inverse = new Matrix4d();
-    inverse.mul(projection, view);
-    try {
-      inverse.invert();
-    } catch (RuntimeException ex) {
-      return null;
-    }
-    double deviceX = 2. * (x + 0.5) / this.viewWidth - 1;
-    double deviceY = 1 - 2. * (y + 0.5) / this.viewHeight;
-    double [] near = unproject(inverse, deviceX, deviceY, -1);
-    double [] far = unproject(inverse, deviceX, deviceY, 1);
-    Vector3d direction = new Vector3d(far [0] - near [0], far [1] - near [1], far [2] - near [2]);
-    direction.normalize();
-    return new double [] {near [0], near [1], near [2], direction.x, direction.y, direction.z};
-  }
+  private static class ViewState {
+    private final double [] viewMatrix;
+    private final double [] projectionMatrix;
+    private final int       width;
+    private final int       height;
 
-  private static double [] unproject(Matrix4d inverse, double x, double y, double z) {
-    double [] point = {
-        inverse.m00 * x + inverse.m01 * y + inverse.m02 * z + inverse.m03,
-        inverse.m10 * x + inverse.m11 * y + inverse.m12 * z + inverse.m13,
-        inverse.m20 * x + inverse.m21 * y + inverse.m22 * z + inverse.m23};
-    double w = inverse.m30 * x + inverse.m31 * y + inverse.m32 * z + inverse.m33;
-    point [0] /= w;
-    point [1] /= w;
-    point [2] /= w;
-    return point;
-  }
-
-  /**
-   * Returns the child of the objects group displayed at the pixel (x, y) of
-   * the last frame, or <code>null</code> if there's none.
-   */
-  public Node pickObject(int x, int y) {
-    double [] ray = getPixelRay(x, y);
-    if (ray == null) {
-      return null;
+    public ViewState(double [] viewMatrix, double [] projectionMatrix, int width, int height) {
+      this.viewMatrix = viewMatrix;
+      this.projectionMatrix = projectionMatrix;
+      this.width = width;
+      this.height = height;
     }
-    Node closestObject = null;
-    double closestDistance = Double.POSITIVE_INFINITY;
-    for (ObjectEntry entry : this.objects.values()) {
-      for (Item item : entry.items) {
-        if (item.pickable && item.owner != null
-            && item.mesh.uploaded && item.mesh.mode == GL.GL_TRIANGLES) {
-          double distance = getIntersectionDistance(item, ray, closestDistance);
-          if (distance < closestDistance) {
-            closestDistance = distance;
-            closestObject = item.owner;
-          }
-        }
-      }
-    }
-    return closestObject;
-  }
-
-  /**
-   * Returns the distance from the origin of <code>ray</code> to the closest
-   * triangle of a shape it goes through, or infinity.
-   */
-  private double getIntersectionDistance(Item item, double [] ray, double maxDistance) {
-    // Express the ray in the coordinates of the shape
-    Matrix4d matrix = new Matrix4d();
-    float [] m = item.matrix;
-    matrix.setRow(0, m [0], m [4], m [8], m [12]);
-    matrix.setRow(1, m [1], m [5], m [9], m [13]);
-    matrix.setRow(2, m [2], m [6], m [10], m [14]);
-    matrix.setRow(3, 0, 0, 0, 1);
-    Matrix4d inverse = new Matrix4d();
-    try {
-      inverse.invert(matrix);
-    } catch (RuntimeException ex) {
-      return Double.POSITIVE_INFINITY;
-    }
-    Point3d origin = new Point3d(ray [0], ray [1], ray [2]);
-    Vector3d direction = new Vector3d(ray [3], ray [4], ray [5]);
-    inverse.transform(origin);
-    inverse.transform(direction);
-    // The direction isn't normalized, to keep distances comparable in the scene
-
-    // Check the bounding sphere first
-    Mesh mesh = item.mesh;
-    double cx = mesh.center [0] - origin.x;
-    double cy = mesh.center [1] - origin.y;
-    double cz = mesh.center [2] - origin.z;
-    double directionLengthSquared = direction.lengthSquared();
-    if (directionLengthSquared == 0) {
-      return Double.POSITIVE_INFINITY;
-    }
-    double t = (cx * direction.x + cy * direction.y + cz * direction.z) / directionLengthSquared;
-    double dx = cx - t * direction.x;
-    double dy = cy - t * direction.y;
-    double dz = cz - t * direction.z;
-    if (dx * dx + dy * dy + dz * dz > (double)mesh.radius * mesh.radius) {
-      return Double.POSITIVE_INFINITY;
-    }
-
-    float [] positions = mesh.getPositions();
-    if (positions == null) {
-      return Double.POSITIVE_INFINITY;
-    }
-    double closest = maxDistance;
-    double ox = origin.x, oy = origin.y, oz = origin.z;
-    double rx = direction.x, ry = direction.y, rz = direction.z;
-    for (int i = 0; i + 8 < positions.length; i += 9) {
-      double e1x = positions [i + 3] - positions [i];
-      double e1y = positions [i + 4] - positions [i + 1];
-      double e1z = positions [i + 5] - positions [i + 2];
-      double e2x = positions [i + 6] - positions [i];
-      double e2y = positions [i + 7] - positions [i + 1];
-      double e2z = positions [i + 8] - positions [i + 2];
-      double px = ry * e2z - rz * e2y;
-      double py = rz * e2x - rx * e2z;
-      double pz = rx * e2y - ry * e2x;
-      double determinant = e1x * px + e1y * py + e1z * pz;
-      if (determinant > -1E-12 && determinant < 1E-12) {
-        continue;
-      }
-      double inverseDeterminant = 1 / determinant;
-      double tx = ox - positions [i];
-      double ty = oy - positions [i + 1];
-      double tz = oz - positions [i + 2];
-      double u = (tx * px + ty * py + tz * pz) * inverseDeterminant;
-      if (u < 0 || u > 1) {
-        continue;
-      }
-      double qx = ty * e1z - tz * e1y;
-      double qy = tz * e1x - tx * e1z;
-      double qz = tx * e1y - ty * e1x;
-      double v = (rx * qx + ry * qy + rz * qz) * inverseDeterminant;
-      if (v < 0 || u + v > 1) {
-        continue;
-      }
-      double distance = (e2x * qx + e2y * qy + e2z * qz) * inverseDeterminant;
-      if (distance > 0 && distance < closest) {
-        closest = distance;
-      }
-    }
-    return closest < maxDistance ? closest : Double.POSITIVE_INFINITY;
   }
 
   /**
@@ -1220,42 +3074,47 @@ public class OpenGLSceneRenderer {
    */
   private static class ObjectEntry {
     private List<Item> items = Collections.emptyList();
+    private List<PointLightState> pointLights = Collections.emptyList();
     private boolean    dirty;
     private long       frame;
   }
 
   /**
-   * A shape to draw.
+   * A shape to draw. Its description is set by the scene thread
+   * and the other fields are used only by the rendering thread.
    */
   private static class Item {
     private Mesh      mesh;
     private State     state;
     private float []  matrix;
-    private boolean   mirrored;
     private boolean   pickable;
     private Node      owner;
+    private int       lightScopeMask;
+
     private double [] center;
     private double    radius = -1;
     private double    viewDepth;
+    private Object    pointLightsSource;
+    private int []    pointLights;
 
-    public boolean isBlended(OpenGLSceneRenderer renderer) {
+    public boolean isBlended() {
       if (this.state.isBlended()) {
         return true;
-      } else if (this.state.texture != null) {
-        GLTexture texture = renderer.textures.get(this.state.texture);
-        return texture != null && texture.transparent;
       } else {
-        return false;
+        GLTexture texture = this.state.glTexture;
+        return texture != null && texture.transparent;
       }
     }
   }
 
   /**
-   * A light of the scene.
+   * An ambient light or a directional light of the scene.
    */
   private static class LightState {
     private final float [] color;
     private final float [] direction;
+    private List<Group>    scopes;
+    private int            scopeBit;
 
     public LightState(Color3f color, Vector3f direction) {
       this.color = new float [] {color.x, color.y, color.z, 1};
@@ -1267,11 +3126,67 @@ public class OpenGLSceneRenderer {
   }
 
   /**
+   * A light source of the scene, which lights the shapes in a box if it's not <code>null</code>.
+   */
+  private static class PointLightState {
+    private float []  position;
+    private float []  color;
+    private float []  attenuation;
+    private double [] lower;
+    private double [] upper;
+  }
+
+  /**
+   * The lights applied to some shapes in the coordinates of the camera.
+   */
+  private static class LightSet {
+    private final float [] ambient = new float [3];
+    private final float [] directions = new float [MAX_LIGHTS * 3];
+    private final float [] colors = new float [MAX_LIGHTS * 3];
+    private int            count;
+    private int            shadowLight = -1;
+  }
+
+  /**
+   * A frame buffer.
+   */
+  private static class Target {
+    private int     framebuffer;
+    private int     colorBuffer;
+    private int     depthBuffer;
+    private boolean textures;
+    private int     width;
+    private int     height;
+    private int     samples;
+  }
+
+  /**
+   * A geometry that no shape uses since the given generation of frames.
+   */
+  private static class ReleasedMesh {
+    private final Mesh mesh;
+    private final long generation;
+
+    public ReleasedMesh(Mesh mesh, long generation) {
+      this.mesh = mesh;
+      this.generation = generation;
+    }
+  }
+
+  /**
    * An OpenGL texture.
    */
   private static class GLTexture {
-    private int     id;
-    private boolean transparent;
+    private int        id;
+    private int        width;
+    private int        height;
+    private boolean    wrapS;
+    private boolean    wrapT;
+    private ByteBuffer pixels;
+    private volatile boolean transparent;
+    private volatile boolean alpha;
+    private volatile boolean failed;
+    private volatile boolean deleted;
   }
 
   /**
@@ -1301,6 +3216,8 @@ public class OpenGLSceneRenderer {
     private float []  texturePlaneS;
     private float []  texturePlaneT;
     private int       order;
+    // Texture of the graphics card, managed by the rendering thread
+    private GLTexture glTexture;
 
     public State(Appearance appearance) {
       if (appearance != null) {
@@ -1450,10 +3367,17 @@ public class OpenGLSceneRenderer {
     private boolean    textureCoordinates;
     private boolean    colors;
     private int        buffer;
-    private boolean    uploaded;
-    private boolean    failed;
+    private volatile int loadState = MESH_NEW;
+    private FloatBuffer  data;
+    private long         preparedSize;
+    private volatile boolean released;
+    // Lock taken while the geometry is read, distinct from the one of the load state
+    private final Object creationLock = new Object();
+    private volatile boolean boundsKnown;
     private float []   center = {0, 0, 0};
     private float      radius;
+    private float []   lower = {0, 0, 0};
+    private float []   upper = {0, 0, 0};
     private SoftReference<float []> positions;
 
     public Mesh(GeometryArray geometry, int order) {
@@ -1484,9 +3408,92 @@ public class OpenGLSceneRenderer {
     }
 
     /**
+     * Computes the bounds of this mesh from the coordinates of its geometry, without
+     * preparing its vertices, and returns <code>false</code> if they can't be read.
+     */
+    public boolean computeBounds() {
+      synchronized (this.creationLock) {
+        return computeBoundsWithLock();
+      }
+    }
+
+    private boolean computeBoundsWithLock() {
+      if (!this.boundsKnown) {
+        try {
+          GeometryArray geometry = this.geometry;
+          int format = geometry.getVertexFormat();
+          float [] coordinates;
+          int offset = 0;
+          int size = 3;
+          if ((format & GeometryArray.BY_REFERENCE) != 0) {
+            if ((format & GeometryArray.USE_NIO_BUFFER) != 0) {
+              return false;
+            } else if ((format & GeometryArray.INTERLEAVED) != 0) {
+              coordinates = geometry.getInterleavedVertices();
+              size = coordinates.length / Math.max(1, geometry.getVertexCount());
+              offset = size - 3;
+            } else {
+              coordinates = geometry.getCoordRefFloat();
+            }
+          } else {
+            coordinates = new float [geometry.getVertexCount() * 3];
+            geometry.getCoordinates(0, coordinates);
+          }
+          if (coordinates == null || coordinates.length < size) {
+            return false;
+          }
+          float minX = Float.POSITIVE_INFINITY, minY = Float.POSITIVE_INFINITY, minZ = Float.POSITIVE_INFINITY;
+          float maxX = Float.NEGATIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY, maxZ = Float.NEGATIVE_INFINITY;
+          for (int i = offset; i + 2 < coordinates.length; i += size) {
+            float x = coordinates [i];
+            float y = coordinates [i + 1];
+            float z = coordinates [i + 2];
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            minZ = Math.min(minZ, z);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+            maxZ = Math.max(maxZ, z);
+          }
+          this.center = new float [] {(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2};
+          this.lower = new float [] {minX, minY, minZ};
+          this.upper = new float [] {maxX, maxY, maxZ};
+          float dx = maxX - minX;
+          float dy = maxY - minY;
+          float dz = maxZ - minZ;
+          this.radius = (float)Math.sqrt(dx * dx + dy * dy + dz * dz) / 2;
+          this.boundsKnown = true;
+        } catch (RuntimeException ex) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    /**
+     * Returns the approximate size in bytes of the vertices of this mesh.
+     */
+    public long getEstimatedSize() {
+      try {
+        int count = this.geometry instanceof IndexedGeometryArray
+            ? ((IndexedGeometryArray)this.geometry).getValidIndexCount()
+            : this.geometry.getValidVertexCount();
+        return count * 48L;
+      } catch (RuntimeException ex) {
+        return 0;
+      }
+    }
+
+    /**
      * Returns the coordinates of the vertices of the triangles of this mesh.
      */
     public float [] getPositions() {
+      synchronized (this.creationLock) {
+        return getPositionsWithLock();
+      }
+    }
+
+    private float [] getPositionsWithLock() {
       float [] positions = this.positions != null
           ? this.positions.get()
           : null;
@@ -1518,6 +3525,12 @@ public class OpenGLSceneRenderer {
      * and its color if they exist.
      */
     public FloatBuffer createVertices() {
+      synchronized (this.creationLock) {
+        return createVerticesWithLock();
+      }
+    }
+
+    private FloatBuffer createVerticesWithLock() {
       GeometryArray geometry = this.geometry;
       int format = geometry.getVertexFormat();
       int vertexCount = geometry.getVertexCount();
@@ -1804,11 +3817,14 @@ public class OpenGLSceneRenderer {
       this.colors = colorSize > 0;
       if (corners.length > 0) {
         this.center = new float [] {(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2};
+        this.lower = new float [] {minX, minY, minZ};
+        this.upper = new float [] {maxX, maxY, maxZ};
         float dx = maxX - minX;
         float dy = maxY - minY;
         float dz = maxZ - minZ;
         this.radius = (float)Math.sqrt(dx * dx + dy * dy + dz * dz) / 2;
       }
+      this.boundsKnown = true;
       return vertices;
     }
   }

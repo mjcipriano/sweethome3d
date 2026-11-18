@@ -70,6 +70,7 @@ import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -228,6 +229,10 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
   private OpenGLView3D                             openGLView;
   private BranchGroup                              openGLSceneRoot;
   private Object3DBranch.ChangeObserver            openGLObjectObserver;
+  private OpenGLCameraAnimator                     openGLCameraAnimator;
+  private final boolean                            openGLImagesAllowed;
+  private OpenGLOffscreen3D                        openGLOffscreen;
+  private BranchGroup                              openGLOffscreenSceneRoot;
   private Runnable                                 openGLTextureListener;
   private AncestorListener                         component3DAncestorListener;
   private Camera                                   camera;
@@ -374,6 +379,9 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
         && object3dFactory == null
         && projection == Projection.PERSPECTIVE
         && !displayShadowOnFloor;
+    // It may also create the images of the views which aren't displayed
+    this.openGLImagesAllowed = object3dFactory == null
+        && projection == Projection.PERSPECTIVE;
 
     if (controller != null) {
       createActions(controller);
@@ -452,6 +460,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
             openGLSceneRoot = null;
           }
           if (openGLView != null) {
+            openGLCameraAnimator.stop();
             openGLView.dispose();
             openGLView = null;
           }
@@ -661,11 +670,16 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       try {
         this.openGLView = new OpenGLView3D(new OpenGLView3D.Client() {
             public Transform3D getCameraTransform() {
-              Camera camera = home.getCamera();
-              Transform3D transform = new Transform3D();
-              updateViewPlatformTransform(transform, camera.getX(), camera.getY(),
-                  camera.getZ(), camera.getYaw(), camera.getPitch());
-              return transform;
+              return openGLCameraAnimator.getTransform();
+            }
+
+            public String [] getStatistics() {
+              RenderingStatistics statistics = renderingStatistics;
+              return statisticsOverlayVisible && statistics != null
+                  ? new String [] {"GPU: " + statistics.getOpenGLRenderer(),
+                        "FPS: " + Math.round(statistics.getFramesPerSecond())
+                        + "    rendering: " + getRenderingQualityName()}
+                  : null;
             }
 
             public double getFieldOfView() {
@@ -690,8 +704,10 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
               }
               statistics.framesPerSecond = view.getFramesPerSecond();
             }
-          }, !"speed".equalsIgnoreCase(
-                System.getProperty(GraphicsEnvironmentConfiguration.RENDERING_QUALITY_PROPERTY)));
+          });
+        this.openGLCameraAnimator = new OpenGLCameraAnimator();
+        this.openGLView.setQuality(isOpenGLAntialiasingSelected(),
+            isOpenGLShadowsSelected(), isOpenGLAmbientOcclusionSelected());
         this.component3D = this.openGLView.getComponent();
       } catch (Throwable ex) {
         // JOGL classes or an OpenGL context aren't available: use Java 3D
@@ -1165,6 +1181,172 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     }
   }
 
+  private static final String OPENGL_ANTIALIASING = "antialiasing";
+  private static final String OPENGL_SHADOWS = "shadows";
+  private static final String OPENGL_AMBIENT_OCCLUSION = "ambientOcclusion";
+
+  /**
+   * Returns the choice of the user for an option of the OpenGL renderer. The system property
+   * <code>com.eteks.sweethome3d.opengl.<i>option</i></code> has the priority on this choice.
+   */
+  private static boolean isOpenGLOptionSelected(String option, boolean defaultValue) {
+    try {
+      String value = System.getProperty("com.eteks.sweethome3d.opengl." + option);
+      if (value == null) {
+        value = java.util.prefs.Preferences.userNodeForPackage(HomeComponent3D.class).get(
+            RENDERER_PREFERENCE + "." + option, null);
+      }
+      return value != null
+          ? Boolean.parseBoolean(value)
+          : defaultValue;
+    } catch (RuntimeException ex) {
+      return defaultValue;
+    }
+  }
+
+  private static void setOpenGLOptionSelected(String option, boolean selected) {
+    try {
+      java.util.prefs.Preferences.userNodeForPackage(HomeComponent3D.class).put(
+          RENDERER_PREFERENCE + "." + option, String.valueOf(selected));
+    } catch (RuntimeException ex) {
+      // The choice lasts until the program is quit
+      System.setProperty("com.eteks.sweethome3d.opengl." + option, String.valueOf(selected));
+    }
+  }
+
+  /**
+   * Returns <code>true</code> if the OpenGL renderer smooths the edges of the objects.
+   */
+  public static boolean isOpenGLAntialiasingSelected() {
+    // Selected by default, whatever the rendering quality chosen for Java 3D,
+    // which is set to speed under Windows to spare integrated graphics cards
+    return isOpenGLOptionSelected(OPENGL_ANTIALIASING, true);
+  }
+
+  /**
+   * Sets whether the OpenGL renderer smooths the edges of the objects.
+   * Call {@link #updateRenderer() updateRenderer} to apply this choice to a displayed view.
+   */
+  public static void setOpenGLAntialiasingSelected(boolean selected) {
+    setOpenGLOptionSelected(OPENGL_ANTIALIASING, selected);
+  }
+
+  /**
+   * Returns <code>true</code> if the objects displayed by the OpenGL renderer cast shadows.
+   */
+  public static boolean isOpenGLShadowsSelected() {
+    return isOpenGLOptionSelected(OPENGL_SHADOWS, false);
+  }
+
+  /**
+   * Sets whether the objects displayed by the OpenGL renderer cast shadows.
+   * Call {@link #updateRenderer() updateRenderer} to apply this choice to a displayed view.
+   */
+  public static void setOpenGLShadowsSelected(boolean selected) {
+    setOpenGLOptionSelected(OPENGL_SHADOWS, selected);
+  }
+
+  /**
+   * Returns <code>true</code> if the OpenGL renderer darkens corners
+   * and the surfaces close to an other one.
+   */
+  public static boolean isOpenGLAmbientOcclusionSelected() {
+    return isOpenGLOptionSelected(OPENGL_AMBIENT_OCCLUSION, false);
+  }
+
+  /**
+   * Sets whether the OpenGL renderer darkens corners and the surfaces close to an other one.
+   * Call {@link #updateRenderer() updateRenderer} to apply this choice to a displayed view.
+   */
+  public static void setOpenGLAmbientOcclusionSelected(boolean selected) {
+    setOpenGLOptionSelected(OPENGL_AMBIENT_OCCLUSION, selected);
+  }
+
+  /**
+   * Moves smoothly the point of view of the OpenGL renderer to the camera of the home,
+   * like the interpolator of the Java 3D view.
+   */
+  private class OpenGLCameraAnimator implements ActionListener {
+    private static final int DURATION = 150;
+
+    private final javax.swing.Timer timer = new javax.swing.Timer(10, this);
+    private float [] initialLocation;
+    private float [] finalLocation;
+    private float [] location;
+    private long     startTime;
+
+    private float [] getLocation(Camera camera) {
+      return new float [] {camera.getX(), camera.getY(), camera.getZ(), camera.getYaw(), camera.getPitch()};
+    }
+
+    /**
+     * Moves the point of view to the given camera.
+     */
+    public void moveCamera(Camera camera, boolean animated) {
+      float [] cameraLocation = getLocation(camera);
+      if (!animated || this.location == null || !isShowing()) {
+        this.timer.stop();
+        this.initialLocation =
+        this.finalLocation =
+        this.location = cameraLocation;
+      } else if (!Arrays.equals(cameraLocation, this.finalLocation)) {
+        float alpha = getAlpha();
+        if (!this.timer.isRunning() || alpha >= 1) {
+          this.initialLocation = this.location;
+        } else if (alpha < 0.3f) {
+          // Jump directly to the previous final location
+          this.initialLocation = this.finalLocation;
+        } else {
+          this.initialLocation = this.location;
+        }
+        this.finalLocation = cameraLocation;
+        this.startTime = System.currentTimeMillis();
+        this.timer.start();
+      }
+    }
+
+    private float getAlpha() {
+      return Math.max(0, Math.min(1, (System.currentTimeMillis() - this.startTime) / (float)DURATION));
+    }
+
+    public void actionPerformed(ActionEvent ev) {
+      float alpha = getAlpha();
+      if (alpha >= 1) {
+        this.timer.stop();
+        this.location = this.finalLocation;
+      } else {
+        float [] location = new float [5];
+        for (int i = 0; i < location.length; i++) {
+          location [i] = this.initialLocation [i] + (this.finalLocation [i] - this.initialLocation [i]) * alpha;
+        }
+        this.location = location;
+      }
+      if (openGLView != null) {
+        openGLView.repaint();
+      } else {
+        this.timer.stop();
+      }
+    }
+
+    public void stop() {
+      this.timer.stop();
+    }
+
+    /**
+     * Returns the transformation of the point of view at this moment.
+     */
+    public Transform3D getTransform() {
+      if (this.location == null) {
+        this.location = getLocation(home.getCamera());
+        this.finalLocation = this.location;
+      }
+      Transform3D transform = new Transform3D();
+      updateViewPlatformTransform(transform, this.location [0], this.location [1],
+          this.location [2], this.location [3], this.location [4]);
+      return transform;
+    }
+  }
+
   /**
    * Returns <code>true</code> if this view is displayed by the OpenGL renderer.
    */
@@ -1184,6 +1366,11 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       revalidate();
       repaint();
     }
+    if (this.openGLView != null) {
+      this.openGLView.setQuality(isOpenGLAntialiasingSelected(),
+          isOpenGLShadowsSelected(), isOpenGLAmbientOcclusionSelected());
+      clearPrintedImageCache();
+    }
   }
 
   /**
@@ -1202,6 +1389,8 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
   String getOpenGLFrameInformation() {
     return this.openGLView != null
         ? "items=" + this.openGLView.getDrawnItemCount()
+            + " culled=" + this.openGLView.getCulledItemCount()
+            + " missing=" + this.openGLView.getMissingItemCount()
             + " vertices=" + this.openGLView.getDrawnVertexCount()
             + " frameMs=" + this.openGLView.getLastFrameDuration()
             + " pending=" + this.openGLView.isFramePending()
@@ -1224,8 +1413,10 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
             updateDollHouseView();
           }
           if (openGLView != null) {
+            openGLCameraAnimator.moveCamera(home.getCamera(), true);
             openGLView.repaint();
           }
+          clearPrintedImageCache();
         }
       };
     this.home.getCamera().addPropertyChangeListener(this.cameraChangeListener);
@@ -1487,9 +1678,29 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    */
   public void startOffscreenImagesCreation() {
     if (this.openGLSceneRoot != null) {
-      // Each image will be created with a universe of its own, to keep
-      // the scene displayed by the OpenGL renderer and its listeners
+      // The images will be created by the OpenGL renderer of this view or with a universe
+      // of their own, to keep the scene displayed by this renderer and its listeners
       return;
+    }
+    if (this.openGLImagesAllowed
+        && isOpenGLRendererSelected()
+        && !"false".equalsIgnoreCase(System.getProperty("com.eteks.sweethome3d.opengl.images"))
+        && this.openGLOffscreen == null
+        && this.offscreenUniverse == null
+        && this.onscreenUniverse == null) {
+      try {
+        this.openGLOffscreenSceneRoot = createSceneTree(false, true, true);
+        this.openGLOffscreen = new OpenGLOffscreen3D(
+            this.openGLOffscreenSceneRoot, (Group)this.openGLOffscreenSceneRoot.getChild(0));
+        return;
+      } catch (Throwable ex) {
+        // Create images with Java 3D
+        System.err.println("OpenGL renderer unavailable for images, Java 3D used instead: " + ex);
+        removeHomeListeners();
+        this.homeObjects.clear();
+        this.openGLOffscreen = null;
+        this.openGLOffscreenSceneRoot = null;
+      }
     }
     if (this.offscreenUniverse == null) {
       if (this.onscreenUniverse != null) {
@@ -1509,6 +1720,14 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    * Returns an image of the home viewed by this component at the given size.
    */
   public BufferedImage getOffScreenImage(int width, int height) {
+    if (this.openGLImagesAllowed
+        && isOpenGLRendererSelected()
+        && !"false".equalsIgnoreCase(System.getProperty("com.eteks.sweethome3d.opengl.images"))) {
+      BufferedImage image = getOpenGLOffScreenImage(width, height);
+      if (image != null) {
+        return image;
+      }
+    }
     List<Selectable> selectedItems = this.home.getSelectedItems();
     SimpleUniverse offScreenImageUniverse = null;
     try {
@@ -1536,6 +1755,104 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       this.home.setSelectedItems(selectedItems);
       if (offScreenImageUniverse != null) {
         offScreenImageUniverse.cleanup();
+      }
+    }
+  }
+
+  // OpenGL context shared by the images of the views which aren't displayed,
+  // kept for a while after its last use
+  private static final Object       OPENGL_IMAGES_LOCK = new Object();
+  private static final long         OPENGL_IMAGES_CONTEXT_LIFE = 120000;
+  private static OpenGLOffscreen3D  openGLImagesOffscreen;
+  private static long               openGLImagesUseTime;
+  private static java.util.Timer    openGLImagesTimer;
+
+  /**
+   * Returns an image of the home created by the OpenGL renderer,
+   * or <code>null</code> if this renderer can't create it.
+   */
+  private BufferedImage getOpenGLOffScreenImage(int width, int height) {
+    // Images of better quality than the displayed view
+    int samples = 8;
+    boolean shadows = this.displayShadowOnFloor || isOpenGLShadowsSelected();
+    boolean ambientOcclusion = this.displayShadowOnFloor || isOpenGLAmbientOcclusionSelected();
+    List<Selectable> selectedItems = this.home.getSelectedItems();
+    boolean sceneTreeCreated = false;
+    try {
+      // Empty temporarily selection to create the off screen image
+      List<Selectable> emptySelection = Collections.emptyList();
+      Camera camera = this.home.getCamera();
+      if (this.openGLView != null) {
+        if (!selectedItems.isEmpty()) {
+          this.home.setSelectedItems(emptySelection);
+        }
+        return this.openGLView.createImage(width, height, samples, shadows, ambientOcclusion);
+      } else if (this.onscreenUniverse != null || this.offscreenUniverse != null) {
+        return null;
+      } else {
+        if (!selectedItems.isEmpty()) {
+          this.home.setSelectedItems(emptySelection);
+        }
+        Transform3D transform = new Transform3D();
+        updateViewPlatformTransform(transform, camera.getX(), camera.getY(),
+            camera.getZ(), camera.getYaw(), camera.getPitch());
+        float fieldOfView = camera.getFieldOfView();
+        double [] clipDistances = getClipDistances(camera, width, height, 24);
+        if (this.openGLOffscreen != null) {
+          this.openGLOffscreen.markAllObjectsDirty();
+          return this.openGLOffscreen.createImage(transform, fieldOfView != 0 ? fieldOfView : Math.PI * 63 / 180,
+              clipDistances [0], clipDistances [1], width, height, samples, shadows, ambientOcclusion);
+        } else {
+          BranchGroup sceneRoot = createSceneTree(false, false, true);
+          sceneTreeCreated = true;
+          synchronized (OPENGL_IMAGES_LOCK) {
+            // Reuse the OpenGL context of the previous image if it's recent: the models
+            // of the furniture it shares with this image are still in the graphics card
+            if (openGLImagesOffscreen == null) {
+              openGLImagesOffscreen = new OpenGLOffscreen3D(sceneRoot, (Group)sceneRoot.getChild(0));
+            } else {
+              openGLImagesOffscreen.setScene(sceneRoot, (Group)sceneRoot.getChild(0));
+            }
+            try {
+              return openGLImagesOffscreen.createImage(transform, fieldOfView != 0 ? fieldOfView : Math.PI * 63 / 180,
+                  clipDistances [0], clipDistances [1], width, height, samples, shadows, ambientOcclusion);
+            } catch (RuntimeException ex) {
+              openGLImagesOffscreen.dispose();
+              openGLImagesOffscreen = null;
+              throw ex;
+            } finally {
+              if (openGLImagesOffscreen != null) {
+                // Don't keep a reference on the scene of this component
+                openGLImagesOffscreen.setScene(null, null);
+                final long useTime = openGLImagesUseTime = System.currentTimeMillis();
+                if (openGLImagesTimer == null) {
+                  openGLImagesTimer = new java.util.Timer("OpenGL images context disposal", true);
+                }
+                openGLImagesTimer.schedule(new java.util.TimerTask() {
+                    @Override
+                    public void run() {
+                      synchronized (OPENGL_IMAGES_LOCK) {
+                        if (openGLImagesOffscreen != null && openGLImagesUseTime == useTime) {
+                          openGLImagesOffscreen.dispose();
+                          openGLImagesOffscreen = null;
+                        }
+                      }
+                    }
+                  }, OPENGL_IMAGES_CONTEXT_LIFE);
+              }
+            }
+          }
+        }
+      }
+    } catch (Throwable ex) {
+      System.err.println("OpenGL renderer unavailable for images, Java 3D used instead: " + ex);
+      return null;
+    } finally {
+      if (!selectedItems.isEmpty()) {
+        this.home.setSelectedItems(selectedItems);
+      }
+      if (sceneTreeCreated) {
+        this.homeObjects.clear();
       }
     }
   }
@@ -1572,6 +1889,13 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    * Frees unnecessary resources after the creation of a sequence of multiple offscreen images.
    */
   public void endOffscreenImagesCreation() {
+    if (this.openGLOffscreen != null) {
+      this.openGLOffscreen.dispose();
+      removeHomeListeners();
+      this.homeObjects.clear();
+      this.openGLOffscreen = null;
+      this.openGLOffscreenSceneRoot = null;
+    }
     if (this.offscreenUniverse != null) {
       this.offscreenUniverse.cleanup();
       removeHomeListeners();

@@ -1270,7 +1270,10 @@ public class HomePieceOfFurniture3D extends Object3DBranch {
 
   private void setGeometryCapabilities(Geometry geometry) {
     // Sets the geometry capabilities needed to read attributes saved by OBJWriter
+    // (a geometry shared with a scene which was displayed by Java 3D already has them
+    // and remains compiled once this scene isn't live anymore)
     if (!geometry.isLive()
+        && !geometry.isCompiled()
         && geometry instanceof GeometryArray) {
       geometry.setCapability(GeometryArray.ALLOW_FORMAT_READ);
       geometry.setCapability(GeometryArray.ALLOW_COUNT_READ);

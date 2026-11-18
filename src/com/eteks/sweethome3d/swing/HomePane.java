@@ -1491,9 +1491,43 @@ public class HomePane extends JRootPane implements HomeView {
           }
         }
       });
+    // Options of the OpenGL renderer
+    final String [] openGLOptions = {"openGLAntialiasing", "openGLShadows", "openGLAmbientOcclusion"};
+    final JCheckBoxMenuItem [] openGLOptionMenuItems = new JCheckBoxMenuItem [openGLOptions.length];
+    final JMenu openGLQualityMenu = new JMenu(preferences.getLocalizedString(HomePane.class, "openGLQuality"));
+    for (int i = 0; i < openGLOptions.length; i++) {
+      final int option = i;
+      openGLOptionMenuItems [i] = new JCheckBoxMenuItem(
+          preferences.getLocalizedString(HomePane.class, openGLOptions [i]));
+      openGLOptionMenuItems [i].addActionListener(new ActionListener() {
+          public void actionPerformed(ActionEvent ev) {
+            boolean selected = openGLOptionMenuItems [option].isSelected();
+            switch (option) {
+              case 0 :
+                HomeComponent3D.setOpenGLAntialiasingSelected(selected);
+                break;
+              case 1 :
+                HomeComponent3D.setOpenGLShadowsSelected(selected);
+                break;
+              default :
+                HomeComponent3D.setOpenGLAmbientOcclusionSelected(selected);
+                break;
+            }
+            View view3D = controller.getHomeController3D().getView();
+            if (view3D instanceof HomeComponent3D) {
+              ((HomeComponent3D)view3D).updateRenderer();
+            }
+          }
+        });
+      openGLQualityMenu.add(openGLOptionMenuItems [i]);
+    }
     preview3DMenu.addMenuListener(new MenuListener() {
         public void menuSelected(MenuEvent ev) {
           openGLRendererMenuItem.setSelected(HomeComponent3D.isOpenGLRendererSelected());
+          openGLQualityMenu.setEnabled(HomeComponent3D.isOpenGLRendererSelected());
+          openGLOptionMenuItems [0].setSelected(HomeComponent3D.isOpenGLAntialiasingSelected());
+          openGLOptionMenuItems [1].setSelected(HomeComponent3D.isOpenGLShadowsSelected());
+          openGLOptionMenuItems [2].setSelected(HomeComponent3D.isOpenGLAmbientOcclusionSelected());
         }
         public void menuDeselected(MenuEvent ev) {
         }
@@ -1501,6 +1535,7 @@ public class HomePane extends JRootPane implements HomeView {
         }
       });
     preview3DMenu.add(openGLRendererMenuItem);
+    preview3DMenu.add(openGLQualityMenu);
     // Doll house display: the walls in front of the camera are left out of the aerial view
     final JCheckBoxMenuItem dollHouseMenuItem = new JCheckBoxMenuItem(
         preferences.getLocalizedString(HomePane.class, "dollHouseView"));
@@ -6498,13 +6533,30 @@ public class HomePane extends JRootPane implements HomeView {
     Thread generatorThread = new Thread("Sweet Home 3D model LOD generator") {
         @Override
         public void run() {
-          final int [] generatedCount = {0};
-          final int [] processedCount = {0};
+          final java.util.concurrent.atomic.AtomicInteger generatedCount = new java.util.concurrent.atomic.AtomicInteger();
+          final java.util.concurrent.atomic.AtomicInteger processedCount = new java.util.concurrent.atomic.AtomicInteger();
           final Exception [] lastError = {null};
+          // Simplify a few models at the same time, each one keeping its vertices in memory meanwhile
+          int threadCount = Math.max(1, Math.min(Math.min(4, queuedModels.size()),
+              Runtime.getRuntime().availableProcessors() - 1));
+          java.util.concurrent.ExecutorService generatorsExecutor =
+              java.util.concurrent.Executors.newFixedThreadPool(threadCount, new java.util.concurrent.ThreadFactory() {
+                  public Thread newThread(Runnable runnable) {
+                    Thread thread = new Thread(runnable, "Sweet Home 3D model LOD generator");
+                    thread.setDaemon(true);
+                    if (automatic) {
+                      // Leave the processor to the views
+                      thread.setPriority(Thread.MIN_PRIORITY);
+                    }
+                    return thread;
+                  }
+                });
           try {
-          ModelLODGenerator generator = new ModelLODGenerator();
           for (final Content model : queuedModels) {
+            generatorsExecutor.execute(new Runnable() {
+              public void run() {
             try {
+              ModelLODGenerator generator = new ModelLODGenerator();
               final ModelLOD modelLOD = targetRatio != null
                   ? generator.generate(model, targetRatio.floatValue())
                   : generator.generate(model);
@@ -6518,7 +6570,7 @@ public class HomePane extends JRootPane implements HomeView {
                       }
                     }
                   });
-                generatedCount [0]++;
+                generatedCount.incrementAndGet();
               } else if (targetRatio == null) {
                 modelsWithoutLOD.add(model);
               }
@@ -6531,17 +6583,28 @@ public class HomePane extends JRootPane implements HomeView {
               synchronized (generatingModelLODs) {
                 generatingModelLODs.remove(model);
               }
-              final int processed = ++processedCount [0];
+              final int processed = processedCount.incrementAndGet();
               EventQueue.invokeLater(new Runnable() {
                   public void run() {
-                    progressBar.setValue(processed);
-                    progressLabel.setText(preferences.getLocalizedString(
-                        HomePane.class, "generateModelLODsProgress.message", processed, totalModels));
+                    if (processed > progressBar.getValue()) {
+                      progressBar.setValue(processed);
+                      progressLabel.setText(preferences.getLocalizedString(
+                          HomePane.class, "generateModelLODsProgress.message", processed, totalModels));
+                    }
                   }
                 });
             }
+              }
+            });
+          }
+          generatorsExecutor.shutdown();
+          try {
+            generatorsExecutor.awaitTermination(1, java.util.concurrent.TimeUnit.DAYS);
+          } catch (InterruptedException ex) {
+            generatorsExecutor.shutdownNow();
           }
           } finally {
+            generatorsExecutor.shutdown();
             // Whatever happened, never leave the undismissable progress dialog
             // on screen or models marked as being generated
             synchronized (generatingModelLODs) {
@@ -6556,14 +6619,14 @@ public class HomePane extends JRootPane implements HomeView {
           if (showStatus) {
             EventQueue.invokeLater(new Runnable() {
                 public void run() {
-                  if (lastError [0] != null && generatedCount [0] == 0) {
+                  if (lastError [0] != null && generatedCount.get() == 0) {
                     JOptionPane.showMessageDialog(HomePane.this,
                         "No model LOD cache was generated:\n" + lastError [0].getMessage(),
                         "Generate model LOD cache", JOptionPane.ERROR_MESSAGE);
                   } else {
                     JOptionPane.showMessageDialog(HomePane.this,
-                        "Generated " + generatedCount [0] + " model LOD cache entr"
-                            + (generatedCount [0] == 1 ? "y." : "ies."),
+                        "Generated " + generatedCount.get() + " model LOD cache entr"
+                            + (generatedCount.get() == 1 ? "y." : "ies."),
                         "Generate model LOD cache", JOptionPane.INFORMATION_MESSAGE);
                   }
                 }

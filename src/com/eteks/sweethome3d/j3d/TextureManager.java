@@ -365,13 +365,13 @@ public class TextureManager {
    * Sets the attributes and capabilities of a shared <code>texture</code>.
    */
   private void setSharedTextureAttributesAndCapabilities(Texture texture) {
-    if (!texture.isLive()) {
+    if (!texture.isLive() && !texture.isCompiled()) {
       texture.setMinFilter(Texture.NICEST);
       texture.setMagFilter(Texture.NICEST);
       texture.setCapability(Texture.ALLOW_FORMAT_READ);
       texture.setCapability(Texture.ALLOW_IMAGE_READ);
       for (ImageComponent image : texture.getImages()) {
-        if (!image.isLive()) {
+        if (!image.isLive() && !image.isCompiled()) {
           image.setCapability(ImageComponent.ALLOW_FORMAT_READ);
           image.setCapability(ImageComponent.ALLOW_IMAGE_READ);
         }
