@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.23.1](https://github.com/mjcipriano/sweethome3d/compare/v7.23.0...v7.23.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* menus and 3D view lost with the modern theme and the OpenGL renderer ([ac26476](https://github.com/mjcipriano/sweethome3d/commit/ac26476ac498775688692b5f9fdbd4a5d171fadc))
+* menus and 3D view lost with the modern theme and the OpenGL renderer ([f8761d6](https://github.com/mjcipriano/sweethome3d/commit/f8761d67549c1322000191138bad31077f0c790d))
+
 ## [7.23.0](https://github.com/mjcipriano/sweethome3d/compare/v7.22.0...v7.23.0) (2026-11-18)
 
 
