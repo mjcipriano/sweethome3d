@@ -583,6 +583,12 @@ public class SweetHome3D extends HomeApplication {
       }
       System.setProperty("apple.awt.transparentTitleBar", "false");
     }
+    if (OperatingSystem.isWindows()
+        && System.getProperty("sun.awt.noerasebackground") == null) {
+      // Don't let AWT erase the background of the canvas of the 3D view, otherwise
+      // the frames drawn by the OpenGL renderer in its own thread are hidden
+      System.setProperty("sun.awt.noerasebackground", "true");
+    }
     // Request to use system proxies to access to the Internet
     if (System.getProperty("java.net.useSystemProxies") == null) {
       System.setProperty("java.net.useSystemProxies", "true");
@@ -711,6 +717,14 @@ public class SweetHome3D extends HomeApplication {
     LookAndFeel lookAndFeel = (LookAndFeel)
         Class.forName(lookAndFeelClassName, true, getClass().getClassLoader()).newInstance();
     UIManager.setLookAndFeel(lookAndFeel);
+    ClassLoader lookAndFeelClassLoader = lookAndFeel.getClass().getClassLoader();
+    if (lookAndFeelClassLoader != null) {
+      // Let Swing find the UI classes of the look and feel for the standard components too,
+      // otherwise it searches them with the class loader of the thread which lacks extension jars
+      UIManager.put("ClassLoader", lookAndFeelClassLoader);
+    } else {
+      UIManager.put("ClassLoader", null);
+    }
   }
 
   /**
