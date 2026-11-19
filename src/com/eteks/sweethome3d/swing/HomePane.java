@@ -5607,17 +5607,15 @@ public class HomePane extends JRootPane implements HomeView {
     if (Boolean.getBoolean("com.eteks.sweethome3d.no3D")) {
       return "Renderers: no 3D picture is available here.";
     }
-    boolean openGLSelected = HomeComponent3D.isOpenGLRendererSelected();
     return "Renderers of get_3d_image:\n"
         + "- opengl: drawn by the graphics card with 8 samples per pixel, in a few seconds (more for the first picture "
         + "of a home, while its models are sent to the graphics card). Options \"shadows\" and \"ambient_occlusion\" (both true by default). "
         + "The light sources of lamps light their room; no reflection.\n"
         + "- raytrace: computed by the processor, \"quality\":\"low\" in seconds for a small home and minutes for a large one, "
         + "\"high\" much longer, with soft shadows, reflections and the light of the lamps.\n"
-        + "- auto (default): " + (openGLSelected
-            ? "opengl now, because the 3D view of the user uses the OpenGL renderer"
-            : "raytrace now, because the 3D view of the user uses Java 3D (ask for \"renderer\":\"opengl\" to try OpenGL)")
-        + ". If OpenGL can't draw, the ray tracer is used and the answer says so.\n"
+        + "\"timeout\":N stops it after N seconds with an error.\n"
+        + "- auto (default): opengl, whichever renderer the 3D view of the user uses. "
+        + "If OpenGL can't draw, the ray tracer is used and the answer says so.\n"
         + "For a final render of the best quality, export_blender prepares a Blender scene.";
   }
 
@@ -5660,9 +5658,11 @@ public class HomePane extends JRootPane implements HomeView {
       return null;
     }
     final boolean openGL = HomeMCPHandler.Image3DRequest.OPENGL.equals(request.getRenderer())
-        || HomeMCPHandler.Image3DRequest.AUTO.equals(request.getRenderer())
-           && HomeComponent3D.isOpenGLRendererSelected();
+        || HomeMCPHandler.Image3DRequest.AUTO.equals(request.getRenderer());
     final HomeMCPHandler.Image3D [] result = new HomeMCPHandler.Image3D [1];
+    final PhotoRenderer [] photoRenderer = new PhotoRenderer [1];
+    final boolean [] timedOut = {false};
+    final boolean [] done = {false};
     final SecondaryLoop loop = Toolkit.getDefaultToolkit().getSystemEventQueue().createSecondaryLoop();
     Thread renderer = new Thread("Sweet Home 3D MCP 3D picture") {
         @Override
@@ -5683,9 +5683,24 @@ public class HomePane extends JRootPane implements HomeView {
             }
             if (image == null) {
               image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
-              new PhotoRenderer(renderedHome, request.isHighQuality()
+              PhotoRenderer rayTracer = new PhotoRenderer(renderedHome, request.isHighQuality()
                       ? PhotoRenderer.Quality.HIGH
-                      : PhotoRenderer.Quality.LOW).render(image, renderedHome.getCamera(), null);
+                      : PhotoRenderer.Quality.LOW);
+              synchronized (timedOut) {
+                photoRenderer [0] = rayTracer;
+              }
+              if (!timedOut [0]) {
+                rayTracer.render(image, renderedHome.getCamera(), null);
+              }
+              synchronized (timedOut) {
+                done [0] = true;
+                if (timedOut [0]) {
+                  result [0] = new HomeMCPHandler.Image3D(null, null, "The ray tracer didn't finish in "
+                      + request.getTimeout() + " s and was stopped. Ask for \"renderer\":\"opengl\", "
+                      + "a smaller picture, or a longer \"timeout\".");
+                  return;
+                }
+              }
               description = (openGL ? "OpenGL couldn't draw this picture: computed" : "Computed")
                   + " by the ray tracer (" + (request.isHighQuality() ? "high" : "low") + " quality)";
             }
@@ -5730,6 +5745,29 @@ public class HomePane extends JRootPane implements HomeView {
       };
     renderer.setDaemon(true);
     renderer.start();
+    if (request.getTimeout() > 0) {
+      Thread watchdog = new Thread("Sweet Home 3D MCP 3D picture timeout") {
+          @Override
+          public void run() {
+            try {
+              Thread.sleep(request.getTimeout() * 1000L);
+            } catch (InterruptedException ex) {
+              return;
+            }
+            synchronized (timedOut) {
+              // Only the ray tracer is stopped: an OpenGL picture takes seconds
+              if (!done [0] && (!openGL || photoRenderer [0] != null)) {
+                timedOut [0] = true;
+                if (photoRenderer [0] != null) {
+                  photoRenderer [0].stop();
+                }
+              }
+            }
+          }
+        };
+      watchdog.setDaemon(true);
+      watchdog.start();
+    }
     if (EventQueue.isDispatchThread()) {
       loop.enter();
     } else {

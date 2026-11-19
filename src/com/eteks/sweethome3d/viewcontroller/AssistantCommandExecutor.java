@@ -13,6 +13,7 @@ package com.eteks.sweethome3d.viewcontroller;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 import javax.swing.undo.AbstractUndoableEdit;
 import javax.swing.undo.UndoableEditSupport;
@@ -82,6 +83,9 @@ public class AssistantCommandExecutor {
   private List<HomePieceOfFurniture> describedFurniture;
   private List<Wall>                 describedWalls;
   private List<Room>                 describedRooms;
+  // Ids of the commands of a turn that designate no item of the home
+  private List<String>               turnUnresolvedIds;
+  private List<String>               unresolvedIds = Collections.emptyList();
 
   public AssistantCommandExecutor(Home home, UserPreferences preferences, HomeController homeController) {
     this.home = home;
@@ -159,6 +163,35 @@ public class AssistantCommandExecutor {
   }
 
   /**
+   * Returns the ids (<code>F#</code>/<code>W#</code>/<code>R#</code>) of the
+   * last executed commands that designated no item: an item deleted since
+   * the home was described, or a number the description didn't give.
+   */
+  public List<String> getUnresolvedIds() {
+    return this.unresolvedIds;
+  }
+
+  /**
+   * Returns the id of <code>item</code> in the description the commands of the
+   * turn refer to, or <code>null</code> if it has none.
+   */
+  String getId(Selectable item) {
+    int index = -1;
+    char type = 0;
+    if (item instanceof HomePieceOfFurniture) {
+      index = getTurnFurniture().indexOf(item);
+      type = 'F';
+    } else if (item instanceof Wall) {
+      index = getTurnWalls().indexOf(item);
+      type = 'W';
+    } else if (item instanceof Room) {
+      index = getTurnRooms().indexOf(item);
+      type = 'R';
+    }
+    return index >= 0 ? String.valueOf(type) + (index + 1) : null;
+  }
+
+  /**
    * Runs <code>change</code>, which modifies properties of <code>items</code>,
    * and posts the undoable edit of what it changed.
    */
@@ -218,6 +251,7 @@ public class AssistantCommandExecutor {
     this.turnRooms = this.describedRooms != null
         ? this.describedRooms : new ArrayList<Room>(this.home.getRooms());
     this.turnUpdateBegun = false;
+    this.turnUnresolvedIds = new ArrayList<String>();
     try {
       int applied = 0;
       for (AssistantCommand command : commands) {
@@ -235,10 +269,20 @@ public class AssistantCommandExecutor {
               + (ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName()) + ")");
         }
       }
+      if (!this.turnUnresolvedIds.isEmpty()) {
+        // Said rather than skipped in silence, so a stale id isn't taken for a change
+        String ids = this.turnUnresolvedIds.toString();
+        notes.add("No item has the id " + ids.substring(1, ids.length() - 1)
+            + " (deleted, or not in the last description of the home): nothing was done for "
+            + (this.turnUnresolvedIds.size() == 1 ? "it" : "them")
+            + ". Describe the home again to get the current ids");
+      }
     } finally {
       if (this.turnUpdateBegun) {
         this.homeController.getUndoableEditSupport().endUpdate();
       }
+      this.unresolvedIds = this.turnUnresolvedIds;
+      this.turnUnresolvedIds = null;
       this.turnFurniture = null;
       this.turnWalls = null;
       this.turnRooms = null;
@@ -488,14 +532,30 @@ public class AssistantCommandExecutor {
       return false;
     }
     HomePieceOfFurniture piece = (HomePieceOfFurniture)item;
+    boolean changed = false;
     if (command.has("by")) {
       piece.setAngle(piece.getAngle() + (float)Math.toRadians(command.getDouble("by", 0)));
-      return true;
+      changed = true;
     } else if (command.has("angle")) {
       piece.setAngle((float)Math.toRadians(command.getDouble("angle", 0)));
-      return true;
+      changed = true;
     }
-    return false;
+    if ((command.has("pitch") || command.has("roll")) && piece.isHorizontallyRotatable()) {
+      // A piece is tilted around one horizontal axis at a time, as in its modification dialog
+      double pitch = command.getDouble("pitch", Double.NaN);
+      double roll = command.getDouble("roll", Double.NaN);
+      if (!Double.isNaN(pitch) && !Double.isInfinite(pitch)
+          && (pitch % 360 != 0 || Double.isNaN(roll) || roll % 360 == 0)) {
+        piece.setPitch((float)Math.toRadians(pitch));
+        piece.setRoll(0);
+        changed = true;
+      } else if (!Double.isNaN(roll) && !Double.isInfinite(roll)) {
+        piece.setRoll((float)Math.toRadians(roll));
+        piece.setPitch(0);
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   private boolean resizeItem(AssistantCommand command, Selectable item) {
@@ -588,6 +648,10 @@ public class AssistantCommandExecutor {
         Selectable item = resolveId(trimmed);
         if (item != null && !targets.contains(item)) {
           targets.add(item);
+        } else if (item == null && this.turnUnresolvedIds != null
+                   && trimmed.matches("[FWRfwr]\\s*\\d+")
+                   && !this.turnUnresolvedIds.contains(trimmed.toUpperCase(Locale.ENGLISH))) {
+          this.turnUnresolvedIds.add(trimmed.toUpperCase(Locale.ENGLISH));
         }
       }
     }
@@ -1073,7 +1137,7 @@ public class AssistantCommandExecutor {
   private static final class ItemState {
     private final Selectable item;
     // Furniture
-    private float     x, y, angle, width, depth, height, elevation;
+    private float     x, y, angle, width, depth, height, elevation, pitch, roll;
     private Integer   color;
     private boolean   visible;
     // Wall
@@ -1081,6 +1145,7 @@ public class AssistantCommandExecutor {
     private Float     wallHeight;
     // Room
     private float [][] points;
+    private boolean    floorVisible, ceilingVisible, areaVisible;
     // Furniture or room
     private String    name;
     // Furniture reduced-detail flag (ModelLOD.LOW_POLY_PROPERTY)
@@ -1107,6 +1172,8 @@ public class AssistantCommandExecutor {
         state.depth = piece.getDepth();
         state.height = piece.getHeight();
         state.elevation = piece.getElevation();
+        state.pitch = piece.getPitch();
+        state.roll = piece.getRoll();
         state.color = piece.getColor();
         state.visible = piece.isVisible();
         state.name = piece.getName();
@@ -1132,6 +1199,9 @@ public class AssistantCommandExecutor {
         Room room = (Room)item;
         state.name = room.getName();
         state.points = room.getPoints();
+        state.floorVisible = room.isFloorVisible();
+        state.ceilingVisible = room.isCeilingVisible();
+        state.areaVisible = room.isAreaVisible();
         state.color1 = room.getFloorColor();
         state.color2 = room.getCeilingColor();
         state.texture1 = room.getFloorTexture();
@@ -1158,6 +1228,15 @@ public class AssistantCommandExecutor {
         }
         if (piece.getAngle() != this.angle) {
           piece.setAngle(this.angle);
+        }
+        if (piece.isHorizontallyRotatable()) {
+          // Before the size, which the plan computes again when a piece is tilted
+          if (piece.getPitch() != this.pitch) {
+            piece.setPitch(this.pitch);
+          }
+          if (piece.getRoll() != this.roll) {
+            piece.setRoll(this.roll);
+          }
         }
         if (piece.isResizable()) {
           if (piece.getWidth() != this.width) {
@@ -1214,6 +1293,9 @@ public class AssistantCommandExecutor {
         if (this.points != null) {
           room.setPoints(this.points);
         }
+        room.setFloorVisible(this.floorVisible);
+        room.setCeilingVisible(this.ceilingVisible);
+        room.setAreaVisible(this.areaVisible);
         room.setFloorColor(this.color1);
         room.setCeilingColor(this.color2);
         room.setFloorTexture(this.texture1);

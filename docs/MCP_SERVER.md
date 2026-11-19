@@ -58,7 +58,7 @@ able to modify it. Every `apply_commands` call is one step of **Edit > Undo**.
 
 | Tool | What it does |
 | --- | --- |
-| `get_home` | Text description of levels, rooms (area, extent, centre), walls, furniture and selection, with the ids `F#`/`W#`/`R#` |
+| `get_home` | Text description of levels, rooms (area, extent, centre, hidden ceiling or floor), walls, furniture and selection, with the ids `F#`/`W#`/`R#`. Optional filters `level`, `type` and `name` |
 | `list_catalog` | Categories and item names of the furniture catalog |
 | `search_catalog` | Best catalog matches for a query (`doors_and_windows` to search doors and windows) |
 | `search_textures` | Best texture matches, for the `set_texture` command |
@@ -75,8 +75,28 @@ able to modify it. Every `apply_commands` call is one step of **Edit > Undo**.
 | `undo` / `redo` | Undoes or redoes the last change |
 
 Ids designate the items of the last `get_home` call, even if the home changed
-since: an item deleted meanwhile is simply not found, and items added later get
-an id at the next `get_home`. The commands are the ones of the assistant
+since, and items added later get an id at the next `get_home`. An id whose
+item was deleted meanwhile, or that the description didn't give, is an error:
+the answer names it (`No item has the id R54...`) and is flagged `isError`,
+while the other commands of the call are still applied. Ids are positions in
+the lists of the home, so each `get_home` numbers the items again: an id kept
+from before a deletion **and** before a later `get_home` designates another
+item, which the server can't detect. Read the ids again after deleting.
+
+`get_home` lists every room and wall but only the first 80 pieces of
+furniture. Its filters return a part of a large home, with the same ids:
+
+| Argument | Values |
+| --- | --- |
+| `level` | The name of a level: only its rooms, walls and furniture |
+| `type` | `rooms`, `walls`, `furniture` (with doors and windows) or `doors_and_windows`, several separated by commas |
+| `name` | Only the rooms and furniture whose name contains this text |
+
+A filtered description lists up to 500 pieces. A room is followed by
+`ceiling hidden` or `floor hidden` when it isn't drawn in 3D, and a tilted
+piece by its `pitch` or `roll`.
+
+The commands are the ones of the assistant
 protocol (`HomeAssistantContext.getCommandReference()`), at most 30 per call:
 
 - build: `add_rectangular_room` (room + walls, optionally `next_to` another
@@ -97,7 +117,8 @@ protocol (`HomeAssistantContext.getCommandReference()`), at most 30 per call:
   `docs/DESIGN_TOOLS.md`;
 - organise: `add_tags`, `remove_tags`, `set_tags`, `hide_layer`, `show_layer`,
   `select_layer` (a layer = the pieces of a tag or of a type);
-- change: `move`, `rotate`, `resize`, `set_color`, `set_texture`,
+- change: `move`, `rotate` (also `pitch` and `roll`, and both at 0 to set a
+  tilted piece upright), `resize`, `set_color`, `set_texture`, `modify_room`,
   `set_elevation`, `set_visible`, `rename`, `duplicate`, `delete`,
   `reduce_detail`, `restore_detail`, `select`, `move_to_level`;
 - look: `set_camera` (a place and a direction, a `view` as in `get_3d_image`,
@@ -105,6 +126,36 @@ protocol (`HomeAssistantContext.getCommandReference()`), at most 30 per call:
   **3D view > Go to point of view**);
 - check: `check_home`, `fix_home`, `home_report`, `search_catalog`,
   `search_textures`.
+
+### Rooms: ceiling, floor, name and shape
+
+Every room is drawn with a flat ceiling, at the top of its walls or at the
+height of its level. Under a sloped roof, over a terrace or for a paved area
+outdoors that ceiling shows as a slab floating in the 3D view. `modify_room`
+changes rooms that exist:
+
+```json
+{"action":"modify_room","id":"R12",
+ "ceiling_visible":false, "floor_visible":true, "area_visible":true,
+ "name":"Bonus Room", "points":[[0,0],[600,0],[600,400],[0,400]]}
+```
+
+The room is given by `id`, `ids`, `"target":"selection"` or its name
+(`"room":"Patio"`; a name several rooms share is refused, with their ids).
+Fields left out don't change; `points` reshapes one room at a time. The
+change is one step of Undo with the rest of the call, kept as the before and
+after states of the rooms like the other editing commands. The answer gives
+the state of each room (`Modified R12 "Bonus Room": ceiling hidden, floor
+visible, ...`) and `get_home` shows `ceiling hidden` afterwards.
+
+### Textures with the same name
+
+Several catalog textures may share a name (the default catalog and imported
+libraries each have a "Grass"). `set_texture` takes the first one and says
+so, with the others: `Applied the texture "Grass" (Floor) to 1 item. 3
+textures are named "Grass": ...`. Add `"category":"<category>"`, or
+`"catalog_id":"<id>"` for the textures of libraries that have one, to choose.
+The answer always names the texture applied and its category.
 
 ## Pictures
 
@@ -119,9 +170,10 @@ Claude works better when it can look at what it did. `get_3d_image` takes:
 | `fov` | Field of view, 20 to 120 degrees (default 63, 85 inside) |
 | `levels` | `all` (default) or `selected`: the selected level and the ones under it, to look into a floor from above |
 | `level` | The name of the level to select for the picture |
-| `renderer` | `auto` (default), `opengl` (a few seconds), `raytrace` (much slower in a large home) |
+| `renderer` | `auto` (default: `opengl`, or the ray tracer if OpenGL can't draw), `opengl` (a few seconds), `raytrace` (much slower in a large home) |
 | `shadows`, `ambient_occlusion` | OpenGL renderer, both `true` by default |
 | `quality` | Ray tracer: `low` (default) or `high` (at most 1000 x 750 pixels) |
+| `timeout` | Ray tracer: seconds after which it is stopped and an error comes back (default: no limit) |
 | `width`, `height` | 800 x 500 by default, at most 1600 x 1200 |
 | `save_to`, `replace` | Absolute path of a `.png` file written at up to 4096 x 4096 pixels; a copy 1000 pixels wide comes back. Needs **Allow changes to this home** |
 
@@ -140,10 +192,10 @@ Renderers:
   renderer the 3D view uses.
 - `raytrace` is the photo renderer (SunFlow) at its fastest quality, or at its
   best one with `"quality":"high"`: slower, with reflections.
-- `auto` is `opengl` when the 3D view of the user uses the OpenGL renderer
-  (**3D view > Use OpenGL renderer**), otherwise `raytrace`, as before these
-  options existed. If OpenGL can't draw, the ray tracer does and the answer
-  says so. `-Dcom.eteks.sweethome3d.opengl.images=false` turns the OpenGL
+- `auto` is `opengl`, whichever renderer the 3D view of the user uses: the
+  ray tracer took minutes in homes with large models, longer than MCP clients
+  wait for an answer. If OpenGL can't draw, the ray tracer does and the answer
+  says so; `"timeout":N` bounds it. `-Dcom.eteks.sweethome3d.opengl.images=false` turns the OpenGL
   pictures off.
 
 Measured on the reference home (435 pieces, 25.8 million vertices) through a
