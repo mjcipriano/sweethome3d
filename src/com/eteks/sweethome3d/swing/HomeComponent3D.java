@@ -1772,10 +1772,41 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    * or <code>null</code> if this renderer can't create it.
    */
   private BufferedImage getOpenGLOffScreenImage(int width, int height) {
+    return getOpenGLOffScreenImage(width, height,
+        this.displayShadowOnFloor || isOpenGLShadowsSelected(),
+        this.displayShadowOnFloor || isOpenGLAmbientOcclusionSelected());
+  }
+
+  /**
+   * Returns an image of <code>home</code> seen from its camera created by the OpenGL renderer,
+   * whichever renderer the 3D view uses, or <code>null</code> if this renderer can't create it.
+   * The OpenGL context of the image is kept for a while, so the next images of homes which
+   * share the same models are created faster.
+   * @param shadows          <code>true</code> if objects cast shadows
+   * @param ambientOcclusion <code>true</code> if corners are darkened
+   */
+  public static BufferedImage createOpenGLImage(Home home, UserPreferences preferences,
+                                                int width, int height,
+                                                boolean shadows, boolean ambientOcclusion) {
+    if ("false".equalsIgnoreCase(System.getProperty("com.eteks.sweethome3d.opengl.images"))) {
+      return null;
+    }
+    try {
+      return new HomeComponent3D(home, preferences, null, false, null).
+          getOpenGLOffScreenImage(width, height, shadows, ambientOcclusion);
+    } catch (RuntimeException ex) {
+      System.err.println("OpenGL renderer unavailable for images: " + ex);
+      return null;
+    } catch (LinkageError ex) {
+      System.err.println("OpenGL renderer unavailable for images: " + ex);
+      return null;
+    }
+  }
+
+  private BufferedImage getOpenGLOffScreenImage(int width, int height,
+                                                boolean shadows, boolean ambientOcclusion) {
     // Images of better quality than the displayed view
     int samples = 8;
-    boolean shadows = this.displayShadowOnFloor || isOpenGLShadowsSelected();
-    boolean ambientOcclusion = this.displayShadowOnFloor || isOpenGLAmbientOcclusionSelected();
     List<Selectable> selectedItems = this.home.getSelectedItems();
     boolean sceneTreeCreated = false;
     try {

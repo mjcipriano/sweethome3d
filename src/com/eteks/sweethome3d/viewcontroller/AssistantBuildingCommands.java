@@ -110,6 +110,14 @@ class AssistantBuildingCommands {
       duplicate(command, tally, notes);
     } else if ("set_camera".equals(action)) {
       setCamera(command, notes);
+    } else if ("store_point_of_view".equals(action)) {
+      String name = command.getString("name");
+      if (name == null || name.trim().length() == 0) {
+        notes.add("Ignored store_point_of_view without \"name\"");
+      } else {
+        this.homeController.getHomeController3D().storeCamera(name.trim());
+        notes.add("Stored the point of view \"" + name.trim() + "\" (" + HomeViewpoints.describeCamera(this.home) + ")");
+      }
     } else if ("check_home".equals(action)) {
       notes.add(HomeDiagnostics.describe(check()));
     } else if ("fix_home".equals(action)) {
@@ -765,6 +773,35 @@ class AssistantBuildingCommands {
    * Moves the virtual visitor. Cameras aren't part of the undoable history of a home.
    */
   private void setCamera(AssistantCommand command, List<String> notes) {
+    String pointOfView = command.getString("point_of_view");
+    if (pointOfView != null) {
+      // A point of view stored in the home
+      for (Camera storedCamera : this.home.getStoredCameras()) {
+        if (pointOfView.trim().equalsIgnoreCase(storedCamera.getName())) {
+          this.homeController.getHomeController3D().goToCamera(storedCamera);
+          notes.add("Went to the point of view \"" + storedCamera.getName() + "\"");
+          return;
+        }
+      }
+      notes.add("Ignored set_camera: no stored point of view named \"" + pointOfView + "\"");
+      return;
+    }
+    String view = command.getString("view");
+    if (view != null) {
+      // A standard view of the home or of some items, or a view from the inside of a room
+      try {
+        double fieldOfView = command.getDouble("fov", 0);
+        Level displayedLevel = this.home.getEnvironment().isAllLevelsVisible()
+            ? null : this.home.getSelectedLevel();
+        HomeViewpoints.Pose pose = HomeViewpoints.getPose(this.home, view, this.executor.resolveTargets(command),
+            displayedLevel, 1.5f, fieldOfView >= 10 && fieldOfView <= 150 ? (float)Math.toRadians(fieldOfView) : 0);
+        pose.applyTo(this.home);
+        notes.add("Camera: " + pose.describe() + " (camera moves aren't undoable)");
+      } catch (IllegalArgumentException ex) {
+        notes.add("Ignored set_camera: " + ex.getMessage());
+      }
+      return;
+    }
     Camera camera = this.home.getObserverCamera();
     double x = command.getDouble("x", Double.NaN);
     double y = command.getDouble("y", Double.NaN);
