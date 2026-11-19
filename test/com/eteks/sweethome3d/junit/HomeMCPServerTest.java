@@ -14,6 +14,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.fail;
 import static org.junit.Assert.assertTrue;
 
 import java.io.BufferedReader;
@@ -128,7 +130,7 @@ public class HomeMCPServerTest {
 
       response = call(handler, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}");
       List<Object> tools = (List<Object>)((Map<String, Object>)response.get("result")).get("tools");
-      assertEquals(14, tools.size());
+      assertEquals(16, tools.size());
       for (Object tool : tools) {
         Map<String, Object> toolMap = (Map<String, Object>)tool;
         assertNotNull(toolMap.get("name"));
@@ -146,6 +148,48 @@ public class HomeMCPServerTest {
       assertEquals(Double.valueOf(-32602), error.get("code"));
     } finally {
       restoreNo3D(previousNo3D);
+    }
+  }
+
+  /**
+   * Checks the items looked at are entirely in the field of view of the standard views.
+   */
+  @Test
+  public void testViewpoints() throws Exception {
+    Fixture fixture = new Fixture();
+    com.eteks.sweethome3d.model.Wall wall = new com.eteks.sweethome3d.model.Wall(0, 0, 400, 0, 10, 250);
+    fixture.home.addWall(wall);
+    List<com.eteks.sweethome3d.model.Selectable> all = new java.util.ArrayList<com.eteks.sweethome3d.model.Selectable>();
+    float aspectRatio = 1.6f;
+    for (String view : com.eteks.sweethome3d.viewcontroller.HomeViewpoints.AERIAL_VIEWS) {
+      com.eteks.sweethome3d.viewcontroller.HomeViewpoints.Pose pose =
+          com.eteks.sweethome3d.viewcontroller.HomeViewpoints.getPose(fixture.home, view, all, null, aspectRatio, 0);
+      double yaw = pose.getYaw();
+      double pitch = pose.getPitch();
+      double [] forward = {-Math.sin(yaw) * Math.cos(pitch), Math.cos(yaw) * Math.cos(pitch), -Math.sin(pitch)};
+      double [] right = {-Math.cos(yaw), -Math.sin(yaw), 0};
+      double [] up = {-Math.sin(yaw) * Math.sin(pitch), Math.cos(yaw) * Math.sin(pitch), Math.cos(pitch)};
+      double tangent = Math.tan(pose.getFieldOfView() / 2);
+      double largestExtent = 0;
+      // The corners of the room on the floor and the top of the wall
+      float [][] points = {{0, 0, 0}, {400, 0, 0}, {400, 300, 0}, {0, 300, 0}, {0, -5, 250}, {400, -5, 250}};
+      for (float [] point : points) {
+        double dx = point [0] - pose.getX();
+        double dy = point [1] - pose.getY();
+        double dz = point [2] - pose.getZ();
+        double depth = dx * forward [0] + dy * forward [1] + dz * forward [2];
+        assertTrue(view + " in front of the camera", depth > 0);
+        double horizontal = Math.abs(dx * right [0] + dy * right [1] + dz * right [2]) / depth / tangent;
+        double vertical = Math.abs(dx * up [0] + dy * up [1] + dz * up [2]) / depth / (tangent / aspectRatio);
+        assertTrue(view + " in sight: " + horizontal + " " + vertical, horizontal <= 1 && vertical <= 1);
+        largestExtent = Math.max(largestExtent, Math.max(horizontal, vertical));
+      }
+      assertTrue(view + " fills the picture: " + largestExtent, largestExtent > 0.6);
+    }
+    try {
+      com.eteks.sweethome3d.viewcontroller.HomeViewpoints.getPose(new Home(), "top", all, null, 1, 0);
+      fail("An empty home has no view");
+    } catch (IllegalArgumentException ex) {
     }
   }
 
@@ -213,13 +257,25 @@ public class HomeMCPServerTest {
 
       // A picture needs a provider, and comes back as an image content
       assertEquals(Boolean.TRUE, callTool(handler, "get_plan_image", "{}").get("isError"));
+      final List<HomeMCPHandler.Image3DRequest> requests = new java.util.ArrayList<HomeMCPHandler.Image3DRequest>();
       handler.setImageProvider(new HomeMCPHandler.ImageProvider() {
-          public byte [] getPlanImage(int maxSize) {
+          public byte [] getPlanImage(int maxSize, com.eteks.sweethome3d.model.Level level, float [] area) {
             return new byte [] {(byte)maxSize, 2, 3};
           }
 
-          public byte [] get3DImage(int width, int height) {
-            return new byte [] {(byte)(width / 10), (byte)(height / 10)};
+          public HomeMCPHandler.Image3D get3DImage(HomeMCPHandler.Image3DRequest request) {
+            requests.add(request);
+            return new HomeMCPHandler.Image3D(
+                new byte [] {(byte)(request.getWidth() / 10), (byte)(request.getHeight() / 10)},
+                request.getPreviewWidth() > 0 ? new byte [] {7} : null, "Drawn by a test");
+          }
+
+          public byte [] getCatalogImage(String name, boolean texture) {
+            return name.startsWith("Missing") ? null : new byte [] {(byte)name.length()};
+          }
+
+          public String get3DInfo() {
+            return "Renderers of the test";
           }
         });
       result = callTool(handler, "get_plan_image", "{\"max_size\":250}");
@@ -233,6 +289,145 @@ public class HomeMCPServerTest {
       result = callTool(handler, "get_3d_image", "{\"width\":400,\"height\":300}");
       image = (Map<String, Object>)((List<Object>)result.get("content")).get(0);
       assertEquals(java.util.Base64.getEncoder().encodeToString(new byte [] {40, 30}), image.get("data"));
+      // By default the camera of the home, every level, and the renderer of the 3D view
+      HomeMCPHandler.Image3DRequest request = requests.get(requests.size() - 1);
+      assertEquals(HomeMCPHandler.Image3DRequest.AUTO, request.getRenderer());
+      assertNull(request.getPose());
+      assertTrue(request.isAllLevels());
+      assertTrue(request.isShadows() && request.isAmbientOcclusion());
+      String imageText = (String)((Map<String, Object>)((List<Object>)result.get("content")).get(1)).get("text");
+      assertTrue(imageText, imageText.startsWith("Drawn by a test, 400 x 300 pixels")
+          && imageText.contains("camera of the home") && imageText.contains("All levels"));
+
+      // A standard view has the whole room in sight from the asked side, and doesn't move the camera of the home
+      float cameraX = fixture.home.getCamera().getX();
+      result = callTool(handler, "get_3d_image", "{\"view\":\"south_east\",\"renderer\":\"opengl\","
+          + "\"shadows\":false,\"levels\":\"selected\"}");
+      assertEquals(Boolean.FALSE, result.get("isError"));
+      request = requests.get(requests.size() - 1);
+      assertEquals(HomeMCPHandler.Image3DRequest.OPENGL, request.getRenderer());
+      assertFalse(request.isShadows());
+      assertTrue(request.isAmbientOcclusion());
+      assertFalse(request.isAllLevels());
+      assertTrue("Aerial view", request.getPose().isAerial());
+      assertTrue("South east of the room: " + request.getPose().describe(),
+          request.getPose().getX() > 400 && request.getPose().getY() > 300 && request.getPose().getZ() > 100);
+      assertEquals(cameraX, fixture.home.getCamera().getX(), 0);
+
+      // A view from the inside of a room stands in it
+      callTool(handler, "get_home", "{}");
+      result = callTool(handler, "get_3d_image", "{\"view\":\"inside\",\"target\":\"R1\",\"renderer\":\"raytrace\"}");
+      assertEquals(Boolean.FALSE, result.get("isError"));
+      request = requests.get(requests.size() - 1);
+      assertEquals(HomeMCPHandler.Image3DRequest.RAYTRACE, request.getRenderer());
+      assertFalse(request.getPose().isAerial());
+      assertTrue(request.getPose().describe(), request.getPose().getX() > 0 && request.getPose().getX() < 400
+          && request.getPose().getY() > 0 && request.getPose().getY() < 300
+          && request.getPose().getZ() == 160);
+      assertEquals(85, Math.toDegrees(request.getPose().getFieldOfView()), 0.01);
+      // A piece is looked at from the asked side, closer than the whole home
+      result = callTool(handler, "get_3d_image", "{\"view\":\"top\",\"target\":\"F1\"}");
+      float pieceViewHeight = requests.get(requests.size() - 1).getPose().getZ();
+      result = callTool(handler, "get_3d_image", "{\"view\":\"top\"}");
+      assertTrue(requests.get(requests.size() - 1).getPose().getZ() > pieceViewHeight);
+      assertEquals(Math.PI / 2, requests.get(requests.size() - 1).getPose().getPitch(), 1E-5);
+      // A camera for one picture
+      result = callTool(handler, "get_3d_image", "{\"camera\":{\"x\":0,\"y\":0,\"height\":150,"
+          + "\"look_at_x\":0,\"look_at_y\":100,\"look_at_height\":150},\"fov\":70}");
+      request = requests.get(requests.size() - 1);
+      assertEquals(0, request.getPose().getYaw(), 1E-5);
+      assertEquals(0, request.getPose().getPitch(), 1E-5);
+      assertEquals(70, Math.toDegrees(request.getPose().getFieldOfView()), 0.01);
+      // The best quality of the ray tracer is limited in size
+      result = callTool(handler, "get_3d_image", "{\"quality\":\"high\",\"width\":1600,\"height\":1200}");
+      request = requests.get(requests.size() - 1);
+      assertTrue(request.isHighQuality());
+      assertEquals(HomeMCPHandler.Image3DRequest.RAYTRACE, request.getRenderer());
+      assertEquals(1000, request.getWidth());
+      assertEquals(750, request.getHeight());
+      // Wrong arguments are explained
+      int requestCount = requests.size();
+      for (String arguments : new String [] {"{\"view\":\"behind\"}", "{\"target\":\"R1\"}",
+          "{\"view\":\"top\",\"target\":\"F99\"}", "{\"renderer\":\"magic\"}", "{\"view\":\"inside\"}",
+          "{\"renderer\":\"opengl\",\"quality\":\"high\"}", "{\"fov\":5}", "{\"levels\":\"none\"}",
+          "{\"level\":\"Attic\"}", "{\"point_of_view\":\"Nowhere\"}", "{\"camera\":{\"x\":0}}",
+          "{\"save_to\":\"relative.png\"}", "{\"save_to\":\"/tmp/picture.jpg\"}"}) {
+        result = callTool(handler, "get_3d_image", arguments);
+        assertEquals(arguments + " " + text(result), Boolean.TRUE, result.get("isError"));
+      }
+      assertEquals("No picture rendered for wrong arguments", requestCount, requests.size());
+
+      // A picture saved in a file may be larger, and comes back with a smaller copy
+      java.io.File pictureFile = java.io.File.createTempFile("sh3d-mcp", ".png");
+      try {
+        String pictureArguments = "{\"width\":3000,\"height\":2000,\"save_to\":"
+            + JSONParser.toJSONString(pictureFile.getAbsolutePath());
+        result = callTool(handler, "get_3d_image", pictureArguments + "}");
+        assertEquals("An existing file isn't overwritten", Boolean.TRUE, result.get("isError"));
+        result = callTool(handler, "get_3d_image", pictureArguments + ",\"replace\":true}");
+        assertEquals(text(result), Boolean.FALSE, result.get("isError"));
+        request = requests.get(requests.size() - 1);
+        assertEquals(3000, request.getWidth());
+        assertEquals(1000, request.getPreviewWidth());
+        assertEquals(2, pictureFile.length());
+        image = (Map<String, Object>)((List<Object>)result.get("content")).get(0);
+        assertEquals(java.util.Base64.getEncoder().encodeToString(new byte [] {7}), image.get("data"));
+        imageText = (String)((Map<String, Object>)((List<Object>)result.get("content")).get(1)).get("text");
+        assertTrue(imageText, imageText.startsWith("Saved to " + pictureFile.getAbsolutePath()));
+        handler.setEditingAllowed(false);
+        result = callTool(handler, "get_3d_image", pictureArguments + ",\"replace\":true}");
+        assertEquals("Read-only mode writes no file", Boolean.TRUE, result.get("isError"));
+        assertEquals("Read-only mode still gives pictures", Boolean.FALSE,
+            callTool(handler, "get_3d_image", "{}").get("isError"));
+        handler.setEditingAllowed(true);
+      } finally {
+        pictureFile.delete();
+      }
+
+      // The camera can be moved to the same views, and kept as a point of view
+      result = callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"set_camera\",\"view\":\"north\"},"
+          + "{\"action\":\"store_point_of_view\",\"name\":\"From the north\"}]}");
+      assertEquals(text(result), Boolean.FALSE, result.get("isError"));
+      assertSame(fixture.home.getTopCamera(), fixture.home.getCamera());
+      assertTrue("North of the room", fixture.home.getCamera().getY() < 0);
+      assertEquals(1, fixture.home.getStoredCameras().size());
+      result = callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"set_camera\",\"view\":\"inside\",\"id\":\"R1\"}]}");
+      assertSame(fixture.home.getObserverCamera(), fixture.home.getCamera());
+      result = callTool(handler, "get_3d_image", "{\"point_of_view\":\"from the north\"}");
+      assertEquals(text(result), Boolean.FALSE, result.get("isError"));
+      assertTrue(requests.get(requests.size() - 1).getPose().isAerial());
+      assertTrue(requests.get(requests.size() - 1).getPose().getY() < 0);
+      result = callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"set_camera\",\"point_of_view\":\"From the north\"}]}");
+      assertSame(fixture.home.getTopCamera(), fixture.home.getCamera());
+
+      result = callTool(handler, "get_3d_info", "{}");
+      assertEquals(Boolean.FALSE, result.get("isError"));
+      assertTrue(text(result), text(result).startsWith("Camera of the home: aerial view")
+          && text(result).contains("\"From the north\"") && text(result).contains("south_east")
+          && text(result).endsWith("Renderers of the test"));
+
+      // Pictures of catalog items, with a word for the ones which don't exist
+      result = callTool(handler, "get_catalog_image", "{\"names\":[\"Sofa\",\"Missing one\"]}");
+      assertEquals(Boolean.FALSE, result.get("isError"));
+      List<Object> catalogContents = (List<Object>)result.get("content");
+      assertEquals(3, catalogContents.size());
+      assertEquals("\"Sofa\":", ((Map<String, Object>)catalogContents.get(0)).get("text"));
+      assertEquals("image", ((Map<String, Object>)catalogContents.get(1)).get("type"));
+      assertTrue(((String)((Map<String, Object>)catalogContents.get(2)).get("text")).contains("Missing one"));
+      assertEquals(Boolean.TRUE, callTool(handler, "get_catalog_image", "{\"names\":[\"Missing\"]}").get("isError"));
+      assertEquals(Boolean.TRUE, callTool(handler, "get_catalog_image", "{}").get("isError"));
+
+      // A part of the plan
+      result = callTool(handler, "get_plan_image", "{\"area\":{\"x\":0,\"y\":0,\"width\":200,\"height\":100}}");
+      assertEquals(Boolean.FALSE, result.get("isError"));
+      assertTrue(((String)((Map<String, Object>)((List<Object>)result.get("content")).get(1)).get("text"))
+          .startsWith("Plan from x 0, y 0 (top left) to x 200, y 100 cm"));
+      result = callTool(handler, "get_plan_image", "{\"target\":\"R1\"}");
+      assertTrue(((String)((Map<String, Object>)((List<Object>)result.get("content")).get(1)).get("text"))
+          .startsWith("Plan from x -100, y -100 (top left) to x 500, y 400 cm"));
+      assertEquals(Boolean.TRUE, callTool(handler, "get_plan_image", "{\"level\":\"Attic\"}").get("isError"));
+      assertEquals(Boolean.TRUE, callTool(handler, "get_plan_image", "{\"area\":{\"x\":0}}").get("isError"));
+      assertEquals(Boolean.TRUE, callTool(handler, "get_plan_image", "{\"target\":\"R9\"}").get("isError"));
       final java.io.File [] exportFolder = {null};
       handler.setSceneExporter(new HomeMCPHandler.SceneExporter() {
           public String exportForBlender(java.io.File folder) {
@@ -489,7 +684,7 @@ public class HomeMCPServerTest {
       Map<String, Object> result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [0])).get("result");
       assertEquals("2025-06-18", result.get("protocolVersion"));
       result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [1])).get("result");
-      assertEquals(14, ((List<Object>)result.get("tools")).size());
+      assertEquals(16, ((List<Object>)result.get("tools")).size());
       result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [2])).get("result");
       assertEquals(Boolean.TRUE, result.get("isError"));
       assertTrue(lines [2], lines [2].contains("Start server"));

@@ -28,6 +28,7 @@ import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dialog;
 import java.awt.Dimension;
+import java.awt.Image;
 import java.awt.EventQueue;
 import java.awt.FocusTraversalPolicy;
 import java.awt.FlowLayout;
@@ -86,6 +87,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.lang.ref.WeakReference;
@@ -195,6 +197,7 @@ import com.eteks.sweethome3d.j3d.ModelManager;
 import com.eteks.sweethome3d.model.BackgroundImage;
 import com.eteks.sweethome3d.model.Camera;
 import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
+import com.eteks.sweethome3d.model.CatalogTexture;
 import com.eteks.sweethome3d.model.CollectionEvent;
 import com.eteks.sweethome3d.model.CollectionListener;
 import com.eteks.sweethome3d.model.Compass;
@@ -209,6 +212,7 @@ import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.InterruptedRecorderException;
 import com.eteks.sweethome3d.model.Label;
 import com.eteks.sweethome3d.model.Level;
+import com.eteks.sweethome3d.model.FurnitureCategory;
 import com.eteks.sweethome3d.model.Library;
 import com.eteks.sweethome3d.model.ModelLOD;
 import com.eteks.sweethome3d.model.ObjectProperty;
@@ -216,6 +220,7 @@ import com.eteks.sweethome3d.model.Polyline;
 import com.eteks.sweethome3d.model.RecorderException;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Selectable;
+import com.eteks.sweethome3d.model.TexturesCategory;
 import com.eteks.sweethome3d.model.SelectionEvent;
 import com.eteks.sweethome3d.model.SelectionListener;
 import com.eteks.sweethome3d.model.TextStyle;
@@ -5258,12 +5263,22 @@ public class HomePane extends JRootPane implements HomeView {
       this.mcpHandler = new HomeMCPHandler(this.home, this.preferences, this.controller,
           this.controller != null ? this.controller.getVersion() : null);
       this.mcpHandler.setImageProvider(new HomeMCPHandler.ImageProvider() {
-          public byte [] getPlanImage(int maxSize) {
-            return createPlanImage(maxSize);
+          public byte [] getPlanImage(int maxSize, Level level, float [] area) {
+            return level == null && area == null
+                ? createPlanImage(maxSize)
+                : createPlanImage(maxSize, level, area);
           }
 
-          public byte [] get3DImage(int width, int height) {
-            return create3DImage(width, height);
+          public HomeMCPHandler.Image3D get3DImage(HomeMCPHandler.Image3DRequest request) {
+            return create3DImage(request);
+          }
+
+          public byte [] getCatalogImage(String name, boolean texture) {
+            return createCatalogImage(name, texture);
+          }
+
+          public String get3DInfo() {
+            return describe3DRenderers();
           }
         });
       this.mcpHandler.setModelSizeProvider(new AssistantModelSizeProvider());
@@ -5456,34 +5471,248 @@ public class HomePane extends JRootPane implements HomeView {
   }
 
   /**
-   * Returns a PNG image of the home in 3D seen from its camera, rendered with
-   * the photo renderer at its fastest quality, or <code>null</code> if it
-   * can't be rendered. Called in the event dispatch thread, it keeps the
-   * application responsive while the image is computed.
+   * Returns a PNG image of a level of the plan or of a part of it, drawn by a plan
+   * which isn't displayed, or <code>null</code> if it can't be drawn.
+   * @param level the level to draw, or <code>null</code> for the selected one
+   * @param area  the part of the plan to draw as <code>{x, y, width, height}</code>, or <code>null</code>
    */
-  private byte [] create3DImage(final int width, final int height) {
+  private byte [] createPlanImage(int maxSize, Level level, float [] area) {
+    try {
+      Home drawnHome = this.home.clone();
+      if (level != null) {
+        int levelIndex = this.home.getLevels().indexOf(level);
+        if (levelIndex < 0 || levelIndex >= drawnHome.getLevels().size()) {
+          return null;
+        }
+        drawnHome.setSelectedLevel(drawnHome.getLevels().get(levelIndex));
+      }
+      List<Selectable> emptySelection = Collections.emptyList();
+      drawnHome.setSelectedItems(emptySelection);
+      PlanComponent plan = new PlanComponent(drawnHome, this.preferences, null);
+      // Dark lines on a white background, whatever the theme
+      plan.setOpaque(true);
+      plan.setBackground(Color.WHITE);
+      plan.setForeground(Color.BLACK);
+      plan.setScale(1);
+      Dimension planSize = plan.getPreferredSize();
+      plan.setSize(planSize);
+      // The place of the model in the pixels of the plan at scale 1
+      float originX = plan.convertXPixelToModel(0);
+      float originY = plan.convertYPixelToModel(0);
+      float pixelLength = plan.convertXPixelToModel(1000) / 1000f - originX / 1000f;
+      if (!(pixelLength > 0)) {
+        return null;
+      }
+      float x = area != null ? (area [0] - originX) / pixelLength : 0;
+      float y = area != null ? (area [1] - originY) / pixelLength : 0;
+      float drawnWidth = area != null ? area [2] / pixelLength : planSize.width;
+      float drawnHeight = area != null ? area [3] / pixelLength : planSize.height;
+      if (drawnWidth < 1 || drawnHeight < 1) {
+        return null;
+      }
+      // At most 6 times larger than the plan at its default scale
+      float scale = Math.min(6f, maxSize / Math.max(drawnWidth, drawnHeight));
+      plan.setScale(scale);
+      planSize = plan.getPreferredSize();
+      plan.setSize(planSize);
+      originX = plan.convertXPixelToModel(0);
+      originY = plan.convertYPixelToModel(0);
+      pixelLength = plan.convertXPixelToModel(1000) / 1000f - originX / 1000f;
+      x = area != null ? (area [0] - originX) / pixelLength : 0;
+      y = area != null ? (area [1] - originY) / pixelLength : 0;
+      int width = Math.max(1, Math.min(maxSize, Math.round(area != null ? area [2] / pixelLength : planSize.width)));
+      int height = Math.max(1, Math.min(maxSize, Math.round(area != null ? area [3] / pixelLength : planSize.height)));
+      BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+      Graphics2D g2D = image.createGraphics();
+      g2D.setColor(Color.WHITE);
+      g2D.fillRect(0, 0, width, height);
+      g2D.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+      g2D.translate(-Math.round(x), -Math.round(y));
+      g2D.setClip(Math.round(x), Math.round(y), width, height);
+      plan.paint(g2D);
+      g2D.dispose();
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      ImageIO.write(image, "png", out);
+      return out.toByteArray();
+    } catch (IOException ex) {
+      return null;
+    } catch (RuntimeException ex) {
+      return null;
+    }
+  }
+
+  /**
+   * Returns a PNG image of the icon of a piece of the furniture catalog or of a
+   * texture of the textures catalog, or <code>null</code> if it doesn't exist.
+   */
+  private byte [] createCatalogImage(String name, boolean texture) {
+    Content icon = null;
+    if (texture) {
+      for (TexturesCategory category : this.preferences.getTexturesCatalog().getCategories()) {
+        for (CatalogTexture catalogTexture : category.getTextures()) {
+          if (icon == null && name.equalsIgnoreCase(catalogTexture.getName())) {
+            icon = catalogTexture.getImage();
+          }
+        }
+      }
+    } else {
+      for (FurnitureCategory category : this.preferences.getFurnitureCatalog().getCategories()) {
+        for (CatalogPieceOfFurniture piece : category.getFurniture()) {
+          if (icon == null && name.equalsIgnoreCase(piece.getName())) {
+            icon = piece.getIcon();
+          }
+        }
+      }
+    }
+    if (icon == null) {
+      return null;
+    }
+    try {
+      InputStream in = icon.openStream();
+      BufferedImage image;
+      try {
+        image = ImageIO.read(in);
+      } finally {
+        in.close();
+      }
+      if (image == null) {
+        return null;
+      }
+      // Small enough to send a few of them
+      int maxSize = 256;
+      float scale = Math.min(1f, (float)maxSize / Math.max(image.getWidth(), image.getHeight()));
+      int width = Math.max(1, Math.round(image.getWidth() * scale));
+      int height = Math.max(1, Math.round(image.getHeight() * scale));
+      BufferedImage scaledImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+      Graphics2D g2D = scaledImage.createGraphics();
+      g2D.setColor(Color.WHITE);
+      g2D.fillRect(0, 0, width, height);
+      g2D.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+      g2D.drawImage(image, 0, 0, width, height, null);
+      g2D.dispose();
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      ImageIO.write(scaledImage, "png", out);
+      return out.toByteArray();
+    } catch (IOException ex) {
+      return null;
+    } catch (RuntimeException ex) {
+      return null;
+    }
+  }
+
+  /**
+   * Returns the renderers which create the 3D images of the MCP server.
+   */
+  private String describe3DRenderers() {
+    if (Boolean.getBoolean("com.eteks.sweethome3d.no3D")) {
+      return "Renderers: no 3D picture is available here.";
+    }
+    boolean openGLSelected = HomeComponent3D.isOpenGLRendererSelected();
+    return "Renderers of get_3d_image:\n"
+        + "- opengl: drawn by the graphics card with 8 samples per pixel, in a few seconds (more for the first picture "
+        + "of a home, while its models are sent to the graphics card). Options \"shadows\" and \"ambient_occlusion\" (both true by default). "
+        + "The light sources of lamps light their room; no reflection.\n"
+        + "- raytrace: computed by the processor, \"quality\":\"low\" in seconds for a small home and minutes for a large one, "
+        + "\"high\" much longer, with soft shadows, reflections and the light of the lamps.\n"
+        + "- auto (default): " + (openGLSelected
+            ? "opengl now, because the 3D view of the user uses the OpenGL renderer"
+            : "raytrace now, because the 3D view of the user uses Java 3D (ask for \"renderer\":\"opengl\" to try OpenGL)")
+        + ". If OpenGL can't draw, the ray tracer is used and the answer says so.\n"
+        + "For a final render of the best quality, export_blender prepares a Blender scene.";
+  }
+
+  /**
+   * Returns an image of the home in 3D as <code>request</code> describes it, or
+   * <code>null</code> if it can't be rendered. The home is drawn by the OpenGL
+   * renderer or by the photo renderer. Called in the event dispatch thread,
+   * it keeps the application responsive while the image is computed.
+   */
+  private HomeMCPHandler.Image3D create3DImage(final HomeMCPHandler.Image3DRequest request) {
     if (Boolean.getBoolean("com.eteks.sweethome3d.no3D")) {
       return null;
     }
     final Home renderedHome;
     try {
       renderedHome = this.home.clone();
-      // Every level, as the roof and upper floors are part of the picture
-      renderedHome.getEnvironment().setAllLevelsVisible(true);
+      List<Level> levels = renderedHome.getLevels();
+      if (request.getLevel() != null) {
+        int levelIndex = this.home.getLevels().indexOf(request.getLevel());
+        if (levelIndex >= 0 && levelIndex < levels.size()) {
+          renderedHome.setSelectedLevel(levels.get(levelIndex));
+        }
+      }
+      // Every level, as the roof and upper floors are part of the picture,
+      // or the selected level and the ones under it
+      renderedHome.getEnvironment().setAllLevelsVisible(request.isAllLevels());
+      boolean visible = true;
+      for (Level level : levels) {
+        level.setVisible(visible);
+        if (level == renderedHome.getSelectedLevel() && !request.isAllLevels()) {
+          visible = false;
+        }
+      }
+      List<Selectable> emptySelection = Collections.emptyList();
+      renderedHome.setSelectedItems(emptySelection);
+      if (request.getPose() != null) {
+        request.getPose().applyTo(renderedHome);
+      }
     } catch (RuntimeException ex) {
       return null;
     }
-    final byte [][] result = new byte [1][];
+    final boolean openGL = HomeMCPHandler.Image3DRequest.OPENGL.equals(request.getRenderer())
+        || HomeMCPHandler.Image3DRequest.AUTO.equals(request.getRenderer())
+           && HomeComponent3D.isOpenGLRendererSelected();
+    final HomeMCPHandler.Image3D [] result = new HomeMCPHandler.Image3D [1];
     final SecondaryLoop loop = Toolkit.getDefaultToolkit().getSystemEventQueue().createSecondaryLoop();
     Thread renderer = new Thread("Sweet Home 3D MCP 3D picture") {
         @Override
         public void run() {
           try {
-            BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
-            new PhotoRenderer(renderedHome, PhotoRenderer.Quality.LOW).render(image, renderedHome.getCamera(), null);
+            int width = request.getWidth();
+            int height = request.getHeight();
+            BufferedImage image = null;
+            String description = null;
+            if (openGL) {
+              image = HomeComponent3D.createOpenGLImage(renderedHome, preferences, width, height,
+                  request.isShadows(), request.isAmbientOcclusion());
+              if (image != null) {
+                description = "Drawn by the OpenGL renderer (antialiasing"
+                    + (request.isShadows() ? ", shadows" : "")
+                    + (request.isAmbientOcclusion() ? ", ambient occlusion" : "") + ")";
+              }
+            }
+            if (image == null) {
+              image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+              new PhotoRenderer(renderedHome, request.isHighQuality()
+                      ? PhotoRenderer.Quality.HIGH
+                      : PhotoRenderer.Quality.LOW).render(image, renderedHome.getCamera(), null);
+              description = (openGL ? "OpenGL couldn't draw this picture: computed" : "Computed")
+                  + " by the ray tracer (" + (request.isHighQuality() ? "high" : "low") + " quality)";
+            }
+            if (image.getType() != BufferedImage.TYPE_INT_RGB) {
+              // No transparency in the pictures
+              BufferedImage opaqueImage = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_RGB);
+              Graphics2D g2D = opaqueImage.createGraphics();
+              g2D.drawImage(image, 0, 0, null);
+              g2D.dispose();
+              image = opaqueImage;
+            }
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ImageIO.write(image, "png", out);
-            result [0] = out.toByteArray();
+            byte [] preview = null;
+            if (request.getPreviewWidth() > 0 && request.getPreviewWidth() < image.getWidth()) {
+              int previewWidth = request.getPreviewWidth();
+              int previewHeight = Math.max(1, Math.round((float)image.getHeight() * previewWidth / image.getWidth()));
+              BufferedImage previewImage = new BufferedImage(previewWidth, previewHeight, BufferedImage.TYPE_INT_RGB);
+              Graphics2D g2D = previewImage.createGraphics();
+              g2D.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+              g2D.drawImage(image.getScaledInstance(previewWidth, previewHeight, Image.SCALE_AREA_AVERAGING), 0, 0, null);
+              g2D.dispose();
+              ByteArrayOutputStream previewOut = new ByteArrayOutputStream();
+              ImageIO.write(previewImage, "png", previewOut);
+              preview = previewOut.toByteArray();
+            }
+            result [0] = new HomeMCPHandler.Image3D(out.toByteArray(), preview, description);
           } catch (Exception ex) {
             // No picture
           } catch (LinkageError ex) {

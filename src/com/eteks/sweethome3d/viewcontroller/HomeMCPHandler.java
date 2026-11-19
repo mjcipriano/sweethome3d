@@ -19,7 +19,11 @@ import java.util.Map;
 import javax.swing.undo.CannotRedoException;
 import javax.swing.undo.CannotUndoException;
 
+import com.eteks.sweethome3d.model.Camera;
 import com.eteks.sweethome3d.model.Home;
+import com.eteks.sweethome3d.model.Level;
+import com.eteks.sweethome3d.model.ObserverCamera;
+import com.eteks.sweethome3d.model.Selectable;
 import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.viewcontroller.AssistantCommandExecutor.CatalogMatch;
 
@@ -57,16 +61,164 @@ public class HomeMCPHandler {
    */
   public interface ImageProvider {
     /**
-     * Returns a PNG image of the plan of the selected level no larger than
-     * <code>maxSize</code> pixels, or <code>null</code> if it can't be drawn.
+     * Returns a PNG image of the plan no larger than <code>maxSize</code> pixels,
+     * or <code>null</code> if it can't be drawn.
+     * @param level the level to draw, or <code>null</code> for the selected one
+     * @param area  the part of the plan to draw as <code>{x, y, width, height}</code>
+     *              in centimeters, or <code>null</code> for the whole plan
      */
-    byte [] getPlanImage(int maxSize);
+    byte [] getPlanImage(int maxSize, Level level, float [] area);
 
     /**
-     * Returns a PNG image of the home in 3D seen from its current camera, or
-     * <code>null</code> if it can't be rendered.
+     * Returns an image of the home in 3D, or <code>null</code> if it can't be rendered.
      */
-    byte [] get3DImage(int width, int height);
+    Image3D get3DImage(Image3DRequest request);
+
+    /**
+     * Returns a PNG image of the icon of the piece of the furniture catalog, or of the texture,
+     * with the given name, or <code>null</code> if it doesn't exist.
+     */
+    byte [] getCatalogImage(String name, boolean texture);
+
+    /**
+     * Returns a description of the renderers which can create the images of the home.
+     */
+    String get3DInfo();
+  }
+
+  /**
+   * What an image of the home in 3D should show and how it should be rendered.
+   */
+  public static class Image3DRequest {
+    /** The renderer chosen according to the 3D view of the user. */
+    public static final String AUTO = "auto";
+    /** The OpenGL renderer: an image in a few seconds. */
+    public static final String OPENGL = "opengl";
+    /** The ray tracer: slower, with the light of the lamps and reflections. */
+    public static final String RAYTRACE = "raytrace";
+
+    private final int     width;
+    private final int     height;
+    private final String  renderer;
+    private final boolean shadows;
+    private final boolean ambientOcclusion;
+    private final boolean highQuality;
+    private final HomeViewpoints.Pose pose;
+    private final Level   level;
+    private final boolean allLevels;
+    private final int     previewWidth;
+
+    public Image3DRequest(int width, int height, String renderer, boolean shadows, boolean ambientOcclusion,
+                          boolean highQuality, HomeViewpoints.Pose pose, Level level, boolean allLevels,
+                          int previewWidth) {
+      this.width = width;
+      this.height = height;
+      this.renderer = renderer;
+      this.shadows = shadows;
+      this.ambientOcclusion = ambientOcclusion;
+      this.highQuality = highQuality;
+      this.pose = pose;
+      this.level = level;
+      this.allLevels = allLevels;
+      this.previewWidth = previewWidth;
+    }
+
+    public int getWidth() {
+      return this.width;
+    }
+
+    public int getHeight() {
+      return this.height;
+    }
+
+    /**
+     * Returns {@link #AUTO}, {@link #OPENGL} or {@link #RAYTRACE}.
+     */
+    public String getRenderer() {
+      return this.renderer;
+    }
+
+    /**
+     * Returns <code>true</code> if the objects should cast shadows (OpenGL renderer).
+     */
+    public boolean isShadows() {
+      return this.shadows;
+    }
+
+    /**
+     * Returns <code>true</code> if the corners should be darkened (OpenGL renderer).
+     */
+    public boolean isAmbientOcclusion() {
+      return this.ambientOcclusion;
+    }
+
+    /**
+     * Returns <code>true</code> for the best quality of the ray tracer.
+     */
+    public boolean isHighQuality() {
+      return this.highQuality;
+    }
+
+    /**
+     * Returns the point of view, or <code>null</code> for the camera of the home.
+     */
+    public HomeViewpoints.Pose getPose() {
+      return this.pose;
+    }
+
+    /**
+     * Returns the level to select in the image, or <code>null</code> for the selected one.
+     */
+    public Level getLevel() {
+      return this.level;
+    }
+
+    /**
+     * Returns <code>true</code> if all the levels are shown, <code>false</code>
+     * if the levels above the selected one are left out.
+     */
+    public boolean isAllLevels() {
+      return this.allLevels;
+    }
+
+    /**
+     * Returns the width of the smaller copy of the image to return with it, or 0 if none is needed.
+     */
+    public int getPreviewWidth() {
+      return this.previewWidth;
+    }
+  }
+
+  /**
+   * An image of the home in 3D.
+   */
+  public static class Image3D {
+    private final byte [] image;
+    private final byte [] preview;
+    private final String  description;
+
+    /**
+     * @param image       the image in PNG format
+     * @param preview     a smaller copy of the image in PNG format, or <code>null</code>
+     * @param description how the image was rendered
+     */
+    public Image3D(byte [] image, byte [] preview, String description) {
+      this.image = image;
+      this.preview = preview;
+      this.description = description;
+    }
+
+    public byte [] getImage() {
+      return this.image;
+    }
+
+    public byte [] getPreview() {
+      return this.preview;
+    }
+
+    public String getDescription() {
+      return this.description;
+    }
   }
 
   /**
@@ -284,7 +436,12 @@ public class HomeMCPHandler {
         + "Furniture can only be added by its exact catalog name: use search_catalog or "
         + "list_catalog to find one. To extend the house use add_rectangular_room (room and walls "
         + "at once) and auto_roof; check_home reports plan defects and fix_home repairs them; "
-        + "get_plan_image shows the plan and get_3d_image the home in 3D; add_stairs joins two levels (straight, L or U shaped, with handrails); move_to_level moves items to another level; set_background_image displays the picture of a floor plan behind the plan to trace it (look at it with get_plan_image); get_report gives areas and quantities; add_picture, import_furniture and import_texture bring pictures, 3D model files and texture images of this computer into the home; export_blender prepares a high quality render. "
+        + "get_plan_image shows the plan (a level, or a part of it enlarged) and get_3d_image the home in 3D: "
+        + "it takes a \"view\" (top, south, north_east... of the whole home or of a \"target\" room or piece, or inside a room) "
+        + "so you can look at your work from several sides without moving the camera of the user, "
+        + "\"levels\":\"selected\" to see a floor without the roof and the floors above, and renders with OpenGL in a few seconds "
+        + "or with the ray tracer, much slower; get_3d_info tells the camera, the stored points of view and the renderers; "
+        + "get_catalog_image shows the icons of catalog pieces and textures to choose between search results; add_stairs joins two levels (straight, L or U shaped, with handrails); move_to_level moves items to another level; set_background_image displays the picture of a floor plan behind the plan to trace it (look at it with get_plan_image); get_report gives areas and quantities; add_picture, import_furniture and import_texture bring pictures, 3D model files and texture images of this computer into the home; export_blender prepares a high quality render. "
         + "When no catalog piece fits what is asked, make one: create_furniture builds a piece from simple parts "
         + "(boxes, cylinders, cones, spheres, each with its size, place and color), which you should then look at with "
         + "get_3d_image and correct; import_furniture brings a 3D model file you wrote or were given. "
@@ -304,7 +461,8 @@ public class HomeMCPHandler {
   private static boolean isTool(String name) {
     return "get_home".equals(name) || "list_catalog".equals(name) || "search_catalog".equals(name)
         || "search_textures".equals(name) || "check_home".equals(name) || "get_report".equals(name) || "get_plan_image".equals(name)
-        || "get_3d_image".equals(name) || "export_blender".equals(name)
+        || "get_3d_image".equals(name) || "get_3d_info".equals(name) || "get_catalog_image".equals(name)
+        || "export_blender".equals(name)
         || "get_notes".equals(name) || "update_note".equals(name)
         || "apply_commands".equals(name) || "undo".equals(name) || "redo".equals(name);
   }
@@ -370,20 +528,81 @@ public class HomeMCPHandler {
         schema(noteProperties, "id"), false));
     Map<String, Object> imageProperties = new LinkedHashMap<String, Object>();
     imageProperties.put("max_size", property("number", "Largest side of the image in pixels (default 1000, at most 2000)"));
+    imageProperties.put("level", property("string", "Name of the level to draw (default: the selected level)"));
+    Map<String, Object> areaProperty = property("object",
+        "Part of the plan to draw, enlarged, in centimeters: {\"x\":N,\"y\":N,\"width\":N,\"height\":N} "
+        + "(x, y = its top left corner). Default: the whole plan");
+    imageProperties.put("area", areaProperty);
+    imageProperties.put("target", property("string",
+        "Instead of area: the id of a room, a piece or a wall (R1, F3...) to draw with what is around it, "
+        + "or \"building\" for the walls of the home without the garden"));
     tools.add(tool("get_plan_image", "Picture of the plan",
-        "Returns a PNG picture of the 2D plan of the selected level (walls, rooms, furniture, "
+        "Returns a PNG picture of the 2D plan of a level (walls, rooms, furniture, "
         + "dimensions), to see the layout or check the result of an edit. x grows to the right "
-        + "and y downward, as in the commands.",
+        + "and y downward, as in the commands. In a large home, ask for an \"area\" or a \"target\" "
+        + "to read the details.",
         schema(imageProperties), true));
     Map<String, Object> image3DProperties = new LinkedHashMap<String, Object>();
-    image3DProperties.put("width", property("number", "Width of the image in pixels (default 800, at most 1600)"));
-    image3DProperties.put("height", property("number", "Height of the image in pixels (default 500, at most 1200)"));
+    image3DProperties.put("width", property("number", "Width of the image in pixels (default 800, at most 1600, or 4096 with save_to)"));
+    image3DProperties.put("height", property("number", "Height of the image in pixels (default 500, at most 1200, or 4096 with save_to)"));
+    image3DProperties.put("view", enumProperty(
+        "Point of view, used for this picture only (the camera of the user doesn't move). "
+        + "current (default): the camera of the home. top, south, north, east, west, south_east, south_west, "
+        + "north_east, north_west: the whole home, or the target, entirely in sight from that side "
+        + "(south = the bottom of the plan). inside: standing in a corner of the target room, "
+        + "or in front of the target piece of furniture or wall",
+        "current", "top", "south", "north", "east", "west", "south_east", "south_west", "north_east", "north_west", "inside"));
+    image3DProperties.put("target", property("string",
+        "With view: the id of the room, piece of furniture or wall to look at (R1, F3, W2), "
+        + "several ids separated by commas, \"selection\", or \"building\" for the walls of the home "
+        + "without the garden around it. Default: the whole home"));
+    image3DProperties.put("point_of_view", property("string",
+        "Instead of view: the name of a point of view stored in the home (see get_3d_info)"));
+    image3DProperties.put("camera", property("object",
+        "Instead of view: a camera for this picture only, in centimeters: {\"x\":N,\"y\":N,\"height\":N,"
+        + "\"look_at_x\":N,\"look_at_y\":N,\"look_at_height\":N}; heights are above the floor of the level"));
+    image3DProperties.put("fov", property("number", "Field of view in degrees, from 20 to 120 (default: 63 outside, 85 inside)"));
+    image3DProperties.put("levels", enumProperty(
+        "all (default): every level and the roof. selected: the selected level and the ones under it only, "
+        + "to look into a floor from above", "all", "selected"));
+    image3DProperties.put("level", property("string", "Name of the level to select for this picture (with levels selected, camera and inside views)"));
+    image3DProperties.put("renderer", enumProperty(
+        "auto (default): OpenGL if the 3D view of the user uses the OpenGL renderer, otherwise the ray tracer. "
+        + "opengl: drawn by the graphics card in a few seconds, the best choice to check your work. "
+        + "raytrace: much slower (a minute or more in a large home), with reflections",
+        Image3DRequest.AUTO, Image3DRequest.OPENGL, Image3DRequest.RAYTRACE));
+    image3DProperties.put("shadows", property("boolean", "OpenGL renderer: objects cast shadows (default true)"));
+    image3DProperties.put("ambient_occlusion", property("boolean", "OpenGL renderer: corners are darkened (default true)"));
+    image3DProperties.put("quality", enumProperty(
+        "Ray tracer: low (default, seconds) or high (soft shadows and reflections, minutes; at most 1000 x 750 pixels)",
+        "low", "high"));
+    image3DProperties.put("save_to", property("string",
+        "Absolute path of a .png file to write the picture to, at up to 4096 pixels; a smaller copy is returned. "
+        + "Needs the permission to change things"));
+    image3DProperties.put("replace", property("boolean", "true to overwrite the file of save_to if it exists (default false)"));
     tools.add(tool("get_3d_image", "Picture of the home in 3D",
-        "Renders a PNG picture of the home in 3D from its current camera (the virtual visitor, or "
-        + "the aerial view), with all levels and the roof. Move the camera first with the "
-        + "set_camera command to choose the point of view. Rendering takes a few seconds, "
-        + "more for a home with many models.",
+        "Renders a PNG picture of the home in 3D. By default from its current camera with all levels "
+        + "and the roof; \"view\" and \"target\" choose an other point of view for this picture without moving "
+        + "the camera of the user (the set_camera command moves it). Typical uses: {\"view\":\"south_east\"} for "
+        + "the whole home, {\"view\":\"top\",\"levels\":\"selected\"} for a floor seen from above without what is over it, "
+        + "{\"view\":\"inside\",\"target\":\"R1\"} for a room, {\"view\":\"south_east\",\"target\":\"building\"} for the house without its garden, "
+        + "{\"view\":\"inside\",\"target\":\"F3\"} for a piece seen from its room. Walls and ceilings hide what is indoors "
+        + "from the outside views: for a room or a piece indoors use inside, or top with \"levels\":\"selected\". "
+        + "The answer says which renderer drew the picture and from where.",
         schema(image3DProperties), true));
+    tools.add(tool("get_3d_info", "3D view and renderers",
+        "Returns the camera of the home (place, direction, field of view), the points of view stored in the home, "
+        + "the levels, the views get_3d_image accepts, and the renderers available for its pictures with their options.",
+        schema(null), true));
+    Map<String, Object> catalogImageProperties = new LinkedHashMap<String, Object>();
+    Map<String, Object> namesProperty = property("array", "Exact names of catalog pieces (or of textures), at most 8");
+    namesProperty.put("items", property("string", "A name given by search_catalog, list_catalog or search_textures"));
+    catalogImageProperties.put("names", namesProperty);
+    catalogImageProperties.put("textures", property("boolean", "true if the names are textures (default false: furniture, doors and windows)"));
+    tools.add(tool("get_catalog_image", "Pictures of catalog items",
+        "Returns the pictures of pieces of the furniture catalog, or of textures, to see what they look like "
+        + "and choose between the results of search_catalog or search_textures before adding one.",
+        schema(catalogImageProperties, "names"), true));
     Map<String, Object> blenderProperties = new LinkedHashMap<String, Object>();
     blenderProperties.put("folder", property("string", "Absolute path of the folder to write to (created if needed)"));
     tools.add(tool("export_blender", "Export for Blender",
@@ -435,6 +654,12 @@ public class HomeMCPHandler {
     return schema;
   }
 
+  private static Map<String, Object> enumProperty(String description, String... values) {
+    Map<String, Object> property = property("string", description);
+    property.put("enum", new ArrayList<Object>(Arrays.asList(values)));
+    return property;
+  }
+
   private static Map<String, Object> property(String type, String description) {
     Map<String, Object> property = new LinkedHashMap<String, Object>();
     property.put("type", type);
@@ -459,16 +684,11 @@ public class HomeMCPHandler {
     } else if ("search_catalog".equals(name)) {
       return searchCatalog(arguments);
     } else if ("get_3d_image".equals(name)) {
-      ImageProvider provider = this.imageProvider;
-      int width = arguments.get("width") instanceof Number
-          ? Math.max(160, Math.min(1600, ((Number)arguments.get("width")).intValue())) : 800;
-      int height = arguments.get("height") instanceof Number
-          ? Math.max(120, Math.min(1200, ((Number)arguments.get("height")).intValue())) : 500;
-      byte [] image = provider != null ? provider.get3DImage(width, height) : null;
-      if (image == null) {
-        return toolResult("The home can't be rendered in 3D here.", true);
-      }
-      return imageResult(image);
+      return get3DImage(arguments);
+    } else if ("get_3d_info".equals(name)) {
+      return toolResult(get3DInfo(), false);
+    } else if ("get_catalog_image".equals(name)) {
+      return getCatalogImages(arguments);
     } else if ("search_textures".equals(name)) {
       Object query = arguments.get("query");
       if (!(query instanceof String) || ((String)query).trim().length() == 0) {
@@ -484,14 +704,7 @@ public class HomeMCPHandler {
       this.commandExecutor.snapshotDescribedItems();
       return toolResult(HomeReviewNotes.describe(this.home, !Boolean.TRUE.equals(arguments.get("all"))), false);
     } else if ("get_plan_image".equals(name)) {
-      ImageProvider provider = this.imageProvider;
-      int maxSize = arguments.get("max_size") instanceof Number
-          ? Math.max(200, Math.min(2000, ((Number)arguments.get("max_size")).intValue())) : 1000;
-      byte [] image = provider != null ? provider.getPlanImage(maxSize) : null;
-      if (image == null) {
-        return toolResult("No picture of the plan is available (the plan is empty or not displayed).", true);
-      }
-      return imageResult(image);
+      return getPlanImage(arguments);
     } else if (!isEditingAllowed()) {
       return toolResult("Editing is disabled: the user didn't allow changes to this home. "
           + "Ask them to enable it in Sweet Home 3D (Help > Claude MCP server).", true);
@@ -539,6 +752,408 @@ public class HomeMCPHandler {
         return toolResult("Nothing to redo.", true);
       }
     }
+  }
+
+  private static double number(Map<String, Object> arguments, String name, double defaultValue) {
+    Object value = arguments.get(name);
+    if (value instanceof Number) {
+      double number = ((Number)value).doubleValue();
+      return Double.isNaN(number) || Double.isInfinite(number) ? defaultValue : number;
+    } else if (value instanceof String) {
+      try {
+        return Double.parseDouble(((String)value).trim());
+      } catch (NumberFormatException ex) {
+        return defaultValue;
+      }
+    }
+    return defaultValue;
+  }
+
+  private static String string(Map<String, Object> arguments, String name) {
+    Object value = arguments.get(name);
+    return value instanceof String && ((String)value).trim().length() > 0
+        ? ((String)value).trim()
+        : null;
+  }
+
+  private static boolean bool(Map<String, Object> arguments, String name, boolean defaultValue) {
+    Object value = arguments.get(name);
+    if (value instanceof Boolean) {
+      return ((Boolean)value).booleanValue();
+    } else if (value instanceof String) {
+      return "true".equalsIgnoreCase(((String)value).trim());
+    }
+    return defaultValue;
+  }
+
+  /**
+   * Returns the level of the home with the given name, or <code>null</code>.
+   */
+  private Level findLevel(String name) {
+    for (Level level : this.home.getLevels()) {
+      if (name.equalsIgnoreCase(level.getName())) {
+        return level;
+      }
+    }
+    return null;
+  }
+
+  private String getLevelNames() {
+    StringBuilder names = new StringBuilder();
+    for (Level level : this.home.getLevels()) {
+      names.append(names.length() > 0 ? ", " : "").append('"').append(level.getName()).append('"');
+    }
+    return names.length() > 0 ? names.toString() : "none, this home has a single floor";
+  }
+
+  /**
+   * Returns the items designated by a <code>target</code> argument: ids separated by commas or "selection".
+   */
+  private List<Selectable> resolveTarget(String target) {
+    if ("building".equalsIgnoreCase(target) || "walls".equalsIgnoreCase(target)) {
+      // The walls of the home, without the garden around it
+      return new ArrayList<Selectable>(this.home.getWalls());
+    }
+    Map<String, Object> fields = new LinkedHashMap<String, Object>();
+    List<Object> ids = new ArrayList<Object>();
+    for (String id : target.split("[,;\\s]+")) {
+      if (id.length() > 0) {
+        ids.add(id);
+      }
+    }
+    fields.put("ids", ids);
+    return this.commandExecutor.resolveTargets(new AssistantCommand("target", fields));
+  }
+
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> getPlanImage(Map<String, Object> arguments) {
+    ImageProvider provider = this.imageProvider;
+    int maxSize = (int)Math.max(200, Math.min(2000, number(arguments, "max_size", 1000)));
+    Level level = null;
+    String levelName = string(arguments, "level");
+    if (levelName != null) {
+      level = findLevel(levelName);
+      if (level == null) {
+        return toolResult("No level is named \"" + levelName + "\". Levels: " + getLevelNames() + ".", true);
+      }
+    }
+    float [] area = null;
+    String target = string(arguments, "target");
+    if (arguments.get("area") instanceof Map) {
+      Map<String, Object> areaArguments = (Map<String, Object>)arguments.get("area");
+      double width = number(areaArguments, "width", 0);
+      double height = number(areaArguments, "height", 0);
+      double x = number(areaArguments, "x", Double.NaN);
+      double y = number(areaArguments, "y", Double.NaN);
+      if (width < 10 || height < 10 || Double.isNaN(x) || Double.isNaN(y)
+          || Math.abs(x) > 1E6 || Math.abs(y) > 1E6 || width > 1E6 || height > 1E6) {
+        return toolResult("\"area\" needs x, y, width and height in centimeters, width and height of 10 at least.", true);
+      }
+      area = new float [] {(float)x, (float)y, (float)width, (float)height};
+    } else if (target != null) {
+      List<Selectable> targets = resolveTarget(target);
+      float [] bounds = targets.isEmpty() ? null : HomeViewpoints.getBounds(this.home, targets, null);
+      if (bounds == null) {
+        return toolResult("No item matches the target \"" + target + "\" (ids are the ones of the last get_home).", true);
+      }
+      // The items with a margin around them
+      float margin = Math.max(100, Math.max(bounds [3] - bounds [0], bounds [4] - bounds [1]) * 0.15f);
+      area = new float [] {bounds [0] - margin, bounds [1] - margin,
+          bounds [3] - bounds [0] + 2 * margin, bounds [4] - bounds [1] + 2 * margin};
+      if (level == null) {
+        level = getLevel(targets.get(0));
+      }
+    }
+    byte [] image = provider != null ? provider.getPlanImage(maxSize, level, area) : null;
+    if (image == null) {
+      return toolResult("No picture of the plan is available (the plan is empty or not displayed).", true);
+    }
+    Map<String, Object> result = imageResult(image);
+    if (area != null) {
+      ((List<Object>)result.get("content")).add(textContent("Plan from x " + Math.round(area [0]) + ", y " + Math.round(area [1])
+          + " (top left) to x " + Math.round(area [0] + area [2]) + ", y " + Math.round(area [1] + area [3]) + " cm"
+          + (level != null ? ", level \"" + level.getName() + "\"" : "") + "."));
+    }
+    return result;
+  }
+
+  private static Level getLevel(Selectable item) {
+    if (item instanceof com.eteks.sweethome3d.model.Elevatable) {
+      return ((com.eteks.sweethome3d.model.Elevatable)item).getLevel();
+    }
+    return null;
+  }
+
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> get3DImage(Map<String, Object> arguments) {
+    ImageProvider provider = this.imageProvider;
+    if (provider == null) {
+      return toolResult("The home can't be rendered in 3D here.", true);
+    }
+    String saveTo = string(arguments, "save_to");
+    java.io.File savedFile = null;
+    if (saveTo != null) {
+      savedFile = new java.io.File(saveTo);
+      if (!isEditingAllowed()) {
+        return toolResult("Saving a picture needs the permission to change things: the user didn't allow changes "
+            + "to this home (Help > Claude MCP server). Call get_3d_image without save_to.", true);
+      } else if (!savedFile.isAbsolute() || !saveTo.toLowerCase().endsWith(".png")) {
+        return toolResult("\"save_to\" must be the absolute path of a .png file.", true);
+      } else if (savedFile.exists() && !bool(arguments, "replace", false)) {
+        return toolResult("The file " + saveTo + " exists: pass \"replace\":true to overwrite it, or an other name.", true);
+      } else if (savedFile.getParentFile() == null || !savedFile.getParentFile().isDirectory()) {
+        return toolResult("The folder of " + saveTo + " doesn't exist.", true);
+      }
+    }
+    int maxWidth = savedFile != null ? 4096 : 1600;
+    int maxHeight = savedFile != null ? 4096 : 1200;
+    int width = (int)Math.max(160, Math.min(maxWidth, number(arguments, "width", 800)));
+    int height = (int)Math.max(120, Math.min(maxHeight, number(arguments, "height", 500)));
+
+    String renderer = string(arguments, "renderer");
+    renderer = renderer != null ? renderer.toLowerCase() : Image3DRequest.AUTO;
+    if ("ray_trace".equals(renderer) || "raytracer".equals(renderer) || "photo".equals(renderer)) {
+      renderer = Image3DRequest.RAYTRACE;
+    }
+    if (!Image3DRequest.AUTO.equals(renderer) && !Image3DRequest.OPENGL.equals(renderer)
+        && !Image3DRequest.RAYTRACE.equals(renderer)) {
+      return toolResult("\"renderer\" must be auto, opengl or raytrace.", true);
+    }
+    boolean highQuality = "high".equalsIgnoreCase(string(arguments, "quality"));
+    if (highQuality) {
+      if (Image3DRequest.OPENGL.equals(renderer)) {
+        return toolResult("\"quality\":\"high\" is an option of the ray tracer: pass \"renderer\":\"raytrace\" with it, "
+            + "or leave quality out.", true);
+      }
+      renderer = Image3DRequest.RAYTRACE;
+      // Minutes of computation otherwise
+      if (width > 1000 || height > 750) {
+        float scale = Math.min(1000f / width, 750f / height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+    }
+
+    Level level = null;
+    String levelName = string(arguments, "level");
+    if (levelName != null) {
+      level = findLevel(levelName);
+      if (level == null) {
+        return toolResult("No level is named \"" + levelName + "\". Levels: " + getLevelNames() + ".", true);
+      }
+    }
+    String levels = string(arguments, "levels");
+    if (levels != null && !"all".equalsIgnoreCase(levels) && !"selected".equalsIgnoreCase(levels)) {
+      return toolResult("\"levels\" must be all or selected.", true);
+    }
+    boolean allLevels = !"selected".equalsIgnoreCase(levels);
+    Level selectedLevel = level != null ? level : this.home.getSelectedLevel();
+    Level displayedLevel = allLevels ? null : selectedLevel;
+
+    double fieldOfViewDegrees = number(arguments, "fov", 0);
+    if (fieldOfViewDegrees != 0 && (fieldOfViewDegrees < 20 || fieldOfViewDegrees > 120)) {
+      return toolResult("\"fov\" must be between 20 and 120 degrees.", true);
+    }
+    float fieldOfView = (float)Math.toRadians(fieldOfViewDegrees);
+    String view = string(arguments, "view");
+    String pointOfView = string(arguments, "point_of_view");
+    String target = string(arguments, "target");
+    HomeViewpoints.Pose pose = null;
+    String viewDescription;
+    if (arguments.get("camera") instanceof Map) {
+      Map<String, Object> camera = (Map<String, Object>)arguments.get("camera");
+      double x = number(camera, "x", Double.NaN);
+      double y = number(camera, "y", Double.NaN);
+      double lookAtX = number(camera, "look_at_x", Double.NaN);
+      double lookAtY = number(camera, "look_at_y", Double.NaN);
+      double cameraHeight = number(camera, "height", 160);
+      double lookAtHeight = number(camera, "look_at_height", 100);
+      if (Double.isNaN(x) || Double.isNaN(y) || Double.isNaN(lookAtX) || Double.isNaN(lookAtY)
+          || Math.abs(x) > 1E6 || Math.abs(y) > 1E6 || Math.abs(lookAtX) > 1E6 || Math.abs(lookAtY) > 1E6
+          || cameraHeight < 0 || cameraHeight > 1E5 || Math.abs(lookAtHeight) > 1E5) {
+        return toolResult("\"camera\" needs x, y, look_at_x and look_at_y in centimeters "
+            + "(and optionally height and look_at_height above the floor).", true);
+      }
+      float elevation = selectedLevel != null ? selectedLevel.getElevation() : 0;
+      pose = HomeViewpoints.lookAt((float)x, (float)y, (float)(elevation + Math.max(1, cameraHeight)),
+          (float)lookAtX, (float)lookAtY, (float)(elevation + lookAtHeight),
+          fieldOfView > 0 ? fieldOfView : (float)Math.toRadians(63), cameraHeight > 400);
+      viewDescription = pose.describe();
+    } else if (pointOfView != null) {
+      Camera storedCamera = null;
+      StringBuilder names = new StringBuilder();
+      for (Camera camera : this.home.getStoredCameras()) {
+        names.append(names.length() > 0 ? ", " : "").append('"').append(camera.getName()).append('"');
+        if (pointOfView.equalsIgnoreCase(camera.getName())) {
+          storedCamera = camera;
+        }
+      }
+      if (storedCamera == null) {
+        return toolResult("No stored point of view is named \"" + pointOfView + "\". Stored: "
+            + (names.length() > 0 ? names.toString() : "none") + ".", true);
+      }
+      pose = new HomeViewpoints.Pose(storedCamera.getX(), storedCamera.getY(), storedCamera.getZ(),
+          storedCamera.getYaw(), storedCamera.getPitch(),
+          fieldOfView > 0 ? fieldOfView : storedCamera.getFieldOfView(), !(storedCamera instanceof ObserverCamera));
+      viewDescription = "point of view \"" + storedCamera.getName() + "\", " + pose.describe();
+    } else if (view != null && !"current".equalsIgnoreCase(view)) {
+      if (!HomeViewpoints.isView(view)) {
+        return toolResult("Unknown view \"" + view + "\". Views: current, " + HomeViewpoints.AERIAL_VIEWS.toString()
+            .replace("[", "").replace("]", "") + ", " + HomeViewpoints.INSIDE_VIEW + ".", true);
+      }
+      List<Selectable> targets = new ArrayList<Selectable>();
+      if (target != null) {
+        targets = resolveTarget(target);
+        if (targets.isEmpty()) {
+          return toolResult("No item matches the target \"" + target + "\" (ids are the ones of the last get_home).", true);
+        }
+      }
+      try {
+        pose = HomeViewpoints.getPose(this.home, view, targets, displayedLevel, (float)width / height, fieldOfView);
+      } catch (IllegalArgumentException ex) {
+        return toolResult(ex.getMessage() + ".", true);
+      }
+      if (level == null && !targets.isEmpty() && !pose.isAerial() && getLevel(targets.get(0)) != null) {
+        // Inside a room: its level is the one to show
+        level = getLevel(targets.get(0));
+      }
+      viewDescription = "view " + view.toLowerCase() + (target != null ? " of " + target : "") + ", " + pose.describe();
+    } else {
+      if (target != null) {
+        return toolResult("\"target\" needs a \"view\" (top, south_east, inside...) to look at it.", true);
+      }
+      Camera camera = this.home.getCamera();
+      if (fieldOfView > 0) {
+        pose = new HomeViewpoints.Pose(camera.getX(), camera.getY(), camera.getZ(), camera.getYaw(), camera.getPitch(),
+            fieldOfView, camera == this.home.getTopCamera());
+      }
+      viewDescription = "camera of the home, " + (pose != null ? pose.describe() : HomeViewpoints.describeCamera(this.home));
+    }
+
+    long start = System.currentTimeMillis();
+    Image3D image = provider.get3DImage(new Image3DRequest(width, height, renderer,
+        bool(arguments, "shadows", true), bool(arguments, "ambient_occlusion", true), highQuality,
+        pose, level, allLevels, savedFile != null && width > 1000 ? 1000 : 0));
+    if (image == null || image.getImage() == null) {
+      return toolResult("The home can't be rendered in 3D here.", true);
+    }
+    String description = (image.getDescription() != null ? image.getDescription() + ", " : "")
+        + width + " x " + height + " pixels, in " + Math.round((System.currentTimeMillis() - start) / 100.) / 10. + " s. "
+        + "Seen from: " + viewDescription + ". "
+        + (allLevels ? "All levels." : "Levels above "
+            + (selectedLevel != null ? "\"" + selectedLevel.getName() + "\"" : "the selected one") + " left out.");
+    if (savedFile != null) {
+      try {
+        java.io.OutputStream out = new java.io.FileOutputStream(savedFile);
+        try {
+          out.write(image.getImage());
+        } finally {
+          out.close();
+        }
+      } catch (java.io.IOException ex) {
+        return toolResult("Couldn't write " + saveTo + ": " + ex.getMessage(), true);
+      }
+      description = "Saved to " + savedFile.getAbsolutePath() + ". " + description;
+    }
+    Map<String, Object> result = imageResult(savedFile != null && image.getPreview() != null
+        ? image.getPreview() : image.getImage());
+    ((List<Object>)result.get("content")).add(textContent(description));
+    return result;
+  }
+
+  private String get3DInfo() {
+    StringBuilder info = new StringBuilder();
+    info.append("Camera of the home: ").append(HomeViewpoints.describeCamera(this.home)).append(".\n");
+    info.append("Coordinates are in centimeters, x to the right and y downward in the plan (south); a yaw of 0 looks toward +y.\n");
+    List<Camera> storedCameras = this.home.getStoredCameras();
+    if (storedCameras.isEmpty()) {
+      info.append("Stored points of view: none (the store_point_of_view command keeps the current camera).\n");
+    } else {
+      info.append("Stored points of view (get_3d_image \"point_of_view\", or the set_camera command):\n");
+      for (Camera camera : storedCameras) {
+        info.append("- \"").append(camera.getName()).append("\": ")
+            .append(camera instanceof ObserverCamera ? "virtual visitor" : "aerial view")
+            .append(" at x ").append(Math.round(camera.getX())).append(", y ").append(Math.round(camera.getY()))
+            .append(", height ").append(Math.round(camera.getZ())).append(" cm\n");
+      }
+    }
+    List<Level> levels = this.home.getLevels();
+    if (levels.isEmpty()) {
+      info.append("Levels: a single floor.\n");
+    } else {
+      info.append("Levels (").append(this.home.getEnvironment().isAllLevelsVisible()
+          ? "the 3D view of the user shows all of them"
+          : "the 3D view of the user shows the selected one and the ones under it").append("):\n");
+      for (Level level : levels) {
+        info.append("- \"").append(level.getName()).append("\", floor at ").append(Math.round(level.getElevation()))
+            .append(" cm, height ").append(Math.round(level.getHeight())).append(" cm")
+            .append(level == this.home.getSelectedLevel() ? ", selected" : "")
+            .append(level.isViewable() ? "" : ", not viewable").append('\n');
+      }
+    }
+    info.append("Views of get_3d_image: current, ").append(HomeViewpoints.AERIAL_VIEWS.toString().replace("[", "").replace("]", ""))
+        .append(" (the whole home or a target entirely in sight), ").append(HomeViewpoints.INSIDE_VIEW)
+        .append(" (in a corner of a target room, in front of a target piece or wall).\n");
+    ImageProvider provider = this.imageProvider;
+    String rendererInfo = provider != null ? provider.get3DInfo() : null;
+    info.append(rendererInfo != null ? rendererInfo : "Renderers: no 3D picture is available here.");
+    return info.toString();
+  }
+
+  private Map<String, Object> getCatalogImages(Map<String, Object> arguments) {
+    ImageProvider provider = this.imageProvider;
+    List<String> names = new ArrayList<String>();
+    if (arguments.get("names") instanceof List) {
+      for (Object name : (List<?>)arguments.get("names")) {
+        if (name instanceof String && ((String)name).trim().length() > 0) {
+          names.add(((String)name).trim());
+        }
+      }
+    } else if (string(arguments, "names") != null) {
+      names.add(string(arguments, "names"));
+    } else if (string(arguments, "name") != null) {
+      names.add(string(arguments, "name"));
+    }
+    if (names.isEmpty()) {
+      return toolResult("The \"names\" argument is required: an array of exact catalog names.", true);
+    }
+    boolean textures = bool(arguments, "textures", false);
+    List<Object> contents = new ArrayList<Object>();
+    List<String> missing = new ArrayList<String>();
+    int count = 0;
+    for (String name : names) {
+      if (count == 8) {
+        contents.add(textContent("Only the 8 first names were shown."));
+        break;
+      }
+      byte [] image = provider != null ? provider.getCatalogImage(name, textures) : null;
+      if (image == null) {
+        missing.add(name);
+      } else {
+        contents.add(textContent((textures ? "Texture \"" : "\"") + name + "\":"));
+        Map<String, Object> content = new LinkedHashMap<String, Object>();
+        content.put("type", "image");
+        content.put("data", java.util.Base64.getEncoder().encodeToString(image));
+        content.put("mimeType", "image/png");
+        contents.add(content);
+        count++;
+      }
+    }
+    if (!missing.isEmpty()) {
+      contents.add(textContent("No picture for " + missing + ": use the exact names given by "
+          + (textures ? "search_textures" : "search_catalog or list_catalog") + "."));
+    }
+    Map<String, Object> result = new LinkedHashMap<String, Object>();
+    result.put("content", contents);
+    result.put("isError", Boolean.valueOf(count == 0));
+    return result;
+  }
+
+  private static Map<String, Object> textContent(String text) {
+    Map<String, Object> content = new LinkedHashMap<String, Object>();
+    content.put("type", "text");
+    content.put("text", text);
+    return content;
   }
 
   private Map<String, Object> searchCatalog(Map<String, Object> arguments) {
