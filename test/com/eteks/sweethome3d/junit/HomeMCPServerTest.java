@@ -33,13 +33,18 @@ import java.util.Map;
 
 import org.junit.Test;
 
+import com.eteks.sweethome3d.model.CatalogTexture;
+import com.eteks.sweethome3d.model.Content;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
+import com.eteks.sweethome3d.model.Level;
 import com.eteks.sweethome3d.model.Room;
+import com.eteks.sweethome3d.model.TexturesCategory;
 import com.eteks.sweethome3d.model.Wall;
 import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.swing.HomeMCPServer;
 import com.eteks.sweethome3d.swing.SwingViewFactory;
+import com.eteks.sweethome3d.tools.URLContent;
 import com.eteks.sweethome3d.viewcontroller.AssistantCommandExecutor;
 import com.eteks.sweethome3d.viewcontroller.HomeController;
 import com.eteks.sweethome3d.viewcontroller.HomeMCPHandler;
@@ -217,7 +222,9 @@ public class HomeMCPServerTest {
           + "{\"action\":\"move\",\"id\":\"F2\",\"dx\":50},"
           + "{\"action\":\"move\",\"id\":\"F1\",\"dx\":70},"
           + "{\"action\":\"add_furniture\",\"name\":\"Desk\",\"x\":200,\"y\":150}]}");
-      assertEquals(text(result), Boolean.FALSE, result.get("isError"));
+      // The other commands are applied, and the id of the deleted sofa is reported as an error
+      assertEquals(text(result), Boolean.TRUE, result.get("isError"));
+      assertTrue(text(result), text(result).contains("No item has the id F1"));
       assertEquals(350f, fixture.sofa2.getX(), 1e-3f);
       assertEquals(100f, fixture.sofa1.getX(), 1e-3f);
       assertEquals(2, fixture.home.getFurniture().size());
@@ -530,6 +537,156 @@ public class HomeMCPServerTest {
    * Tests the review notes of the user: stored with the home, described with
    * the ids of the items they are pinned to, and updated by the client.
    */
+  @Test
+  public void testModifyRoomFiltersAndStaleIds() throws Exception {
+    Fixture fixture = new Fixture();
+    HomeMCPHandler handler = fixture.handler;
+    Room room = fixture.home.getRooms().get(0);
+    room.setName("Bonus Room");
+    Room terrace = new Room(new float [][] {{500, 0}, {900, 0}, {900, 300}, {500, 300}});
+    terrace.setName("Terrace");
+    terrace.setAreaVisible(false);
+    fixture.home.addRoom(terrace);
+    String description = text(callTool(handler, "get_home", "{}"));
+    assertFalse(description, description.contains("ceiling hidden"));
+
+    // Hidden ceiling, reported by the command and by get_home, and undone in one step
+    Map<String, Object> result = callTool(handler, "apply_commands", "{\"commands\":["
+        + "{\"action\":\"modify_room\",\"id\":\"R1\",\"ceiling_visible\":false}]}");
+    assertEquals(text(result), Boolean.FALSE, result.get("isError"));
+    assertTrue(text(result), text(result).contains("modified 1 item"));
+    assertTrue(text(result), text(result).contains("R1 \"Bonus Room\": ceiling hidden, floor visible"));
+    assertFalse(room.isCeilingVisible());
+    assertTrue(room.isFloorVisible());
+    assertTrue(terrace.isCeilingVisible());
+    description = text(callTool(handler, "get_home", "{}"));
+    assertTrue(description, description.matches("(?s).*R1 Bonus Room: 12 m2[^\n]*, ceiling hidden\n.*"));
+    assertEquals(Boolean.FALSE, callTool(handler, "undo", "{}").get("isError"));
+    assertTrue(room.isCeilingVisible());
+    assertEquals(Boolean.FALSE, callTool(handler, "redo", "{}").get("isError"));
+    assertFalse(room.isCeilingVisible());
+
+    // By name, several fields at once, the omitted ones unchanged
+    result = callTool(handler, "apply_commands", "{\"commands\":["
+        + "{\"action\":\"modify_room\",\"room\":\"terrace\",\"ceiling_visible\":false,\"floor_visible\":false,"
+        + "\"area_visible\":true,\"name\":\"Patio\",\"points\":[[500,0],[1000,0],[1000,300],[500,300]]}]}");
+    assertEquals(text(result), Boolean.FALSE, result.get("isError"));
+    assertFalse(terrace.isCeilingVisible());
+    assertFalse(terrace.isFloorVisible());
+    assertTrue(terrace.isAreaVisible());
+    assertEquals("Patio", terrace.getName());
+    assertEquals(1000f, terrace.getPoints() [1][0], 1e-3f);
+    assertFalse(room.isCeilingVisible());
+    assertEquals("Bonus Room", room.getName());
+    assertTrue(text(callTool(handler, "get_home", "{}")).contains(", ceiling hidden, floor hidden"));
+    callTool(handler, "undo", "{}");
+    assertTrue(terrace.isCeilingVisible());
+    assertTrue(terrace.isFloorVisible());
+    assertFalse(terrace.isAreaVisible());
+    assertEquals("Terrace", terrace.getName());
+    assertEquals(900f, terrace.getPoints() [1][0], 1e-3f);
+
+    // Wrong requests change nothing and say why
+    result = callTool(handler, "apply_commands", "{\"commands\":["
+        + "{\"action\":\"modify_room\",\"ids\":[\"R1\",\"R2\"],\"points\":[[0,0],[1,0],[1,1]]},"
+        + "{\"action\":\"modify_room\",\"id\":\"R1\"},"
+        + "{\"action\":\"modify_room\",\"room\":\"Kitchen\",\"ceiling_visible\":false},"
+        + "{\"action\":\"modify_room\",\"id\":\"R1\",\"points\":[[0,0],[1,0]]}]}");
+    assertTrue(text(result), text(result).contains("reshapes one room"));
+    assertTrue(text(result), text(result).contains("give at least one of"));
+    assertTrue(text(result), text(result).contains("no room has that id or name"));
+    assertTrue(text(result), text(result).contains("at least 3 points"));
+    assertEquals(4, room.getPoints().length);
+    assertEquals(400f, room.getPoints() [1][0], 1e-3f);
+
+    // An id whose room was deleted is an error, not a change
+    callTool(handler, "get_home", "{}");
+    fixture.home.deleteRoom(terrace);
+    result = callTool(handler, "apply_commands", "{\"commands\":["
+        + "{\"action\":\"modify_room\",\"id\":\"R2\",\"ceiling_visible\":false}]}");
+    assertEquals(text(result), Boolean.TRUE, result.get("isError"));
+    assertTrue(text(result), text(result).contains("No item has the id R2"));
+    assertFalse(text(result), text(result).contains("modified"));
+    result = callTool(handler, "apply_commands", "{\"commands\":["
+        + "{\"action\":\"set_color\",\"ids\":[\"R1\",\"R2\",\"R7\"],\"color\":\"#FF0000\"}]}");
+    assertEquals(text(result), Boolean.TRUE, result.get("isError"));
+    assertTrue(text(result), text(result).contains("modified 1 item"));
+    assertTrue(text(result), text(result).contains("No item has the id R2, R7"));
+    assertEquals(Integer.valueOf(0xFF0000), room.getFloorColor());
+
+    // Filters of get_home keep the ids of the complete description
+    Level ground = new Level("Ground", 0, 12, 250);
+    Level attic = new Level("Attic", 262, 12, 250);
+    fixture.home.addLevel(ground);
+    fixture.home.addLevel(attic);
+    room.setLevel(ground);
+    fixture.sofa1.setLevel(ground);
+    fixture.sofa2.setLevel(attic);
+    fixture.sofa2.setName("Attic sofa");
+    Wall wall = new Wall(0, 0, 400, 0, 10, 250);
+    wall.setLevel(attic);
+    fixture.home.addWall(wall);
+    description = text(callTool(handler, "get_home", "{\"level\":\"attic\"}"));
+    assertTrue(description, description.contains("F2 \"Attic sofa\"") && description.contains("W1 "));
+    assertFalse(description, description.contains("F1 ") || description.contains("R1 "));
+    assertTrue(description, description.contains("Only the items matching the filter"));
+    description = text(callTool(handler, "get_home", "{\"type\":\"rooms\"}"));
+    assertTrue(description, description.contains("R1 Bonus Room"));
+    assertFalse(description, description.contains("F1 ") || description.contains("W1 "));
+    description = text(callTool(handler, "get_home", "{\"type\":\"furniture, walls\",\"name\":\"ATTIC\"}"));
+    assertTrue(description, description.contains("F2 \"Attic sofa\""));
+    assertFalse(description, description.contains("F1 ") || description.contains("W1 ") || description.contains("R1 "));
+    assertEquals(Boolean.TRUE, callTool(handler, "get_home", "{\"level\":\"Cellar\"}").get("isError"));
+    assertEquals(Boolean.TRUE, callTool(handler, "get_home", "{\"type\":\"lamps\"}").get("isError"));
+    // The ids of a filtered description are the ones commands take
+    result = callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"move\",\"id\":\"F2\",\"dx\":10}]}");
+    assertEquals(text(result), Boolean.FALSE, result.get("isError"));
+    assertEquals(310f, fixture.sofa2.getX(), 1e-3f);
+
+    // A piece tilted on a slope is set upright again, and undo tilts it back
+    fixture.sofa2.setPitch((float)Math.toRadians(20));
+    assertTrue(text(callTool(handler, "get_home", "{}")).contains("pitch 20 deg"));
+    result = callTool(handler, "apply_commands", "{\"commands\":["
+        + "{\"action\":\"rotate\",\"id\":\"F2\",\"pitch\":0,\"roll\":0}]}");
+    assertEquals(text(result), Boolean.FALSE, result.get("isError"));
+    assertEquals(0f, fixture.sofa2.getPitch(), 1e-6f);
+    callTool(handler, "undo", "{}");
+    assertEquals(Math.toRadians(20), fixture.sofa2.getPitch(), 1e-5);
+    result = callTool(handler, "apply_commands", "{\"commands\":["
+        + "{\"action\":\"rotate\",\"id\":\"F2\",\"roll\":15,\"angle\":90}]}");
+    assertEquals(Math.toRadians(15), fixture.sofa2.getRoll(), 1e-5);
+    assertEquals(0f, fixture.sofa2.getPitch(), 1e-6f);
+    assertEquals(Math.toRadians(90), fixture.sofa2.getAngle(), 1e-5);
+
+    // Textures with the same name are chosen by category or catalog id, and the reply names the one applied
+    Content image = new URLContent(new java.io.File("dummy.png").toURI().toURL());
+    TexturesCategory nature = new TexturesCategory("Nature");
+    TexturesCategory sport = new TexturesCategory("Sport");
+    fixture.preferences.getTexturesCatalog().add(nature, new CatalogTexture("lawn#1", "Zzmoss", image, 100, 100, null));
+    fixture.preferences.getTexturesCatalog().add(sport, new CatalogTexture("pitch#2", "Zzmoss", image, 200, 200, null));
+    result = callTool(handler, "apply_commands", "{\"commands\":["
+        + "{\"action\":\"set_texture\",\"id\":\"R1\",\"texture\":\"Zzmoss\"}]}");
+    assertTrue(text(result), text(result).contains("Applied the texture \"Zzmoss\" (Nature) to 1 item"));
+    assertTrue(text(result), text(result).contains("2 textures are named \"Zzmoss\"")
+        && text(result).contains("(Sport)"));
+    assertEquals(100f, room.getFloorTexture().getWidth(), 1e-3f);
+    result = callTool(handler, "apply_commands", "{\"commands\":["
+        + "{\"action\":\"set_texture\",\"id\":\"R1\",\"texture\":\"Zzmoss\",\"category\":\"sport\"}]}");
+    assertTrue(text(result), text(result).contains("Applied the texture \"Zzmoss\" (Sport) to 1 item"));
+    assertFalse(text(result), text(result).contains("textures are named"));
+    assertEquals(200f, room.getFloorTexture().getWidth(), 1e-3f);
+    result = callTool(handler, "apply_commands", "{\"commands\":["
+        + "{\"action\":\"set_texture\",\"id\":\"R1\",\"catalog_id\":\"lawn#1\",\"part\":\"ceiling\"}]}");
+    assertTrue(text(result), text(result).contains("Applied the texture \"Zzmoss\" (Nature)"));
+    assertEquals(100f, room.getCeilingTexture().getWidth(), 1e-3f);
+    result = callTool(handler, "apply_commands", "{\"commands\":["
+        + "{\"action\":\"set_texture\",\"id\":\"R1\",\"texture\":\"Zzmoss\",\"category\":\"Kitchen\"},"
+        + "{\"action\":\"set_texture\",\"id\":\"R1\",\"catalog_id\":\"none\"}]}");
+    assertTrue(text(result), text(result).contains("no texture \"Zzmoss\" in the category \"Kitchen\""));
+    assertTrue(text(result), text(result).contains("no texture has the catalog id \"none\""));
+    assertEquals(200f, room.getFloorTexture().getWidth(), 1e-3f);
+  }
+
   @Test
   public void testReviewNotes() throws Exception {
     Fixture fixture = new Fixture();

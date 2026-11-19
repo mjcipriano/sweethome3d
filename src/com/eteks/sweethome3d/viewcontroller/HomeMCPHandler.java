@@ -90,7 +90,7 @@ public class HomeMCPHandler {
    * What an image of the home in 3D should show and how it should be rendered.
    */
   public static class Image3DRequest {
-    /** The renderer chosen according to the 3D view of the user. */
+    /** OpenGL when it can draw the image, otherwise the ray tracer. */
     public static final String AUTO = "auto";
     /** The OpenGL renderer: an image in a few seconds. */
     public static final String OPENGL = "opengl";
@@ -107,10 +107,18 @@ public class HomeMCPHandler {
     private final Level   level;
     private final boolean allLevels;
     private final int     previewWidth;
+    private final int     timeout;
 
     public Image3DRequest(int width, int height, String renderer, boolean shadows, boolean ambientOcclusion,
                           boolean highQuality, HomeViewpoints.Pose pose, Level level, boolean allLevels,
                           int previewWidth) {
+      this(width, height, renderer, shadows, ambientOcclusion, highQuality, pose, level, allLevels, previewWidth, 0);
+    }
+
+    public Image3DRequest(int width, int height, String renderer, boolean shadows, boolean ambientOcclusion,
+                          boolean highQuality, HomeViewpoints.Pose pose, Level level, boolean allLevels,
+                          int previewWidth, int timeout) {
+      this.timeout = timeout;
       this.width = width;
       this.height = height;
       this.renderer = renderer;
@@ -186,6 +194,13 @@ public class HomeMCPHandler {
      */
     public int getPreviewWidth() {
       return this.previewWidth;
+    }
+
+    /**
+     * Returns the count of seconds after which the ray tracer should give up, or 0 for no limit.
+     */
+    public int getTimeout() {
+      return this.timeout;
     }
   }
 
@@ -432,10 +447,12 @@ public class HomeMCPHandler {
         "Tools to read and edit the home open in Sweet Home 3D, an interior design application. "
         + "Call get_home first: it describes the levels, rooms, walls and furniture with the ids "
         + "(F# furniture, W# walls, R# rooms) used by apply_commands. Ids stay bound to the items "
-        + "of the last get_home call, so call it again to get ids for items you added. "
+        + "of the last get_home call, so call it again to get ids for items you added; an id whose item was deleted "
+        + "is reported as an error. In a large home get_home takes the filters level, type and name. "
         + "Furniture can only be added by its exact catalog name: use search_catalog or "
         + "list_catalog to find one. To extend the house use add_rectangular_room (room and walls "
-        + "at once) and auto_roof; check_home reports plan defects and fix_home repairs them; "
+        + "at once) and auto_roof; modify_room renames or reshapes a room and hides its ceiling or its floor "
+        + "(a ceiling under a sloped roof or over a terrace shows as a flat slab otherwise); check_home reports plan defects and fix_home repairs them; "
         + "get_plan_image shows the plan (a level, or a part of it enlarged) and get_3d_image the home in 3D: "
         + "it takes a \"view\" (top, south, north_east... of the whole home or of a \"target\" room or piece, or inside a room) "
         + "so you can look at your work from several sides without moving the camera of the user, "
@@ -472,12 +489,21 @@ public class HomeMCPHandler {
    */
   private static List<Object> getTools() {
     List<Object> tools = new ArrayList<Object>();
+    Map<String, Object> homeProperties = new LinkedHashMap<String, Object>();
+    homeProperties.put("level", property("string", "Only the items of the level with this name"));
+    homeProperties.put("type", property("string",
+        "Only these items: rooms, walls, furniture (with doors and windows) or doors_and_windows; several separated by commas"));
+    homeProperties.put("name", property("string",
+        "Only the rooms and the furniture whose name contains this text, whatever the case"));
     tools.add(tool("get_home", "Describe home",
         "Returns a text description of the home open in Sweet Home 3D: levels, rooms with their "
         + "areas, walls, furniture with positions and sizes, and the current selection. Each "
         + "item has an id (F# furniture, W# walls, R# rooms) to use with apply_commands. "
-        + "Lengths in the description are in meters; command coordinates are in centimeters.",
-        schema(null), true));
+        + "Lengths in the description are in meters; command coordinates are in centimeters. "
+        + "A room whose ceiling or floor isn't drawn is marked \"ceiling hidden\" or \"floor hidden\". "
+        + "In a large home, the optional filters return a part of it with the same ids: without filter, "
+        + "only the first 80 pieces of furniture are listed.",
+        schema(homeProperties), true));
     tools.add(tool("list_catalog", "List furniture catalog",
         "Lists the categories and item names of the furniture catalog. Only these names can be "
         + "added to the home.",
@@ -567,7 +593,7 @@ public class HomeMCPHandler {
         + "to look into a floor from above", "all", "selected"));
     image3DProperties.put("level", property("string", "Name of the level to select for this picture (with levels selected, camera and inside views)"));
     image3DProperties.put("renderer", enumProperty(
-        "auto (default): OpenGL if the 3D view of the user uses the OpenGL renderer, otherwise the ray tracer. "
+        "auto (default): OpenGL when the graphics card can draw the picture, otherwise the ray tracer. "
         + "opengl: drawn by the graphics card in a few seconds, the best choice to check your work. "
         + "raytrace: much slower (a minute or more in a large home), with reflections",
         Image3DRequest.AUTO, Image3DRequest.OPENGL, Image3DRequest.RAYTRACE));
@@ -576,6 +602,8 @@ public class HomeMCPHandler {
     image3DProperties.put("quality", enumProperty(
         "Ray tracer: low (default, seconds) or high (soft shadows and reflections, minutes; at most 1000 x 750 pixels)",
         "low", "high"));
+    image3DProperties.put("timeout", property("number",
+        "Ray tracer: seconds after which it gives up and an error is returned (default: no limit, at most 3600)"));
     image3DProperties.put("save_to", property("string",
         "Absolute path of a .png file to write the picture to, at up to 4096 pixels; a smaller copy is returned. "
         + "Needs the permission to change things"));
@@ -672,7 +700,33 @@ public class HomeMCPHandler {
    */
   private Map<String, Object> callTool(String name, Map<String, Object> arguments) {
     if ("get_home".equals(name)) {
-      String description = HomeAssistantContext.describeHome(this.home);
+      String levelName = string(arguments, "level");
+      if (levelName != null && findLevel(levelName) == null) {
+        return toolResult("No level is named \"" + levelName + "\". Levels: " + getLevelNames() + ".", true);
+      }
+      List<String> types = new ArrayList<String>();
+      Object typeValue = arguments.get("type");
+      if (typeValue instanceof List) {
+        for (Object type : (List<?>)typeValue) {
+          types.add(String.valueOf(type));
+        }
+      } else if (typeValue instanceof String) {
+        types.addAll(Arrays.asList(((String)typeValue).split("[,\\s]+")));
+      }
+      for (int i = types.size() - 1; i >= 0; i--) {
+        String type = types.get(i).trim().toLowerCase();
+        type = "room".equals(type) ? "rooms" : "wall".equals(type) ? "walls"
+            : "doors".equals(type) || "windows".equals(type) || "doors_windows".equals(type) ? "doors_and_windows" : type;
+        if (type.length() == 0) {
+          types.remove(i);
+        } else if (!"rooms".equals(type) && !"walls".equals(type) && !"furniture".equals(type)
+                   && !"doors_and_windows".equals(type)) {
+          return toolResult("\"type\" must be rooms, walls, furniture or doors_and_windows.", true);
+        } else {
+          types.set(i, type);
+        }
+      }
+      String description = HomeAssistantContext.describeHome(this.home, levelName, types, string(arguments, "name"));
       // The ids of this description stay valid for the following commands
       this.commandExecutor.snapshotDescribedItems();
       return toolResult(description
@@ -1033,7 +1087,11 @@ public class HomeMCPHandler {
     long start = System.currentTimeMillis();
     Image3D image = provider.get3DImage(new Image3DRequest(width, height, renderer,
         bool(arguments, "shadows", true), bool(arguments, "ambient_occlusion", true), highQuality,
-        pose, level, allLevels, savedFile != null && width > 1000 ? 1000 : 0));
+        pose, level, allLevels, savedFile != null && width > 1000 ? 1000 : 0,
+        (int)Math.max(0, Math.min(3600, number(arguments, "timeout", 0)))));
+    if (image != null && image.getImage() == null && image.getDescription() != null) {
+      return toolResult(image.getDescription(), true);
+    }
     if (image == null || image.getImage() == null) {
       return toolResult("The home can't be rendered in 3D here.", true);
     }
@@ -1195,10 +1253,11 @@ public class HomeMCPHandler {
       commands.add(new AssistantCommand(command.get("action").toString(), command));
     }
     String summary = this.commandExecutor.execute(commands);
+    // An id that designates nothing is an error, even if other commands were applied
     return toolResult(summary != null
         ? summary
         : "No change was applied (unknown actions, or ids that don't match the last get_home).",
-        summary == null);
+        summary == null || !this.commandExecutor.getUnresolvedIds().isEmpty());
   }
 
   private static Map<String, Object> imageResult(byte [] image) {

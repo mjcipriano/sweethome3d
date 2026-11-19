@@ -38,6 +38,7 @@ import com.eteks.sweethome3d.model.Wall;
 public class HomeAssistantContext {
   /** Upper bound on the number of furniture items listed individually in the brief. */
   private static final int MAX_LISTED_FURNITURE = 80;
+  private static final int MAX_FILTERED_FURNITURE = 500;
   /** Upper bound on the catalog item names listed per category in the brief. */
   private static final int MAX_LISTED_CATALOG_PIECES_PER_CATEGORY = 60;
 
@@ -115,11 +116,45 @@ public class HomeAssistantContext {
    * of the given <code>home</code>.
    */
   public static String describeHome(Home home) {
+    return describeHome(home, null, null, null);
+  }
+
+  /**
+   * Returns the description of a part of <code>home</code>: the items of the
+   * level named <code>levelName</code>, of the given <code>types</code>
+   * (<code>rooms</code>, <code>walls</code>, <code>furniture</code>,
+   * <code>doors_and_windows</code>) and whose name contains <code>nameFilter</code>.
+   * A <code>null</code> parameter doesn't filter. Ids are the same as in the
+   * complete description.
+   */
+  public static String describeHome(Home home, String levelName, List<String> types, String nameFilter) {
+    Level filterLevel = null;
+    if (levelName != null) {
+      for (Level level : home.getLevels()) {
+        if (levelName.trim().equalsIgnoreCase(level.getName())) {
+          filterLevel = level;
+        }
+      }
+    }
+    boolean filtered = filterLevel != null || types != null && !types.isEmpty()
+        || nameFilter != null && nameFilter.trim().length() > 0;
+    boolean listRooms = types == null || types.isEmpty() || types.contains("rooms");
+    boolean listWalls = (types == null || types.isEmpty() || types.contains("walls"))
+        && (nameFilter == null || nameFilter.trim().length() == 0);
+    boolean listFurniture = types == null || types.isEmpty() || types.contains("furniture");
+    boolean listDoorsAndWindows = types == null || types.isEmpty() || types.contains("furniture")
+        || types.contains("doors_and_windows");
+    String filterName = nameFilter != null && nameFilter.trim().length() > 0
+        ? nameFilter.trim().toLowerCase(Locale.ENGLISH) : null;
     NumberFormat format = NumberFormat.getNumberInstance(Locale.US);
     format.setMaximumFractionDigits(2);
     format.setGroupingUsed(false);
     StringBuilder brief = new StringBuilder();
     brief.append("Sweet Home 3D project summary:\n");
+    if (filtered) {
+      brief.append("- Only the items matching the filter are listed (counts and totals are those of the whole home; "
+          + "ids are the same as without filter)\n");
+    }
 
     List<Level> levels = home.getLevels();
     if (!levels.isEmpty()) {
@@ -147,13 +182,18 @@ public class HomeAssistantContext {
     }
     brief.append("- Rooms (").append(rooms.size()).append("), total floor area ")
         .append(format.format(totalRoomArea / 10000)).append(" m2");
-    if (!rooms.isEmpty()) {
+    if (!rooms.isEmpty() && listRooms) {
       brief.append(":\n");
       for (int i = 0; i < rooms.size(); i++) {
         Room room = rooms.get(i);
-        String name = room.getName();
+        String roomName = room.getName();
+        if (filterLevel != null && room.getLevel() != filterLevel
+            || filterName != null
+                && (roomName == null || roomName.toLowerCase(Locale.ENGLISH).indexOf(filterName) < 0)) {
+          continue;
+        }
         brief.append("    - R").append(i + 1).append(' ')
-            .append(name != null && name.length() > 0 ? name : "Unnamed room")
+            .append(roomName != null && roomName.length() > 0 ? roomName : "Unnamed room")
             .append(": ").append(format.format(room.getArea() / 10000)).append(" m2");
         // Where the room is, so furniture can be placed inside it
         float [][] points = room.getPoints();
@@ -174,6 +214,13 @@ public class HomeAssistantContext {
               .append(format.format(room.getYCenter())).append(")");
         }
         appendLevel(brief, room.getLevel(), levels);
+        // What isn't drawn in 3D, as under a sloped roof or for a paved area outdoors
+        if (!room.isCeilingVisible()) {
+          brief.append(", ceiling hidden");
+        }
+        if (!room.isFloorVisible()) {
+          brief.append(", floor hidden");
+        }
         brief.append('\n');
       }
     } else {
@@ -187,10 +234,13 @@ public class HomeAssistantContext {
     }
     brief.append("- Walls (").append(walls.size()).append("), total length ")
         .append(format.format(totalWallLength / 100)).append(" m");
-    if (!walls.isEmpty()) {
+    if (!walls.isEmpty() && listWalls) {
       brief.append(":\n");
       for (int i = 0; i < walls.size(); i++) {
         Wall wall = walls.get(i);
+        if (filterLevel != null && wall.getLevel() != filterLevel) {
+          continue;
+        }
         brief.append("    - W").append(i + 1).append(" (")
             .append(format.format(wall.getXStart())).append(", ").append(format.format(wall.getYStart()))
             .append(") to (").append(format.format(wall.getXEnd())).append(", ")
@@ -219,20 +269,39 @@ public class HomeAssistantContext {
     }
 
     List<HomePieceOfFurniture> topFurniture = home.getFurniture();
-    if (!topFurniture.isEmpty()) {
+    if (!topFurniture.isEmpty() && (listFurniture || listDoorsAndWindows)) {
       brief.append("- ").append(AssistantLayerCommands.describeLayers(home)).append('\n');
       brief.append("- Furniture items (id at x,y cm, facing deg, width x depth cm):\n");
-      int limit = Math.min(topFurniture.size(), MAX_LISTED_FURNITURE);
-      for (int i = 0; i < limit; i++) {
+      // A filter is how the pieces beyond the limit of the complete description are reached
+      int limit = filtered ? MAX_FILTERED_FURNITURE : MAX_LISTED_FURNITURE;
+      int listed = 0;
+      int notListed = 0;
+      for (int i = 0; i < topFurniture.size(); i++) {
         HomePieceOfFurniture piece = topFurniture.get(i);
-        String name = piece.getName() != null ? piece.getName() : "Unnamed";
-        brief.append("    - F").append(i + 1).append(" \"").append(name).append("\" at (")
+        String pieceName = piece.getName() != null ? piece.getName() : "Unnamed";
+        if (filterLevel != null && piece.getLevel() != filterLevel
+            || !(piece.isDoorOrWindow() ? listDoorsAndWindows : listFurniture)
+            || filterName != null && pieceName.toLowerCase(Locale.ENGLISH).indexOf(filterName) < 0) {
+          continue;
+        }
+        if (listed >= limit) {
+          notListed++;
+          continue;
+        }
+        listed++;
+        brief.append("    - F").append(i + 1).append(" \"").append(pieceName).append("\" at (")
             .append(format.format(piece.getX())).append(", ").append(format.format(piece.getY()))
             .append(") cm, facing ").append(Math.round(Math.toDegrees(piece.getAngle())))
             .append(" deg, ").append(format.format(piece.getWidth())).append(" x ")
             .append(format.format(piece.getDepth())).append(" cm");
         if (piece.getElevation() != 0) {
           brief.append(", elevation ").append(format.format(piece.getElevation()));
+        }
+        if (piece.getPitch() != 0) {
+          brief.append(", pitch ").append(Math.round(Math.toDegrees(piece.getPitch()))).append(" deg");
+        }
+        if (piece.getRoll() != 0) {
+          brief.append(", roll ").append(Math.round(Math.toDegrees(piece.getRoll()))).append(" deg");
         }
         if (piece.isDoorOrWindow()) {
           brief.append(" (door/window)");
@@ -256,8 +325,9 @@ public class HomeAssistantContext {
         }
         brief.append('\n');
       }
-      if (topFurniture.size() > limit) {
-        brief.append("    ... and ").append(topFurniture.size() - limit).append(" more\n");
+      if (notListed > 0) {
+        brief.append("    ... and ").append(notListed).append(" more")
+            .append(filtered ? "" : " (list them with a filter: a level, a type or a name)").append('\n');
       }
     }
 
@@ -391,12 +461,19 @@ public class HomeAssistantContext {
         + "summary (F# furniture, W# walls, R# rooms), by \"target\":\"selection\", or by name. "
         + "Editing commands (omit a field to leave it unchanged):\n"
         + "  {\"action\":\"move\",\"id\":\"F1\",\"dx\":N,\"dy\":N}  (relative; or \"x\":N,\"y\":N for an absolute position)\n"
-        + "  {\"action\":\"rotate\",\"id\":\"F1\",\"angle\":N}  (absolute degrees; or \"by\":N to add to the current angle)\n"
+        + "  {\"action\":\"rotate\",\"id\":\"F1\",\"angle\":N}  (absolute degrees; or \"by\":N to add to the current angle; "
+        + "\"pitch\":N or \"roll\":N tilts a piece forward or sideways, one of them at a time, and \"pitch\":0,\"roll\":0 sets it upright again)\n"
         + "  {\"action\":\"resize\",\"id\":\"F1\",\"width\":N,\"depth\":N,\"height\":N}\n"
         + "  {\"action\":\"set_color\",\"id\":\"F1\",\"color\":\"#RRGGBB\"}  (furniture; a wall W#: both sides or "
         + "\"part\":\"left\"|\"right\"; a room R#: its floor or \"part\":\"ceiling\")\n"
         + "  {\"action\":\"set_texture\",\"id\":\"R1\",\"texture\":\"<texture name>\",\"part\":\"floor|ceiling|left|right\"}  "
-        + "(rooms, walls and furniture; find names with {\"action\":\"search_textures\",\"query\":\"<words>\"})\n"
+        + "(rooms, walls and furniture; find names with {\"action\":\"search_textures\",\"query\":\"<words>\"}; "
+        + "when several textures share a name add \"category\":\"<category>\" or \"catalog_id\":\"<id>\"; the reply names the texture applied)\n"
+        + "  {\"action\":\"modify_room\",\"id\":\"R1\",\"ceiling_visible\":false,\"floor_visible\":true,\"area_visible\":true,"
+        + "\"name\":\"<name>\",\"points\":[[x,y],[x,y],[x,y],...]}  (changes existing rooms, designated by \"id\", \"ids\", "
+        + "\"target\":\"selection\" or \"room\":\"<room name>\"; fields left out don't change. Hide the ceiling of a room under a sloped roof "
+        + "or of a terrace, garden or paved area outdoors, which would otherwise show as a flat slab at the height of the level; "
+        + "\"points\" reshapes one room)\n"
         + "  {\"action\":\"duplicate\",\"id\":\"F1\",\"dx\":N,\"dy\":N,\"count\":N}  (copies of furniture, each shifted by dx,dy)\n"
         + "  {\"action\":\"set_camera\",\"x\":N,\"y\":N,\"height\":N,\"look_at_x\":N,\"look_at_y\":N,\"mode\":\"visitor|aerial\"}  "
         + "(moves the virtual visitor, also the starting point of the VR preview; or \"view\":\"top|south|north|east|west|"

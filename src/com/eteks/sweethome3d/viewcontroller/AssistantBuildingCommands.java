@@ -68,6 +68,8 @@ class AssistantBuildingCommands {
   boolean apply(String action, AssistantCommand command, int [] tally, List<String> notes) {
     if ("add_rectangular_room".equals(action) || "add_room_with_walls".equals(action)) {
       addRectangularRoom(command, tally, notes);
+    } else if ("modify_room".equals(action) || "modify_rooms".equals(action)) {
+      modifyRooms(command, tally, notes);
     } else if ("add_level".equals(action)) {
       addLevel(command, notes);
     } else if ("select_level".equals(action)) {
@@ -288,6 +290,121 @@ class AssistantBuildingCommands {
       notes.add("The new room shares " + sharedCount + (sharedCount == 1 ? " existing wall" : " existing walls")
           + " (no wall was added on " + (sharedCount == 1 ? "that side" : "those sides") + ")");
     }
+  }
+
+  /**
+   * Changes the name, the shape and what is displayed of existing rooms.
+   */
+  private void modifyRooms(final AssistantCommand command, int [] tally, List<String> notes) {
+    final List<Selectable> rooms = new ArrayList<Selectable>();
+    for (Selectable item : this.executor.resolveTargets(command)) {
+      if (item instanceof Room) {
+        rooms.add(item);
+      }
+    }
+    // A room may also be designated by its name
+    List<String> names = new ArrayList<String>();
+    for (String field : new String [] {"room", "id", "target"}) {
+      if (command.getString(field) != null) {
+        names.add(command.getString(field).trim());
+      }
+    }
+    for (String id : command.getStringList("ids")) {
+      names.add(id.trim());
+    }
+    for (String name : names) {
+      if (name.length() == 0 || name.matches("[FWRfwr]\\s*\\d+")
+          || "selection".equalsIgnoreCase(name) || "selected".equalsIgnoreCase(name)) {
+        continue;
+      }
+      List<Room> namedRooms = new ArrayList<Room>();
+      for (Room room : this.home.getRooms()) {
+        if (name.equalsIgnoreCase(room.getName())) {
+          namedRooms.add(room);
+        }
+      }
+      if (namedRooms.size() > 1) {
+        StringBuilder ids = new StringBuilder();
+        for (Room room : namedRooms) {
+          String id = this.executor.getId(room);
+          if (id != null) {
+            ids.append(ids.length() > 0 ? ", " : "").append(id);
+          }
+        }
+        notes.add("Ignored modify_room for \"" + name + "\": " + namedRooms.size() + " rooms have that name"
+            + (ids.length() > 0 ? " (" + ids + ")" : "") + ", give the id of one");
+      } else if (namedRooms.isEmpty()) {
+        notes.add("Ignored modify_room for \"" + name + "\": no room has that id or name");
+      } else if (!rooms.contains(namedRooms.get(0))) {
+        rooms.add(namedRooms.get(0));
+      }
+    }
+    if (rooms.isEmpty()) {
+      if (names.isEmpty()) {
+        notes.add("Ignored modify_room: give the room with \"id\", \"ids\", \"target\":\"selection\" or its name");
+      }
+      return;
+    }
+
+    final List<float []> points = command.getPoints("points");
+    if (command.has("points")) {
+      if (rooms.size() > 1) {
+        notes.add("Ignored modify_room: \"points\" reshapes one room, not " + rooms.size());
+        return;
+      } else if (points.size() < 3) {
+        notes.add("Ignored modify_room: \"points\" needs at least 3 points [x,y]");
+        return;
+      }
+      for (float [] point : points) {
+        if (!AssistantCommandExecutor.coordinateSane(point [0]) || !AssistantCommandExecutor.coordinateSane(point [1])) {
+          notes.add("Ignored modify_room with out-of-range points");
+          return;
+        }
+      }
+    }
+    final String name = command.getString("name");
+    if (!command.has("points") && !command.has("ceiling_visible") && !command.has("floor_visible")
+        && !command.has("area_visible") && name == null) {
+      notes.add("Ignored modify_room: give at least one of \"ceiling_visible\", \"floor_visible\", "
+          + "\"area_visible\", \"name\" and \"points\"");
+      return;
+    }
+    this.executor.postModification(rooms, new Runnable() {
+        public void run() {
+          for (Selectable item : rooms) {
+            Room room = (Room)item;
+            if (command.has("ceiling_visible")) {
+              room.setCeilingVisible(command.getBoolean("ceiling_visible", room.isCeilingVisible()));
+            }
+            if (command.has("floor_visible")) {
+              room.setFloorVisible(command.getBoolean("floor_visible", room.isFloorVisible()));
+            }
+            if (command.has("area_visible")) {
+              room.setAreaVisible(command.getBoolean("area_visible", room.isAreaVisible()));
+            }
+            if (name != null) {
+              room.setName(name.trim().length() > 0 ? name.trim() : null);
+            }
+            if (command.has("points")) {
+              room.setPoints(points.toArray(new float [points.size()][]));
+            }
+          }
+        }
+      });
+    tally [4] += rooms.size();
+    // What each room is now, to check the result without describing the home again
+    StringBuilder note = new StringBuilder("Modified ");
+    for (int i = 0; i < rooms.size(); i++) {
+      Room room = (Room)rooms.get(i);
+      String id = this.executor.getId(room);
+      note.append(i > 0 ? "; " : "").append(id != null ? id + " " : "")
+          .append(room.getName() != null ? "\"" + room.getName() + "\"" : "unnamed room")
+          .append(": ceiling ").append(room.isCeilingVisible() ? "visible" : "hidden")
+          .append(", floor ").append(room.isFloorVisible() ? "visible" : "hidden")
+          .append(", area ").append(room.isAreaVisible() ? "displayed" : "not displayed")
+          .append(", ").append(Math.round(room.getArea() / 100) / 100f).append(" m2");
+    }
+    notes.add(note.toString());
   }
 
   private static AssistantCommand withParameter(AssistantCommand command, String name, Object value) {
@@ -644,8 +761,18 @@ class AssistantBuildingCommands {
         text.append(", ");
       }
       text.append('"').append(texture.getName()).append('"');
-      if (texture.getCategory() != null) {
-        text.append(" (").append(texture.getCategory().getName()).append(')');
+      // The catalog id tells apart the textures a name and a category don't
+      boolean twin = false;
+      for (CatalogTexture other : textures) {
+        twin |= other != texture && texture.getName() != null && texture.getName().equalsIgnoreCase(other.getName())
+            && (other.getCategory() == null || texture.getCategory() == null
+                || other.getCategory().getName().equals(texture.getCategory().getName()));
+      }
+      if (texture.getCategory() != null || twin && texture.getId() != null) {
+        text.append(" (").append(texture.getCategory() != null ? texture.getCategory().getName() : "")
+            .append(twin && texture.getId() != null
+                ? (texture.getCategory() != null ? ", " : "") + "catalog_id " + texture.getId() : "")
+            .append(')');
       }
     }
     return text.toString();
@@ -657,15 +784,62 @@ class AssistantBuildingCommands {
       name = command.getString("name");
     }
     final List<Selectable> targets = this.executor.resolveTargets(command);
-    if (name == null || targets.isEmpty()) {
+    if (name == null && command.getString("catalog_id") == null || targets.isEmpty()) {
       return;
     }
-    List<CatalogTexture> matches = searchTextures(name, 3);
-    if (matches.isEmpty()) {
-      notes.add("Couldn't find a texture named \"" + name + "\"; use search_textures");
+    String categoryName = command.getString("category");
+    String catalogId = command.getString("catalog_id");
+    CatalogTexture chosenTexture = null;
+    // The textures of the catalog with exactly this name, which several categories may share
+    List<CatalogTexture> sameName = new ArrayList<CatalogTexture>();
+    if (this.preferences.getTexturesCatalog() != null) {
+      for (TexturesCategory category : this.preferences.getTexturesCatalog().getCategories()) {
+        for (CatalogTexture texture : category.getTextures()) {
+          if (catalogId != null && catalogId.trim().equals(texture.getId())) {
+            chosenTexture = texture;
+          }
+          if (name != null && name.trim().equalsIgnoreCase(texture.getName())) {
+            sameName.add(texture);
+          }
+        }
+      }
+    }
+    if (catalogId != null && chosenTexture == null) {
+      notes.add("Ignored set_texture: no texture has the catalog id \"" + catalogId + "\"; use search_textures");
       return;
     }
-    final CatalogTexture catalogTexture = matches.get(0);
+    if (chosenTexture == null && categoryName != null) {
+      List<CatalogTexture> candidates = sameName.isEmpty() ? searchTextures(name, MAX_TEXTURE_RESULTS) : sameName;
+      for (CatalogTexture texture : candidates) {
+        if (texture.getCategory() != null && categoryName.trim().equalsIgnoreCase(texture.getCategory().getName())) {
+          chosenTexture = texture;
+          break;
+        }
+      }
+      if (chosenTexture == null) {
+        notes.add("Ignored set_texture: no texture \"" + name + "\" in the category \"" + categoryName
+            + "\". Matches: " + describeTextures(candidates));
+        return;
+      }
+    }
+    String ambiguity = null;
+    if (chosenTexture == null) {
+      if (!sameName.isEmpty()) {
+        chosenTexture = sameName.get(0);
+        if (sameName.size() > 1) {
+          ambiguity = sameName.size() + " textures are named \"" + chosenTexture.getName() + "\": "
+              + describeTextures(sameName) + "; give \"category\" or \"catalog_id\" to choose an other one";
+        }
+      } else {
+        List<CatalogTexture> matches = searchTextures(name, 3);
+        if (matches.isEmpty()) {
+          notes.add("Couldn't find a texture named \"" + name + "\"; use search_textures");
+          return;
+        }
+        chosenTexture = matches.get(0);
+      }
+    }
+    final CatalogTexture catalogTexture = chosenTexture;
     final String part = command.getString("part") != null
         ? command.getString("part").toLowerCase(Locale.ENGLISH) : "";
     final int [] changed = {0};
@@ -697,8 +871,10 @@ class AssistantBuildingCommands {
         }
       });
     tally [4] += changed [0];
-    if (changed [0] > 0 && !catalogTexture.getName().equalsIgnoreCase(name.trim())) {
-      notes.add("Used the texture \"" + catalogTexture.getName() + "\"");
+    if (changed [0] > 0) {
+      notes.add("Applied the texture " + describeTextures(Collections.singletonList(catalogTexture))
+          + " to " + changed [0] + (changed [0] == 1 ? " item" : " items")
+          + (ambiguity != null ? ". " + ambiguity : ""));
     }
   }
 
