@@ -1,5 +1,15 @@
 # Changelog
 
+## [7.24.0](https://github.com/mjcipriano/sweethome3d/compare/v7.23.1...v7.24.0) (2026-11-19)
+
+
+### Features
+
+* MCP pictures drawn by the OpenGL renderer, from chosen views ([6884402](https://github.com/mjcipriano/sweethome3d/commit/6884402b9af0fbc9981430cb070ce9ecea391305))
+* MCP pictures drawn by the OpenGL renderer, from chosen views ([840ae3b](https://github.com/mjcipriano/sweethome3d/commit/840ae3bffecc1a2ee24397e31132134f6ee87c98))
+* modify_room MCP command, get_home filters and stale id errors ([f4c0c22](https://github.com/mjcipriano/sweethome3d/commit/f4c0c22a6541828bc5cfbf06e7cc5d7e1772f376))
+* modify_room MCP command, get_home filters and stale id errors ([7f6c497](https://github.com/mjcipriano/sweethome3d/commit/7f6c4973f1961828adc3fece87e7c27846bee6f7))
+
 ## [7.23.1](https://github.com/mjcipriano/sweethome3d/compare/v7.23.0...v7.23.1) (2026-11-18)
 
 
