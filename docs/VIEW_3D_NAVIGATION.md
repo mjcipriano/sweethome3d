@@ -25,10 +25,52 @@ before), at least 100 m.
 
 ## Standard views
 
-**3D view > Standard views** shows the home from the top, from each of its
-four sides and from its four corners, at the distance where it is entirely in
-sight - the quick views of other design programs. They use the aerial view;
-store one with **3D view > Store point of view...** to come back to it.
+Nine views show the house from the top, from each of its four sides and from
+its four corners, at the distance where it fills the 3D view - the quick views
+of other design programs. Three ways to get them:
+
+- **Keys 1 to 9 in the 3D view** (click in it first). The keys are laid out
+  as a numeric keypad placed over the plan, the front of the house being the
+  bottom of the plan:
+
+  | | | |
+  | --- | --- | --- |
+  | `7` back left corner | `8` back | `9` back right corner |
+  | `4` left side | `5` top | `6` right side |
+  | `1` front left corner | `2` front | `3` front right corner |
+
+  The digits above the letters and those of the numeric keypad both work.
+  **Shift** with a key looks from higher: a side from 30 degrees above the
+  horizon instead of level, a corner from 50 degrees instead of 30.
+- **3D views** in the tool bar opens a pad of nine buttons in the same layout;
+  Shift + click looks from higher.
+- **3D view > Standard views**, also in the right-click menu of the 3D view.
+
+![The nine standard views, laid out as their keys](images/standard-views.jpg)
+
+These views frame the building: its walls and what stands among them or
+against them, roofs included. The ground, trees and a driveway don't move the
+camera away. **3D fit** (key `0`) shows the whole home with its garden. With
+*Center aerial view on selection* ticked in the preferences, the views frame
+what is selected. They use the aerial view; store one with **3D view > Store
+point of view...** to come back to it.
+
+## Moving sideways
+
+Turning goes around the center of the home. To look at something off
+center, move the camera sideways (what games call strafing):
+
+| Control | Action |
+| --- | --- |
+| `Q` / `E` in the 3D view | Move left / right (Shift: faster) |
+| Alt + left / right arrow | Same |
+| Alt + drag the mouse left or right | The home follows the mouse (Shift: faster); dragging up or down moves forward and back as before |
+| Home / End | Move up / down |
+
+This works in the aerial view and in the virtual visit. In the aerial view
+the camera then turns around the point it was moved to, and stays there when
+the home changes; a standard view or **3D fit** comes back to the center. `A`
+and `D` and the arrows still turn.
 
 ## Doll house display
 
@@ -72,6 +114,11 @@ and Claude have the same as `{"action":"auto_dimensions"}` (optionally
   `viewFromDirection(yaw, pitch)`; `TopCameraState.zoomCamera` holds the
   ratio. `HomeComponent3D` maps the wheel and the keys, `HomePane` the tool
   bar buttons (`createZoom3DButton`) and menus.
+- `HomeController3D.viewFromStandardDirection(direction, higher)`;
+  `TopCameraState.centerOnBuilding` leaves the garden out of the bounds the
+  view turns around, `zoomCameraToBounds` places the camera from the shape of
+  the view (`setViewAspectRatio`), `moveCameraSideways` and `elevateCamera`
+  move the center of the aerial view. `HomePane.createStandardViewsButton`.
 - `viewcontroller/RoomDimensions.createDimensionLines`,
   `HomeController.addRoomDimensions`.
 - `viewcontroller/DollHouseView` chooses the walls; `Wall3D.setHiddenInView`
