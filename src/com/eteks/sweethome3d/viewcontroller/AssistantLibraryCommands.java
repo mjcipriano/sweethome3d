@@ -150,6 +150,7 @@ class AssistantLibraryCommands {
     }
     if (place) {
       HomePieceOfFurniture piece = new HomePieceOfFurniture(catalogPiece);
+      piece.setPlanIcon(model.getPlanIcon());
       if (!Double.isNaN(x)) {
         piece.setX((float)x);
       }

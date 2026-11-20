@@ -183,5 +183,13 @@ assert.deepStrictEqual(climbed, {level: 1, height: 0}, 'L stairs lead upstairs')
   assert.ok(up && Math.abs(up.height - 0.7) < 1e-9, 'up the slope, higher than a step above the floor');
   assert.strictEqual(standAt(site, {level: 1, height: 0}, -14, 0), null, 'a bank higher than a step stops the visitor');
   assert.ok(Math.abs(standAt(site, 1, 10, 10).height - -0.5) < 1e-9, 'someone who arrives is put on the ground');
+  // A terrace 10 cm above the ground at its low end, and a ramp without ground under it
+  const terrace = {...site, ramps: [[8, 8, -0.3, 12, 8, -0.3, 12, 12, -0.3], [8, 8, -0.3, 12, 12, -0.3, 8, 12, -0.3]]};
+  assert.ok(Math.abs(standAt(terrace, {level: 1, height: -0.45}, 10, 10).height - -0.3) < 1e-9, 'on the terrace');
+  const ramp = {levels: [{name: 'Ground', elevation: 0, height: 2.5, floor: true}], rooms: [], stairs: [],
+                ramps: [[10, 0, 0, 14, 0, 1, 14, 2, 1], [10, 0, 0, 14, 2, 1, 10, 2, 0]]};
+  assert.ok(Math.abs(standAt(ramp, {level: 0, height: 0}, 11, 1).height - 0.25) < 1e-9, 'up a ramp');
+  assert.ok(Math.abs(standAt(ramp, {level: 0, height: 0.7}, 13, 1).height - 0.75) < 1e-9);
+  assert.deepStrictEqual(standAt(ramp, {level: 0, height: 0}, 5, 5), {level: 0, height: 0}, 'the floor beside it');
 }
 console.log('walk tests OK');

@@ -23,6 +23,7 @@ import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Wall;
 import com.eteks.sweethome3d.viewcontroller.AssistantCommandExecutor;
 import com.eteks.sweethome3d.viewcontroller.AssistantGeneratedModel;
+import com.eteks.sweethome3d.viewcontroller.GeneratedModelFaces;
 import com.eteks.sweethome3d.viewcontroller.HomeTerrain;
 
 /**
@@ -37,6 +38,9 @@ import com.eteks.sweethome3d.viewcontroller.HomeTerrain;
  * @author Sweet Home 3D
  */
 public class WebXRSceneDescription {
+  /** A slab with more faces is described by the box of its size. */
+  private static final int MAX_SLAB_FACES = 2000;
+
   private WebXRSceneDescription() {
     // Utility class
   }
@@ -203,6 +207,43 @@ public class WebXRSceneDescription {
       json.append(']');
     }
 
+    // Slabs: the triangles of their top, which may slope, to walk on
+    json.append("],\"ramps\":[");
+    first = true;
+    for (HomePieceOfFurniture piece : allFurniture) {
+      if (getLevelIndex(piece.getLevel(), levels, implicitLevel) < 0 || !piece.isVisible()) {
+        continue;
+      }
+      List<GeneratedModelFaces.Face> faces = GeneratedModelFaces.isSlab(piece)
+          ? GeneratedModelFaces.getFaces(piece, MAX_SLAB_FACES) : null;
+      if (faces == null) {
+        continue;
+      }
+      for (GeneratedModelFaces.Face face : faces) {
+        float [][] points = face.points;
+        // Faces turned upward
+        double area = 0;
+        for (int i = 0; i < points.length; i++) {
+          float [] next = points [(i + 1) % points.length];
+          area += points [i][0] * next [1] - next [0] * points [i][1];
+        }
+        if (area >= -1) {
+          continue;
+        }
+        for (int i = 1; i < points.length - 1; i++) {
+          json.append(first ? "" : ",").append('[');
+          first = false;
+          int [] corners = {0, i, i + 1};
+          for (int j = 0; j < 3; j++) {
+            float [] point = points [corners [j]];
+            json.append(j > 0 ? "," : "").append(meters(point [0])).append(',')
+                .append(meters(point [1])).append(',').append(meters(point [2]));
+          }
+          json.append(']');
+        }
+      }
+    }
+
     // Stairs the visitor can climb: the ones which describe their flights
     json.append("],\"stairs\":[");
     first = true;
@@ -244,6 +285,8 @@ public class WebXRSceneDescription {
     String structure = piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY);
     return "roof".equals(structure)
         || "terrain".equals(structure)
+        // A slab is walked on by the triangles of its top
+        || "slab".equals(structure) && GeneratedModelFaces.getFaces(piece, MAX_SLAB_FACES) != null
         || "true".equals(piece.getProperty(AssistantCommandExecutor.AUTO_ROOF_PROPERTY));
   }
 

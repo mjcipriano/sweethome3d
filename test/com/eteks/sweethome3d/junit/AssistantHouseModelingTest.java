@@ -314,6 +314,12 @@ public class AssistantHouseModelingTest {
     assertEquals(-10, ramp.getElevation(), 0.01f);
     assertEquals(50, ramp.getHeight(), 0.01f);
     assertEquals(400 * 200 * 30, getVolume(ramp.getModel()), 400 * 200 * 30 * 0.001);
+    // The plan draws it seen from the top, and a visitor walks on the triangles of its top
+    assertNotNull(ramp.getPlanIcon());
+    assertTrue(FurniturePlanVisibility.isDrawnFromTop(ramp));
+    String rampScene = com.eteks.sweethome3d.plugin.webxr.WebXRSceneDescription.toJSON(this.home);
+    assertTrue(rampScene, rampScene.contains("\"ramps\":[["));
+    assertTrue(rampScene, rampScene.contains("0.4000"));
 
     // A room with a raised floor
     summary = run("{\"action\":\"add_room\",\"name\":\"Stage\",\"points\":[[1000,0],[1300,0],[1300,300],[1000,300]],"
@@ -367,6 +373,17 @@ public class AssistantHouseModelingTest {
     run("{\"action\":\"add_room\",\"name\":\"Hall\",\"points\":[[200,200],[600,200],[600,600],[200,600]]}");
     summary = run("{\"action\":\"set_terrain\",\"points\":[[-1000,-1000,0],[2000,-1000,0],[2000,2000,0],[-1000,2000,0]]}");
     assertTrue(summary, summary.contains("left open under 1 room"));
+    // The ground follows the rooms: its model is built again when a room is added, and after undo
+    com.eteks.sweethome3d.model.Content openModel = getPiece("Terrain").getModel();
+    run("{\"action\":\"add_room\",\"name\":\"Shed\",\"points\":[[900,900],[1200,900],[1200,1200],[900,1200]]}");
+    com.eteks.sweethome3d.model.Content widerModel = getPiece("Terrain").getModel();
+    assertFalse(openModel.equals(widerModel));
+    this.homeController.undo();
+    assertFalse(widerModel.equals(getPiece("Terrain").getModel()));
+    // A change that moves no room leaves it alone
+    com.eteks.sweethome3d.model.Content model = getPiece("Terrain").getModel();
+    run("{\"action\":\"add_label\",\"text\":\"Garden\",\"x\":0,\"y\":0}");
+    assertTrue(model == getPiece("Terrain").getModel());
     summary = run("{\"action\":\"set_terrain\",\"points\":[[-1000,-1000,-200],[2000,-1000,-200],[2000,2000,-200],[-1000,2000,-200]]}");
     assertFalse(summary, summary.contains("left open"));
     assertEquals("The level of the higher ground isn't kept empty", 2, this.home.getLevels().size());

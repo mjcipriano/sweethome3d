@@ -115,27 +115,56 @@ public class AssistantDesignCommands {
     CatalogTexture best = null;
     int bestWordCount = Integer.MAX_VALUE;
     for (CatalogTexture texture : textures) {
-      String name = texture.getName().toLowerCase(Locale.ENGLISH);
+      // The id of a texture of the default catalog tells what it is in English whatever
+      // the language of its name: eTeks#oldWoodenFloor
+      String description = getIdWords(texture.getId());
+      String name = description.length() > 0 ? description : texture.getName().toLowerCase(Locale.ENGLISH);
+      List<String> nameWords = AssistantCommandExecutor.tokenize(name);
+      if (nameWords.contains("wall")) {
+        continue;
+      }
       boolean materialFound = false;
       for (String word : queryWords) {
-        if (!COLOR_WORDS.contains(word) && name.indexOf(word) >= 0) {
+        // tiles is found in "grey tile"
+        String stem = word.length() > 3 && word.endsWith("s") ? word.substring(0, word.length() - 1) : word;
+        if (!COLOR_WORDS.contains(word) && name.indexOf(stem) >= 0) {
           materialFound = true;
         }
       }
       boolean otherColor = false;
-      for (String word : AssistantCommandExecutor.tokenize(name)) {
+      for (String word : nameWords) {
         if (COLOR_WORDS.contains(word) && !queryWords.contains(word)) {
           otherColor = true;
         }
       }
       // The shortest name is the plainest texture of the material: "Wooden floor" rather than "Old wooden floor"
-      int wordCount = AssistantCommandExecutor.tokenize(name).size();
+      int wordCount = nameWords.size();
       if (materialFound && !otherColor && wordCount < bestWordCount) {
         best = texture;
         bestWordCount = wordCount;
       }
     }
     return best;
+  }
+
+  /**
+   * Returns the words of the id of a catalog texture, in lower case and separated by spaces
+   * ("old wooden floor" for eTeks#oldWoodenFloor), or an empty text if it has no such id.
+   */
+  static String getIdWords(String id) {
+    if (id == null || id.indexOf('#') < 0) {
+      return "";
+    }
+    StringBuilder words = new StringBuilder();
+    for (char c : id.substring(id.indexOf('#') + 1).toCharArray()) {
+      if (Character.isUpperCase(c) || Character.isDigit(c)) {
+        words.append(' ');
+      }
+      if (Character.isLetter(c)) {
+        words.append(Character.toLowerCase(c));
+      }
+    }
+    return words.toString().trim();
   }
 
   /** The shapes of <code>add_room_shape</code>. */

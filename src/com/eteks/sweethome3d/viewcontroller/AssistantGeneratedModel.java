@@ -57,6 +57,15 @@ public class AssistantGeneratedModel {
   private static final float RAIL_HEIGHT = 90;
   private static final float RAIL_THICKNESS = 4;
 
+  private Content planIcon;
+
+  /**
+   * Returns the picture of the model seen from the top, or <code>null</code>.
+   */
+  public Content getPlanIcon() {
+    return this.planIcon;
+  }
+
   private AssistantGeneratedModel(Content model, Content icon, float width, float depth, float height) {
     this.model = model;
     this.icon = icon;
@@ -575,9 +584,12 @@ public class AssistantGeneratedModel {
     Map<String, byte []> modelFiles = new LinkedHashMap<String, byte []>();
     String modelName = null;
     Content icon = null;
+    Content planIcon = null;
     for (Map.Entry<String, byte []> entry : files.entrySet()) {
       String name = entry.getKey();
-      if (name.startsWith("icon_")) {
+      if (name.startsWith("planicon_")) {
+        planIcon = storeFile("planicon", name.substring(name.lastIndexOf('.')), entry.getValue());
+      } else if (name.startsWith("icon_")) {
         icon = storeFile("icon", name.substring(name.lastIndexOf('.')), entry.getValue());
       } else {
         modelFiles.put(name, entry.getValue());
@@ -588,9 +600,11 @@ public class AssistantGeneratedModel {
     }
     File file = OperatingSystem.createTemporaryFile(prefix, ".zip");
     writeZip(file, modelFiles);
-    return new AssistantGeneratedModel(
+    AssistantGeneratedModel model = new AssistantGeneratedModel(
         new TemporaryURLContent(new URL("jar:" + file.toURI().toURL() + "!/" + modelName)),
         icon, width, depth, height);
+    model.planIcon = planIcon;
+    return model;
   }
 
   /**

@@ -3,7 +3,7 @@
 // is a set of boxes (walls cut by their doors and windows, door and window
 // panels, furniture), of floors (the rooms of each level) and of stairs.
 // Kept free of three.js, so it can be tested with Node.js.
-import {stairHeightAt, terrainHeightAt} from './webxr-walk.js';
+import {stairHeightAt, terrainHeightAt, rampHeightAt} from './webxr-walk.js';
 
 export const PLAYER_RADIUS = 0.22;
 export const PLAYER_HEIGHT = 1.75;
@@ -225,6 +225,11 @@ export function groundAt(world, x, z, feet) {
       // The ground is open under the rooms it reaches
       && !world.floors.some(floor => floor.y <= terrain + 0.3 && pointInPolygon(floor.points, x, z))) {
     ground = terrain <= reach ? terrain : world.base;
+  }
+  // The top of a slab, which may slope
+  const ramp = rampHeightAt(world.scene, x, z, reach);
+  if (ramp !== null && ramp > ground) {
+    ground = ramp;
   }
   for (const floor of world.floors) {
     if (floor.y > ground && floor.y <= reach && pointInPolygon(floor.points, x, z)

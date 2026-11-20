@@ -68,7 +68,11 @@ public class WebXRPreviewPlugin extends Plugin {
   /** The files of the viewer copied from the plugin resources to each export. */
   private static final String [] VIEWER_RESOURCES = {"webxr-viewer.js", "webxr-walk.js", "webxr-merge.js",
                                                      "webxr-game.js", "webxr-game-physics.js",
-                                                     "webxr-notes.js", "webxr-notes-ui.js"};
+                                                     "webxr-notes.js", "webxr-notes-ui.js",
+                                                     // three.js 0.155.0 (MIT license), kept with the pages
+                                                     // so that they need no Internet access
+                                                     "three.module.min.js", "three-MTLLoader.js",
+                                                     "three-OBJLoader.js", "three-LICENSE.txt"};
 
   private final PluginAction[] actions;
 
@@ -268,8 +272,8 @@ public class WebXRPreviewPlugin extends Plugin {
         + "- The site must use https for the Enter VR button to appear in a headset.\r\n"
         + "- Anyone who has the address can see the whole home: its plan, its furniture\r\n"
         + "  and its textures.\r\n\r\n"
-        + "The page loads the three.js library from the unpkg.com CDN, so the computer\r\n"
-        + "needs an Internet access, with a launcher too.\r\n";
+        + "The folder is complete: it needs no Internet access. It includes the three.js\r\n"
+        + "library, under the MIT license of three-LICENSE.txt.\r\n";
     OutputStream out = new java.io.FileOutputStream(new File(folder, "README.txt"));
     try {
       out.write(text.getBytes(StandardCharsets.UTF_8));

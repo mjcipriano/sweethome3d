@@ -261,7 +261,21 @@ function stairTop(scene, stair) {
  * meters of the scene, or null if no ground covers this point.
  */
 export function terrainHeightAt(scene, x, z) {
-  for (const t of scene.terrain || []) {
+  return triangleHeightAt(scene.terrain || [], x, z, Infinity);
+}
+
+/**
+ * Returns the height of the top of the highest slab at (x, z) that isn't higher
+ * than `reach`, or null if no slab is there.
+ */
+export function rampHeightAt(scene, x, z, reach = Infinity) {
+  return triangleHeightAt(scene.ramps || [], x, z, reach);
+}
+
+// The highest of the triangles [x1, z1, y1, x2, z2, y2, x3, z3, y3] over (x, z), not higher than reach
+function triangleHeightAt(triangles, x, z, reach) {
+  let highest = null;
+  for (const t of triangles) {
     const determinant = (t[4] - t[7]) * (t[0] - t[6]) + (t[6] - t[3]) * (t[1] - t[7]);
     if (Math.abs(determinant) < 1e-12) {
       continue;
@@ -270,10 +284,13 @@ export function terrainHeightAt(scene, x, z) {
     const w2 = ((t[7] - t[1]) * (x - t[6]) + (t[0] - t[6]) * (z - t[7])) / determinant;
     const w3 = 1 - w1 - w2;
     if (w1 >= -1e-6 && w2 >= -1e-6 && w3 >= -1e-6) {
-      return w1 * t[2] + w2 * t[5] + w3 * t[8];
+      const height = w1 * t[2] + w2 * t[5] + w3 * t[8];
+      if (height <= reach && (highest === null || height > highest)) {
+        highest = height;
+      }
     }
   }
-  return null;
+  return highest;
 }
 
 function inPolygon(points, x, z) {
@@ -292,8 +309,8 @@ function inPolygon(points, x, z) {
  * on at (x, z) outdoors, or null: in a room, on a level that isn't the lowest
  * one with rooms, or where there is no ground.
  */
-export function groundHeightAt(scene, levelIndex, x, z) {
-  if (!scene.terrain || scene.terrain.length === 0) {
+export function groundHeightAt(scene, levelIndex, x, z, from = null) {
+  if ((!scene.terrain || scene.terrain.length === 0) && (!scene.ramps || scene.ramps.length === 0)) {
     return null;
   }
   const levels = scene.levels || [];
@@ -311,8 +328,17 @@ export function groundHeightAt(scene, levelIndex, x, z) {
       return null;
     }
   }
-  const height = terrainHeightAt(scene, x, z);
-  return height === null ? null : height - (levels[levelIndex] ? levels[levelIndex].elevation : 0);
+  const elevation = levels[levelIndex] ? levels[levelIndex].elevation : 0;
+  const terrain = terrainHeightAt(scene, x, z);
+  // A slab the visitor can step on from where they stand: a terrace, a ramp, a driveway
+  const ramp = rampHeightAt(scene, x, z, from === null ? Infinity : elevation + from + MAX_STEP);
+  if (ramp !== null && (terrain === null || ramp > terrain)) {
+    return ramp - elevation;
+  }
+  if (terrain !== null) {
+    return terrain - elevation;
+  }
+  return null;
 }
 
 /**
@@ -337,7 +363,7 @@ export function standAt(scene, from, x, z) {
     }
   }
   // Outdoors on the ground, which may slope: a bank too steep stops the visitor
-  const ground = groundHeightAt(scene, position.level, x, z);
+  const ground = groundHeightAt(scene, position.level, x, z, position.height);
   if (ground !== null) {
     return reachable(ground) ? {level: position.level, height: ground} : null;
   }

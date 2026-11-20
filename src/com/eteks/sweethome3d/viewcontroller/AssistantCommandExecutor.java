@@ -200,6 +200,14 @@ public class AssistantCommandExecutor {
     return this.shapeCommands;
   }
 
+  /**
+   * Builds again the grounds made by <code>set_terrain</code> whose rooms changed.
+   * @return the count of grounds built again
+   */
+  public int refreshTerrain() {
+    return this.shapeCommands.refreshTerrain();
+  }
+
   AssistantStructureCommands getStructureCommands() {
     return this.structureCommands;
   }

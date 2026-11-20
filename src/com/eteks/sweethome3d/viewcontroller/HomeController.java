@@ -125,6 +125,7 @@ public class HomeController implements Controller {
   private HomeController3D            homeController3D;
   private static HelpController       helpController;  // Only one help controller
   private int                         saveUndoLevel;
+  private AssistantCommandExecutor    terrainExecutor;
   private boolean                     notUndoableModifications;
   private View                        focusedView;
 
@@ -1112,6 +1113,22 @@ public class HomeController implements Controller {
   /**
    * Adds undoable edit listener to undo support that enables Undo action.
    */
+  /**
+   * Builds again the ground made by the <code>set_terrain</code> assistant command when
+   * the rooms and the walls it is open under changed: its model follows from them.
+   */
+  private void refreshTerrain() {
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      if (piece.getProperty(AssistantShapeCommands.TERRAIN_PARAMETERS_PROPERTY) != null) {
+        if (this.terrainExecutor == null) {
+          this.terrainExecutor = new AssistantCommandExecutor(this.home, this.preferences, this);
+        }
+        this.terrainExecutor.refreshTerrain();
+        return;
+      }
+    }
+  }
+
   private void addUndoSupportListener() {
     getUndoableEditSupport().addUndoableEditListener(
       new UndoableEditListener () {
@@ -1123,6 +1140,7 @@ public class HomeController implements Controller {
           view.setUndoRedoName(ev.getEdit().getUndoPresentationName(), null);
           saveUndoLevel++;
           home.setModified(true);
+          refreshTerrain();
         }
       });
    home.addPropertyChangeListener(Home.Property.MODIFIED, new PropertyChangeListener() {
@@ -1533,6 +1551,7 @@ public class HomeController implements Controller {
    */
   public void undo() {
     this.undoManager.undo();
+    refreshTerrain();
     HomeView view = getView();
     boolean moreUndo = this.undoManager.canUndo();
     view.setEnabled(HomeView.ActionType.UNDO, moreUndo);
@@ -1552,6 +1571,7 @@ public class HomeController implements Controller {
    */
   public void redo() {
     this.undoManager.redo();
+    refreshTerrain();
     HomeView view = getView();
     boolean moreRedo = this.undoManager.canRedo();
     view.setEnabled(HomeView.ActionType.UNDO, true);

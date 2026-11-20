@@ -658,6 +658,7 @@
         <include name="THIRDPARTY-LICENSE-JEKSPARSER.TXT"/>
         <include name="THIRDPARTY-LICENSE-ITEXT.TXT"/>
         <include name="THIRDPARTY-LICENSE-VECTORGRAPHICS.TXT"/>
+        <include name="THIRDPARTY-LICENSE-THREEJS.TXT"/>
         <include name="THIRDPARTY-LICENSE-SUNFLOW.TXT"/>
         <include name="THIRDPARTY-LICENSE-YAFARAY.TXT"/>
         <include name="THIRDPARTY-LICENSE-JMF.HTML"/>

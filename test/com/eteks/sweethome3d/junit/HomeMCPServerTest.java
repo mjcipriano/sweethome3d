@@ -833,6 +833,13 @@ public class HomeMCPServerTest {
           + "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n\n"
           + "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n"
           + "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"get_home\",\"arguments\":{}}}\n";
+      // The programs started before a request to stop see it, the ones started later don't
+      long startTime = System.currentTimeMillis();
+      assertFalse(com.eteks.sweethome3d.swing.HomeMCPBridge.isStopRequested(folder, startTime));
+      com.eteks.sweethome3d.swing.HomeMCPBridge.requestStop(folder);
+      assertTrue(com.eteks.sweethome3d.swing.HomeMCPBridge.isStopRequested(folder, startTime));
+      assertFalse(com.eteks.sweethome3d.swing.HomeMCPBridge.isStopRequested(folder, System.currentTimeMillis() + 60000));
+      assertTrue(new File(folder, "mcp-bridge-stop").delete());
       // No server and no token yet: the bridge answers the handshake itself
       java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
       com.eteks.sweethome3d.swing.HomeMCPBridge.run(new java.io.ByteArrayInputStream(messages.getBytes("UTF-8")), out, folder);

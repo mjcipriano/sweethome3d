@@ -264,6 +264,16 @@ public class AssistantDesignCommandsTest {
     // No white tiles: a plain color is better than tiles of another color
     assertNull(AssistantDesignCommands.findFloorTexture(textures, "white tiles"));
     assertNull(AssistantDesignCommands.findFloorTexture(textures, "concrete"));
+    // The names of the French catalog say nothing in English: the ids of the textures do
+    List<CatalogTexture> frenchTextures = new ArrayList<CatalogTexture>();
+    frenchTextures.add(new CatalogTexture("eTeks#lightBlueTile", "Carrelage bleu clair", null, 20, 20, null));
+    frenchTextures.add(new CatalogTexture("eTeks#wallBeigeTile", "Carrelage beige", null, 20, 20, null));
+    frenchTextures.add(new CatalogTexture("eTeks#oldWoodenFloor", "Vieux parquet", null, 20, 20, null));
+    frenchTextures.add(new CatalogTexture("eTeks#woodenFloor", "Parquet", null, 20, 20, null));
+    frenchTextures.add(new CatalogTexture("eTeks#greyTile", "Carrelage gris", null, 20, 20, null));
+    assertEquals("Parquet", AssistantDesignCommands.findFloorTexture(frenchTextures, "light wood parquet").getName());
+    assertEquals("Carrelage gris", AssistantDesignCommands.findFloorTexture(frenchTextures, "grey tiles concrete").getName());
+    assertNull("No wall tiles on a floor", AssistantDesignCommands.findFloorTexture(frenchTextures, "beige tiles"));
   }
 
   @Test

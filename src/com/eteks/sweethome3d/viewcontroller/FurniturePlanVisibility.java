@@ -84,6 +84,17 @@ public final class FurniturePlanVisibility {
   }
 
   /**
+   * Returns <code>true</code> if the plan draws <code>piece</code> with its picture seen from the
+   * top whatever the preference of the user: a slab or a piece made of parts has such a picture,
+   * and the icon of a catalog would show it in perspective in a white square.
+   */
+  public static boolean isDrawnFromTop(HomePieceOfFurniture piece) {
+    return piece.getPlanIcon() != null
+        && (piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY) != null
+            || piece.getProperty(AssistantShapeCommands.PARTS_PROPERTY) != null);
+  }
+
+  /**
    * Returns <code>true</code> if <code>piece</code> is a roof, which is above
    * the rooms even in the plan of its own level.
    */
