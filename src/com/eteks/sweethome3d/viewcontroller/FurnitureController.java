@@ -2045,7 +2045,8 @@ public class FurnitureController implements Controller {
         && (piece.getLevel() == null
             || piece.getLevel().isViewable())
         && (piece.getLevel() == selectedLevel
-            || piece.isAtLevel(selectedLevel));
+            || piece.isAtLevel(selectedLevel)
+               && FurniturePlanVisibility.getAtLevel(piece, selectedLevel) != FurniturePlanVisibility.HIDE);
   }
 
   /**

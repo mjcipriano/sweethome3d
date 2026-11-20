@@ -45,6 +45,7 @@ public class AssistantGeneratedModel {
   private final float   height;
   private String        flights;
   private String        cutOutShape;
+  private float []      bounds;
 
   /** Property of generated stairs describing their flights, for walk-through previews. */
   public static final String STAIRS_FLIGHTS_PROPERTY = "assistantStairsFlights";
@@ -82,6 +83,18 @@ public class AssistantGeneratedModel {
 
   public float getHeight() {
     return this.height;
+  }
+
+  /**
+   * Returns the bounds {minX, minUp, minFront, maxX, maxUp, maxFront} of the
+   * model in the frame it was built in, or <code>null</code> if they are unknown.
+   */
+  public float [] getBounds() {
+    return this.bounds;
+  }
+
+  void setBounds(float [] bounds) {
+    this.bounds = bounds;
   }
 
   /**

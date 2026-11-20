@@ -57,6 +57,27 @@ public class HomeMCPHandler {
   private volatile ImageProvider         imageProvider;
 
   /**
+   * Puts two pictures in one for this handler, which can't draw any itself.
+   */
+  public interface ImageComposer {
+    /**
+     * Returns a PNG image showing <code>reference</code> (a photo) beside
+     * <code>image</code>, or over it with the given opacity if <code>overlay</code>
+     * is <code>true</code>, or <code>null</code> if one of them can't be read.
+     */
+    byte [] compose(byte [] image, byte [] reference, boolean overlay, float opacity);
+  }
+
+  private ImageComposer imageComposer;
+
+  /**
+   * Sets the object that puts a rendered picture and a photo in one picture.
+   */
+  public void setImageComposer(ImageComposer imageComposer) {
+    this.imageComposer = imageComposer;
+  }
+
+  /**
    * Gives pictures of the home to this handler, which can't draw any itself.
    */
   public interface ImageProvider {
@@ -446,9 +467,14 @@ public class HomeMCPHandler {
     result.put("instructions",
         "Tools to read and edit the home open in Sweet Home 3D, an interior design application. "
         + "Call get_home first: it describes the levels, rooms, walls and furniture with the ids "
-        + "(F# furniture, W# walls, R# rooms) used by apply_commands. Ids stay bound to the items "
-        + "of the last get_home call, so call it again to get ids for items you added; an id whose item was deleted "
-        + "is reported as an error. In a large home get_home takes the filters level, type and name. "
+        + "(F# furniture, W# walls, R# rooms, L# levels) used by apply_commands. An id belongs to its item for good: "
+        + "it doesn't change when other items are added or deleted, the reply of a command names the ids of what it added, "
+        + "and an id whose item was deleted is reported as an error. In a large home get_home takes the filters level, type and name. "
+        + "To model a house without helper levels: add_roof with \"points\" builds one roof over any polygon with a hip or a gable "
+        + "at each edge (add_dormer, fit_walls_to_roof), add_slab a raised, sunken or sloped slab, set_terrain the ground, "
+        + "modify_wall, modify_level, delete_level and merge_levels change walls and levels, set_plan_visibility shows a roof "
+        + "as a dashed outline in the plans of the levels above, describe_item tells everything about one item, "
+        + "and \"where\" designates the items of a level, a tag, a name, a type or a box in any command. "
         + "Furniture can only be added by its exact catalog name: use search_catalog or "
         + "list_catalog to find one. To extend the house use add_rectangular_room (room and walls "
         + "at once) and auto_roof; modify_room renames or reshapes a room and hides its ceiling or its floor "
@@ -490,7 +516,8 @@ public class HomeMCPHandler {
   private static List<Object> getTools() {
     List<Object> tools = new ArrayList<Object>();
     Map<String, Object> homeProperties = new LinkedHashMap<String, Object>();
-    homeProperties.put("level", property("string", "Only the items of the level with this name"));
+    homeProperties.put("level", property("string",
+        "Only the items of the level with this id (L#), or of every level with this name"));
     homeProperties.put("type", property("string",
         "Only these items: rooms, walls, furniture (with doors and windows) or doors_and_windows; several separated by commas"));
     homeProperties.put("name", property("string",
@@ -498,7 +525,9 @@ public class HomeMCPHandler {
     tools.add(tool("get_home", "Describe home",
         "Returns a text description of the home open in Sweet Home 3D: levels, rooms with their "
         + "areas, walls, furniture with positions and sizes, and the current selection. Each "
-        + "item has an id (F# furniture, W# walls, R# rooms) to use with apply_commands. "
+        + "item has an id (F# furniture, W# walls, R# rooms, L# levels) to use with apply_commands, which it keeps "
+        + "whatever is added or deleted. Each level is listed with its height, its floor thickness and the count of "
+        + "its rooms, walls and furniture, EMPTY if it has none. "
         + "Lengths in the description are in meters; command coordinates are in centimeters. "
         + "A room whose ceiling or floor isn't drawn is marked \"ceiling hidden\" or \"floor hidden\". "
         + "In a large home, the optional filters return a part of it with the same ids: without filter, "
@@ -604,6 +633,15 @@ public class HomeMCPHandler {
         "low", "high"));
     image3DProperties.put("timeout", property("number",
         "Ray tracer: seconds after which it gives up and an error is returned (default: no limit, at most 3600)"));
+    image3DProperties.put("store_as", property("string",
+        "Name under which the view of this picture is kept in the points of view of the home, to draw the same view "
+        + "again after changes with point_of_view (before / after pictures). Needs the permission to change things"));
+    image3DProperties.put("compare_with", property("string",
+        "Absolute path of a photo (PNG or JPEG): the picture returned shows the home at the left and the photo at the right, "
+        + "to check roof lines and heights against it"));
+    image3DProperties.put("compare_mode", enumProperty(
+        "side_by_side (default), or overlay to draw the photo over the picture, stretched to its size", "side_by_side", "overlay"));
+    image3DProperties.put("compare_opacity", property("number", "Opacity of the photo drawn over the picture, from 0.05 to 0.95 (default 0.5)"));
     image3DProperties.put("save_to", property("string",
         "Absolute path of a .png file to write the picture to, at up to 4096 pixels; a smaller copy is returned. "
         + "Needs the permission to change things"));
@@ -844,18 +882,17 @@ public class HomeMCPHandler {
    * Returns the level of the home with the given name, or <code>null</code>.
    */
   private Level findLevel(String name) {
-    for (Level level : this.home.getLevels()) {
-      if (name.equalsIgnoreCase(level.getName())) {
-        return level;
-      }
-    }
-    return null;
+    // An id L#, or the first level with this name
+    HomeItemIds.ensureIds(this.home);
+    List<Level> levels = HomeItemIds.findLevels(this.home, name);
+    return levels.isEmpty() ? null : levels.get(0);
   }
 
   private String getLevelNames() {
     StringBuilder names = new StringBuilder();
     for (Level level : this.home.getLevels()) {
-      names.append(names.length() > 0 ? ", " : "").append('"').append(level.getName()).append('"');
+      names.append(names.length() > 0 ? ", " : "").append(HomeItemIds.getId(level)).append(" \"")
+          .append(level.getName()).append('"');
     }
     return names.length() > 0 ? names.toString() : "none, this home has a single floor";
   }
@@ -1100,11 +1137,72 @@ public class HomeMCPHandler {
         + "Seen from: " + viewDescription + ". "
         + (allLevels ? "All levels." : "Levels above "
             + (selectedLevel != null ? "\"" + selectedLevel.getName() + "\"" : "the selected one") + " left out.");
+    String storeAs = string(arguments, "store_as");
+    if (storeAs != null) {
+      // Kept in the points of view of the home, to draw the same view again after changes
+      if (!isEditingAllowed()) {
+        description += " The point of view wasn't stored: editing is disabled in Sweet Home 3D.";
+      } else {
+        Camera homeCamera = this.home.getCamera();
+        Camera storedCamera = (pose != null
+            ? (pose.isAerial() ? this.home.getTopCamera() : this.home.getObserverCamera()) : homeCamera).clone();
+        if (pose != null) {
+          storedCamera.setX(pose.getX());
+          storedCamera.setY(pose.getY());
+          storedCamera.setZ(pose.getZ());
+          storedCamera.setYaw(pose.getYaw());
+          storedCamera.setPitch(pose.getPitch());
+          if (pose.getFieldOfView() > 0) {
+            storedCamera.setFieldOfView(pose.getFieldOfView());
+          }
+        }
+        storedCamera.setName(storeAs);
+        List<Camera> storedCameras = new ArrayList<Camera>(this.home.getStoredCameras());
+        boolean replaced = false;
+        for (int i = storedCameras.size() - 1; i >= 0; i--) {
+          if (storeAs.equalsIgnoreCase(storedCameras.get(i).getName())) {
+            storedCameras.remove(i);
+            replaced = true;
+          }
+        }
+        storedCameras.add(storedCamera);
+        this.home.setStoredCameras(storedCameras);
+        description += " Point of view " + (replaced ? "replaced" : "stored") + " as \"" + storeAs
+            + "\": draw it again with \"point_of_view\":\"" + storeAs + "\".";
+      }
+    }
+    byte [] composedImage = null;
+    String compareWith = string(arguments, "compare_with");
+    if (compareWith != null) {
+      // The picture beside a photo, or under it, to check the home against it
+      java.io.File photo = new java.io.File(compareWith.startsWith("~/")
+          ? System.getProperty("user.home") + compareWith.substring(1) : compareWith);
+      String mode = string(arguments, "compare_mode");
+      boolean overlay = mode != null && (mode.toLowerCase().startsWith("over") || mode.toLowerCase().equals("blend"));
+      if (!photo.isAbsolute() || !photo.isFile()) {
+        return toolResult("\"compare_with\" must be the absolute path of a PNG or JPEG file: no file " + compareWith + ".", true);
+      } else if (this.imageComposer == null) {
+        return toolResult("Pictures can't be compared here.", true);
+      }
+      try {
+        composedImage = this.imageComposer.compose(image.getImage(),
+            AssistantGeneratedModel.readFile(photo, 30L * 1024 * 1024), overlay,
+            (float)Math.max(0.05, Math.min(0.95, number(arguments, "compare_opacity", 0.5))));
+      } catch (java.io.IOException ex) {
+        return toolResult("Couldn't read " + compareWith + ": " + ex.getMessage(), true);
+      }
+      if (composedImage == null) {
+        return toolResult(compareWith + " isn't a PNG or JPEG image that can be read.", true);
+      }
+      description += overlay
+          ? " The photo " + photo.getName() + " is drawn over the picture, stretched to its size."
+          : " Left: the home. Right: the photo " + photo.getName() + ".";
+    }
     if (savedFile != null) {
       try {
         java.io.OutputStream out = new java.io.FileOutputStream(savedFile);
         try {
-          out.write(image.getImage());
+          out.write(composedImage != null ? composedImage : image.getImage());
         } finally {
           out.close();
         }
@@ -1113,8 +1211,8 @@ public class HomeMCPHandler {
       }
       description = "Saved to " + savedFile.getAbsolutePath() + ". " + description;
     }
-    Map<String, Object> result = imageResult(savedFile != null && image.getPreview() != null
-        ? image.getPreview() : image.getImage());
+    Map<String, Object> result = imageResult(composedImage != null ? composedImage
+        : savedFile != null && image.getPreview() != null ? image.getPreview() : image.getImage());
     ((List<Object>)result.get("content")).add(textContent(description));
     return result;
   }

@@ -151,7 +151,7 @@ public class HomeDiagnostics {
         continue;
       }
       if (wall.getLength() < TINY_WALL_LENGTH) {
-        issues.add(new Issue(Type.TINY_WALL, "W" + (i + 1) + " is shorter than "
+        issues.add(new Issue(Type.TINY_WALL, id(walls.get(i), "W", i) + " is shorter than "
             + Math.round(TINY_WALL_LENGTH) + " cm", wall, null));
         continue;
       }
@@ -162,7 +162,7 @@ public class HomeDiagnostics {
                     && near(wall.getXEnd(), wall.getYEnd(), other.getXEnd(), other.getYEnd(), 1)
                 || near(wall.getXStart(), wall.getYStart(), other.getXEnd(), other.getYEnd(), 1)
                     && near(wall.getXEnd(), wall.getYEnd(), other.getXStart(), other.getYStart(), 1))) {
-          issues.add(new Issue(Type.DUPLICATE_WALL, "W" + (i + 1) + " is drawn over W" + (j + 1),
+          issues.add(new Issue(Type.DUPLICATE_WALL, id(walls.get(i), "W", i) + " is drawn over " + id(walls.get(j), "W", j),
               wall, other));
           break;
         }
@@ -205,7 +205,7 @@ public class HomeDiagnostics {
           }
         }
         if (closest != null) {
-          issues.add(new Issue(Type.WALL_GAP, "W" + (i + 1) + " and W" + (closestIndex + 1)
+          issues.add(new Issue(Type.WALL_GAP, id(walls.get(i), "W", i) + " and " + id(walls.get(closestIndex), "W", closestIndex)
               + (closestDistance < 0.01f
                   ? " meet but aren't joined"
                   : " end " + format(closestDistance) + " cm apart without being joined"),
@@ -223,16 +223,16 @@ public class HomeDiagnostics {
         continue;
       }
       if (room.getPointCount() < 3 || room.getArea() < 1) {
-        issues.add(new Issue(Type.EMPTY_ROOM, "R" + (i + 1) + " has no area", room, null));
+        issues.add(new Issue(Type.EMPTY_ROOM, id(rooms.get(i), "R", i) + " has no area", room, null));
       } else {
         if (isClosedOff(home, room)) {
-          issues.add(new Issue(Type.ROOM_WITHOUT_DOOR, "R" + (i + 1)
+          issues.add(new Issue(Type.ROOM_WITHOUT_DOOR, id(rooms.get(i), "R", i)
               + (room.getName() != null && room.getName().trim().length() > 0 ? " \"" + room.getName() + "\"" : "")
               + " has walls on every side and no door: nobody can enter it", room, null));
         }
         if (room.getName() == null || room.getName().trim().length() == 0) {
           if (++unnamedCount <= MAX_ISSUES_PER_TYPE) {
-            issues.add(new Issue(Type.UNNAMED_ROOM, "R" + (i + 1) + " has no name", room, null));
+            issues.add(new Issue(Type.UNNAMED_ROOM, id(rooms.get(i), "R", i) + " has no name", room, null));
           }
         }
       }
@@ -291,9 +291,12 @@ public class HomeDiagnostics {
       if (!home.getFurniture().contains(piece) || piece instanceof HomeFurnitureGroup) {
         continue;
       }
-      String id = "F" + (i + 1) + " \"" + (piece.getName() != null ? piece.getName() : "Unnamed") + "\"";
+      String id = id(furniture.get(i), "F", i) + " \"" + (piece.getName() != null ? piece.getName() : "Unnamed") + "\"";
       Level level = piece.getLevel();
+      boolean structure = piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY) != null;
       if (piece.getElevation() < -0.5f) {
+        // A piece put under the floor on purpose (a sunken slab, the ground around a house) is no defect
+        if (!structure && !"true".equals(piece.getProperty(AssistantCommandExecutor.BELOW_FLOOR_PROPERTY)))
         add(issues, counts, new Issue(Type.FURNITURE_BELOW_FLOOR, id + " is "
             + format(-piece.getElevation()) + " cm under the floor", piece, null));
       } else {
@@ -301,6 +304,7 @@ public class HomeDiagnostics {
         if (!piece.isDoorOrWindow() && ceiling > 0
             && piece.getElevation() + piece.getHeight() > ceiling + 5
             && !"true".equals(piece.getProperty(AssistantCommandExecutor.AUTO_ROOF_PROPERTY))
+            && !structure
             // Stairs go through the ceiling to the next level
             && piece.getStaircaseCutOutShape() == null) {
           add(issues, counts, new Issue(Type.FURNITURE_ABOVE_CEILING, id + " reaches "
@@ -317,8 +321,8 @@ public class HomeDiagnostics {
           }
         } else if (getDistanceToWall(piece.getX(), piece.getY(), wall)
             > wall.getThickness() / 2 + piece.getDepth() / 2 + 5) {
-          add(issues, counts, new Issue(Type.DOOR_OFF_WALL, id + " isn't in a wall; the closest is W"
-              + (walls.indexOf(wall) + 1) + ", " + format(getDistanceToWall(piece.getX(), piece.getY(), wall))
+          add(issues, counts, new Issue(Type.DOOR_OFF_WALL, id + " isn't in a wall; the closest is "
+              + id(wall, "W", walls.indexOf(wall)) + ", " + format(getDistanceToWall(piece.getX(), piece.getY(), wall))
               + " cm away", piece, wall));
         }
       } else {
@@ -332,7 +336,7 @@ public class HomeDiagnostics {
               && Math.abs(piece.getWidth() - other.getWidth()) < 0.5f
               && Math.abs(piece.getDepth() - other.getDepth()) < 0.5f
               && (piece.getName() == null ? other.getName() == null : piece.getName().equals(other.getName()))) {
-            add(issues, counts, new Issue(Type.DUPLICATE_FURNITURE, id + " is a copy of F" + (j + 1)
+            add(issues, counts, new Issue(Type.DUPLICATE_FURNITURE, id + " is a copy of " + id(other, "F", j)
                 + " at the same place", piece, other));
             break;
           }
@@ -363,6 +367,14 @@ public class HomeDiagnostics {
         }
       }
     }
+  }
+
+  /**
+   * Returns the id of <code>item</code>, or the one of its place in the home if it has none.
+   */
+  private static String id(Object item, String type, int index) {
+    String id = HomeItemIds.getId(item);
+    return id != null ? id : type + (index + 1);
   }
 
   private static void add(List<Issue> issues, int [] counts, Issue issue) {

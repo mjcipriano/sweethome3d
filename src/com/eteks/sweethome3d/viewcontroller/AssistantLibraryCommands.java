@@ -117,11 +117,12 @@ class AssistantLibraryCommands {
     Object parts = command.getParameters().get("parts");
     List<String> partNotes = new ArrayList<String>();
     AssistantGeneratedModel model = AssistantFurnitureBuilder.build(
-        parts instanceof List ? (List<?>)parts : null, partNotes);
+        parts instanceof List ? (List<?>)parts : null, partNotes, this.executor.getShapeCommands().getTextureFinder());
     double x = command.getDouble("x", Double.NaN);
     double y = command.getDouble("y", Double.NaN);
-    double elevation = command.getDouble("elevation",
-        Math.max(0, AssistantFurnitureBuilder.getLowestPoint(parts instanceof List ? (List<?>)parts : null)));
+    // A part under the height 0 puts the piece under the floor of its level
+    float lowestPoint = model.getBounds() != null ? model.getBounds() [1] : 0;
+    double elevation = command.getDouble("elevation", Math.abs(lowestPoint) < 0.01f ? 0 : lowestPoint);
     if (!AssistantCommandExecutor.sizeSane(model.getWidth()) || !AssistantCommandExecutor.sizeSane(model.getDepth())
         || !AssistantCommandExecutor.sizeSane(model.getHeight()) || !AssistantCommandExecutor.coordinateSane(x)
         || !AssistantCommandExecutor.coordinateSane(y) || !AssistantCommandExecutor.sizeSane(elevation)) {
@@ -157,6 +158,14 @@ class AssistantLibraryCommands {
       }
       piece.setAngle((float)Math.toRadians(command.getDouble("angle", 0)));
       piece.setElevation((float)elevation);
+      if (elevation < 0) {
+        piece.setProperty(AssistantCommandExecutor.BELOW_FLOOR_PROPERTY, "true");
+      }
+      // Kept to change the parts later
+      piece.setProperty(AssistantShapeCommands.PARTS_PROPERTY, AssistantShapeCommands.toJson(parts));
+      if (model.getBounds() != null) {
+        piece.setProperty(AssistantShapeCommands.PARTS_BOUNDS_PROPERTY, AssistantShapeCommands.formatBounds(model.getBounds()));
+      }
       piece.setLevel(this.home.getSelectedLevel());
       List<String> tags = command.getStringList("tags");
       if (!tags.isEmpty()) {

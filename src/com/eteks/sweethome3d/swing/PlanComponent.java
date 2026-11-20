@@ -205,6 +205,7 @@ import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.model.Wall;
 import com.eteks.sweethome3d.tools.OperatingSystem;
 import com.eteks.sweethome3d.viewcontroller.Object3DFactory;
+import com.eteks.sweethome3d.viewcontroller.FurniturePlanVisibility;
 import com.eteks.sweethome3d.viewcontroller.PlanController;
 import com.eteks.sweethome3d.viewcontroller.PlanView;
 import com.eteks.sweethome3d.viewcontroller.View;
@@ -310,6 +311,7 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
   private KeyEventPostProcessor             windowsAltPostProcessor;
 
   private List<HomePieceOfFurniture>        sortedLevelFurniture;
+  private boolean                           iconsLoadedBeforePainting;
   private List<Room>                        sortedLevelRooms;
   private Map<TextStyle, Font>              fonts;
   private Map<TextStyle, FontMetrics>       fontsMetrics;
@@ -3065,7 +3067,26 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
     paintWalls(g2D, selectedItems, level, planScale, backgroundColor, foregroundColor, paintMode);
 
     checkCurrentThreadIsntInterrupted(paintMode);
-    paintFurniture(g2D, this.sortedLevelFurniture, selectedItems, level,
+    // The pieces of lower levels may be outlined or hidden at this level
+    List<HomePieceOfFurniture> drawnFurniture = this.sortedLevelFurniture;
+    List<HomePieceOfFurniture> namedFurniture = this.sortedLevelFurniture;
+    for (HomePieceOfFurniture piece : this.sortedLevelFurniture) {
+      if (FurniturePlanVisibility.getAtLevel(piece, level) != FurniturePlanVisibility.DRAW) {
+        drawnFurniture = new ArrayList<HomePieceOfFurniture>();
+        namedFurniture = new ArrayList<HomePieceOfFurniture>();
+        for (HomePieceOfFurniture levelPiece : this.sortedLevelFurniture) {
+          String visibility = FurniturePlanVisibility.getAtLevel(levelPiece, level);
+          if (visibility != FurniturePlanVisibility.HIDE) {
+            drawnFurniture.add(levelPiece);
+          }
+          if (visibility == FurniturePlanVisibility.DRAW) {
+            namedFurniture.add(levelPiece);
+          }
+        }
+        break;
+      }
+    }
+    paintFurniture(g2D, drawnFurniture, selectedItems, level,
         planScale, backgroundColor, foregroundColor, getFurnitureOutlineColor(), paintMode, true);
 
     checkCurrentThreadIsntInterrupted(paintMode);
@@ -3082,7 +3103,7 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
     paintRoomsNameAndArea(g2D, selectedItems, planScale, foregroundColor, paintMode);
 
     checkCurrentThreadIsntInterrupted(paintMode);
-    paintFurnitureName(g2D, this.sortedLevelFurniture, selectedItems, planScale, foregroundColor, paintMode);
+    paintFurnitureName(g2D, namedFurniture, selectedItems, planScale, foregroundColor, paintMode);
 
     checkCurrentThreadIsntInterrupted(paintMode);
     paintLabels(g2D, this.home.getLabels(), selectedItems, level,
@@ -3855,6 +3876,15 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
   }
 
   /**
+   * Sets whether the icons of furniture are loaded before they are painted,
+   * instead of showing a waiting icon while they are loaded in the background.
+   * Useful for a plan painted once in an image.
+   */
+  public void setIconsLoadedBeforePainting(boolean iconsLoadedBeforePainting) {
+    this.iconsLoadedBeforePainting = iconsLoadedBeforePainting;
+  }
+
+  /**
    * Returns <code>true</code> if the given item can be viewed in the plan at a level.
    */
   protected boolean isViewableAtLevel(Elevatable item, Level level) {
@@ -4050,6 +4080,16 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
                     : emptyList, level,
                 planScale, backgroundColor, foregroundColor,
                 furnitureOutlineColor, paintMode, paintIcon);
+          } else if (paintIcon
+                     && FurniturePlanVisibility.getAtLevel(piece, level) == FurniturePlanVisibility.OUTLINE) {
+            // A piece of a level below shown as a thin dashed outline, like a roof above a plan
+            g2D.setPaint(foregroundColor);
+            g2D.setStroke(new BasicStroke(1f / planScale, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10,
+                new float [] {8 / planScale, 5 / planScale}, 0));
+            g2D.draw(ShapeTools.getShape(piece.getPoints(), true, null));
+          } else if (paintIcon
+                     && FurniturePlanVisibility.getAtLevel(piece, level) == FurniturePlanVisibility.HIDE) {
+            // Not drawn at this level
           } else if (paintMode != PaintMode.CLIPBOARD
                     || selectedPiece) {
             // In clipboard paint mode, paint piece only if it is selected
@@ -4422,7 +4462,7 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
                                          Color backgroundColor, PaintMode paintMode) {
     // Get piece icon
     Icon icon = IconManager.getInstance().getIcon(piece.getIcon(), 128,
-        paintMode == PaintMode.PAINT ? this : null);
+        paintMode == PaintMode.PAINT && !this.iconsLoadedBeforePainting ? this : null);
     paintPieceOfFurnitureIcon(g2D, piece, icon, pieceShape2D, planScale, backgroundColor);
   }
 
@@ -4481,8 +4521,8 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
       icon = this.furnitureTopViewIconsCache.get(topViewIconKey);
       if (icon == null
           || icon.isWaitIcon()
-             && paintMode != PaintMode.PAINT) {
-        PlanComponent waitingComponent = paintMode == PaintMode.PAINT ? this : null;
+             && (paintMode != PaintMode.PAINT || this.iconsLoadedBeforePainting)) {
+        PlanComponent waitingComponent = paintMode == PaintMode.PAINT && !this.iconsLoadedBeforePainting ? this : null;
         // Prefer use plan icon if it exists
         if (piece.getPlanIcon() != null) {
           icon = new PieceOfFurniturePlanIcon(piece, waitingComponent);

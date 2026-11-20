@@ -5281,6 +5281,11 @@ public class HomePane extends JRootPane implements HomeView {
             return describe3DRenderers();
           }
         });
+      this.mcpHandler.setImageComposer(new HomeMCPHandler.ImageComposer() {
+          public byte [] compose(byte [] image, byte [] reference, boolean overlay, float opacity) {
+            return composeImages(image, reference, overlay, opacity);
+          }
+        });
       this.mcpHandler.setModelSizeProvider(new AssistantModelSizeProvider());
       this.mcpHandler.setSceneExporter(new HomeMCPHandler.SceneExporter() {
           public String exportForBlender(File folder) throws Exception {
@@ -5489,6 +5494,8 @@ public class HomePane extends JRootPane implements HomeView {
       List<Selectable> emptySelection = Collections.emptyList();
       drawnHome.setSelectedItems(emptySelection);
       PlanComponent plan = new PlanComponent(drawnHome, this.preferences, null);
+      // The plan is painted once: icons loaded in the background would show as clocks
+      plan.setIconsLoadedBeforePainting(true);
       // Dark lines on a white background, whatever the theme
       plan.setOpaque(true);
       plan.setBackground(Color.WHITE);
@@ -5533,6 +5540,52 @@ public class HomePane extends JRootPane implements HomeView {
       g2D.dispose();
       ByteArrayOutputStream out = new ByteArrayOutputStream();
       ImageIO.write(image, "png", out);
+      return out.toByteArray();
+    } catch (IOException ex) {
+      return null;
+    } catch (RuntimeException ex) {
+      return null;
+    }
+  }
+
+  /**
+   * Returns a PNG image showing <code>reference</code> at the right of <code>image</code>
+   * at the same height, or over it with the given opacity, or <code>null</code>
+   * if one of them can't be read.
+   */
+  static byte [] composeImages(byte [] image, byte [] reference, boolean overlay, float opacity) {
+    try {
+      BufferedImage renderedImage = ImageIO.read(new java.io.ByteArrayInputStream(image));
+      BufferedImage referenceImage = ImageIO.read(new java.io.ByteArrayInputStream(reference));
+      if (renderedImage == null || referenceImage == null
+          || referenceImage.getWidth() < 1 || referenceImage.getHeight() < 1) {
+        return null;
+      }
+      int width = renderedImage.getWidth();
+      int height = renderedImage.getHeight();
+      BufferedImage composedImage;
+      Graphics2D g2D;
+      if (overlay) {
+        composedImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        g2D = composedImage.createGraphics();
+        g2D.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g2D.drawImage(renderedImage, 0, 0, null);
+        g2D.setComposite(java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite.SRC_OVER, opacity));
+        g2D.drawImage(referenceImage, 0, 0, width, height, null);
+      } else {
+        int referenceWidth = Math.max(1, Math.min(4 * width,
+            Math.round((float)referenceImage.getWidth() * height / referenceImage.getHeight())));
+        composedImage = new BufferedImage(width + 4 + referenceWidth, height, BufferedImage.TYPE_INT_RGB);
+        g2D = composedImage.createGraphics();
+        g2D.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g2D.setColor(Color.WHITE);
+        g2D.fillRect(0, 0, composedImage.getWidth(), height);
+        g2D.drawImage(renderedImage, 0, 0, null);
+        g2D.drawImage(referenceImage, width + 4, 0, referenceWidth, height, null);
+      }
+      g2D.dispose();
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      ImageIO.write(composedImage, "png", out);
       return out.toByteArray();
     } catch (IOException ex) {
       return null;
