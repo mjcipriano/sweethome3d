@@ -633,8 +633,23 @@ class AssistantShapeCommands {
         }
       }
       if (!oldTerrains.isEmpty()) {
+        // A deleted piece has no level any more
+        List<Level> oldLevels = new ArrayList<Level>();
+        for (Selectable oldTerrain : oldTerrains) {
+          oldLevels.add(((HomePieceOfFurniture)oldTerrain).getLevel());
+        }
         this.homeController.getPlanController().deleteItems(oldTerrains);
         replaced = oldTerrains.size();
+        // A level that was added for the ground replaced and holds nothing else isn't kept
+        for (Level oldLevel : oldLevels) {
+          if (oldLevel != null && oldLevel != level && oldLevel.getElevation() < 0
+              && "Terrain".equals(oldLevel.getName())
+              && this.home.getLevels().contains(oldLevel)
+              && this.home.getLevels().size() > 2
+              && this.executor.getStructureCommands().getContents(oldLevel).isEmpty()) {
+            this.executor.getStructureCommands().delete(oldLevel);
+          }
+        }
       }
     }
     add(terrain);
@@ -776,16 +791,7 @@ class AssistantShapeCommands {
         continue;
       }
       if (!spec.equals(this.terrainSpec)) {
-        List<float []> points = new ArrayList<float []>();
-        try {
-          Object parsed = JSONParser.parse(spec);
-          if (parsed instanceof List) {
-            points = AssistantFurnitureBuilder.getPoints(Collections.singletonMap("points", parsed), "points", 3);
-          }
-        } catch (IllegalArgumentException ex) {
-          // No points
-        }
-        this.terrainTriangles = triangulate(points);
+        this.terrainTriangles = HomeTerrain.getTriangles(spec);
         this.terrainSpec = spec;
       }
       for (float [][] triangle : this.terrainTriangles) {

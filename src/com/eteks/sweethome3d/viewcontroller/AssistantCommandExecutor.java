@@ -1308,6 +1308,8 @@ public class AssistantCommandExecutor {
     private com.eteks.sweethome3d.model.Baseboard leftBaseboard, rightBaseboard;
     // Furniture properties the assistant changes
     private String    planVisibility;
+    private String    outdoor;
+    private String    belowFloor;
     // Room
     private float [][] points;
     private boolean    floorVisible, ceilingVisible, areaVisible;
@@ -1344,6 +1346,8 @@ public class AssistantCommandExecutor {
         state.name = piece.getName();
         state.lowPoly = piece.getProperty(ModelLOD.LOW_POLY_PROPERTY);
         state.planVisibility = piece.getProperty(FurniturePlanVisibility.PROPERTY);
+        state.outdoor = piece.getProperty(OUTDOOR_PROPERTY);
+        state.belowFloor = piece.getProperty(BELOW_FLOOR_PROPERTY);
         state.texture1 = piece.getTexture();
         state.level = piece.getLevel();
       } else if (item instanceof Wall) {
@@ -1440,6 +1444,12 @@ public class AssistantCommandExecutor {
         }
         if (!same(piece.getProperty(FurniturePlanVisibility.PROPERTY), this.planVisibility)) {
           piece.setProperty(FurniturePlanVisibility.PROPERTY, this.planVisibility);
+        }
+        if (!same(piece.getProperty(OUTDOOR_PROPERTY), this.outdoor)) {
+          piece.setProperty(OUTDOOR_PROPERTY, this.outdoor);
+        }
+        if (!same(piece.getProperty(BELOW_FLOOR_PROPERTY), this.belowFloor)) {
+          piece.setProperty(BELOW_FLOOR_PROPERTY, this.belowFloor);
         }
         if (piece.isTexturable() && piece.getTexture() != this.texture1) {
           piece.setTexture(this.texture1);

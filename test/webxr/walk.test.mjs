@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import {buildColliders, move, isBlocked, nextLevel, startLevel, standAt, MAX_STEP} from '../../pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-walk.js';
+import {buildColliders, move, isBlocked, nextLevel, startLevel, standAt, groundHeightAt, MAX_STEP} from '../../pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-walk.js';
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 // A wall along x from 0 to 4 m at z = 2, 10 cm thick, with a 0.9 m door centered at x = 2
 const scene = {
@@ -164,5 +164,24 @@ assert.deepStrictEqual(climbed, {level: 1, height: 0}, 'L stairs lead upstairs')
   // The bottom step isn't a way up to the top one, which is above it
   const low = standAt(spiral, {level: 0, height: 0}, ...at(0, radius * 0.75));
   assert.ok(low && low.height < 0.5, 'bottom step under the top one: ' + (low && low.height));
+}
+{
+  // The ground built by set_terrain: a slope of 5 % along x, on a level of its own under the house
+  const site = {levels: [{name: 'Terrain', elevation: -1.7, height: 1.69, floor: false},
+                         {name: 'Ground', elevation: 0, height: 2.5, floor: true},
+                         {name: 'First', elevation: 2.6, height: 2.5, floor: true}],
+                rooms: [{level: 1, points: [[0, 0], [6, 0], [6, 4], [0, 4]]}],
+                terrain: [[-20, -20, 1, 20, -20, -1, 20, 20, -1], [-20, -20, 1, 20, 20, -1, -20, 20, 1]],
+                stairs: []};
+  assert.strictEqual(groundHeightAt(site, 1, 3, 2), null, 'no ground in a room');
+  assert.strictEqual(groundHeightAt(site, 2, 10, 10), null, 'nor from the floor above');
+  assert.ok(Math.abs(groundHeightAt(site, 1, 10, 10) - -0.5) < 1e-9);
+  assert.deepStrictEqual(standAt(site, {level: 1, height: 0}, 3, 2), {level: 1, height: 0}, 'on the floor of the room');
+  const down = standAt(site, {level: 1, height: -0.45}, 10, 10);
+  assert.ok(down && Math.abs(down.height - -0.5) < 1e-9, 'down the slope');
+  const up = standAt(site, {level: 1, height: 0.7}, -14, 0);
+  assert.ok(up && Math.abs(up.height - 0.7) < 1e-9, 'up the slope, higher than a step above the floor');
+  assert.strictEqual(standAt(site, {level: 1, height: 0}, -14, 0), null, 'a bank higher than a step stops the visitor');
+  assert.ok(Math.abs(standAt(site, 1, 10, 10).height - -0.5) < 1e-9, 'someone who arrives is put on the ground');
 }
 console.log('walk tests OK');

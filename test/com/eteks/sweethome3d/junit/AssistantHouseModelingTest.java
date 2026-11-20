@@ -50,6 +50,7 @@ import com.eteks.sweethome3d.viewcontroller.FurniturePlanVisibility;
 import com.eteks.sweethome3d.viewcontroller.HomeAssistantContext;
 import com.eteks.sweethome3d.viewcontroller.HomeController;
 import com.eteks.sweethome3d.viewcontroller.HomeItemIds;
+import com.eteks.sweethome3d.viewcontroller.HomeReport;
 
 /**
  * Tests the commands that model a whole house: ids that don't change, levels,
@@ -346,6 +347,14 @@ public class AssistantHouseModelingTest {
     run("{\"action\":\"add_furniture\",\"name\":\"Desk\",\"x\":500,\"y\":1000}");
     run("{\"action\":\"set_elevation\",\"id\":\"" + HomeItemIds.getId(getPiece("Desk")) + "\",\"on_terrain\":true}");
     assertEquals(200, getPiece("Desk").getElevation(), 0.5f);
+    // Undo takes the piece off the ground, and redo puts it back, with what tells it stands outdoors
+    assertEquals("true", getPiece("Desk").getProperty(AssistantCommandExecutor.OUTDOOR_PROPERTY));
+    this.homeController.undo();
+    assertEquals(0, getPiece("Desk").getElevation(), 0.5f);
+    assertNull(getPiece("Desk").getProperty(AssistantCommandExecutor.OUTDOOR_PROPERTY));
+    this.homeController.redo();
+    assertEquals(200, getPiece("Desk").getElevation(), 0.5f);
+    assertEquals("true", getPiece("Desk").getProperty(AssistantCommandExecutor.OUTDOOR_PROPERTY));
     // A second ground replaces the first one
     run("{\"action\":\"set_terrain\",\"grid\":{\"x\":0,\"y\":0,\"width\":1000,\"depth\":1000,\"heights\":[[0,0,0],[50,60,50],[100,100,100]]}}");
     int terrains = 0;
@@ -360,6 +369,7 @@ public class AssistantHouseModelingTest {
     assertTrue(summary, summary.contains("left open under 1 room"));
     summary = run("{\"action\":\"set_terrain\",\"points\":[[-1000,-1000,-200],[2000,-1000,-200],[2000,2000,-200],[-1000,2000,-200]]}");
     assertFalse(summary, summary.contains("left open"));
+    assertEquals("The level of the higher ground isn't kept empty", 2, this.home.getLevels().size());
     run("{\"action\":\"set_terrain\",\"points\":[[-1000,-1000,0],[2000,-1000,0],[2000,2000,300],[-1000,2000,300]]}");
     summary = run("{\"action\":\"check_home\"}");
     assertFalse(summary, summary.contains("Terrain"));
@@ -372,6 +382,18 @@ public class AssistantHouseModelingTest {
     summary = run("{\"action\":\"check_home\"}");
     assertFalse(summary, summary.contains("Chimney"));
     assertTrue(summary, summary.contains("Kite"));
+    // The ground is described to the walk-through and the game mode by its triangles
+    String scene = com.eteks.sweethome3d.plugin.webxr.WebXRSceneDescription.toJSON(this.home);
+    assertTrue(scene, scene.contains("\"terrain\":[[-10.0000,-10.0000,0.0000,"));
+    // An elevation draws the faces of the chimney and the ground rather than their boxes
+    String elevation = com.eteks.sweethome3d.viewcontroller.ElevationDrawing.createSVG(this.home, "south", 0);
+    assertTrue(elevation, elevation.contains("<polygon points="));
+    assertTrue(elevation, elevation.contains("clip-path=\"url(#site)\""));
+    // The report lists the ground and the chimney with the building, not with the furniture
+    String report = HomeReport.describe(this.home);
+    assertTrue(report, report.indexOf("1 x Kite") < report.indexOf("Building and site"));
+    assertTrue(report, report.indexOf("1 x Chimney") > report.indexOf("Building and site"));
+    assertTrue(report, report.indexOf("1 x Terrain") > report.indexOf("Building and site"));
     // A piece given an elevation again is checked like any other
     run("{\"action\":\"set_elevation\",\"id\":\"" + HomeItemIds.getId(getPiece("Desk")) + "\",\"elevation\":400}");
     summary = run("{\"action\":\"check_home\"}");

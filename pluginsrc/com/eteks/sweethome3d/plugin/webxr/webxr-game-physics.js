@@ -3,7 +3,7 @@
 // is a set of boxes (walls cut by their doors and windows, door and window
 // panels, furniture), of floors (the rooms of each level) and of stairs.
 // Kept free of three.js, so it can be tested with Node.js.
-import {stairHeightAt} from './webxr-walk.js';
+import {stairHeightAt, terrainHeightAt} from './webxr-walk.js';
 
 export const PLAYER_RADIUS = 0.22;
 export const PLAYER_HEIGHT = 1.75;
@@ -97,6 +97,11 @@ export function createWorld(scene) {
   const world = {scene, levels, solids: [], panels: [], floors: [], stairs: [], broken: new Set(),
                  base: Math.min(0, ...levels.filter(level => level.floor !== false).map(level => level.elevation)),
                  lowest: Math.min(0, ...levels.map(level => level.elevation))};
+  // Where there is no ground built by set_terrain, the land is flat at this height
+  world.flat = world.base;
+  for (const triangle of scene.terrain || []) {
+    world.base = Math.min(world.base, triangle[2], triangle[5], triangle[8]);
+  }
   const openings = (scene.openings || []).map(opening => ({...opening, panel: null}));
   for (const wall of scene.walls || []) {
     const level = levels[wall.level];
@@ -213,8 +218,14 @@ function inStairHole(world, levelIndex, x, z) {
  * top that isn't more than a step above his feet.
  */
 export function groundAt(world, x, z, feet) {
-  let ground = world.base;
   const reach = feet + STEP_HEIGHT;
+  let ground = world.flat <= reach ? world.flat : world.base;
+  const terrain = terrainHeightAt(world.scene, x, z);
+  if (terrain !== null
+      // The ground is open under the rooms it reaches
+      && !world.floors.some(floor => floor.y <= terrain + 0.3 && pointInPolygon(floor.points, x, z))) {
+    ground = terrain <= reach ? terrain : world.base;
+  }
   for (const floor of world.floors) {
     if (floor.y > ground && floor.y <= reach && pointInPolygon(floor.points, x, z)
         && !inStairHole(world, floor.level, x, z)) {

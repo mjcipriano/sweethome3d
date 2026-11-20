@@ -34,6 +34,14 @@ const withTerrainLevel = createWorld({...scene, levels: [{name: 'Terrain', eleva
     walls: [], openings: [], furniture: [], rooms: [], stairs: []});
 assert.strictEqual(withTerrainLevel.base, 0, 'a level without room under the house is no basement to walk in');
 assert.strictEqual(withTerrainLevel.lowest, -1.7);
+// A ground that slopes from 1 m at x = -10 to -1 m at x = 30, with the room of the scene on it
+const sloped = createWorld({...scene, walls: [], openings: [], furniture: [], stairs: [],
+    terrain: [[-10, -10, 1, 30, -10, -1, 30, 20, -1], [-10, -10, 1, 30, 20, -1, -10, 20, 1]]});
+assert.strictEqual(sloped.base, -1);
+assert.ok(Math.abs(groundAt(sloped, 20, 10, 5) - -0.5) < 1e-6, 'the height of the ground down the slope');
+assert.ok(Math.abs(groundAt(sloped, -5, 10, 5) - 0.75) < 1e-6, 'and up the slope');
+assert.strictEqual(groundAt(sloped, 3, 2, 0.1), 0, 'the floor of a room, not the ground it is open under');
+assert.strictEqual(groundAt(sloped, 100, 100, 5), 0, 'flat land beyond the ground');
 assert.strictEqual(createWorld({...scene, levels: [{name: 'Basement', elevation: -2.5, height: 2.4, floor: true}, ...scene.levels],
     walls: [], openings: [], furniture: [], rooms: [], stairs: []}).base, -2.5);
 assert.strictEqual(world.solids.filter(solid => solid.kind === 'wall' && solid.key === 'south').length, 3,

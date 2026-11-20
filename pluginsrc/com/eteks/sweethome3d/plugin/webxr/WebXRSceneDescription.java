@@ -23,6 +23,7 @@ import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Wall;
 import com.eteks.sweethome3d.viewcontroller.AssistantCommandExecutor;
 import com.eteks.sweethome3d.viewcontroller.AssistantGeneratedModel;
+import com.eteks.sweethome3d.viewcontroller.HomeTerrain;
 
 /**
  * Describes what the WebXR viewer needs to let a visitor walk in a home as in
@@ -187,6 +188,19 @@ public class WebXRSceneDescription {
             .append(meters(points [i][1])).append(']');
       }
       json.append("]}");
+    }
+
+    // The ground built by set_terrain: triangles the visitor walks on
+    json.append("],\"terrain\":[");
+    first = true;
+    for (float [][] triangle : HomeTerrain.getTriangles(home)) {
+      json.append(first ? "" : ",").append('[');
+      first = false;
+      for (int i = 0; i < 3; i++) {
+        json.append(i > 0 ? "," : "").append(meters(triangle [i][0])).append(',')
+            .append(meters(triangle [i][1])).append(',').append(meters(triangle [i][2]));
+      }
+      json.append(']');
     }
 
     // Stairs the visitor can climb: the ones which describe their flights

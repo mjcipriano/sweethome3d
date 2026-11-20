@@ -257,6 +257,65 @@ function stairTop(scene, stair) {
 }
 
 /**
+ * Returns the height of the ground built by set_terrain at (x, z), in the
+ * meters of the scene, or null if no ground covers this point.
+ */
+export function terrainHeightAt(scene, x, z) {
+  for (const t of scene.terrain || []) {
+    const determinant = (t[4] - t[7]) * (t[0] - t[6]) + (t[6] - t[3]) * (t[1] - t[7]);
+    if (Math.abs(determinant) < 1e-12) {
+      continue;
+    }
+    const w1 = ((t[4] - t[7]) * (x - t[6]) + (t[6] - t[3]) * (z - t[7])) / determinant;
+    const w2 = ((t[7] - t[1]) * (x - t[6]) + (t[0] - t[6]) * (z - t[7])) / determinant;
+    const w3 = 1 - w1 - w2;
+    if (w1 >= -1e-6 && w2 >= -1e-6 && w3 >= -1e-6) {
+      return w1 * t[2] + w2 * t[5] + w3 * t[8];
+    }
+  }
+  return null;
+}
+
+function inPolygon(points, x, z) {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    if ((points[i][1] > z) !== (points[j][1] > z)
+        && x < (points[j][0] - points[i][0]) * (z - points[i][1]) / (points[j][1] - points[i][1]) + points[i][0]) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/**
+ * Returns the height above the floor of a level of the ground someone walks
+ * on at (x, z) outdoors, or null: in a room, on a level that isn't the lowest
+ * one with rooms, or where there is no ground.
+ */
+export function groundHeightAt(scene, levelIndex, x, z) {
+  if (!scene.terrain || scene.terrain.length === 0) {
+    return null;
+  }
+  const levels = scene.levels || [];
+  let lowest = -1;
+  for (let i = 0; i < levels.length; i++) {
+    if (levels[i].floor !== false && (lowest < 0 || levels[i].elevation < levels[lowest].elevation)) {
+      lowest = i;
+    }
+  }
+  if (levels.length > 0 && levelIndex !== lowest) {
+    return null;
+  }
+  for (const room of scene.rooms || []) {
+    if ((room.level === levelIndex || levels.length === 0) && inPolygon(room.points, x, z)) {
+      return null;
+    }
+  }
+  const height = terrainHeightAt(scene, x, z);
+  return height === null ? null : height - (levels[levelIndex] ? levels[levelIndex].elevation : 0);
+}
+
+/**
  * Returns where someone standing at (x, z) is: {level, height}, with height
  * the height of their feet above the floor of the level. It's on the stairs
  * of the level, on the stairs coming up from a lower level through the hole
@@ -276,6 +335,11 @@ export function standAt(scene, from, x, z) {
         return reachable(height) ? {level: position.level, height} : null;
       }
     }
+  }
+  // Outdoors on the ground, which may slope: a bank too steep stops the visitor
+  const ground = groundHeightAt(scene, position.level, x, z);
+  if (ground !== null) {
+    return reachable(ground) ? {level: position.level, height: ground} : null;
   }
   // At the top of stairs, on the floor of the level they lead to
   if (position.height !== null && position.height > MAX_STEP) {

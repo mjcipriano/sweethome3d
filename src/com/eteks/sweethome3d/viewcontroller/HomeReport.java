@@ -108,19 +108,29 @@ public class HomeReport {
     List<HomePieceOfFurniture> furniture = new ArrayList<HomePieceOfFurniture>();
     collect(home.getFurniture(), furniture);
     int doorCount = 0;
+    int structureCount = 0;
+    Map<String, int []> structureCounts = new LinkedHashMap<String, int []>();
     BigDecimal totalPrice = null;
     String currency = null;
     for (HomePieceOfFurniture piece : furniture) {
       if (piece.isDoorOrWindow()) {
         doorCount++;
       }
+      // A roof, a slab or the ground is a piece of furniture in the home, not in a list of furniture
+      boolean structure = !piece.isDoorOrWindow()
+          && (piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY) != null
+              || "true".equals(piece.getProperty(AssistantCommandExecutor.AUTO_ROOF_PROPERTY)));
       String name = (piece.isDoorOrWindow() ? "door/window: " : "")
           + (piece.getName() != null ? piece.getName() : "?");
-      int [] count = counts.get(name);
+      Map<String, int []> pieceCounts = structure ? structureCounts : counts;
+      int [] count = pieceCounts.get(name);
       if (count == null) {
-        counts.put(name, count = new int [1]);
+        pieceCounts.put(name, count = new int [1]);
       }
       count [0]++;
+      if (structure) {
+        structureCount++;
+      }
       BigDecimal price = piece.getPrice();
       if (price != null) {
         prices.put(name, prices.containsKey(name) ? prices.get(name).add(price) : price);
@@ -130,7 +140,7 @@ public class HomeReport {
         }
       }
     }
-    report.append("- Furniture: ").append(furniture.size() - doorCount).append(" pieces, ")
+    report.append("- Furniture: ").append(furniture.size() - doorCount - structureCount).append(" pieces, ")
         .append(doorCount).append(" doors and windows\n");
     for (Map.Entry<String, int []> entry : counts.entrySet()) {
       report.append("    - ").append(entry.getValue() [0]).append(" x ").append(entry.getKey());
@@ -139,6 +149,18 @@ public class HomeReport {
         report.append(" (").append(price.toPlainString()).append(currency != null ? " " + currency : "").append(')');
       }
       report.append('\n');
+    }
+    if (structureCount > 0) {
+      report.append("- Building and site (roofs, slabs, ground, other parts built for the house): ")
+          .append(structureCount).append(structureCount == 1 ? " piece\n" : " pieces\n");
+      for (Map.Entry<String, int []> entry : structureCounts.entrySet()) {
+        report.append("    - ").append(entry.getValue() [0]).append(" x ").append(entry.getKey());
+        BigDecimal price = prices.get(entry.getKey());
+        if (price != null) {
+          report.append(" (").append(price.toPlainString()).append(currency != null ? " " + currency : "").append(')');
+        }
+        report.append('\n');
+      }
     }
     if (totalPrice != null) {
       report.append("- Price of the furniture that has one: ").append(totalPrice.toPlainString())
