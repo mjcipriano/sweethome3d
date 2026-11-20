@@ -312,7 +312,10 @@ public class HomeDiagnostics {
               + format(ceiling) + " cm", piece, null));
         }
       }
-      if (piece.isDoorOrWindow()) {
+      if (piece.isDoorOrWindow() && structure) {
+        // The window of a dormer stands in the roof, not in a wall
+        continue;
+      } else if (piece.isDoorOrWindow()) {
         Wall wall = getClosestWall(piece, homeWalls, DOOR_SNAP_DISTANCE);
         if (wall == null) {
           if (!homeWalls.isEmpty()) {
