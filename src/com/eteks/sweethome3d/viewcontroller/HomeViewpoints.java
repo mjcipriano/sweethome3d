@@ -407,10 +407,18 @@ public class HomeViewpoints {
         add(bounds, room.getPoints(), elevation, elevation + height);
       }
     }
-    for (HomePieceOfFurniture piece : home.getFurniture()) {
-      if (all ? piece.isVisible() && isDisplayed(piece.getLevel(), level) : targets.contains(piece)) {
-        float elevation = piece.getGroundElevation();
-        add(bounds, piece.getPoints(), elevation, elevation + piece.getHeight());
+    for (int pass = 0; pass < 2; pass++) {
+      for (HomePieceOfFurniture piece : home.getFurniture()) {
+        // The ground around a house isn't what a view of the whole home has to show: it's kept for a home without anything else
+        boolean terrain = "terrain".equals(piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY));
+        if (all ? piece.isVisible() && (terrain ? pass == 1 : pass == 0 && isDisplayed(piece.getLevel(), level))
+                : pass == 0 && targets.contains(piece)) {
+          float elevation = piece.getGroundElevation();
+          add(bounds, piece.getPoints(), elevation, elevation + piece.getHeight());
+        }
+      }
+      if (bounds [0] <= bounds [3]) {
+        break;
       }
     }
     if (bounds [0] > bounds [3]) {

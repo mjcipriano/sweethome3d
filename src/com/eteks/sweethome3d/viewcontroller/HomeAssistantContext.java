@@ -128,13 +128,11 @@ public class HomeAssistantContext {
    * complete description.
    */
   public static String describeHome(Home home, String levelName, List<String> types, String nameFilter) {
-    Level filterLevel = null;
-    if (levelName != null) {
-      for (Level level : home.getLevels()) {
-        if (levelName.trim().equalsIgnoreCase(level.getName())) {
-          filterLevel = level;
-        }
-      }
+    HomeItemIds.ensureIds(home);
+    // An id L# designates one level, a name every level with that name
+    List<Level> filterLevel = levelName != null ? HomeItemIds.findLevels(home, levelName) : null;
+    if (filterLevel != null && filterLevel.isEmpty()) {
+      filterLevel = null;
     }
     boolean filtered = filterLevel != null || types != null && !types.isEmpty()
         || nameFilter != null && nameFilter.trim().length() > 0;
@@ -158,19 +156,50 @@ public class HomeAssistantContext {
 
     List<Level> levels = home.getLevels();
     if (!levels.isEmpty()) {
-      brief.append("- Levels (").append(levels.size()).append("): ");
+      brief.append("- Levels (").append(levels.size()).append("), from the lowest:\n");
       for (int i = 0; i < levels.size(); i++) {
-        if (i > 0) {
-          brief.append(", ");
+        Level level = levels.get(i);
+        String name = level.getName();
+        int roomCount = 0;
+        int wallCount = 0;
+        int furnitureCount = 0;
+        for (Room room : home.getRooms()) {
+          roomCount += room.getLevel() == level ? 1 : 0;
         }
-        String name = levels.get(i).getName();
-        brief.append(name != null && name.length() > 0 ? name : "Level " + (i + 1))
-            .append(" at ").append(format.format(levels.get(i).getElevation())).append(" cm");
-        if (levels.get(i) == home.getSelectedLevel()) {
+        for (Wall wall : home.getWalls()) {
+          wallCount += wall.getLevel() == level ? 1 : 0;
+        }
+        for (HomePieceOfFurniture piece : home.getFurniture()) {
+          furnitureCount += piece.getLevel() == level ? 1 : 0;
+        }
+        int homonyms = 0;
+        for (Level other : levels) {
+          homonyms += other != level && name != null && name.equalsIgnoreCase(other.getName()) ? 1 : 0;
+        }
+        brief.append("    - ").append(HomeItemIds.getId(level)).append(" \"")
+            .append(name != null && name.length() > 0 ? name : "Level " + (i + 1))
+            .append("\" at ").append(format.format(level.getElevation())).append(" cm, height ")
+            .append(format.format(level.getHeight())).append(", floor thickness ")
+            .append(format.format(level.getFloorThickness())).append(": ");
+        if (roomCount + wallCount + furnitureCount == 0) {
+          brief.append("EMPTY");
+        } else {
+          brief.append(roomCount).append(roomCount == 1 ? " room, " : " rooms, ")
+              .append(wallCount).append(wallCount == 1 ? " wall, " : " walls, ")
+              .append(furnitureCount).append(furnitureCount == 1 ? " piece of furniture" : " pieces of furniture");
+        }
+        if (!level.isViewable()) {
+          brief.append(", not viewable");
+        }
+        if (homonyms > 0) {
+          brief.append(", name shared with ").append(homonyms).append(homonyms == 1 ? " other level" : " other levels")
+              .append(" (designate it by its id)");
+        }
+        if (level == home.getSelectedLevel()) {
           brief.append(" (selected: new items go here)");
         }
+        brief.append('\n');
       }
-      brief.append('\n');
     } else {
       brief.append("- Levels: 1 (single level)\n");
     }
@@ -187,12 +216,12 @@ public class HomeAssistantContext {
       for (int i = 0; i < rooms.size(); i++) {
         Room room = rooms.get(i);
         String roomName = room.getName();
-        if (filterLevel != null && room.getLevel() != filterLevel
+        if (filterLevel != null && !filterLevel.contains(room.getLevel())
             || filterName != null
                 && (roomName == null || roomName.toLowerCase(Locale.ENGLISH).indexOf(filterName) < 0)) {
           continue;
         }
-        brief.append("    - R").append(i + 1).append(' ')
+        brief.append("    - ").append(HomeItemIds.getId(room)).append(' ')
             .append(roomName != null && roomName.length() > 0 ? roomName : "Unnamed room")
             .append(": ").append(format.format(room.getArea() / 10000)).append(" m2");
         // Where the room is, so furniture can be placed inside it
@@ -238,14 +267,20 @@ public class HomeAssistantContext {
       brief.append(":\n");
       for (int i = 0; i < walls.size(); i++) {
         Wall wall = walls.get(i);
-        if (filterLevel != null && wall.getLevel() != filterLevel) {
+        if (filterLevel != null && !filterLevel.contains(wall.getLevel())) {
           continue;
         }
-        brief.append("    - W").append(i + 1).append(" (")
+        brief.append("    - ").append(HomeItemIds.getId(wall)).append(" (")
             .append(format.format(wall.getXStart())).append(", ").append(format.format(wall.getYStart()))
             .append(") to (").append(format.format(wall.getXEnd())).append(", ")
             .append(format.format(wall.getYEnd())).append(") cm, ")
             .append(format.format(wall.getThickness())).append(" thick");
+        if (wall.getHeight() != null && wall.getHeightAtEnd() != null) {
+          brief.append(", height ").append(format.format(wall.getHeight())).append(" to ")
+              .append(format.format(wall.getHeightAtEnd()));
+        } else if (wall.getHeight() != null && wall.getHeight() != home.getWallHeight()) {
+          brief.append(", height ").append(format.format(wall.getHeight()));
+        }
         appendLevel(brief, wall.getLevel(), levels);
         brief.append('\n');
       }
@@ -279,7 +314,7 @@ public class HomeAssistantContext {
       for (int i = 0; i < topFurniture.size(); i++) {
         HomePieceOfFurniture piece = topFurniture.get(i);
         String pieceName = piece.getName() != null ? piece.getName() : "Unnamed";
-        if (filterLevel != null && piece.getLevel() != filterLevel
+        if (filterLevel != null && !filterLevel.contains(piece.getLevel())
             || !(piece.isDoorOrWindow() ? listDoorsAndWindows : listFurniture)
             || filterName != null && pieceName.toLowerCase(Locale.ENGLISH).indexOf(filterName) < 0) {
           continue;
@@ -289,13 +324,22 @@ public class HomeAssistantContext {
           continue;
         }
         listed++;
-        brief.append("    - F").append(i + 1).append(" \"").append(pieceName).append("\" at (")
+        brief.append("    - ").append(HomeItemIds.getId(piece)).append(" \"").append(pieceName).append("\" at (")
             .append(format.format(piece.getX())).append(", ").append(format.format(piece.getY()))
             .append(") cm, facing ").append(Math.round(Math.toDegrees(piece.getAngle())))
             .append(" deg, ").append(format.format(piece.getWidth())).append(" x ")
             .append(format.format(piece.getDepth())).append(" cm");
         if (piece.getElevation() != 0) {
           brief.append(", elevation ").append(format.format(piece.getElevation()));
+        }
+        if (piece.getLevel() != null && piece.getLevel().getHeight() > 0
+            && piece.getElevation() + piece.getHeightInPlan() > piece.getLevel().getHeight() + 1) {
+          // What may show in the plan of the levels above
+          brief.append(", height ").append(format.format(piece.getHeightInPlan()));
+          if (FurniturePlanVisibility.get(piece) != FurniturePlanVisibility.DRAW) {
+            brief.append(", ").append(FurniturePlanVisibility.get(piece) == FurniturePlanVisibility.OUTLINE
+                ? "outlined" : "hidden").append(" in the plans above");
+          }
         }
         if (piece.getPitch() != 0) {
           brief.append(", pitch ").append(Math.round(Math.toDegrees(piece.getPitch()))).append(" deg");
@@ -389,7 +433,9 @@ public class HomeAssistantContext {
         + "  {\"action\":\"search_catalog\",\"query\":\"<words>\"}  (matches are reported back to you in the next turn)\n"
         + "  {\"action\":\"add_furniture\",\"name\":\"<exact catalog name>\",\"x\":N,\"y\":N,\"angle\":N,\"width\":N,\"depth\":N,\"elevation\":N}\n"
         + "  {\"action\":\"add_door_or_window\",\"name\":\"<exact catalog name>\",\"x\":N,\"y\":N,\"angle\":N}\n"
-        + "  {\"action\":\"add_room\",\"name\":\"<name>\",\"points\":[[x,y],[x,y],[x,y],...]}\n"
+        + "  {\"action\":\"add_room\",\"name\":\"<name>\",\"points\":[[x,y],[x,y],[x,y],...]}  "
+        + "(optional \"floor_color\", \"ceiling_visible\":false, and \"floor_offset\":N with \"slab_thickness\":N for a floor "
+        + "N cm above (or under, if negative) the floor of the level: a slab of the shape of the room replaces its floor)\n"
         + "  {\"action\":\"add_wall\",\"x1\":N,\"y1\":N,\"x2\":N,\"y2\":N,\"thickness\":N,\"height\":N}\n"
         + "  {\"action\":\"add_rectangular_room\",\"name\":\"<name>\",\"x\":N,\"y\":N,\"width\":N,\"depth\":N}  "
         + "(or instead of x,y: \"next_to\":\"R1\" (a room id or name),\"side\":\"north|south|east|west\",\"offset\":N to put it against "
@@ -403,6 +449,35 @@ public class HomeAssistantContext {
         + "pitch in degrees (default 30), overhang in cm (default 30), \"ridge\":\"x\"|\"y\" to choose the ridge direction, "
         + "\"ids\":[\"R1\"] to cover only some rooms and \"per_room\":true|false to force one roof per room or a single one "
         + "(by default a house that isn't a rectangle gets one roof per room). Calling it again replaces the roof)\n"
+        + "  {\"action\":\"add_roof\",\"points\":[[x,y],[x,y],...],\"eave_height\":N,\"overhang\":N,\"pitch\":N,"
+        + "\"edges\":[{\"type\":\"hip|gable\",\"pitch\":N},...],\"color\":\"#RRGGBB\",\"level\":\"<level>\"}  "
+        + "(ONE roof over any polygon, as one piece on the given level (default: the selected one): points = the outside "
+        + "corners of the walls it covers, eave_height = height of the top of these walls above the floor of the level (default: "
+        + "its walls). \"edges\" has one item per edge, the first from point 1 to point 2: \"hip\" = an eave with a slope rising "
+        + "from it, \"gable\" (or shed, flat) = a vertical end; an edge may have its own pitch and overhang. Instead of edges, "
+        + "\"type\":\"hip|gable|shed|flat\" chooses them: gable puts gables at the ends of the wings, shed one slope rising from "
+        + "\"low_side\":\"north|south|east|west\". The wings of an L, T or U shaped house meet in valleys and a narrow wing "
+        + "ends in the slope of a wider one. Options: \"texture\":\"<texture name>\" (with texture_scale, texture_angle), "
+        + "\"gable_color\", \"fascia\":true|false with \"fascia_color\", \"underside_color\", \"soffit\":true, \"ridge_cap\":true, "
+        + "\"gutters\":true with \"downspouts\":true|false, \"gable_walls\":false to leave the gables open, \"thickness\":N, "
+        + "\"dormers\":[...]. The plans of the levels above show the roof as a dashed outline)\n"
+        + "  {\"action\":\"add_dormer\",\"roof\":\"F1\",\"side\":\"north|south|east|west\",\"position\":0.5,\"width\":N,\"height\":N,"
+        + "\"type\":\"gable|shed|hip|flat\",\"window\":\"<catalog window name>\"}  (a dormer on the slope of a roof built by add_roof, "
+        + "which is cut open under it: side = the eave it looks over (or \"edge\":N), position = where along this side from 0 (its west or north end) to 1 "
+        + "(or \"offset\":N cm from that end), height = the one of its front wall, \"setback\":N cm from the eave, optional \"pitch\")\n"
+        + "  {\"action\":\"fit_walls_to_roof\",\"roof\":\"F1\"}  (gives the outside walls under a roof built by add_roof the height "
+        + "of its underside, so gable ends close: a wall under a peak is cut in two walls that slope up to it. "
+        + "\"all\":true for the inside walls too, or \"ids\":[\"W1\"])\n"
+        + "  {\"action\":\"add_slab\",\"points\":[[x,y],[x,y],...],\"top\":N,\"thickness\":N,\"color\":\"#RRGGBB\",\"name\":\"<name>\"}  "
+        + "(a flat slab of any shape as a piece of furniture, without the side effects of a room: a driveway, a garage floor, "
+        + "paving, a lawn, a garden bed. top = height of its top above the floor of the level, which may be negative; "
+        + "\"texture\":\"<texture name>\" with texture_scale and texture_angle, \"side_color\"; "
+        + "\"top_at\":[[x,y,z],[x,y,z],[x,y,z]] tilts its top through three points, for a ramp or a sloped driveway)\n"
+        + "  {\"action\":\"set_terrain\",\"points\":[[x,y,z],[x,y,z],...],\"color\":\"#RRGGBB\"}  (the ground as a surface through "
+        + "points of known height z in cm, 0 being the floor of the level at the elevation 0 and slopes going under it if needed; or \"grid\":{\"x\":N,\"y\":N,\"width\":N,\"depth\":N,"
+        + "\"heights\":[[z,z,...],...]}. \"texture\" for the whole, \"areas\":[{\"points\":[[x,y],...],\"texture\"|\"color\"}] for a lawn, "
+        + "a path... Calling it again replaces the ground. It goes to a level under the others, added if needed, where it "
+        + "replaces the flat ground of the 3D view. {\"action\":\"set_elevation\",\"id\":\"F1\",\"on_terrain\":true} puts a piece on the ground at its place)\n"
         + "  {\"action\":\"add_stairs\",\"x\":N,\"y\":N,\"angle\":N,\"width\":N,\"shape\":\"straight|L|U|spiral\",\"turn\":\"left|right\",\"railing\":true}  "
         + "(stairs from the selected level up to the next one, which they cut open; x,y = their center, "
         + "the bottom step is at their front. L = quarter turn and U = half turn at a landing, which take less length; spiral = steps turning around a post, in a square of twice the width + 16 cm, x,y = the post; "
@@ -421,8 +496,17 @@ public class HomeAssistantContext {
         + "y toward its front, z = height of the BOTTOM of the part above the floor, x,y = the CENTER of the part. "
         + "E.g. a table = a top box at z 72 and four leg boxes at z 0. Optional per part: \"rotation\":N degrees around the vertical, "
         + "\"axis\":\"x|y\" to lay a cylinder or cone down, \"diameter\":N, \"top_scale\":0..1 to taper it. "
+        + "Other shapes: \"prism\" = a polygon \"points\":[[x,y],...] (relative to the x,y of the part) pushed up by height; "
+        + "\"wedge\" = a box cut in a slope, with \"high_side\":\"back|front|left|right\" (its tallest side, back = -y) or "
+        + "\"ridge\":\"x|y\" for a peak along its middle like a gable; \"extrude\" = a bar following \"path\":[[x,y,z],...] "
+        + "with a section of width x height or a \"diameter\" (gutters, handrails, edging; \"closed\":true for a loop). "
+        + "Any part takes \"texture\":\"<texture name>\" with texture_scale and texture_angle in place of a color, and "
+        + "\"yaw\", \"pitch\" and \"roll\" in degrees to turn it around the vertical, its width and its depth. "
         + "Up to 150 parts. \"catalog\" also saves it in that category of the furniture catalog, with \"place\":false "
         + "to save it without adding it to the home; \"tags\":[...] tags it)\n"
+        + "  {\"action\":\"modify_furniture_parts\",\"id\":\"F1\",\"set\":[{\"index\":1,\"height\":N}],\"add\":[{...}],\"remove\":[3]}  "
+        + "(changes the parts of a piece built by create_furniture without building it again: index 1 = its first part; "
+        + "or \"parts\":[...] to replace them all. The parts that don't change stay at their place)\n"
         + "  {\"action\":\"add_to_catalog\",\"ids\":[\"F1\"],\"category\":\"<category>\"}  "
         + "(saves pieces of the home, e.g. imported or created ones, in the user's furniture catalog; or \"tag\":\"<tag>\")\n"
         + "  {\"action\":\"export_furniture_library\",\"path\":\"<absolute path>.sh3f\",\"name\":\"<library name>\",\"ids\":[\"F1\"]}  "
@@ -432,7 +516,14 @@ public class HomeAssistantContext {
         + "  {\"action\":\"import_texture\",\"image\":\"<absolute file path, or attached>\",\"name\":\"<name>\",\"width\":N,\"id\":\"R1\",\"part\":\"floor\"}  "
         + "(adds an image to the textures catalog, width = size in cm of what it shows, and applies it to the ids given)\n"
         + "  {\"action\":\"add_level\",\"name\":\"<name>\",\"elevation\":N,\"height\":N}  (adds a floor above and selects it)\n"
-        + "  {\"action\":\"select_level\",\"name\":\"<level name>\"}  (new items go to the selected level)\n"
+        + "  {\"action\":\"select_level\",\"name\":\"<level name or id L#>\"}  (new items go to the selected level)\n"
+        + "  {\"action\":\"modify_level\",\"id\":\"L1\",\"new_name\":\"<name>\",\"elevation\":N,\"height\":N,\"floor_thickness\":N,"
+        + "\"viewable\":true|false,\"elevation_index\":N}  (renames, moves, resizes or hides a level, designated by its id or "
+        + "by \"name\" if no other level has it)\n"
+        + "  {\"action\":\"delete_level\",\"name\":\"<level name or id L#>\"}  (deletes an empty level; one that isn't empty is "
+        + "refused with the list of what is on it, unless \"move_contents_to\":\"<level>\" or \"delete_contents\":true)\n"
+        + "  {\"action\":\"merge_levels\",\"from\":\"<level>\",\"into\":\"<level>\"}  (moves everything of a level to an other one, "
+        + "furniture keeping its height above the ground, then deletes it)\n"
         + "  {\"action\":\"move_to_level\",\"id\":\"F1\",\"level\":\"<level name>\"}  (moves furniture, walls or rooms to another level)\n"
         + "  {\"action\":\"set_background_image\",\"image\":\"<absolute file path, or attached>\",\"width\":N,\"x\":N,\"y\":N}  "
         + "(displays the picture of a floor plan behind the plan of the selected level to trace it; width = real width in cm "
@@ -458,7 +549,10 @@ public class HomeAssistantContext {
         + "or of \"ids\":[\"R1\"]; lines that exist are kept)\n"
         + "  {\"action\":\"select\",\"names\":[\"<item name>\"]}\n"
         + "To MODIFY items that already exist, reference them by the id shown in the project "
-        + "summary (F# furniture, W# walls, R# rooms), by \"target\":\"selection\", or by name. "
+        + "summary (F# furniture, W# walls, R# rooms; an id never changes), by \"target\":\"selection\", by name, or in bulk by "
+        + "\"where\":{\"level\":\"<level>\",\"tag\":\"<tag>\",\"name\":\"<part of a name>\",\"type\":\"furniture|doors_and_windows|"
+        + "lights|stairs|all_furniture|walls|rooms\",\"bbox\":[x1,y1,x2,y2]} (the items matching every criterion given; "
+        + "e.g. {\"action\":\"move_to_level\",\"where\":{\"level\":\"Old\"},\"level\":\"Level 1\"}). "
         + "Editing commands (omit a field to leave it unchanged):\n"
         + "  {\"action\":\"move\",\"id\":\"F1\",\"dx\":N,\"dy\":N}  (relative; or \"x\":N,\"y\":N for an absolute position)\n"
         + "  {\"action\":\"rotate\",\"id\":\"F1\",\"angle\":N}  (absolute degrees; or \"by\":N to add to the current angle; "
@@ -468,7 +562,18 @@ public class HomeAssistantContext {
         + "\"part\":\"left\"|\"right\"; a room R#: its floor or \"part\":\"ceiling\")\n"
         + "  {\"action\":\"set_texture\",\"id\":\"R1\",\"texture\":\"<texture name>\",\"part\":\"floor|ceiling|left|right\"}  "
         + "(rooms, walls and furniture; find names with {\"action\":\"search_textures\",\"query\":\"<words>\"}; "
-        + "when several textures share a name add \"category\":\"<category>\" or \"catalog_id\":\"<id>\"; the reply names the texture applied)\n"
+        + "when several textures share a name add \"category\":\"<category>\" or \"catalog_id\":\"<id>\"; the reply names the texture applied. "
+        + "\"scale\":N enlarges it, \"angle\":N turns it by degrees, \"offset_x\" and \"offset_y\" shift it by a fraction of its size)\n"
+        + "  {\"action\":\"modify_wall\",\"id\":\"W1\",\"height\":N,\"height_at_end\":N,\"thickness\":N,\"arc_extent\":N,"
+        + "\"top_color\":\"#RRGGBB\",\"baseboard\":{\"height\":N,\"thickness\":N,\"texture\":\"<texture name>\",\"side\":\"left|right|both\"}}  "
+        + "(height_at_end slopes the top of the wall from its start to its end, 0 levels it again; arc_extent in degrees "
+        + "rounds it, 0 straightens it; \"x1\",\"y1\",\"x2\",\"y2\" move its ends. A baseboard as high as needed, with a color or "
+        + "a texture, gives a wall a second finish under the first one, e.g. a brick base under siding; \"baseboard\":false removes it)\n"
+        + "  {\"action\":\"set_plan_visibility\",\"tag\":\"roof\",\"value\":\"draw|outline|hide\"}  (how the plans of the levels ABOVE "
+        + "the one of a piece show it when it rises through them: drawn, as a thin dashed outline, or not at all. Roofs are "
+        + "outlined by default. Pieces by \"ids\", \"tag\", \"level\" or \"where\")\n"
+        + "  {\"action\":\"describe_item\",\"id\":\"F1\"}  (every property of a piece, a wall, a room or a level L#: level, elevation, "
+        + "heights above the ground, angles, tags, color or texture, model size, plan visibility)\n"
         + "  {\"action\":\"modify_room\",\"id\":\"R1\",\"ceiling_visible\":false,\"floor_visible\":true,\"area_visible\":true,"
         + "\"name\":\"<name>\",\"points\":[[x,y],[x,y],[x,y],...]}  (changes existing rooms, designated by \"id\", \"ids\", "
         + "\"target\":\"selection\" or \"room\":\"<room name>\"; fields left out don't change. Hide the ceiling of a room under a sloped roof "
@@ -484,7 +589,7 @@ public class HomeAssistantContext {
         + "  {\"action\":\"check_home\"}  (reports plan defects: walls that don't meet, duplicates, rooms without door, doors out of walls, "
         + "furniture under the floor or outside rooms... the report comes back in the next turn)\n"
         + "  {\"action\":\"fix_home\"}  (repairs the defects marked fixable; \"types\":[\"wall_gap\"] limits it)\n"
-        + "  {\"action\":\"set_elevation\",\"id\":\"F1\",\"elevation\":N}\n"
+        + "  {\"action\":\"set_elevation\",\"id\":\"F1\",\"elevation\":N}  (above the floor of its level; negative = under it)\n"
         + "  {\"action\":\"set_visible\",\"id\":\"F1\",\"visible\":true}\n"
         + "  {\"action\":\"rename\",\"id\":\"F1\",\"name\":\"<new name>\"}\n"
         + "  {\"action\":\"add_tags\",\"ids\":[\"F1\",\"F2\"],\"tags\":[\"kitchen\",\"to buy\"]}  "
@@ -507,7 +612,7 @@ public class HomeAssistantContext {
         + "- When the user shows or describes a piece of furniture that the catalog doesn't have, use the "
         + "closest catalog piece and resize and recolor it to match; use add_picture for flat things "
         + "(paintings, posters, rugs, screens) and import_furniture when the user has a 3D model file.\n"
-        + "- Use at most 30 commands per reply; coordinates beyond 1000000 cm and sizes beyond "
+        + "- Use at most 100 commands per reply; coordinates beyond 1000000 cm and sizes beyond "
         + "100000 cm are rejected.";
   }
 
@@ -517,8 +622,13 @@ public class HomeAssistantContext {
   private static void appendLevel(StringBuilder brief, Level level, List<Level> levels) {
     if (level != null && levels.size() > 1) {
       String name = level.getName();
-      brief.append(" [").append(name != null && name.length() > 0
-          ? name : "Level " + (levels.indexOf(level) + 1)).append(']');
+      boolean homonym = false;
+      for (Level other : levels) {
+        homonym |= other != level && name != null && name.equalsIgnoreCase(other.getName());
+      }
+      // The id tells apart the levels that share a name
+      brief.append(" [").append(homonym ? HomeItemIds.getId(level) + " " : "")
+          .append(name != null && name.length() > 0 ? name : "Level " + (levels.indexOf(level) + 1)).append(']');
     }
   }
 

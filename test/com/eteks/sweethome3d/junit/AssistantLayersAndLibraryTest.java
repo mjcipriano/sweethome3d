@@ -304,7 +304,8 @@ public class AssistantLayersAndLibraryTest {
     assertEquals(expected, getVolume(shapes.getModel()), expected * 0.04);
 
     // Tags, their column, the hidden pieces and the built model are saved with the home
-    run("{\"action\":\"add_tags\",\"id\":\"F1\",\"tags\":[\"Living\",\"To Buy\"]},"
+    run("{\"action\":\"add_tags\",\"id\":\"" + com.eteks.sweethome3d.viewcontroller.HomeItemIds.getId(shapes)
+        + "\",\"tags\":[\"Living\",\"To Buy\"]},"
         + "{\"action\":\"hide_layer\",\"tag\":\"living\"}");
     File file = new File(this.folder, "tags.sh3d");
     new com.eteks.sweethome3d.io.HomeFileRecorder().writeHome(this.home, file.getPath());

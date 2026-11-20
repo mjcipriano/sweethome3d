@@ -224,6 +224,8 @@ public class AssistantDesignCommands {
       }
       piece.setLevel(oldPiece.getLevel());
       piece.setVisible(oldPiece.isVisible());
+      // The new piece takes the place of the old one, with its id
+      piece.setProperty(HomeItemIds.ID_PROPERTY, oldPiece.getProperty(HomeItemIds.ID_PROPERTY));
       String tags = oldPiece.getProperty(HomeItemTags.TAGS_PROPERTY);
       if (tags != null) {
         piece.setProperty(HomeItemTags.TAGS_PROPERTY, tags);

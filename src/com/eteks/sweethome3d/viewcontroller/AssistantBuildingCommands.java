@@ -363,10 +363,11 @@ class AssistantBuildingCommands {
       }
     }
     final String name = command.getString("name");
+    final boolean floorOffset = command.has("floor_offset");
     if (!command.has("points") && !command.has("ceiling_visible") && !command.has("floor_visible")
-        && !command.has("area_visible") && name == null) {
+        && !command.has("area_visible") && name == null && !floorOffset) {
       notes.add("Ignored modify_room: give at least one of \"ceiling_visible\", \"floor_visible\", "
-          + "\"area_visible\", \"name\" and \"points\"");
+          + "\"area_visible\", \"name\", \"points\" and \"floor_offset\"");
       return;
     }
     this.executor.postModification(rooms, new Runnable() {
@@ -378,6 +379,9 @@ class AssistantBuildingCommands {
             }
             if (command.has("floor_visible")) {
               room.setFloorVisible(command.getBoolean("floor_visible", room.isFloorVisible()));
+            } else if (floorOffset) {
+              // A slab replaces the floor at the height of the level
+              room.setFloorVisible(false);
             }
             if (command.has("area_visible")) {
               room.setAreaVisible(command.getBoolean("area_visible", room.isAreaVisible()));
@@ -392,6 +396,17 @@ class AssistantBuildingCommands {
         }
       });
     tally [4] += rooms.size();
+    List<String> slabs = new ArrayList<String>();
+    if (floorOffset) {
+      for (Selectable item : rooms) {
+        try {
+          slabs.add(this.executor.getShapeCommands().setRoomFloorOffset((Room)item,
+              command.getDouble("floor_offset", 0), command.getDouble("slab_thickness", 10)));
+        } catch (IOException ex) {
+          slabs.add("no slab (" + ex.getMessage() + ")");
+        }
+      }
+    }
     // What each room is now, to check the result without describing the home again
     StringBuilder note = new StringBuilder("Modified ");
     for (int i = 0; i < rooms.size(); i++) {
@@ -403,6 +418,9 @@ class AssistantBuildingCommands {
           .append(", floor ").append(room.isFloorVisible() ? "visible" : "hidden")
           .append(", area ").append(room.isAreaVisible() ? "displayed" : "not displayed")
           .append(", ").append(Math.round(room.getArea() / 100) / 100f).append(" m2");
+      if (i < slabs.size()) {
+        note.append(", ").append(slabs.get(i));
+      }
     }
     notes.add(note.toString());
   }
@@ -450,7 +468,7 @@ class AssistantBuildingCommands {
    * Adds a level above the others with the undoable edit of the plan
    * controller, then gives it the given characteristics (NaN keeps a default).
    */
-  private Level createLevel(String name, double elevation, double height, double floorThickness) {
+  Level createLevel(String name, double elevation, double height, double floorThickness) {
     this.executor.beginTurnUpdate();
     this.homeController.getPlanController().addLevel();
     Level level = this.home.getSelectedLevel();
@@ -482,10 +500,18 @@ class AssistantBuildingCommands {
   Level findLevel(String name, double index) {
     List<Level> levels = this.home.getLevels();
     if (name != null) {
-      for (Level level : levels) {
-        if (name.trim().equalsIgnoreCase(level.getName())) {
-          return level;
+      // An id L# or a name, which several levels may share
+      List<Level> namedLevels = HomeItemIds.findLevels(this.home, name);
+      if (namedLevels.size() > 1) {
+        StringBuilder ids = new StringBuilder();
+        for (Level level : namedLevels) {
+          ids.append(ids.length() > 0 ? ", " : "").append(this.executor.getId(level));
         }
+        this.executor.warn(namedLevels.size() + " levels are named \"" + name.trim() + "\" (" + ids
+            + "): the first one was used, give an id to choose an other one");
+      }
+      if (!namedLevels.isEmpty()) {
+        return namedLevels.get(0);
       }
     }
     if (!Double.isNaN(index) && index >= 1 && index <= levels.size()) {
@@ -787,66 +813,21 @@ class AssistantBuildingCommands {
     if (name == null && command.getString("catalog_id") == null || targets.isEmpty()) {
       return;
     }
-    String categoryName = command.getString("category");
-    String catalogId = command.getString("catalog_id");
-    CatalogTexture chosenTexture = null;
-    // The textures of the catalog with exactly this name, which several categories may share
-    List<CatalogTexture> sameName = new ArrayList<CatalogTexture>();
-    if (this.preferences.getTexturesCatalog() != null) {
-      for (TexturesCategory category : this.preferences.getTexturesCatalog().getCategories()) {
-        for (CatalogTexture texture : category.getTextures()) {
-          if (catalogId != null && catalogId.trim().equals(texture.getId())) {
-            chosenTexture = texture;
-          }
-          if (name != null && name.trim().equalsIgnoreCase(texture.getName())) {
-            sameName.add(texture);
-          }
-        }
-      }
-    }
-    if (catalogId != null && chosenTexture == null) {
-      notes.add("Ignored set_texture: no texture has the catalog id \"" + catalogId + "\"; use search_textures");
+    String [] ambiguityNote = new String [1];
+    final CatalogTexture catalogTexture = findTexture(name, command.getString("category"),
+        command.getString("catalog_id"), "set_texture", notes, ambiguityNote);
+    if (catalogTexture == null) {
       return;
     }
-    if (chosenTexture == null && categoryName != null) {
-      List<CatalogTexture> candidates = sameName.isEmpty() ? searchTextures(name, MAX_TEXTURE_RESULTS) : sameName;
-      for (CatalogTexture texture : candidates) {
-        if (texture.getCategory() != null && categoryName.trim().equalsIgnoreCase(texture.getCategory().getName())) {
-          chosenTexture = texture;
-          break;
-        }
-      }
-      if (chosenTexture == null) {
-        notes.add("Ignored set_texture: no texture \"" + name + "\" in the category \"" + categoryName
-            + "\". Matches: " + describeTextures(candidates));
-        return;
-      }
-    }
-    String ambiguity = null;
-    if (chosenTexture == null) {
-      if (!sameName.isEmpty()) {
-        chosenTexture = sameName.get(0);
-        if (sameName.size() > 1) {
-          ambiguity = sameName.size() + " textures are named \"" + chosenTexture.getName() + "\": "
-              + describeTextures(sameName) + "; give \"category\" or \"catalog_id\" to choose an other one";
-        }
-      } else {
-        List<CatalogTexture> matches = searchTextures(name, 3);
-        if (matches.isEmpty()) {
-          notes.add("Couldn't find a texture named \"" + name + "\"; use search_textures");
-          return;
-        }
-        chosenTexture = matches.get(0);
-      }
-    }
-    final CatalogTexture catalogTexture = chosenTexture;
+    String ambiguity = ambiguityNote [0];
+    final float [] placement = getTexturePlacement(command.getParameters());
     final String part = command.getString("part") != null
         ? command.getString("part").toLowerCase(Locale.ENGLISH) : "";
     final int [] changed = {0};
     this.executor.postModification(targets, new Runnable() {
         public void run() {
           for (Selectable item : targets) {
-            HomeTexture texture = new HomeTexture(catalogTexture);
+            HomeTexture texture = createTexture(catalogTexture, placement);
             if (item instanceof Room) {
               if ("ceiling".equals(part)) {
                 ((Room)item).setCeilingTexture(texture);
@@ -874,8 +855,118 @@ class AssistantBuildingCommands {
     if (changed [0] > 0) {
       notes.add("Applied the texture " + describeTextures(Collections.singletonList(catalogTexture))
           + " to " + changed [0] + (changed [0] == 1 ? " item" : " items")
+          + describePlacement(placement)
           + (ambiguity != null ? ". " + ambiguity : ""));
     }
+  }
+
+  /**
+   * Returns the scale, the angle in radians and the x and y offsets of a
+   * texture given by the parameters <code>scale</code>, <code>angle</code>
+   * (degrees), <code>offset_x</code> and <code>offset_y</code> (fractions of
+   * the size of the texture).
+   */
+  static float [] getTexturePlacement(java.util.Map<?, ?> parameters) {
+    float [] placement = {1, 0, 0, 0};
+    String [] names = {"scale", "angle", "offset_x", "offset_y"};
+    for (int i = 0; i < names.length; i++) {
+      Object value = parameters.get(i == 0 && parameters.get("scale") == null ? "texture_scale"
+          : i == 1 && parameters.get("angle") == null ? "texture_angle" : names [i]);
+      if (value instanceof Number && !Double.isNaN(((Number)value).doubleValue())) {
+        placement [i] = ((Number)value).floatValue();
+      }
+    }
+    placement [0] = placement [0] > 0 ? Math.max(0.01f, Math.min(100, placement [0])) : 1;
+    placement [1] = (float)Math.toRadians(placement [1] % 360);
+    placement [2] = Math.max(-1, Math.min(1, placement [2]));
+    placement [3] = Math.max(-1, Math.min(1, placement [3]));
+    return placement;
+  }
+
+  static HomeTexture createTexture(CatalogTexture catalogTexture, float [] placement) {
+    return placement == null || placement [0] == 1 && placement [1] == 0 && placement [2] == 0 && placement [3] == 0
+        ? new HomeTexture(catalogTexture)
+        : new HomeTexture(catalogTexture, placement [2], placement [3], placement [1], placement [0], true);
+  }
+
+  static String describePlacement(float [] placement) {
+    StringBuilder text = new StringBuilder();
+    if (placement [0] != 1) {
+      text.append(", scale ").append(placement [0]);
+    }
+    if (placement [1] != 0) {
+      text.append(", turned by ").append(Math.round(Math.toDegrees(placement [1]))).append(" deg");
+    }
+    if (placement [2] != 0 || placement [3] != 0) {
+      text.append(", offset ").append(placement [2]).append(", ").append(placement [3]);
+    }
+    return text.toString();
+  }
+
+  /**
+   * Returns the texture of the catalog with the given name, category or id,
+   * or <code>null</code> after adding a note that tells why none was found.
+   * @param ambiguityNote receives a remark if several textures have this name
+   */
+  CatalogTexture findTexture(String name, String categoryName, String catalogId, String action,
+                             List<String> notes, String [] ambiguityNote) {
+    CatalogTexture chosenTexture = null;
+    // The textures of the catalog with exactly this name, which several categories may share
+    List<CatalogTexture> sameName = new ArrayList<CatalogTexture>();
+    if (this.preferences.getTexturesCatalog() != null) {
+      for (TexturesCategory category : this.preferences.getTexturesCatalog().getCategories()) {
+        for (CatalogTexture texture : category.getTextures()) {
+          if (catalogId != null && catalogId.trim().equals(texture.getId())) {
+            chosenTexture = texture;
+          }
+          if (name != null && name.trim().equalsIgnoreCase(texture.getName())) {
+            sameName.add(texture);
+          }
+        }
+      }
+    }
+    if (catalogId != null && chosenTexture == null) {
+      notes.add("Ignored " + action + ": no texture has the catalog id \"" + catalogId + "\"; use search_textures");
+      return null;
+    }
+    if (chosenTexture == null && categoryName != null) {
+      List<CatalogTexture> candidates = sameName.isEmpty() ? searchTextures(name, MAX_TEXTURE_RESULTS) : sameName;
+      for (CatalogTexture texture : candidates) {
+        if (texture.getCategory() != null && categoryName.trim().equalsIgnoreCase(texture.getCategory().getName())) {
+          chosenTexture = texture;
+          break;
+        }
+      }
+      if (chosenTexture == null) {
+        notes.add("Ignored " + action + ": no texture \"" + name + "\" in the category \"" + categoryName
+            + "\". Matches: " + describeTextures(candidates));
+        return null;
+      }
+    }
+    String ambiguity = null;
+    if (chosenTexture == null) {
+      if (name == null) {
+        return null;
+      }
+      if (!sameName.isEmpty()) {
+        chosenTexture = sameName.get(0);
+        if (sameName.size() > 1) {
+          ambiguity = sameName.size() + " textures are named \"" + chosenTexture.getName() + "\": "
+              + describeTextures(sameName) + "; give \"category\" or \"catalog_id\" to choose an other one";
+        }
+      } else {
+        List<CatalogTexture> matches = searchTextures(name, 3);
+        if (matches.isEmpty()) {
+          notes.add("Couldn't find a texture named \"" + name + "\"; use search_textures");
+          return null;
+        }
+        chosenTexture = matches.get(0);
+      }
+    }
+    if (ambiguityNote != null) {
+      ambiguityNote [0] = ambiguity;
+    }
+    return chosenTexture;
   }
 
   // ---- Annotations ----

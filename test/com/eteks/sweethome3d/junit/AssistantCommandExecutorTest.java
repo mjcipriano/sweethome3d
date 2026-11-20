@@ -167,9 +167,9 @@ public class AssistantCommandExecutorTest {
       assertEquals("Only the sane wall is added", 1, home.getWalls().size());
       assertTrue(summary, summary.contains("out-of-range"));
 
-      // A turn with more than 30 commands stops at the limit
+      // A turn with more than 100 commands stops at the limit
       StringBuilder big = new StringBuilder("{\"commands\":[");
-      for (int i = 0; i < 40; i++) {
+      for (int i = 0; i < 110; i++) {
         if (i > 0) {
           big.append(',');
         }
@@ -180,8 +180,8 @@ public class AssistantCommandExecutorTest {
       home.getWalls();
       int wallsBefore = home.getWalls().size();
       summary = executor.execute(AssistantCommandParser.parse(big.toString()).getCommands());
-      assertEquals("Turn stops at the 30-command limit",
-          wallsBefore + 30, home.getWalls().size());
+      assertEquals("Turn stops at the 100-command limit",
+          wallsBefore + 100, home.getWalls().size());
       assertTrue(summary, summary.contains("turn limit"));
     } finally {
       if (previousNo3D == null) {

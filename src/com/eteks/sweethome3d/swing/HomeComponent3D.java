@@ -182,6 +182,7 @@ import com.eteks.sweethome3d.model.Wall;
 import com.eteks.sweethome3d.tools.GraphicsEnvironmentConfiguration;
 import com.eteks.sweethome3d.tools.OperatingSystem;
 import com.eteks.sweethome3d.viewcontroller.HomeController3D;
+import com.eteks.sweethome3d.viewcontroller.HomeItemIds;
 import com.eteks.sweethome3d.viewcontroller.Object3DFactory;
 import com.eteks.sweethome3d.viewcontroller.View3D;
 import com.sun.j3d.exp.swing.JCanvas3D;
@@ -4002,7 +4003,8 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     this.wallChangeListener = new PropertyChangeListener() {
         public void propertyChange(PropertyChangeEvent ev) {
           String propertyName = ev.getPropertyName();
-          if (!Wall.Property.PATTERN.name().equals(propertyName)) {
+          if (!Wall.Property.PATTERN.name().equals(propertyName)
+              && !HomeItemIds.ID_PROPERTY.equals(propertyName)) {
             Wall updatedWall = (Wall)ev.getSource();
             updateWall(updatedWall);
             List<Level> levels = home.getLevels();
