@@ -29,6 +29,7 @@ import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomeObject;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Level;
+import com.eteks.sweethome3d.model.Polyline;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Wall;
 
@@ -61,6 +62,7 @@ public final class HomeItemIds {
     ensureIds(home, 'W', new ArrayList<Wall>(home.getWalls()));
     ensureIds(home, 'R', home.getRooms());
     ensureIds(home, 'L', home.getLevels());
+    ensureIds(home, 'P', home.getPolylines());
   }
 
   private static void ensureIds(Home home, char type, List<? extends HomeObject> items) {
@@ -119,6 +121,8 @@ public final class HomeItemIds {
       type = 'R';
     } else if (item instanceof Level) {
       type = 'L';
+    } else if (item instanceof Polyline) {
+      type = 'P';
     } else {
       return null;
     }
@@ -130,7 +134,7 @@ public final class HomeItemIds {
    * Returns <code>true</code> if <code>token</code> is written like a short id.
    */
   public static boolean isId(String token) {
-    return token != null && token.trim().matches("[FWRLfwrl]\\s*\\d+");
+    return token != null && token.trim().matches("[FWRLPfwrlp]\\s*\\d+");
   }
 
   /**
@@ -151,6 +155,7 @@ public final class HomeItemIds {
       List<? extends HomeObject> items = type == 'F' ? home.getFurniture()
           : type == 'W' ? new ArrayList<Wall>(home.getWalls())
           : type == 'R' ? home.getRooms()
+          : type == 'P' ? home.getPolylines()
           : home.getLevels();
       for (HomeObject item : items) {
         if (getNumber(item) == number) {
@@ -160,10 +165,11 @@ public final class HomeItemIds {
       return null;
     } else if (token.indexOf('-') > 0) {
       String lowerToken = token.toLowerCase(Locale.ENGLISH);
-      for (int i = 0; i < 4; i++) {
+      for (int i = 0; i < 5; i++) {
         List<? extends HomeObject> items = i == 0 ? home.getFurniture()
             : i == 1 ? new ArrayList<Wall>(home.getWalls())
             : i == 2 ? home.getRooms()
+            : i == 3 ? home.getPolylines()
             : home.getLevels();
         for (HomeObject item : items) {
           if (lowerToken.equals(item.getId().toLowerCase(Locale.ENGLISH))) {

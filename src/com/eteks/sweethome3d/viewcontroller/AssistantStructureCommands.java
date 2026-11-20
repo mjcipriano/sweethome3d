@@ -22,6 +22,7 @@ package com.eteks.sweethome3d.viewcontroller;
 import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -185,7 +186,18 @@ class AssistantStructureCommands {
   }
 
   private void deleteLevel(AssistantCommand command, int [] tally, List<String> notes) {
-    Level level = getLevel(command, "delete_level", notes, "name", "id", "level");
+    List<String> ids = command.getStringList("ids");
+    if (ids.size() > 1 || ids.size() == 1 && command.getString("id") == null && command.getString("name") == null) {
+      // Several levels at once
+      for (String id : ids) {
+        Map<String, Object> parameters = new LinkedHashMap<String, Object>(command.getParameters());
+        parameters.remove("ids");
+        parameters.put("id", id);
+        deleteLevel(new AssistantCommand("delete_level", parameters), tally, notes);
+      }
+      return;
+    }
+    Level level = getLevel(command, "delete_level", notes, "id", "name", "level");
     if (level == null) {
       return;
     }
@@ -695,7 +707,7 @@ class AssistantStructureCommands {
     }
     if (items.isEmpty()) {
       if (this.executor.getTurnUnresolvedIdCount() == 0) {
-        notes.add("Ignored describe_item: give \"id\" or \"ids\" (F#, W#, R# or L#)");
+        notes.add("Ignored describe_item: give \"id\" or \"ids\" (F#, W#, R#, P# or L#)");
       }
       return;
     }
@@ -711,7 +723,25 @@ class AssistantStructureCommands {
         Wall wall = (Wall)item;
         notes.add("Wall " + describeWall(wall, true) + describeLevel(wall.getLevel()) + describeProperties(wall));
       } else if (item instanceof Room) {
-        notes.add(describeRoom((Room)item));
+        String headroom = this.executor.getShapeCommands().describeHeadroom((Room)item);
+        String room = describeRoom((Room)item);
+        notes.add(headroom != null
+            ? (room.endsWith(".") ? room.substring(0, room.length() - 1) : room) + ", " + headroom : room);
+      } else if (item instanceof Polyline) {
+        Polyline polyline = (Polyline)item;
+        StringBuilder points = new StringBuilder();
+        for (float [] point : polyline.getPoints()) {
+          points.append(points.length() > 0 ? ", " : "").append('[').append(format(point [0])).append(", ")
+              .append(format(point [1])).append(']');
+          if (points.length() > 1500) {
+            points.append("...");
+            break;
+          }
+        }
+        notes.add("Line " + this.executor.getId(polyline) + ": " + polyline.getPointCount() + " points " + points
+            + (polyline.isClosedPath() ? ", closed" : "") + ", thickness " + format(polyline.getThickness()) + " cm, color "
+            + String.format("#%06X", polyline.getColor() & 0xFFFFFF) + ", " + polyline.getDashStyle().name().toLowerCase(Locale.ENGLISH)
+            + describeLevel(polyline.getLevel()) + describeProperties(polyline));
       } else if (item instanceof Level) {
         Level level = (Level)item;
         notes.add("Level " + describe(level) + ": height " + format(level.getHeight()) + " cm, floor thickness "
@@ -794,6 +824,10 @@ class AssistantStructureCommands {
       text.append(", catalog id ").append(piece.getCatalogId());
     }
     text.append(", in the plans of the levels above: ").append(FurniturePlanVisibility.get(piece));
+    String roof = this.executor.getShapeCommands().describeRoof(piece);
+    if (roof != null) {
+      text.append(", ").append(roof);
+    }
     if (piece instanceof HomeFurnitureGroup) {
       text.append(", group of ").append(((HomeFurnitureGroup)piece).getFurniture().size()).append(" pieces");
     }

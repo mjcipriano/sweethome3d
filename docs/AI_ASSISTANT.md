@@ -459,6 +459,47 @@ Follow-up found while writing the tutorial (2026-11-20):
 - `CommandReferenceDocTest` fails when a command of the reference is missing
   in `docs/MCP_COMMANDS.md`; `docs/tools/screenshots` regenerates the pictures.
 
+### Site, roof edits and connector fixes (2026-11-20, DONE)
+
+Round 3 of requests from modeling a real house through the MCP server.
+
+- **Connector.** A tool call with an argument the server doesn't know is
+  refused with the list of its arguments (`HomeMCPHandler.getUnknownArguments`)
+  instead of dropping it. The server declares `tools.listChanged`, and
+  `HomeMCPBridge` sends `notifications/tools/list_changed` when the tools of
+  the running server differ from the ones it gave its client (checked every
+  15 s). `apply_commands` takes `file` (2000 commands at most), and every
+  answer ends with the ids of what was created. `get_home` takes `where` and
+  `fields`; names accept `Pine|Oak`. `select` takes `where` and lists.
+- **Roofs** (`AssistantShapeCommands`, `AssistantRoofModel`,
+  `AssistantRoofGeometry`): `modify_dormer`, `remove_dormer`, `modify_roof`
+  (with `raise_walls`), edge type `abut`, dormer `"ridge":"match"`, several
+  windows per dormer. Editing one dormer keeps the windows of the others
+  (`syncDormerWindows`). The opening under a dormer is its own polygon, not
+  its footprint with overhangs. A `position` above 1 is read as centimeters.
+  `fit_walls_to_roof` uses `getCeilingCells()` (dormers and cross gables
+  included), adds walls at the level of the wall they continue, and keeps
+  the walls joined at T junctions.
+- **Ceilings** (`HomeRoofs`): `"ceiling":"follow_roof"` and
+  `flat_ceiling_at` build a ceiling piece (structure `ceiling`) rebuilt with
+  the roof; `headroom`; `check_home` type `door_through_roof`.
+- **Site** (`AssistantSiteCommands`, `HomeGeoreference`): `add_polyline`,
+  `add_property_line` (stakes with structure `site`), `add_setback`,
+  `modify_polyline`, `set_compass`, `set_georeference`, `import_parcel`,
+  `get_coordinates`; ids `P#`; `check_home` types `beyond_setback` and
+  `beyond_property_line`. Projections: transverse Mercator, Lambert conformal
+  conic 2SP and Web Mercator on GRS80, without datum shift; tested against
+  formulas written independently in the test, **not** against PROJ.
+- **Other.** `begin_group` / `end_group` (ends after 10 minutes idle or on
+  undo), `check_home` severities with `ignore`, `ignore_tags`,
+  `min_severity`, `remember`; `delete_level` with `ids`; parts of
+  `create_furniture` up to 200 m, `on_terrain` for parts;
+  `store_point_of_view` from a `camera` without moving the user's camera.
+- Tests: `AssistantSiteAndRoofTest`. Tried in the application on the demo
+  house (pictures from outside and from the rooms under the roof).
+- Not done: lines aren't drawn in the game mode and the WebXR pages (the
+  stakes are); a setback isn't shown in 3D.
+
 ### Backlog / later
 
 - **Native tool/function calling.** Use Anthropic `tool_use` and OpenAI `tools`

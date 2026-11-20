@@ -56,7 +56,13 @@ public class HomeDiagnostics {
     /** A room has no name. */
     UNNAMED_ROOM(false),
     /** A model is heavy and has no reduced version displayed. */
-    HEAVY_MODEL(false);
+    HEAVY_MODEL(false),
+    /** A door or a window is higher than the roof above it. */
+    DOOR_THROUGH_ROOF(false),
+    /** A wall stands beyond a setback line. */
+    BEYOND_SETBACK(false),
+    /** A wall stands beyond a property line. */
+    BEYOND_PROPERTY_LINE(false);
 
     private final boolean fixable;
 
@@ -70,7 +76,34 @@ public class HomeDiagnostics {
     public boolean isFixable() {
       return this.fixable;
     }
+
+    /**
+     * Returns how serious issues of this type are: 2 for an error (what is built is wrong),
+     * 1 for a warning (probably a mistake), 0 for an information.
+     */
+    public int getSeverity() {
+      switch (this) {
+        case DOOR_THROUGH_ROOF :
+        case BEYOND_SETBACK :
+        case BEYOND_PROPERTY_LINE :
+        case DUPLICATE_WALL :
+        case EMPTY_ROOM :
+          return 2;
+        case FURNITURE_OUTSIDE_ROOMS :
+        case UNNAMED_ROOM :
+        case HEAVY_MODEL :
+          return 0;
+        default :
+          return 1;
+      }
+    }
   }
+
+  /** The names of the severities, from the least serious. */
+  public static final String [] SEVERITIES = {"info", "warning", "error"};
+
+  /** The property of a home that keeps the ids and the tags its checks ignore. */
+  public static final String IGNORE_PROPERTY = "assistantCheckIgnore";
 
   /**
    * An issue found in a home.
@@ -140,7 +173,108 @@ public class HomeDiagnostics {
     checkWalls(home, walls, issues);
     checkRooms(home, rooms, issues);
     checkFurniture(home, furniture, walls, rooms, issues);
+    checkRoofs(home, furniture, issues);
+    checkLines(home, walls, issues);
     return issues;
+  }
+
+  /**
+   * Reports the doors and the windows that are higher than the roof above them.
+   */
+  private static void checkRoofs(Home home, List<HomePieceOfFurniture> furniture, List<Issue> issues) {
+    List<HomeRoofs.Roof> roofs = HomeRoofs.get(home);
+    if (roofs.isEmpty()) {
+      return;
+    }
+    int [] counts = new int [Type.values().length];
+    for (int i = 0; i < furniture.size(); i++) {
+      HomePieceOfFurniture piece = furniture.get(i);
+      if (!home.getFurniture().contains(piece) || !piece.isDoorOrWindow() || !piece.isVisible()
+          || piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY) != null) {
+        continue;
+      }
+      float bottom = piece.getGroundElevation();
+      float top = bottom + piece.getHeight();
+      double lowest = Double.NaN;
+      // At its middle and near its two ends
+      for (int sample = -1; sample <= 1; sample++) {
+        double along = sample * piece.getWidth() * 0.45;
+        double ceiling = HomeRoofs.getCeilingElevation(roofs, piece.getX() + along * Math.cos(piece.getAngle()),
+            piece.getY() + along * Math.sin(piece.getAngle()), bottom + 1);
+        if (!Double.isNaN(ceiling) && !(ceiling >= lowest)) {
+          lowest = ceiling;
+        }
+      }
+      if (!Double.isNaN(lowest) && top > lowest + 2) {
+        float floor = piece.getLevel() != null ? piece.getLevel().getElevation() : 0;
+        add(issues, counts, new Issue(Type.DOOR_THROUGH_ROOF, id(piece, "F", i) + " \""
+            + (piece.getName() != null ? piece.getName() : "Unnamed") + "\" goes through the roof: its top is "
+            + format(top - floor) + " cm above the floor, where the underside of the roof is at " + format((float)(lowest - floor))
+            + " cm (" + format((float)(top - lowest)) + " cm too high)", piece, null));
+      }
+    }
+  }
+
+  /**
+   * Reports the walls that stand beyond the setback lines and the property lines.
+   */
+  private static void checkLines(Home home, List<Wall> walls, List<Issue> issues) {
+    int [] counts = new int [Type.values().length];
+    for (Object [] beyond : AssistantSiteCommands.getWallsBeyondLines(home)) {
+      Wall wall = (Wall)beyond [0];
+      com.eteks.sweethome3d.model.Polyline line = (com.eteks.sweethome3d.model.Polyline)beyond [1];
+      boolean setback = "setback".equals(line.getProperty(AssistantSiteCommands.LINE_KIND_PROPERTY));
+      String lineName = line.getProperty(AssistantSiteCommands.LINE_NAME_PROPERTY);
+      add(issues, counts, new Issue(setback ? Type.BEYOND_SETBACK : Type.BEYOND_PROPERTY_LINE,
+          id(wall, "W", walls.indexOf(wall)) + " stands " + format(((Double)beyond [2]).floatValue()) + " cm beyond the "
+          + (setback ? "setback line " : "property line ") + HomeItemIds.getId(line)
+          + (lineName != null ? " \"" + lineName + "\"" : ""), wall, line));
+    }
+  }
+
+  /**
+   * Returns the issues left once the ones to ignore are taken away.
+   * @param ignoredIds  the ids of items whose issues are ignored
+   * @param ignoredTags the tags of furniture whose issues are ignored
+   * @param minSeverity the least severity to keep: 0 for all, 1 for warnings and errors, 2 for errors
+   */
+  public static List<Issue> filter(List<Issue> issues, java.util.Collection<String> ignoredIds,
+                                   java.util.Collection<String> ignoredTags, int minSeverity) {
+    List<Issue> kept = new ArrayList<Issue>();
+    for (Issue issue : issues) {
+      if (issue.getType().getSeverity() < minSeverity) {
+        continue;
+      }
+      boolean ignored = false;
+      String id = HomeItemIds.getId(issue.getItem());
+      for (String ignoredId : ignoredIds) {
+        ignored |= id != null && id.equalsIgnoreCase(ignoredId.trim());
+      }
+      if (issue.getItem() instanceof HomePieceOfFurniture) {
+        for (String tag : ignoredTags) {
+          ignored |= HomeItemTags.hasTag((HomePieceOfFurniture)issue.getItem(), tag.trim());
+        }
+      }
+      if (!ignored) {
+        kept.add(issue);
+      }
+    }
+    return kept;
+  }
+
+  /**
+   * Returns the number of the severity named <code>text</code> (info, warning or error), or 0.
+   */
+  public static int parseSeverity(String text) {
+    if (text != null) {
+      String lower = text.trim().toLowerCase(java.util.Locale.ENGLISH);
+      for (int i = 0; i < SEVERITIES.length; i++) {
+        if (lower.startsWith(SEVERITIES [i]) || lower.equals(String.valueOf(i))) {
+          return i;
+        }
+      }
+    }
+    return 0;
   }
 
   private static void checkWalls(Home home, List<Wall> walls, List<Issue> issues) {
@@ -442,21 +576,42 @@ public class HomeDiagnostics {
    * Returns a text listing <code>issues</code>, or saying there's none.
    */
   public static String describe(List<Issue> issues) {
+    return describe(issues, 0);
+  }
+
+  /**
+   * Returns a text listing <code>issues</code>, the most serious first, or saying there's none.
+   * @param ignoredCount the count of issues that were ignored on request
+   */
+  public static String describe(List<Issue> issues, int ignoredCount) {
+    String ignored = ignoredCount > 0
+        ? " (" + ignoredCount + (ignoredCount == 1 ? " issue" : " issues") + " ignored on request)" : "";
     if (issues.isEmpty()) {
-      return "Home check: no issue found.";
+      return "Home check: no issue found" + (ignored.length() > 0 ? ignored : "") + ".";
     }
     int fixable = 0;
-    StringBuilder text = new StringBuilder("Home check: ").append(issues.size())
-        .append(issues.size() == 1 ? " issue" : " issues").append(":\n");
+    int [] counts = new int [SEVERITIES.length];
     for (Issue issue : issues) {
-      text.append("- [").append(issue.getType().name().toLowerCase(java.util.Locale.ENGLISH)).append("] ")
-          .append(issue.getMessage());
-      if (issue.getType().isFixable()
-          && (issue.getType() != Type.DOOR_OFF_WALL || issue.getOtherItem() != null)) {
-        text.append(" (fixable)");
-        fixable++;
+      counts [issue.getType().getSeverity()]++;
+    }
+    StringBuilder text = new StringBuilder("Home check: ").append(issues.size())
+        .append(issues.size() == 1 ? " issue" : " issues").append(" (").append(counts [2])
+        .append(counts [2] == 1 ? " error, " : " errors, ").append(counts [1])
+        .append(counts [1] == 1 ? " warning, " : " warnings, ").append(counts [0]).append(" info)").append(ignored).append(":\n");
+    for (int severity = SEVERITIES.length - 1; severity >= 0; severity--) {
+      for (Issue issue : issues) {
+        if (issue.getType().getSeverity() != severity) {
+          continue;
+        }
+        text.append("- ").append(SEVERITIES [severity]).append(" [")
+            .append(issue.getType().name().toLowerCase(java.util.Locale.ENGLISH)).append("] ").append(issue.getMessage());
+        if (issue.getType().isFixable()
+            && (issue.getType() != Type.DOOR_OFF_WALL || issue.getOtherItem() != null)) {
+          text.append(" (fixable)");
+          fixable++;
+        }
+        text.append('\n');
       }
-      text.append('\n');
     }
     if (fixable > 0) {
       text.append(fixable).append(fixable == 1 ? " issue" : " issues")

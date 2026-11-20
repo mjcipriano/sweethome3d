@@ -42,6 +42,7 @@ public class HomeMCPHandler {
   private static final List<String> SUPPORTED_PROTOCOL_VERSIONS =
       Arrays.asList(PROTOCOL_VERSION, "2025-03-26", "2024-11-05");
   private static final int MAX_SEARCH_RESULTS = 12;
+  private static final long MAX_COMMANDS_FILE_LENGTH = 20L * 1024 * 1024;
 
   private static final int PARSE_ERROR      = -32700;
   private static final int INVALID_REQUEST  = -32600;
@@ -442,6 +443,13 @@ public class HomeMCPHandler {
         if (!(name instanceof String) || !isTool((String)name)) {
           return error(id, INVALID_PARAMS, "Unknown tool: " + name);
         }
+        String unknown = getUnknownArguments((String)name, arguments);
+        if (unknown != null) {
+          // Said rather than dropped in silence: a client that kept the tools of an older version sees it
+          return result(id, toolResult(unknown, true));
+        }
+        // A group of calls left open by a client that went away mustn't keep the changes of the user out of Undo
+        this.commandExecutor.endIdleGroup(AssistantCommandExecutor.GROUP_IDLE_DELAY);
         return result(id, callTool((String)name, arguments));
       } else {
         return error(id, METHOD_NOT_FOUND, "Method not found: " + method);
@@ -451,13 +459,42 @@ public class HomeMCPHandler {
     }
   }
 
+  /**
+   * Returns a message about the arguments of a call that the tool doesn't have, or <code>null</code>.
+   */
+  @SuppressWarnings("unchecked")
+  static String getUnknownArguments(String toolName, Map<String, Object> arguments) {
+    for (Object tool : getTools()) {
+      Map<String, Object> description = (Map<String, Object>)tool;
+      if (toolName.equals(description.get("name"))) {
+        Map<String, Object> properties = (Map<String, Object>)((Map<String, Object>)description.get("inputSchema")).get("properties");
+        List<String> unknown = new ArrayList<String>();
+        for (String argument : arguments.keySet()) {
+          if (!properties.containsKey(argument) && !argument.startsWith("_")) {
+            unknown.add(argument);
+          }
+        }
+        if (!unknown.isEmpty()) {
+          return "The tool " + toolName + " has no argument " + unknown + ". Its arguments are "
+              + new ArrayList<String>(properties.keySet()) + ". If these aren't the arguments you know, your list of "
+              + "tools is the one of an other version of Sweet Home 3D: read the tools again (tools/list), or start "
+              + "a new session.";
+        }
+      }
+    }
+    return null;
+  }
+
   private static Map<String, Object> initialize(Map<String, Object> params, String serverVersion) {
     Object requestedVersion = params.get("protocolVersion");
     Map<String, Object> result = new LinkedHashMap<String, Object>();
     result.put("protocolVersion", SUPPORTED_PROTOCOL_VERSIONS.contains(requestedVersion)
         ? requestedVersion : PROTOCOL_VERSION);
     Map<String, Object> capabilities = new LinkedHashMap<String, Object>();
-    capabilities.put("tools", new LinkedHashMap<String, Object>());
+    // The program that links a client to this server tells it when the tools of an other version replace these
+    Map<String, Object> toolsCapability = new LinkedHashMap<String, Object>();
+    toolsCapability.put("listChanged", Boolean.TRUE);
+    capabilities.put("tools", toolsCapability);
     result.put("capabilities", capabilities);
     Map<String, Object> serverInfo = new LinkedHashMap<String, Object>();
     serverInfo.put("name", "sweethome3d");
@@ -467,12 +504,17 @@ public class HomeMCPHandler {
     result.put("instructions",
         "Tools to read and edit the home open in Sweet Home 3D, an interior design application. "
         + "Call get_home first: it describes the levels, rooms, walls and furniture with the ids "
-        + "(F# furniture, W# walls, R# rooms, L# levels) used by apply_commands. An id belongs to its item for good: "
+        + "(F# furniture, W# walls, R# rooms, L# levels, P# lines) used by apply_commands. An id belongs to its item for good: "
         + "it doesn't change when other items are added or deleted, the reply of a command names the ids of what it added, "
         + "and an id whose item was deleted is reported as an error. In a large home get_home takes the filters level, type and name. "
         + "To model a house without helper levels: add_roof with \"points\" builds one roof over any polygon with a hip or a gable "
         + "at each edge (add_dormer, fit_walls_to_roof), add_slab a raised, sunken or sloped slab, set_terrain the ground, "
-        + "modify_wall, modify_level, delete_level and merge_levels change walls and levels, set_plan_visibility shows a roof "
+        + "modify_wall, modify_level, delete_level and merge_levels change walls and levels, "
+        + "modify_roof, modify_dormer and remove_dormer change a roof without building it again, modify_room with "
+        + "\"ceiling\":\"follow_roof\" lines a room under the slopes and headroom measures it, add_polyline, add_property_line, "
+        + "add_setback, set_compass, set_georeference and import_parcel draw the site and place the home on the Earth, "
+        + "every reply lists the ids of what was created, apply_commands takes a \"file\" of commands, begin_group and end_group "
+        + "make several calls one step of Undo, set_plan_visibility shows a roof "
         + "as a dashed outline in the plans of the levels above, describe_item tells everything about one item, "
         + "and \"where\" designates the items of a level, a tag, a name, a type or a box in any command. "
         + "Furniture can only be added by its exact catalog name: use search_catalog or "
@@ -521,7 +563,19 @@ public class HomeMCPHandler {
     homeProperties.put("type", property("string",
         "Only these items: rooms, walls, furniture (with doors and windows) or doors_and_windows; several separated by commas"));
     homeProperties.put("name", property("string",
-        "Only the rooms and the furniture whose name contains this text, whatever the case"));
+        "Only the rooms and the furniture whose name contains this text, whatever the case; several texts "
+        + "separated by | match any of them, like \"Pine|Oak\""));
+    Map<String, Object> whereProperty = property("object",
+        "A short list of the items matching every criterion given, as in apply_commands: "
+        + "{\"level\":\"<name or L#>\",\"tag\":\"<tag>\",\"name\":\"<text, or Pine|Oak>\","
+        + "\"type\":\"furniture|doors_and_windows|lights|stairs|groups|all_furniture|walls|rooms|polylines\","
+        + "\"bbox\":[x1,y1,x2,y2]} (bbox in cm: what is inside that box). One line per item, up to 500");
+    homeProperties.put("where", whereProperty);
+    Map<String, Object> fieldsProperty = property("array",
+        "With or without where: one short line per item with only these fields, among name, position, size, level, "
+        + "elevation, angle, tags, type, area, points, color (default: name, position, size, level). The id is always given");
+    fieldsProperty.put("items", property("string", "A field"));
+    homeProperties.put("fields", fieldsProperty);
     tools.add(tool("get_home", "Describe home",
         "Returns a text description of the home open in Sweet Home 3D: levels, rooms with their "
         + "areas, walls, furniture with positions and sizes, and the current selection. Each "
@@ -551,13 +605,29 @@ public class HomeMCPHandler {
         "Searches the textures catalog and returns the best matching exact names, to use with the "
         + "set_texture command on floors, ceilings, walls and furniture.",
         schema(textureProperties, "query"), true));
+    Map<String, Object> checkProperties = new LinkedHashMap<String, Object>();
+    Map<String, Object> ignoreProperty = property("array",
+        "Ids of items whose issues aren't reported, like [\"F516\",\"W3\"]");
+    ignoreProperty.put("items", property("string", "An id"));
+    checkProperties.put("ignore", ignoreProperty);
+    Map<String, Object> ignoreTagsProperty = property("array",
+        "Tags of furniture whose issues aren't reported, like [\"marker\"] for survey markers that stand outside rooms on purpose");
+    ignoreTagsProperty.put("items", property("string", "A tag"));
+    checkProperties.put("ignore_tags", ignoreTagsProperty);
+    checkProperties.put("min_severity", enumProperty("The least serious issues to report (default info: all)",
+        "info", "warning", "error"));
+    checkProperties.put("remember", property("boolean",
+        "true to ignore these ids and tags in the next checks of this home too (kept with the home)"));
+    checkProperties.put("forget", property("boolean", "true to stop ignoring what was remembered"));
     tools.add(tool("check_home", "Check home",
         "Looks for defects in the plan: walls that end close to each other without being joined, "
         + "duplicated or empty items, doors and windows that aren't in a wall, furniture under the "
         + "floor, through the ceiling or outside every room, heavy 3D models. Each issue names its "
         + "items by id; those marked fixable are repaired by the fix_home command of apply_commands. "
+        + "Doors and windows higher than the roof above them and walls beyond a setback or a property line are errors. "
+        + "Each issue is marked error, warning or info, the errors first. "
         + "Like get_home, it binds the ids to the current items.",
-        schema(null), true));
+        schema(checkProperties), true));
     tools.add(tool("get_report", "Quantities of the home",
         "Returns the quantities of the home: floor area and perimeter of each room by level, length "
         + "and surface of the walls, count of the furniture by name with prices when they have one. "
@@ -685,11 +755,15 @@ public class HomeMCPHandler {
     commandsProperty.put("items", commandItems);
     Map<String, Object> commandsProperties = new LinkedHashMap<String, Object>();
     commandsProperties.put("commands", commandsProperty);
+    commandsProperties.put("file", property("string",
+        "Instead of commands: the absolute path of a JSON file holding the array of commands (or an object with a "
+        + "\"commands\" array), for long lists written by a script; up to "
+        + AssistantCommandExecutor.MAX_COMMANDS_PER_FILE + " commands, run as one undoable change"));
     tools.add(tool("apply_commands", "Edit home",
         "Edits the home open in Sweet Home 3D by running a list of commands as a single "
         + "undoable change, and returns a summary of what was applied or skipped. "
         + HomeAssistantContext.getCommandReference(),
-        schema(commandsProperties, "commands"), false));
+        schema(commandsProperties), false));
     tools.add(tool("undo", "Undo", "Undoes the last change made to the home.", schema(null), false));
     tools.add(tool("redo", "Redo", "Redoes the last undone change.", schema(null), false));
     return tools;
@@ -737,7 +811,26 @@ public class HomeMCPHandler {
    * Runs the tool <code>name</code> and returns its MCP result.
    */
   private Map<String, Object> callTool(String name, Map<String, Object> arguments) {
-    if ("get_home".equals(name)) {
+    if ("get_home".equals(name) && (arguments.get("where") instanceof Map || arguments.get("fields") != null)) {
+      // A short list of the items of an area, a level, a tag...
+      Map<String, Object> where = arguments.get("where") instanceof Map
+          ? new LinkedHashMap<String, Object>((Map<String, Object>)arguments.get("where")) : new LinkedHashMap<String, Object>();
+      for (String criterion : new String [] {"level", "type", "name"}) {
+        if (arguments.get(criterion) != null && !where.containsKey(criterion)) {
+          where.put(criterion, arguments.get(criterion));
+        }
+      }
+      List<String> fields = new ArrayList<String>();
+      if (arguments.get("fields") instanceof List) {
+        for (Object field : (List<?>)arguments.get("fields")) {
+          fields.add(String.valueOf(field));
+        }
+      } else if (arguments.get("fields") instanceof String) {
+        fields.addAll(Arrays.asList(((String)arguments.get("fields")).split("[,\\s]+")));
+      }
+      this.commandExecutor.snapshotDescribedItems();
+      return toolResult(this.commandExecutor.describeItems(where, fields), false);
+    } else if ("get_home".equals(name)) {
       String levelName = string(arguments, "level");
       if (levelName != null && findLevel(levelName) == null) {
         return toolResult("No level is named \"" + levelName + "\". Levels: " + getLevelNames() + ".", true);
@@ -789,7 +882,7 @@ public class HomeMCPHandler {
       return toolResult("Textures: " + this.commandExecutor.searchTextures((String)query, MAX_SEARCH_RESULTS), false);
     } else if ("check_home".equals(name)) {
       this.commandExecutor.snapshotDescribedItems();
-      return toolResult(this.commandExecutor.checkHome(), false);
+      return toolResult(this.commandExecutor.checkHome(arguments), false);
     } else if ("get_report".equals(name)) {
       return toolResult(this.commandExecutor.reportHome(), false);
     } else if ("get_notes".equals(name)) {
@@ -831,8 +924,9 @@ public class HomeMCPHandler {
       }
     } else if ("undo".equals(name)) {
       try {
+        boolean groupEnded = this.commandExecutor.endGroup();
         this.homeController.undo();
-        return toolResult("Undone.", false);
+        return toolResult(groupEnded ? "Ended the group of calls and undid it as one step." : "Undone.", false);
       } catch (CannotUndoException ex) {
         return toolResult("Nothing to undo.", true);
       }
@@ -1339,8 +1433,32 @@ public class HomeMCPHandler {
   @SuppressWarnings("unchecked")
   private Map<String, Object> applyCommands(Map<String, Object> arguments) {
     Object commandsValue = arguments.get("commands");
+    int maxCount = AssistantCommandExecutor.MAX_COMMANDS_PER_TURN;
+    if (arguments.get("file") instanceof String && ((String)arguments.get("file")).trim().length() > 0) {
+      // A long list of commands written in a file rather than pasted in the call
+      if (commandsValue instanceof List && !((List<?>)commandsValue).isEmpty()) {
+        return toolResult("Give \"commands\" or \"file\", not both.", true);
+      }
+      java.io.File file = new java.io.File(((String)arguments.get("file")).trim());
+      if (!file.isAbsolute() || !file.isFile()) {
+        return toolResult("\"file\" must be the absolute path of a JSON file that exists.", true);
+      }
+      try {
+        Object parsed = JSONParser.parse(new String(AssistantGeneratedModel.readFile(file, MAX_COMMANDS_FILE_LENGTH), "UTF-8"));
+        commandsValue = parsed instanceof Map ? ((Map<?, ?>)parsed).get("commands") : parsed;
+      } catch (java.io.IOException ex) {
+        return toolResult("Couldn't read the file of commands: " + ex.getMessage(), true);
+      } catch (IllegalArgumentException ex) {
+        return toolResult("The file of commands isn't written in JSON: " + ex.getMessage(), true);
+      }
+      if (!(commandsValue instanceof List) || ((List<?>)commandsValue).isEmpty()) {
+        return toolResult("The file must hold an array of commands, or an object with a \"commands\" array.", true);
+      }
+      maxCount = AssistantCommandExecutor.MAX_COMMANDS_PER_FILE;
+    }
     if (!(commandsValue instanceof List) || ((List<?>)commandsValue).isEmpty()) {
-      return toolResult("The \"commands\" argument must be a non-empty array of command objects.", true);
+      return toolResult("The \"commands\" argument must be a non-empty array of command objects "
+          + "(or give \"file\", the path of a JSON file of commands).", true);
     }
     List<AssistantCommand> commands = new ArrayList<AssistantCommand>();
     for (Object item : (List<?>)commandsValue) {
@@ -1350,7 +1468,7 @@ public class HomeMCPHandler {
       Map<String, Object> command = (Map<String, Object>)item;
       commands.add(new AssistantCommand(command.get("action").toString(), command));
     }
-    String summary = this.commandExecutor.execute(commands);
+    String summary = this.commandExecutor.execute(commands, maxCount);
     // An id that designates nothing is an error, even if other commands were applied
     return toolResult(summary != null
         ? summary

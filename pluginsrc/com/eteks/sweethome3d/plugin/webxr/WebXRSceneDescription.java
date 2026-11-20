@@ -285,6 +285,9 @@ public class WebXRSceneDescription {
     String structure = piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY);
     return "roof".equals(structure)
         || "terrain".equals(structure)
+        // The ceiling under a roof and the stakes around a lot aren't the box of their size either
+        || "ceiling".equals(structure)
+        || "site".equals(structure)
         // A slab is walked on by the triangles of its top
         || "slab".equals(structure) && GeneratedModelFaces.getFaces(piece, MAX_SLAB_FACES) != null
         || "true".equals(piece.getProperty(AssistantCommandExecutor.AUTO_ROOF_PROPERTY));

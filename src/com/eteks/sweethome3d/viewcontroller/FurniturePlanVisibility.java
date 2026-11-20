@@ -111,6 +111,10 @@ public final class FurniturePlanVisibility {
    * the height of the walls, {@link #DRAW} otherwise.
    */
   public static String getAtLevel(HomePieceOfFurniture piece, Level level) {
+    if ("ceiling".equals(piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY))) {
+      // The ceiling of a room would cover it in the plan
+      return HIDE;
+    }
     Level pieceLevel = piece.getLevel();
     if (pieceLevel != null && level != null && pieceLevel != level
         && pieceLevel.getElevation() < level.getElevation()) {

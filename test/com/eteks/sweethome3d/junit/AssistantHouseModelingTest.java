@@ -500,7 +500,7 @@ public class AssistantHouseModelingTest {
     // A dormer raises the roof where it stands
     summary = run("{\"action\":\"add_dormer\",\"roof\":\"" + HomeItemIds.getId(hip) + "\",\"side\":\"south\",\"width\":150,"
         + "\"height\":80,\"type\":\"gable\",\"window\":\"Zz roof window\"}");
-    assertTrue(summary, summary.contains("Added a dormer") && summary.contains("1 dormer window"));
+    assertTrue(summary, summary.contains("Added the dormer 1") && summary.contains("1 window"));
     assertEquals(rise + 15, hip.getHeight(), 0.05f);
     HomePieceOfFurniture window = null;
     for (HomePieceOfFurniture piece : this.home.getFurniture()) {
@@ -545,7 +545,8 @@ public class AssistantHouseModelingTest {
         assertEquals(300, wall.getLength(), 0.1f);
         assertTrue(wall.getWallAtStart() != null && wall.getWallAtEnd() != null);
       } else {
-        assertEquals(eave, wall.getHeight(), 0.1);
+        // Measured half a centimeter inside the roof
+        assertEquals(eave, wall.getHeight(), 0.5);
         assertEquals(800, wall.getLength(), 0.1f);
       }
     }

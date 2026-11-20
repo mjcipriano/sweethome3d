@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 import com.eteks.sweethome3d.model.Camera;
 import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
@@ -116,12 +117,58 @@ class AssistantBuildingCommands {
       String name = command.getString("name");
       if (name == null || name.trim().length() == 0) {
         notes.add("Ignored store_point_of_view without \"name\"");
+      } else if (command.getParameters().get("camera") instanceof Map || command.has("view") || command.has("x")) {
+        // A point of view given by the command: stored without moving the camera of the user
+        Camera userCamera = this.home.getCamera();
+        Camera [] cameras = {this.home.getTopCamera(), this.home.getObserverCamera()};
+        float [][] states = new float [cameras.length][];
+        for (int i = 0; i < cameras.length; i++) {
+          states [i] = new float [] {cameras [i].getX(), cameras [i].getY(), cameras [i].getZ(), cameras [i].getYaw(),
+                                     cameras [i].getPitch(), cameras [i].getFieldOfView()};
+        }
+        java.util.Map<String, Object> parameters = new java.util.LinkedHashMap<String, Object>(command.getParameters());
+        if (parameters.get("camera") instanceof Map) {
+          for (Map.Entry<?, ?> entry : ((Map<?, ?>)parameters.get("camera")).entrySet()) {
+            parameters.put(String.valueOf(entry.getKey()), entry.getValue());
+          }
+        }
+        parameters.remove("name");
+        if (parameters.get("x") instanceof Number && parameters.get("view") == null && parameters.get("mode") == null) {
+          // A place and a direction are the ones of the virtual visitor
+          parameters.put("mode", "visitor");
+        }
+        if (parameters.get("look_at_height") instanceof Number && parameters.get("height") instanceof Number
+            && parameters.get("look_at_x") instanceof Number && parameters.get("look_at_y") instanceof Number
+            && parameters.get("x") instanceof Number && parameters.get("y") instanceof Number && parameters.get("pitch") == null) {
+          double distance = Math.hypot(((Number)parameters.get("look_at_x")).doubleValue() - ((Number)parameters.get("x")).doubleValue(),
+              ((Number)parameters.get("look_at_y")).doubleValue() - ((Number)parameters.get("y")).doubleValue());
+          parameters.put("pitch", Double.valueOf(Math.toDegrees(Math.atan2(((Number)parameters.get("height")).doubleValue()
+              - ((Number)parameters.get("look_at_height")).doubleValue(), distance))));
+        }
+        List<String> cameraNotes = new ArrayList<String>();
+        setCamera(new AssistantCommand("set_camera", parameters), cameraNotes);
+        String description = HomeViewpoints.describeCamera(this.home);
+        this.homeController.getHomeController3D().storeCamera(name.trim());
+        for (int i = 0; i < cameras.length; i++) {
+          cameras [i].setX(states [i][0]);
+          cameras [i].setY(states [i][1]);
+          cameras [i].setZ(states [i][2]);
+          cameras [i].setYaw(states [i][3]);
+          cameras [i].setPitch(states [i][4]);
+          cameras [i].setFieldOfView(states [i][5]);
+        }
+        if (this.home.getCamera() != userCamera) {
+          this.home.setCamera(userCamera);
+        }
+        notes.add("Stored the point of view \"" + name.trim() + "\" (" + description + ") without moving the camera of the user. "
+            + "get_3d_image {\"point_of_view\":\"" + name.trim() + "\"} draws it, and \"compare_with\":\"<photo>\" "
+            + "sets a photo beside the picture");
       } else {
         this.homeController.getHomeController3D().storeCamera(name.trim());
         notes.add("Stored the point of view \"" + name.trim() + "\" (" + HomeViewpoints.describeCamera(this.home) + ")");
       }
     } else if ("check_home".equals(action)) {
-      notes.add(HomeDiagnostics.describe(check()));
+      notes.add(this.executor.checkHome(command.getParameters()));
     } else if ("fix_home".equals(action)) {
       fixHome(command, tally, notes);
     } else {
@@ -364,10 +411,13 @@ class AssistantBuildingCommands {
     }
     final String name = command.getString("name");
     final boolean floorOffset = command.has("floor_offset");
+    final boolean ceiling = command.has("ceiling") || command.has("flat_ceiling_at");
+    final String ceilingMode = command.getString("ceiling") != null ? command.getString("ceiling") : "follow_roof";
+    final boolean followRoof = ceiling && !ceilingMode.trim().toLowerCase(Locale.ENGLISH).matches("flat|level|none|default");
     if (!command.has("points") && !command.has("ceiling_visible") && !command.has("floor_visible")
-        && !command.has("area_visible") && name == null && !floorOffset) {
+        && !command.has("area_visible") && name == null && !floorOffset && !ceiling) {
       notes.add("Ignored modify_room: give at least one of \"ceiling_visible\", \"floor_visible\", "
-          + "\"area_visible\", \"name\", \"points\" and \"floor_offset\"");
+          + "\"area_visible\", \"name\", \"points\", \"floor_offset\", \"ceiling\" and \"flat_ceiling_at\"");
       return;
     }
     this.executor.postModification(rooms, new Runnable() {
@@ -376,6 +426,9 @@ class AssistantBuildingCommands {
             Room room = (Room)item;
             if (command.has("ceiling_visible")) {
               room.setCeilingVisible(command.getBoolean("ceiling_visible", room.isCeilingVisible()));
+            } else if (ceiling) {
+              // The ceiling under the roof replaces the flat one at the height of the level
+              room.setCeilingVisible(!followRoof);
             }
             if (command.has("floor_visible")) {
               room.setFloorVisible(command.getBoolean("floor_visible", room.isFloorVisible()));
@@ -407,6 +460,17 @@ class AssistantBuildingCommands {
         }
       }
     }
+    List<String> ceilings = new ArrayList<String>();
+    if (ceiling) {
+      for (Selectable item : rooms) {
+        try {
+          ceilings.add(this.executor.getShapeCommands().setRoomCeiling((Room)item, ceilingMode,
+              command.getDouble("flat_ceiling_at", Double.NaN)));
+        } catch (IOException ex) {
+          ceilings.add("its ceiling doesn't follow a roof (" + ex.getMessage() + ")");
+        }
+      }
+    }
     // What each room is now, to check the result without describing the home again
     StringBuilder note = new StringBuilder("Modified ");
     for (int i = 0; i < rooms.size(); i++) {
@@ -420,6 +484,13 @@ class AssistantBuildingCommands {
           .append(", ").append(Math.round(room.getArea() / 100) / 100f).append(" m2");
       if (i < slabs.size()) {
         note.append(", ").append(slabs.get(i));
+      }
+      if (i < ceilings.size()) {
+        note.append(", ").append(ceilings.get(i));
+        String headroom = this.executor.getShapeCommands().describeHeadroom(room);
+        if (headroom != null) {
+          note.append(", ").append(headroom);
+        }
       }
     }
     notes.add(note.toString());
