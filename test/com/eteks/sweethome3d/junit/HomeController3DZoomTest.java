@@ -19,6 +19,8 @@ import org.junit.Test;
 
 import com.eteks.sweethome3d.io.DefaultUserPreferences;
 import com.eteks.sweethome3d.model.Camera;
+import com.eteks.sweethome3d.model.HomePieceOfFurniture;
+import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.Wall;
 import com.eteks.sweethome3d.swing.SwingViewFactory;
@@ -128,17 +130,112 @@ public class HomeController3DZoomTest {
     // Front: from the bottom of the plan, near the horizon
     this.controller.viewFromDirection((float)Math.PI, 0.02f);
     assertEquals(500, camera.getX(), 5);
-    assertTrue("y " + camera.getY(), camera.getY() > 800 + 500);
+    assertTrue("y " + camera.getY(), camera.getY() > 800 + 300);
     assertTrue("z " + camera.getZ(), camera.getZ() < 400);
     // Right side
     this.controller.viewFromDirection((float)Math.PI / 2, 0.02f);
-    assertTrue("x " + camera.getX(), camera.getX() > 1000 + 500);
+    assertTrue("x " + camera.getX(), camera.getX() > 1000 + 300);
     assertEquals(400, camera.getY(), 5);
     // From the virtual visit too
     this.controller.viewFromObserver();
     this.controller.viewFromDirection(0, 0.02f);
     assertEquals(this.home.getTopCamera(), this.home.getCamera());
     assertTrue(this.home.getCamera().getY() < -500);
+  }
+
+  /**
+   * The nine numbered views show the building from the direction of their key on a
+   * numeric keypad, at the same distance whatever stands in the garden.
+   */
+  @Test
+  public void testNumberedStandardViews() {
+    Camera camera = this.home.getTopCamera();
+    // 2: from the front, level, south of the house
+    this.controller.viewFromStandardDirection(2, false);
+    assertEquals(500, camera.getX(), 1);
+    assertTrue("y " + camera.getY(), camera.getY() > 800);
+    assertEquals(0.02f, camera.getPitch(), 1E-4f);
+    double distance = getDistanceToHomeCenter();
+    // Shift: from higher
+    this.controller.viewFromStandardDirection(2, true);
+    assertEquals(Math.toRadians(30), camera.getPitch(), 1E-4f);
+    // 8 from the back, 4 from the left, 6 from the right
+    this.controller.viewFromStandardDirection(8, false);
+    assertTrue("y " + camera.getY(), camera.getY() < 0);
+    this.controller.viewFromStandardDirection(4, false);
+    assertTrue("x " + camera.getX(), camera.getX() < 0);
+    assertEquals(400, camera.getY(), 1);
+    this.controller.viewFromStandardDirection(6, false);
+    assertTrue("x " + camera.getX(), camera.getX() > 1000);
+    // 5 from the top
+    this.controller.viewFromStandardDirection(5, false);
+    assertEquals(Math.PI / 2, camera.getPitch(), 1E-4f);
+    assertEquals(500, camera.getX(), 1);
+    // 7 from the back left corner, 3 from the front right one
+    this.controller.viewFromStandardDirection(7, false);
+    assertTrue(camera.getX() < 0 && camera.getY() < 0);
+    assertEquals(Math.toRadians(30), camera.getPitch(), 1E-4f);
+    this.controller.viewFromStandardDirection(3, true);
+    assertTrue("x " + camera.getX() + " y " + camera.getY(), camera.getX() > 900 && camera.getY() > 700);
+    assertEquals(Math.toRadians(50), camera.getPitch(), 1E-4f);
+
+    // A tree 30 m away in the garden doesn't move the views away from the house
+    HomePieceOfFurniture tree = new HomePieceOfFurniture(new CatalogPieceOfFurniture(
+        "Tree", null, null, 300, 300, 500, true, false));
+    tree.setX(4000);
+    tree.setY(400);
+    this.home.addPieceOfFurniture(tree);
+    this.controller.viewFromStandardDirection(2, false);
+    assertEquals(500, camera.getX(), 1);
+    assertEquals(distance, getDistanceToHomeCenter(), 1);
+    // But it is in the view of the whole home
+    this.controller.zoomCameraToFit();
+    assertTrue(getDistanceToHomeCenter() > distance * 1.5);
+    // What stands against the house is a part of the building
+    this.home.deletePieceOfFurniture(tree);
+    tree.setX(1100);
+    this.home.addPieceOfFurniture(tree);
+    this.controller.viewFromStandardDirection(2, false);
+    assertTrue("x " + camera.getX(), camera.getX() > 550);
+  }
+
+  /**
+   * The aerial view moves sideways and up, and stays there when the home changes.
+   */
+  @Test
+  public void testAerialViewMovesSideways() {
+    Camera camera = this.home.getTopCamera();
+    // From the front: to the right is to the east
+    this.controller.viewFromStandardDirection(2, false);
+    float x = camera.getX();
+    float y = camera.getY();
+    float z = camera.getZ();
+    double distance = getDistanceToHomeCenter();
+    this.controller.moveCameraSideways(10);
+    assertTrue("x " + camera.getX(), camera.getX() > x + 10);
+    assertEquals(y, camera.getY(), 0.5f);
+    float right = camera.getX() - x;
+    // Turning then goes around the point the view moved to
+    this.controller.rotateCameraYaw((float)Math.PI);
+    assertEquals(500 + right, camera.getX(), 1);
+    assertTrue(camera.getY() < 0);
+    this.controller.rotateCameraYaw(-(float)Math.PI);
+    // From the back, to the right is to the west
+    this.controller.moveCameraSideways(-10);
+    assertEquals(x, camera.getX(), 0.5f);
+    // Up
+    this.controller.elevateCamera(10);
+    assertTrue(camera.getZ() > z + 10);
+    float up = camera.getZ() - z;
+    this.controller.moveCameraSideways(10);
+    // A change in the home keeps the view where it was moved
+    this.home.addWall(new Wall(500, 0, 500, 800, 10, 250));
+    assertEquals(x + right, camera.getX(), 1);
+    assertEquals(z + up, camera.getZ(), 1);
+    // Showing the whole home comes back to its center
+    this.controller.zoomCameraToFit();
+    assertEquals(500, camera.getX(), 1);
+    assertEquals(distance, getDistanceToHomeCenter(), distance * 0.1);
   }
 
   @Test

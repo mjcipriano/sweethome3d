@@ -67,6 +67,7 @@ public class HomeController3D implements Controller {
   private final CameraControllerState observerCameraState;
   // Current state
   private CameraControllerState       cameraState;
+  private float                       viewAspectRatio = 4f / 3;
 
   /**
    * Creates the controller of home 3D view.
@@ -341,10 +342,51 @@ public class HomeController3D implements Controller {
    */
   public void viewFromDirection(float yaw, float pitch) {
     viewFromTop();
+    // The view turns around the building, not around its garden
+    this.cameraState.centerOnBuilding();
     Camera camera = this.home.getTopCamera();
     rotateCameraYaw(yaw - camera.getYaw());
     rotateCameraPitch(pitch - camera.getPitch());
-    zoomCameraToFit();
+    this.cameraState.zoomCameraToBounds();
+  }
+
+  /**
+   * Sets the ratio between the width and the height of the 3D view, which tells
+   * from how far a home is entirely in sight.
+   */
+  public void setViewAspectRatio(float viewAspectRatio) {
+    if (viewAspectRatio > 0 && !Float.isNaN(viewAspectRatio) && !Float.isInfinite(viewAspectRatio)) {
+      this.viewAspectRatio = Math.max(0.25f, Math.min(viewAspectRatio, 6));
+    }
+  }
+
+  /**
+   * Shows the building from one of nine standard directions, laid out as the keys 1 to 9
+   * of a numeric keypad over the plan: 2 from the front (the bottom of the plan), 8 from
+   * the back, 4 from the left, 6 from the right, 1, 3, 7 and 9 from the corners and 5 from
+   * the top.
+   * @param direction a number from 1 to 9
+   * @param higher    <code>true</code> to look from higher: sides are seen from 30 degrees
+   *                  above the horizon rather than level, corners from 50 degrees rather than 30
+   */
+  public void viewFromStandardDirection(int direction, boolean higher) {
+    if (direction < 1 || direction > 9) {
+      throw new IllegalArgumentException("Direction from 1 to 9");
+    }
+    if (direction == 5) {
+      viewFromDirection((float)Math.PI, (float)Math.PI / 2);
+    } else {
+      // Columns of the keypad go from the west to the east, its rows from the south to the north
+      int column = (direction - 1) % 3 - 1;
+      int row = (direction - 1) / 3 - 1;
+      // 0 looks from the north, PI / 2 from the east
+      float yaw = (float)Math.atan2(column, row);
+      boolean corner = column != 0 && row != 0;
+      float pitch = corner
+          ? (float)Math.toRadians(higher ? 50 : 30)
+          : higher ? (float)Math.toRadians(30) : 0.02f;
+      viewFromDirection(yaw < 0 ? yaw + 2 * (float)Math.PI : yaw, pitch);
+    }
   }
 
   /**
@@ -492,6 +534,12 @@ public class HomeController3D implements Controller {
     }
 
     public void zoomCameraToFit() {
+    }
+
+    public void centerOnBuilding() {
+    }
+
+    public void zoomCameraToBounds() {
     }
 
     public void moveCameraSideways(float delta) {
@@ -869,6 +917,11 @@ public class HomeController3D implements Controller {
     private final float MIN_HEIGHT = 20;
 
     private Camera      topCamera;
+    // Furniture farther than this from the walls isn't a part of the building
+    private static final float BUILDING_MARGIN = 150;
+    private boolean     buildingBounds;
+    // How far the user moved the center of the view sideways and up from the center of the home
+    private float []    panOffset = new float [3];
     private float []    aerialViewBoundsLowerPoint;
     private float []    aerialViewBoundsUpperPoint;
     private float       minDistanceToAerialViewCenter;
@@ -1128,9 +1181,26 @@ public class HomeController3D implements Controller {
         }
       }
 
+      // The box of the walls, to tell the furniture of the building from the one of its garden
+      float [] buildingBox = null;
+      if (selectionEmpty && this.buildingBounds && this.aerialViewBoundsLowerPoint != null) {
+        buildingBox = new float [] {this.aerialViewBoundsLowerPoint [0] - BUILDING_MARGIN,
+                                    this.aerialViewBoundsLowerPoint [1] - BUILDING_MARGIN,
+                                    this.aerialViewBoundsUpperPoint [0] + BUILDING_MARGIN,
+                                    this.aerialViewBoundsUpperPoint [1] + BUILDING_MARGIN};
+      }
       for (HomePieceOfFurniture piece : selectionEmpty
                                             ? home.getFurniture()
                                             : Home.getFurnitureSubList(selectedItems)) {
+        if (selectionEmpty
+            && (containsVisibleWalls && HomeTerrain.isTerrain(piece)
+                || buildingBox != null
+                    && (piece.getX() < buildingBox [0] || piece.getY() < buildingBox [1]
+                        || piece.getX() > buildingBox [2] || piece.getY() > buildingBox [3]))) {
+          // The ground would make the home a small thing in the middle of its plot,
+          // and so would trees or a driveway for a view of the building
+          continue;
+        }
         if (piece.isVisible() && isItemAtVisibleLevel(piece)) {
           float minZ;
           float maxZ;
@@ -1244,6 +1314,59 @@ public class HomeController3D implements Controller {
           this.aerialViewBoundsUpperPoint [2] = this.aerialViewBoundsLowerPoint [2] + MIN_HEIGHT;
         }
       }
+      // The view stays where the user moved it sideways when the home changes
+      for (int i = 0; i < 3; i++) {
+        this.aerialViewBoundsLowerPoint [i] += this.panOffset [i];
+        this.aerialViewBoundsUpperPoint [i] += this.panOffset [i];
+      }
+    }
+
+    /**
+     * Moves the center of the aerial view by the given distances, with the camera.
+     */
+    private void pan(float dx, float dy, float dz) {
+      if (this.aerialViewBoundsLowerPoint == null) {
+        return;
+      }
+      float centerZ = (this.aerialViewBoundsLowerPoint [2] + this.aerialViewBoundsUpperPoint [2]) / 2;
+      // Not under the ground, nor higher than the home is far
+      dz = Math.max(-centerZ, Math.min(dz, this.maxDistanceToAerialViewCenter - centerZ));
+      float [] delta = {dx, dy, dz};
+      for (int i = 0; i < 3; i++) {
+        this.panOffset [i] += delta [i];
+        this.aerialViewBoundsLowerPoint [i] += delta [i];
+        this.aerialViewBoundsUpperPoint [i] += delta [i];
+      }
+      this.topCamera.setX(this.topCamera.getX() + dx);
+      this.topCamera.setY(this.topCamera.getY() + dy);
+      this.topCamera.setZ(this.topCamera.getZ() + dz);
+    }
+
+    /**
+     * Returns the ratio between a move of the camera and the same move in the virtual
+     * visit: from far away, a step sideways must be larger to show.
+     */
+    private float getPanScale() {
+      return Math.max(1, getCameraToAerialViewCenterDistance() / 250);
+    }
+
+    /**
+     * Moves the camera and the point it turns around to the left (negative delta) or to the right.
+     */
+    @Override
+    public void moveCameraSideways(float delta) {
+      super.moveCameraSideways(delta);
+      delta *= getPanScale();
+      pan(-(float)Math.cos(this.topCamera.getYaw()) * delta, -(float)Math.sin(this.topCamera.getYaw()) * delta, 0);
+    }
+
+    /**
+     * Moves the camera and the point it turns around up or down.
+     */
+    @Override
+    public void elevateCamera(float delta) {
+      super.elevateCamera(delta);
+      pan(0, 0, delta * getPanScale());
     }
 
     /**
@@ -1273,6 +1396,28 @@ public class HomeController3D implements Controller {
     /**
      * Updates the minimum and maximum distances of the camera to the center of the aerial view.
      */
+    /**
+     * Centers the aerial view on the walls of the home and what stands among them, leaving
+     * out the garden, until the home changes. Does nothing in a home without wall.
+     */
+    @Override
+    public void centerOnBuilding() {
+      if (!isEditingState()) {
+        float distanceToCenter = this.aerialViewBoundsLowerPoint != null
+            ? getCameraToAerialViewCenterDistance()
+            : -1;
+        this.panOffset = new float [3];
+        this.buildingBounds = true;
+        try {
+          updateAerialViewBoundsFromHomeBounds(this.aerialViewCenteredOnSelectionEnabled);
+        } finally {
+          this.buildingBounds = false;
+        }
+        updateCameraIntervalToAerialViewCenter();
+        placeCameraAt(distanceToCenter > 0 ? distanceToCenter : this.minDistanceToAerialViewCenter, false);
+      }
+    }
+
     private void updateCameraIntervalToAerialViewCenter() {
       float homeBoundsWidth = this.aerialViewBoundsUpperPoint [0] - this.aerialViewBoundsLowerPoint [0];
       float homeBoundsDepth = this.aerialViewBoundsUpperPoint [1] - this.aerialViewBoundsLowerPoint [1];
@@ -1309,10 +1454,43 @@ public class HomeController3D implements Controller {
 
     @Override
     public void zoomCameraToFit() {
+      // The whole home, where it stands
+      this.panOffset = new float [3];
+      updateAerialViewBoundsFromHomeBounds(this.aerialViewCenteredOnSelectionEnabled);
+      updateCameraIntervalToAerialViewCenter();
+      zoomCameraToBounds();
+    }
+
+    @Override
+    public void zoomCameraToBounds() {
       super.moveCamera(0);
-      // With the default field of view, the home fills the view from about 2.2 times its half diagonal
-      double halfFieldOfView = Math.max(Math.toRadians(10), this.topCamera.getFieldOfView() / 2);
-      placeCameraAt((float)(this.minDistanceToAerialViewCenter / 1.05 / Math.sin(Math.min(halfFieldOfView, Math.PI / 2 - 0.01)) * 1.05), false);
+      // The distance from which the home is in the view, whose field of view is the one of its width
+      double tanHalfWidth = Math.tan(Math.max(Math.toRadians(10),
+          Math.min(this.topCamera.getFieldOfView() / 2, Math.PI / 2 - 0.05)));
+      double tanHalfHeight = tanHalfWidth / viewAspectRatio;
+      double yaw = this.topCamera.getYaw();
+      double pitch = this.topCamera.getPitch();
+      // The direction the camera looks at, its right and its top, with z upward
+      double [] forward = {-Math.sin(yaw) * Math.cos(pitch), Math.cos(yaw) * Math.cos(pitch), -Math.sin(pitch)};
+      double [] right = {-Math.cos(yaw), -Math.sin(yaw), 0};
+      double [] up = {right [1] * forward [2] - right [2] * forward [1],
+                      right [2] * forward [0] - right [0] * forward [2],
+                      right [0] * forward [1] - right [1] * forward [0]};
+      // The home is taken as the ellipsoid in its box rather than as the box itself, whose
+      // corners are empty: seen from a corner, a box would move the camera twice too far
+      double side = 0;
+      double height = 0;
+      double depth = 0;
+      for (int axis = 0; axis < 3; axis++) {
+        double halfSize = (this.aerialViewBoundsUpperPoint [axis] - this.aerialViewBoundsLowerPoint [axis]) / 2;
+        side += halfSize * right [axis] * halfSize * right [axis];
+        height += halfSize * up [axis] * halfSize * up [axis];
+        depth += halfSize * forward [axis] * halfSize * forward [axis];
+      }
+      // What is the closest to the camera is seen the largest
+      double distance = Math.max(Math.sqrt(side) / tanHalfWidth, Math.sqrt(height) / tanHalfHeight) + Math.sqrt(depth);
+      // A margin around the home
+      placeCameraAt((float)(distance * 1.2), false);
     }
 
     public void placeCameraAt(float distanceToCenter, boolean firstPieceOfFurnitureAddedToEmptyHome) {
