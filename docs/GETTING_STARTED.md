@@ -68,6 +68,9 @@ for "a living room of 6 by 4 meters with a sofa and a TV".
 
 ## Where the additions are
 
+In the application, **Help > Sweet Home 3D help** has a page *What this
+edition adds* with the same list (in English).
+
 | Menu | Item | Guide |
 | --- | --- | --- |
 | **File** | Versions... | [Design tools](DESIGN_TOOLS.md#versions-of-a-home) |

@@ -1,5 +1,5 @@
-[{"action": "add_level", "name": "First floor", "height": 250},
- {"action": "modify_level", "id": "L1", "new_name": "Ground floor"},
+[{"action": "add_level", "name": "First floor", "elevation": 262, "height": 250},
+ {"action": "modify_level", "id": "L1", "new_name": "Ground floor", "height": 250},
  {"action": "add_rectangular_room", "name": "Bedroom 1", "x": 0, "y": 0, "width": 280, "depth": 420, "thickness": 20, "height": 250},
  {"action": "add_rectangular_room", "name": "Landing", "next_to": "Bedroom 1", "side": "east", "width": 300, "depth": 420, "thickness": 20, "height": 250},
  {"action": "add_rectangular_room", "name": "Bedroom 2", "next_to": "Landing", "side": "east", "width": 380, "depth": 420, "thickness": 20, "height": 250},

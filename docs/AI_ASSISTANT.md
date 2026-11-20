@@ -442,6 +442,20 @@ Follow-up found while writing the tutorial (2026-11-20):
 - `ElevationDrawing` draws the faces of the models built by these commands,
   sloped walls and the ground, instead of boxes.
 - Undo restores the properties `assistantOutdoor` and `assistantBelowFloor`.
+- Slabs: the scene description gives the triangles of their top (`ramps`,
+  `GeneratedModelFaces`), walked on in the game mode and the walk-through.
+- Generated pieces have a picture seen from the top (`createPlanIcon`), which
+  the plan draws whatever the preference (`FurniturePlanVisibility.isDrawnFromTop`).
+- The ground follows the rooms: `HomeController.refreshTerrain` builds its
+  model again after each edit, undo and redo when the rooms or walls it is
+  open under changed (`AssistantShapeCommands.refreshTerrain`, properties
+  `assistantTerrainParameters` and `assistantTerrainFootprint`).
+- `apply_style` finds floor textures by the id of the default catalog, in any
+  language.
+- three.js 0.155.0 comes with the pages (no Internet access needed).
+- `HomeMCPBridge` stops when asked by the **Release program folder** button
+  (file `mcp-bridge-stop` of the application folder).
+- Help: page "What this edition adds" (English).
 - `CommandReferenceDocTest` fails when a command of the reference is missing
   in `docs/MCP_COMMANDS.md`; `docs/tools/screenshots` regenerates the pictures.
 

@@ -46,7 +46,8 @@ sides facing the selected rooms (or every room of the level): Scandinavian,
 Modern, Industrial, Traditional, Coastal, Mid-century, Minimalist, Dark,
 Earthy, Mediterranean. The floor gets a texture of the catalog when one is of
 the material of the style - a wooden floor for a style with a wood floor -
-and its plain color otherwise. The other side of a wall shared with a room
+and its plain color otherwise. Textures of the default catalog are found
+whatever the language of the application. The other side of a wall shared with a room
 that isn't styled is left alone.
 
 ![The dialog of styles](images/style-dialog.png)

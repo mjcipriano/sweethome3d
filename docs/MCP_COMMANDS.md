@@ -229,7 +229,8 @@ height of its underside; `"all":true` includes the inside walls, `ids`
 chooses walls. A wall under a peak is cut in two walls, since the top of a
 wall is one straight line.
 
-In the plan, a roof is a thin dashed outline at its own level and at the
+In the plan, slabs and pieces made of parts are drawn seen from the top,
+whatever the preference for furniture icons. A roof is a thin dashed outline at its own level and at the
 levels above, and a click there doesn't select it (select it in the furniture
 list). `set_plan_visibility` changes this.
 
@@ -266,7 +267,8 @@ it again replaces the ground.
   under the others (`Terrain`, added if needed) and is hidden in the plans of
   the other levels.
 - The ground is left open under the rooms it reaches and under their walls,
-  so the floors show. Call `set_terrain` again after adding or moving rooms.
+  so the floors show. It is built again by itself when rooms or walls are
+  added, moved or deleted, also by hand in the plan, and after undo.
 - A slab whose top isn't above the height 0 is hidden by the flat ground
   where no terrain replaces it; the answer of `add_slab` says so.
 

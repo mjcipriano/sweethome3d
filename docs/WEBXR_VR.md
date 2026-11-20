@@ -157,8 +157,8 @@ computer (**Tools > Game mode...**, or the *game mode* link of the page): see
   level, climbing stairs) and the walk-through logic has automated tests, but the controller
   mapping, teleport arc and comfort were not tried on a Quest. Please report
   what you see.
-- The headset needs internet access the first time: the viewer page loads
-  three.js from a CDN. The scene itself streams from your computer.
+- The headset needs no Internet access: the page, the three.js library
+  (0.155.0, MIT license) and the scene all come from your computer.
 - The scene is still an OBJ text file, which is slow to load for big homes
   (load time on a headset hasn't been measured). Textures are exported at full
   resolution.

@@ -61,7 +61,8 @@ the plan first (**3D view > Virtual visit**, then drag him), or ask Claude to
 - **Floors** are where rooms are drawn: an upper level carries you over its
   rooms, and you fall from its edge. Floors are also ceilings: a jump or a
   flight stops under them. The ground goes on around the home: flat, or with
-  the slopes of the ground built by `set_terrain`, which you walk up and down.
+  the slopes of the ground built by `set_terrain`, which you walk up and down,
+  as you do on sloped slabs (a driveway, a ramp).
 - **Stairs** made by `add_stairs` are climbed step by step (spiral ones too),
   and catalog staircases as one flight, as in the walk-through.
 - **Breaking** takes away one item: a piece of furniture, a door, a window,
@@ -85,7 +86,8 @@ the plan first (**3D view > Virtual visit**, then drag him), or ask Claude to
 - Roofs built by `add_roof` stop no one: the player walks under them and
   flies through them.
 - A wall breaks as a whole, from end to end.
-- The three.js library is loaded from unpkg.com, as for the walk-through.
+- The three.js library (0.155.0, MIT license) comes with the page, as for the
+  walk-through: no Internet access is needed.
 
 ## Implementation
 

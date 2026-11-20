@@ -11,6 +11,8 @@ export default async function ({evaluate, key, press, hold, shot, sleep, send}) 
 
   for (let i = 0; i < 240 && !(await evaluate('!!(window.game && (window.game.ready || window.game.failed))')); i++) { await sleep(500); }
   check(await evaluate('game.ready === true'), 'the game page loads');
+  check(await evaluate(`performance.getEntriesByType('resource').every(entry => entry.name.startsWith(location.origin))`),
+      'without anything from the Internet');
   await evaluate(`document.getElementById('start').style.display = 'none'`);
   await sleep(500); await shot('game-start');
   let p = await player();
@@ -29,6 +31,10 @@ export default async function ({evaluate, key, press, hold, shot, sleep, send}) 
   await hold('KeyS', 1500); await sleep(300);
   const lower = await player();
   check(lower.z > p.z + 1 && lower.y < p.y - 0.05, 'and goes down as he walks down the slope (y ' + lower.y.toFixed(2) + ')');
+  // On the driveway, which slopes with the ground 4 cm above it
+  await evaluate(`game.player.x = 13.1; game.player.z = 12; game.player.y = 0.5`); await sleep(900);
+  p = await player();
+  check(Math.abs(p.y - -0.336) < 0.05, 'the player stands on the sloped driveway (y ' + p.y.toFixed(2) + ')');
   await evaluate(`game.player.x = 3.5; game.player.z = 13; game.player.y = 0`); await sleep(400);
   // Flying
   await press('Space'); await sleep(80); await key('keydown', 'Space'); await sleep(1900); await key('keyup', 'Space');

@@ -85,8 +85,8 @@ and U-shaped stairs with a handrail in the living room."*
 [`03-first-floor.json`](examples/demo-house/03-first-floor.json):
 
 ```json
-[{"action":"add_level","name":"First floor","height":250},
- {"action":"modify_level","id":"L1","new_name":"Ground floor"},
+[{"action":"add_level","name":"First floor","elevation":262,"height":250},
+ {"action":"modify_level","id":"L1","new_name":"Ground floor","height":250},
  {"action":"add_rectangular_room","name":"Bedroom 1","x":0,"y":0,"width":280,"depth":420,"thickness":20,"height":250},
  {"action":"add_rectangular_room","name":"Landing","next_to":"Bedroom 1","side":"east","width":300,"depth":420,"thickness":20,"height":250},
  ...
@@ -95,7 +95,10 @@ and U-shaped stairs with a handrail in the living room."*
 ```
 
 - `add_level` adds a level above the others **and selects it**: what follows
-  goes to the new level.
+  goes to the new level. Without `elevation` it stands on the walls of the
+  level under it, at the default wall height of your preferences (250 cm
+  with metric units, 8 feet otherwise): giving it keeps the house the same
+  on every computer.
 - A home without level gets its first level when a second one is added; it is
   `L1`, renamed here.
 - `add_stairs` goes from the selected level up to the next one, so the ground
@@ -330,12 +333,12 @@ Save the home with **File > Save**: the tools can't.
   overlap: wings meet in valleys. This isn't a straight skeleton of the whole
   polygon. A polygon with corners that aren't square may get parts that meet
   with a step; the answer says so, and one roof per wing is better.
-- **The ground and rooms.** The ground is cut open under the rooms that exist
-  when `set_terrain` runs. Call it again after adding or moving rooms.
+- **The ground and rooms.** The ground is open under the rooms it reaches,
+  and follows them when rooms and walls are added, moved or deleted.
 - **Slabs at or under the height 0** are hidden by the flat ground of the 3D
   view where no terrain replaces it.
 - **Roofs in the plan** can't be clicked: select them in the furniture list.
 - **Dormer windows** get new ids each time a dormer is added to their roof.
 - **In the game mode and the walk-through**, the visitor walks on the slopes
-  of the ground, but roofs stop no one, and a slab is the box of its size: a
-  sloped driveway is walked on at the height of its highest point.
+  of the ground and of slabs. Roofs stop no one, and neither does the edge of
+  a slab higher than a step: the visitor passes under it.

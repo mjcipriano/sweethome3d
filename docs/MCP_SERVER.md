@@ -69,8 +69,10 @@ no port, and it stays valid from one session to the next.
 
 It does contain the path of the application: **connect again after moving
 Sweet Home 3D or installing a new version in another folder**. While Claude
-runs, its bridge program keeps the application folder in use: quit Claude
-before deleting or replacing that folder.
+runs, its bridge program keeps the application folder in use. Before
+deleting or replacing that folder, quit Claude, or click **Release program
+folder** in the dialog: the bridge programs stop within a few seconds, and
+Claude shows Sweet Home 3D as disconnected until Claude is started again.
 
 With several home windows, the bridge reaches the server started last. The
 first server gets port 47391 and the next ones a free port shown in their
@@ -336,7 +338,7 @@ pieces or textures named exactly.
 | Claude says the server must be started | Choose **Help > Claude MCP server...** and **Start server**, or tick the box that starts it with each home |
 | Claude Desktop doesn't list Sweet Home 3D | Quit it completely, from its icon near the clock too, and reopen it. If it still doesn't, click **Connect Claude Desktop** again |
 | It worked, then stopped after an update | The registration holds the path of the application: connect again from the new version |
-| The application folder can't be deleted or replaced | The bridge program launched by Claude (`sweethome3d-mcp`) runs from it: quit Claude first |
+| The application folder can't be deleted or replaced | The bridge program launched by Claude (`sweethome3d-mcp`) runs from it: click **Release program folder** in **Help > Claude MCP server...**, or quit Claude, then close Sweet Home 3D |
 | "No item has the id ..." | The item was deleted. Ask Claude to call `get_home` again |
 | A picture takes minutes | It was drawn by the ray tracer: ask for `"renderer":"opengl"`, or give a `timeout` |
 | Claude can't change anything | Tick **Allow changes to this home** |
@@ -371,4 +373,7 @@ pieces or textures named exactly.
   `AssistantLayersAndLibraryTest`, `AssistantDesignCommandsTest`. A real
   Claude Code client was run against the server on 2026-11-13
   (`claude -p ... --mcp-config`): it listed the tools, read the home, searched
-  the catalog and added a bed.
+  the catalog and added a bed. On 2026-11-20 one was run against the
+  application under native Windows (Java 8, GeForce GTX 1660 Ti) through the
+  bridge: it read the demo house, added a shed with a hip roof, ran
+  `check_home` and described a 3D picture.
