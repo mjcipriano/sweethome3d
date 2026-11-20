@@ -21,6 +21,7 @@ import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Level;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Wall;
+import com.eteks.sweethome3d.viewcontroller.AssistantCommandExecutor;
 import com.eteks.sweethome3d.viewcontroller.AssistantGeneratedModel;
 
 /**
@@ -162,6 +163,7 @@ public class WebXRSceneDescription {
               || piece.getProperty(AssistantGeneratedModel.STAIRS_FLIGHTS_PROPERTY) != null)
           .append(",\"name\":").append(quote(piece.getName() != null ? piece.getName() : ""))
           .append(",\"key\":").append(quote(getKey(piece)))
+          .append(",\"shell\":").append(isShell(piece))
           .append(",\"level\":").append(levelIndex).append('}');
     }
 
@@ -218,6 +220,17 @@ public class WebXRSceneDescription {
         .append(",\"eyeHeight\":").append(meters(eyeHeight))
         .append(",\"level\":").append(startLevel).append("}}");
     return json.toString();
+  }
+
+  /**
+   * Returns <code>true</code> if <code>piece</code> is a roof or the ground built by the assistant
+   * commands: a shape someone walks under or over, which the box of its size wouldn't describe.
+   */
+  private static boolean isShell(HomePieceOfFurniture piece) {
+    String structure = piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY);
+    return "roof".equals(structure)
+        || "terrain".equals(structure)
+        || "true".equals(piece.getProperty(AssistantCommandExecutor.AUTO_ROOF_PROPERTY));
   }
 
   /**

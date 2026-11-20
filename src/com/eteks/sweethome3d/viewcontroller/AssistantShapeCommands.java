@@ -76,6 +76,9 @@ class AssistantShapeCommands {
   private final HomeController           homeController;
   private final AssistantCommandExecutor executor;
   // The triangles of the last ground whose height was asked
+  /** The ground is left open under a floor it comes closer than this under, in cm. */
+  private static final float             FOOTPRINT_MARGIN = 30;
+
   private String                         terrainSpec;
   private List<float [][]>               terrainTriangles;
 
@@ -511,6 +514,25 @@ class AssistantShapeCommands {
         }
       }
     }
+    // The ground is left open under the rooms and the walls it reaches: at the same height
+    // as a floor, it would show through it, and higher it would bury the room
+    List<Area> footprints = new ArrayList<Area>();
+    List<Float> footprintElevations = new ArrayList<Float>();
+    int openRooms = 0;
+    for (Room room : this.home.getRooms()) {
+      if (room.isFloorVisible() && room.getLevel() != level && room.getPointCount() >= 3) {
+        footprints.add(AssistantMeshBuilder.getArea(room.getPoints()));
+        footprintElevations.add(room.getLevel() != null ? room.getLevel().getElevation() : 0f);
+      }
+    }
+    int roomFootprints = footprints.size();
+    boolean [] roomOpen = new boolean [roomFootprints];
+    for (Wall wall : this.home.getWalls()) {
+      if (wall.getLevel() != level) {
+        footprints.add(AssistantMeshBuilder.getArea(wall.getPoints()));
+        footprintElevations.add(wall.getLevel() != null ? wall.getLevel().getElevation() : 0f);
+      }
+    }
     Map<String, int []> sides = new HashMap<String, int []>();
     List<float [][]> sidePoints = new ArrayList<float [][]>();
     for (float [][] triangle : triangles) {
@@ -518,13 +540,29 @@ class AssistantShapeCommands {
       if (plane == null) {
         continue;
       }
+      float triangleTop = Math.max(triangle [0][2], Math.max(triangle [1][2], triangle [2][2]));
       // Heights are measured from the floor of the level of the ground
       plane [0] -= levelElevation;
       float [][] corners = {{triangle [0][0], triangle [0][1]}, {triangle [1][0], triangle [1][1]},
                             {triangle [2][0], triangle [2][1]}};
       Area remaining = null;
+      java.awt.geom.Rectangle2D triangleBounds = AssistantMeshBuilder.getArea(corners).getBounds2D();
+      for (int i = 0; i < footprints.size(); i++) {
+        if (footprintElevations.get(i) <= triangleTop + FOOTPRINT_MARGIN
+            && footprints.get(i).intersects(triangleBounds)) {
+          if (remaining == null) {
+            remaining = AssistantMeshBuilder.getArea(corners);
+          }
+          Area before = i < roomFootprints ? new Area(remaining) : null;
+          remaining.subtract(footprints.get(i));
+          if (before != null && !roomOpen [i] && !before.equals(remaining)) {
+            roomOpen [i] = true;
+            openRooms++;
+          }
+        }
+      }
       for (int i = areas.size() - 1; i >= 0; i--) {
-        if (areas.get(i).intersects(AssistantMeshBuilder.getArea(corners).getBounds2D())) {
+        if (areas.get(i).intersects(triangleBounds)) {
           if (remaining == null) {
             remaining = AssistantMeshBuilder.getArea(corners);
           }
@@ -610,6 +648,8 @@ class AssistantShapeCommands {
               + "ground over what stands on a level under the height 0, so the slopes show; this level is the place of the ground only" : "") : "")
         + (level != null && (level.getElevation() >= 0 || level.getElevation() > lowest - skirt)
             ? ". This level isn't under the lowest point of the ground: the flat ground of the 3D view may hide a part of it" : "")
+        + (openRooms > 0 ? ". It is left open under " + openRooms + (openRooms == 1 ? " room" : " rooms")
+            + " it reaches and their walls, so their floor shows: call set_terrain again after adding or moving rooms" : "")
         + ". {\"action\":\"set_elevation\",\"id\":\"F#\",\"on_terrain\":true} puts a piece on it");
   }
 

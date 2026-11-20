@@ -19,7 +19,8 @@ const scene = {
     {x: 4.5, z: 0, width: 1.2, depth: 0.2, angle: 0, sill: 0.9, height: 1.2, door: false, key: 'window', level: 0}],
   furniture: [
     {x: 4.5, z: 2, width: 1.2, depth: 0.8, angle: 0, elevation: 0, height: 0.75, stairs: false, name: 'Table', key: 'table', level: 0},
-    {x: 5, z: 3.2, width: 0.4, depth: 0.4, angle: 0, elevation: 0, height: 0.3, stairs: false, name: 'Box', key: 'box', level: 0}],
+    {x: 5, z: 3.2, width: 0.4, depth: 0.4, angle: 0, elevation: 0, height: 0.3, stairs: false, name: 'Box', key: 'box', level: 0},
+    {x: 3, z: 2, width: 40, depth: 30, angle: 0, elevation: -1, height: 2, stairs: false, shell: true, name: 'Terrain', key: 'terrain', level: 0}],
   rooms: [
     {level: 0, key: 'room0', points: [[0, 0], [6, 0], [6, 4], [0, 4]]},
     {level: 1, key: 'room1', points: [[0, 0], [3, 0], [3, 4], [0, 4]]}],
@@ -28,6 +29,13 @@ const scene = {
 };
 const world = createWorld(scene);
 assert.strictEqual(world.panels.length, 2, 'a door and a window');
+assert.strictEqual(world.solids.filter(solid => solid.key === 'terrain').length, 0, 'the ground and roofs stop no one');
+const withTerrainLevel = createWorld({...scene, levels: [{name: 'Terrain', elevation: -1.7, height: 1.69, floor: false}, ...scene.levels],
+    walls: [], openings: [], furniture: [], rooms: [], stairs: []});
+assert.strictEqual(withTerrainLevel.base, 0, 'a level without room under the house is no basement to walk in');
+assert.strictEqual(withTerrainLevel.lowest, -1.7);
+assert.strictEqual(createWorld({...scene, levels: [{name: 'Basement', elevation: -2.5, height: 2.4, floor: true}, ...scene.levels],
+    walls: [], openings: [], furniture: [], rooms: [], stairs: []}).base, -2.5);
 assert.strictEqual(world.solids.filter(solid => solid.kind === 'wall' && solid.key === 'south').length, 3,
     'the south wall on both sides of its door and above it');
 assert.strictEqual(world.solids.filter(solid => solid.key === 'north').length, 4, 'a wall around its window');

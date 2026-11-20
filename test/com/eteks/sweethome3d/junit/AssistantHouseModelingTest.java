@@ -354,8 +354,28 @@ public class AssistantHouseModelingTest {
     }
     assertEquals(1, terrains);
     assertEquals("The level of the ground is used again", 2, this.home.getLevels().size());
+    // The ground is left open under a room whose floor it reaches, not under one far above it
+    run("{\"action\":\"add_room\",\"name\":\"Hall\",\"points\":[[200,200],[600,200],[600,600],[200,600]]}");
+    summary = run("{\"action\":\"set_terrain\",\"points\":[[-1000,-1000,0],[2000,-1000,0],[2000,2000,0],[-1000,2000,0]]}");
+    assertTrue(summary, summary.contains("left open under 1 room"));
+    summary = run("{\"action\":\"set_terrain\",\"points\":[[-1000,-1000,-200],[2000,-1000,-200],[2000,2000,-200],[-1000,2000,-200]]}");
+    assertFalse(summary, summary.contains("left open"));
+    run("{\"action\":\"set_terrain\",\"points\":[[-1000,-1000,0],[2000,-1000,0],[2000,2000,300],[-1000,2000,300]]}");
     summary = run("{\"action\":\"check_home\"}");
     assertFalse(summary, summary.contains("Terrain"));
+    // What was put on the ground stands outdoors on purpose, and so does a part of the building
+    assertFalse(summary, summary.contains("Desk"));
+    run("{\"action\":\"create_furniture\",\"name\":\"Chimney\",\"x\":100,\"y\":100,\"elevation\":300,\"structure\":true,"
+        + "\"parts\":[{\"shape\":\"box\",\"width\":60,\"depth\":60,\"height\":200}]}");
+    run("{\"action\":\"create_furniture\",\"name\":\"Kite\",\"x\":100,\"y\":300,\"elevation\":300,"
+        + "\"parts\":[{\"shape\":\"box\",\"width\":60,\"depth\":60,\"height\":200}]}");
+    summary = run("{\"action\":\"check_home\"}");
+    assertFalse(summary, summary.contains("Chimney"));
+    assertTrue(summary, summary.contains("Kite"));
+    // A piece given an elevation again is checked like any other
+    run("{\"action\":\"set_elevation\",\"id\":\"" + HomeItemIds.getId(getPiece("Desk")) + "\",\"elevation\":400}");
+    summary = run("{\"action\":\"check_home\"}");
+    assertTrue(summary, summary.contains("Desk"));
   }
 
   @Test

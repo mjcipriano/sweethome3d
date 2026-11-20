@@ -656,7 +656,7 @@ async function load() {
     // Land around the home, as far as someone may walk or fly
     const land = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000).rotateX(-Math.PI / 2),
         new THREE.MeshLambertMaterial({color: 0x8fa87a}));
-    land.position.y = game.world.base - 0.03;
+    land.position.y = game.world.lowest - 0.03;
     scene.add(land);
     respawn();
     game.ready = true;

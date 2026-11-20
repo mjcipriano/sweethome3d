@@ -22,6 +22,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import com.eteks.sweethome3d.model.CatalogTexture;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Room;
@@ -245,6 +246,24 @@ public class AssistantDesignCommandsTest {
     assertTrue(summary, summary.contains("Unknown style"));
     summary = run("{\"action\":\"list_styles\"}");
     assertTrue(summary, summary.contains("Industrial - concrete grey walls"));
+  }
+
+  /**
+   * A style takes a floor texture of its material, not one that shares only a color word with it.
+   */
+  @Test
+  public void testStyleFloorTextureIsOfTheRightMaterial() {
+    List<CatalogTexture> textures = new ArrayList<CatalogTexture>();
+    for (String name : new String [] {"Light blue tiles", "Black and white tiles", "Beige tiles",
+                                      "Red tiles", "Old wooden floor", "Wooden floor", "Grey tiles"}) {
+      textures.add(new CatalogTexture(name, null, 20, 20));
+    }
+    assertEquals("Wooden floor", AssistantDesignCommands.findFloorTexture(textures, "light wood parquet").getName());
+    assertEquals("Grey tiles", AssistantDesignCommands.findFloorTexture(textures, "grey tiles concrete").getName());
+    assertEquals("Red tiles", AssistantDesignCommands.findFloorTexture(textures, "terracotta red tiles").getName());
+    // No white tiles: a plain color is better than tiles of another color
+    assertNull(AssistantDesignCommands.findFloorTexture(textures, "white tiles"));
+    assertNull(AssistantDesignCommands.findFloorTexture(textures, "concrete"));
   }
 
   @Test

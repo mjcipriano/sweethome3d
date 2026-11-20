@@ -294,9 +294,12 @@ public class HomeDiagnostics {
       String id = id(furniture.get(i), "F", i) + " \"" + (piece.getName() != null ? piece.getName() : "Unnamed") + "\"";
       Level level = piece.getLevel();
       boolean structure = piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY) != null;
+      // What stands on the ground outdoors or is a part of the building isn't furniture out of its place
+      boolean placedOnPurpose = structure
+          || "true".equals(piece.getProperty(AssistantCommandExecutor.OUTDOOR_PROPERTY));
       if (piece.getElevation() < -0.5f) {
         // A piece put under the floor on purpose (a sunken slab, the ground around a house) is no defect
-        if (!structure && !"true".equals(piece.getProperty(AssistantCommandExecutor.BELOW_FLOOR_PROPERTY)))
+        if (!placedOnPurpose && !"true".equals(piece.getProperty(AssistantCommandExecutor.BELOW_FLOOR_PROPERTY)))
         add(issues, counts, new Issue(Type.FURNITURE_BELOW_FLOOR, id + " is "
             + format(-piece.getElevation()) + " cm under the floor", piece, null));
       } else {
@@ -304,7 +307,7 @@ public class HomeDiagnostics {
         if (!piece.isDoorOrWindow() && ceiling > 0
             && piece.getElevation() + piece.getHeight() > ceiling + 5
             && !"true".equals(piece.getProperty(AssistantCommandExecutor.AUTO_ROOF_PROPERTY))
-            && !structure
+            && !placedOnPurpose
             // Stairs go through the ceiling to the next level
             && piece.getStaircaseCutOutShape() == null) {
           add(issues, counts, new Issue(Type.FURNITURE_ABOVE_CEILING, id + " reaches "
@@ -345,7 +348,7 @@ public class HomeDiagnostics {
           }
         }
         if (piece.isVisible()
-            && !structure
+            && !placedOnPurpose
             && !"true".equals(piece.getProperty(AssistantCommandExecutor.AUTO_ROOF_PROPERTY))) {
           boolean roomAtLevel = false;
           boolean inRoom = false;

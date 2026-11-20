@@ -92,8 +92,11 @@ function addWallBoxes(world, wall, x1, z1, x2, z2, base, openings) {
  */
 export function createWorld(scene) {
   const levels = scene.levels && scene.levels.length > 0 ? scene.levels : [{elevation: 0, height: 2.5, floor: true}];
+  // Someone walks outdoors at the height of the lowest level that has a floor: a level
+  // without room, as the one of the ground built by set_terrain, isn't a basement
   const world = {scene, levels, solids: [], panels: [], floors: [], stairs: [], broken: new Set(),
-                 base: Math.min(0, ...levels.map(level => level.elevation))};
+                 base: Math.min(0, ...levels.filter(level => level.floor !== false).map(level => level.elevation)),
+                 lowest: Math.min(0, ...levels.map(level => level.elevation))};
   const openings = (scene.openings || []).map(opening => ({...opening, panel: null}));
   for (const wall of scene.walls || []) {
     const level = levels[wall.level];
@@ -133,7 +136,8 @@ export function createWorld(scene) {
   }
   for (const piece of scene.furniture || []) {
     const level = levels[piece.level];
-    if (level && !piece.stairs && piece.width > 0 && piece.depth > 0 && piece.height > 0) {
+    // A roof or the ground isn't the box of its size: it is drawn, and stops no one
+    if (level && !piece.stairs && !piece.shell && piece.width > 0 && piece.depth > 0 && piece.height > 0) {
       const solid = box('furniture', piece.key, piece.x, piece.z, piece.width / 2, piece.depth / 2, piece.angle,
           level.elevation + piece.elevation, level.elevation + piece.elevation + piece.height);
       solid.name = piece.name;

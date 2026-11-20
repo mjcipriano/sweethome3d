@@ -55,6 +55,8 @@ public class AssistantCommandExecutor {
   public static final String STRUCTURE_PROPERTY = "assistantStructure";
   /** Property set to <code>"true"</code> on the pieces put under the floor of their level on purpose. */
   public static final String BELOW_FLOOR_PROPERTY = "assistantBelowFloor";
+  /** Property of a piece put on the terrain: it stands outdoors on purpose. */
+  public static final String OUTDOOR_PROPERTY = "assistantOutdoor";
   /** Maximum number of matches reported for one search_catalog command. */
   private static final int MAX_SEARCH_RESULTS = 8;
 
@@ -503,6 +505,7 @@ public class AssistantCommandExecutor {
         }
         ((HomePieceOfFurniture)item).setElevation((float)elevation);
         ((HomePieceOfFurniture)item).setProperty(BELOW_FLOOR_PROPERTY, elevation < 0 ? "true" : null);
+        ((HomePieceOfFurniture)item).setProperty(OUTDOOR_PROPERTY, null);
         return true;
       } else if (item instanceof HomePieceOfFurniture && command.getBoolean("on_terrain", false)) {
         HomePieceOfFurniture piece = (HomePieceOfFurniture)item;
@@ -512,6 +515,8 @@ public class AssistantCommandExecutor {
           return false;
         }
         piece.setElevation(height - (piece.getLevel() != null ? piece.getLevel().getElevation() : 0));
+        // A tree or a car on the ground isn't furniture out of its room
+        piece.setProperty(OUTDOOR_PROPERTY, "true");
         return true;
       }
     } else if ("set_visible".equals(action)) {
