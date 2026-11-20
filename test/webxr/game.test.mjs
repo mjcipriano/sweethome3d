@@ -19,7 +19,8 @@ const scene = {
     {x: 4.5, z: 0, width: 1.2, depth: 0.2, angle: 0, sill: 0.9, height: 1.2, door: false, key: 'window', level: 0}],
   furniture: [
     {x: 4.5, z: 2, width: 1.2, depth: 0.8, angle: 0, elevation: 0, height: 0.75, stairs: false, name: 'Table', key: 'table', level: 0},
-    {x: 5, z: 3.2, width: 0.4, depth: 0.4, angle: 0, elevation: 0, height: 0.3, stairs: false, name: 'Box', key: 'box', level: 0}],
+    {x: 5, z: 3.2, width: 0.4, depth: 0.4, angle: 0, elevation: 0, height: 0.3, stairs: false, name: 'Box', key: 'box', level: 0},
+    {x: 3, z: 2, width: 40, depth: 30, angle: 0, elevation: -1, height: 2, stairs: false, shell: true, name: 'Terrain', key: 'terrain', level: 0}],
   rooms: [
     {level: 0, key: 'room0', points: [[0, 0], [6, 0], [6, 4], [0, 4]]},
     {level: 1, key: 'room1', points: [[0, 0], [3, 0], [3, 4], [0, 4]]}],
@@ -28,6 +29,27 @@ const scene = {
 };
 const world = createWorld(scene);
 assert.strictEqual(world.panels.length, 2, 'a door and a window');
+assert.strictEqual(world.solids.filter(solid => solid.key === 'terrain').length, 0, 'the ground and roofs stop no one');
+const withTerrainLevel = createWorld({...scene, levels: [{name: 'Terrain', elevation: -1.7, height: 1.69, floor: false}, ...scene.levels],
+    walls: [], openings: [], furniture: [], rooms: [], stairs: []});
+assert.strictEqual(withTerrainLevel.base, 0, 'a level without room under the house is no basement to walk in');
+assert.strictEqual(withTerrainLevel.lowest, -1.7);
+// A ground that slopes from 1 m at x = -10 to -1 m at x = 30, with the room of the scene on it
+const sloped = createWorld({...scene, walls: [], openings: [], furniture: [], stairs: [],
+    terrain: [[-10, -10, 1, 30, -10, -1, 30, 20, -1], [-10, -10, 1, 30, 20, -1, -10, 20, 1]]});
+assert.strictEqual(sloped.base, -1);
+assert.ok(Math.abs(groundAt(sloped, 20, 10, 5) - -0.5) < 1e-6, 'the height of the ground down the slope');
+assert.ok(Math.abs(groundAt(sloped, -5, 10, 5) - 0.75) < 1e-6, 'and up the slope');
+assert.strictEqual(groundAt(sloped, 3, 2, 0.1), 0, 'the floor of a room, not the ground it is open under');
+assert.strictEqual(groundAt(sloped, 100, 100, 5), 0, 'flat land beyond the ground');
+// A ramp from the floor up to 1 m, beside the room
+const ramped = createWorld({...scene, walls: [], openings: [], furniture: [], stairs: [],
+    ramps: [[10, 0, 0, 14, 0, 1, 14, 2, 1], [10, 0, 0, 14, 2, 1, 10, 2, 0]]});
+assert.ok(Math.abs(groundAt(ramped, 11, 1, 0.2) - 0.25) < 1e-6, 'up a ramp');
+assert.ok(Math.abs(groundAt(ramped, 13, 1, 0.7) - 0.75) < 1e-6);
+assert.strictEqual(groundAt(ramped, 13.9, 1, 0), 0, 'its high end is out of reach from the floor');
+assert.strictEqual(createWorld({...scene, levels: [{name: 'Basement', elevation: -2.5, height: 2.4, floor: true}, ...scene.levels],
+    walls: [], openings: [], furniture: [], rooms: [], stairs: []}).base, -2.5);
 assert.strictEqual(world.solids.filter(solid => solid.kind === 'wall' && solid.key === 'south').length, 3,
     'the south wall on both sides of its door and above it');
 assert.strictEqual(world.solids.filter(solid => solid.key === 'north').length, 4, 'a wall around its window');

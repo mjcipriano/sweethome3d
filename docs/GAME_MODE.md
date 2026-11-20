@@ -5,6 +5,8 @@ you move in it as in a video game: walk, run, jump, climb, fly, in first or
 third person, open the doors, and break things - for the time of the game
 only. Nothing is changed in the home.
 
+![Flying over the house in third person](images/game-flying.jpg)
+
 It uses the same export as the WebXR preview (`docs/WEBXR_VR.md`), with the
 same reduction of heavy homes, and the two pages link to each other. It is
 made for a keyboard and a mouse; in a headset, use the walk-through.
@@ -27,6 +29,22 @@ made for a keyboard and a mouse; in a headset, use the walk-through.
 | R | Back to the start (where the virtual visitor stands in the home) |
 | H | Hide / show the help |
 
+| The page when it opens | A closed door |
+| --- | --- |
+| ![The game page with its help](images/game-start.jpg) | ![In front of a closed door](images/game-door-closed.jpg) |
+
+| The door opened with E | First person view |
+| --- | --- |
+| ![The door open](images/game-door-open.jpg) | ![The dining room in first person](images/game-first-person.jpg) |
+
+| Third person view (V) | A table broken with a click |
+| --- | --- |
+| ![Outdoors in third person](images/game-third-person.jpg) | ![A broken table](images/game-broken.jpg) |
+
+The game starts where the virtual visitor stands in the home: place him in
+the plan first (**3D view > Virtual visit**, then drag him), or ask Claude to
+"put the visitor in the hall".
+
 ## What the world is made of
 
 - **Walls stop you**, on their real height: you can climb one and walk on its
@@ -42,7 +60,9 @@ made for a keyboard and a mouse; in a headset, use the walk-through.
   so you stand on the box of a chair, not on its seat.
 - **Floors** are where rooms are drawn: an upper level carries you over its
   rooms, and you fall from its edge. Floors are also ceilings: a jump or a
-  flight stops under them. The ground goes on around the home.
+  flight stops under them. The ground goes on around the home: flat, or with
+  the slopes of the ground built by `set_terrain`, which you walk up and down,
+  as you do on sloped slabs (a driveway, a ramp).
 - **Stairs** made by `add_stairs` are climbed step by step (spiral ones too),
   and catalog staircases as one flight, as in the walk-through.
 - **Breaking** takes away one item: a piece of furniture, a door, a window,
@@ -63,8 +83,11 @@ made for a keyboard and a mouse; in a headset, use the walk-through.
   fills its whole rectangle, and round walls are a few straight ones without
   their doors.
 - Sloping ceilings, roofs and the underside of stairs don't stop anyone.
+- Roofs built by `add_roof` stop no one: the player walks under them and
+  flies through them.
 - A wall breaks as a whole, from end to end.
-- The three.js library is loaded from unpkg.com, as for the walk-through.
+- The three.js library (0.155.0, MIT license) comes with the page, as for the
+  walk-through: no Internet access is needed.
 
 ## Implementation
 

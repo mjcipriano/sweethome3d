@@ -57,6 +57,8 @@ public class HomeMCPBridge {
   public static final String LAUNCHER_NAME = "sweethome3d-mcp";
 
   private static final String FOLDER_OPTION = "--folder";
+  private static final String STOP_FILE = "mcp-bridge-stop";
+  private static final int    STOP_CHECK_PERIOD = 2000;
   private static final int    CONNECT_TIMEOUT = 3000;
   // Rendering a picture of a large home takes a while
   private static final int    READ_TIMEOUT = 15 * 60 * 1000;
@@ -77,7 +79,64 @@ public class HomeMCPBridge {
     }
     // The standard output carries the protocol only
     OutputStream out = new FileOutputStream(java.io.FileDescriptor.out);
+    stopWhenRequested(folder, System.currentTimeMillis());
     run(System.in, out, folder);
+  }
+
+  /**
+   * Asks the programs launched by clients for the application of <code>folder</code> to stop.
+   * A running program keeps the folder it was installed in busy: under Windows that folder
+   * can't be deleted nor replaced by a new version while a client runs it.
+   */
+  public static void requestStop(File folder) throws IOException {
+    File file = new File(folder, STOP_FILE);
+    FileOutputStream out = new FileOutputStream(file);
+    try {
+      out.write(String.valueOf(System.currentTimeMillis()).getBytes("UTF-8"));
+    } finally {
+      out.close();
+    }
+  }
+
+  /**
+   * Returns <code>true</code> if the programs started before <code>startTime</code>
+   * were asked to stop.
+   */
+  public static boolean isStopRequested(File folder, long startTime) {
+    File file = new File(folder, STOP_FILE);
+    if (!file.isFile()) {
+      return false;
+    }
+    try {
+      FileInputStream in = new FileInputStream(file);
+      try {
+        return Long.parseLong(new String(readFully(in), "UTF-8").trim()) >= startTime;
+      } finally {
+        in.close();
+      }
+    } catch (IOException ex) {
+      return false;
+    } catch (NumberFormatException ex) {
+      return false;
+    }
+  }
+
+  private static void stopWhenRequested(final File folder, final long startTime) {
+    Thread thread = new Thread("Sweet Home 3D MCP bridge stop") {
+        @Override
+        public void run() {
+          while (!isStopRequested(folder, startTime)) {
+            try {
+              Thread.sleep(STOP_CHECK_PERIOD);
+            } catch (InterruptedException ex) {
+              return;
+            }
+          }
+          System.exit(0);
+        }
+      };
+    thread.setDaemon(true);
+    thread.start();
   }
 
   /**

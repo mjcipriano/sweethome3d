@@ -232,7 +232,7 @@ class AssistantStructureCommands {
         + (contents.isEmpty() ? "" : " and what was on it: " + describeContents(contents)));
   }
 
-  private void delete(Level level) {
+  void delete(Level level) {
     Level selectedLevel = this.home.getSelectedLevel();
     this.executor.beginTurnUpdate();
     this.home.setSelectedLevel(level);

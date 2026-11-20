@@ -8,6 +8,7 @@ dependencies:
   - cmake
   - cxx-compiler
   - make=4.4.1
+  - nodejs
   - git=2.54.0
   - gh=2.93.0
   - libglu=9.0.3

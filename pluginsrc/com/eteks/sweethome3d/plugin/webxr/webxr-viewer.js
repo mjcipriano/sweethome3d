@@ -297,8 +297,8 @@ function keepHeadOutOfWalls() {
       placeHead(x, z);
     }
   }
-  if (collisions && plan && plan.stairs && plan.stairs.length > 0) {
-    // Someone who really walks onto stairs climbs them too
+  if (collisions && plan && (plan.stairs && plan.stairs.length > 0 || plan.terrain && plan.terrain.length > 0)) {
+    // Someone who really walks onto stairs climbs them too, and follows the slopes of the ground
     headPosition();
     const place = walk.standAt(plan, {level: levelIndex, height: stairHeight}, head.x, head.z);
     if (place && (place.level !== levelIndex || place.height !== stairHeight)) {

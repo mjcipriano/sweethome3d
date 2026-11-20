@@ -4133,7 +4133,8 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
                 viewedFromTop = allFurnitureViewedFromTop.booleanValue();
               }
             } else {
-              viewedFromTop = false;
+              // A slab or a piece made of parts is always drawn with its picture seen from the top
+              viewedFromTop = FurniturePlanVisibility.isDrawnFromTop(piece);
             }
             if (paintIcon
                 && viewedFromTop) {

@@ -44,6 +44,14 @@ jobs:
             choco install ant make cmake --no-progress -y
           }
 
+      - name: Keep the downloaded test libraries
+        uses: actions/cache@v4
+        with:
+          path: |
+            libtest/junit-4.13.2.jar
+            libtest/hamcrest-core-1.3.jar
+          key: libtest-junit-4.13.2-hamcrest-1.3
+
       - name: Run core tests
         shell: pwsh
         run: |
@@ -84,6 +92,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ant xvfb libgl1 cmake g++
+
+      - name: Keep the downloaded test libraries
+        uses: actions/cache@v4
+        with:
+          path: |
+            libtest/junit-4.13.2.jar
+            libtest/hamcrest-core-1.3.jar
+          key: libtest-junit-4.13.2-hamcrest-1.3
 
       - name: Run Swing and controller tests
         run: xvfb-run -a make test-gui

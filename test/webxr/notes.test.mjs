@@ -11,7 +11,9 @@ const scene = {
   openings: [{x: 4.5, z: 0, width: 1.2, depth: 0.2, angle: 0, sill: 0.9, height: 1.2, door: false, key: 'window', level: 0},
              {x: 6, z: 2, width: 0.9, depth: 0.2, angle: Math.PI / 2, sill: 0, height: 2.1, door: true, key: 'door', level: 0}],
   furniture: [{x: 2, z: 2, width: 1.6, depth: 0.9, angle: 0, elevation: 0, height: 0.75, name: 'Table', key: 'table', level: 0},
-              {x: 2, z: 2, width: 0.3, depth: 0.3, angle: 0, elevation: 0.75, height: 0.4, name: 'Lamp', key: 'lamp', level: 0}],
+              {x: 2, z: 2, width: 0.3, depth: 0.3, angle: 0, elevation: 0.75, height: 0.4, name: 'Lamp', key: 'lamp', level: 0},
+              // A roof with downspouts: its box holds the whole home, from the ground up
+              {x: 3, z: 2, width: 8, depth: 6, angle: 0, elevation: 0, height: 6, shell: true, name: 'Roof', key: 'roof', level: 0}],
   rooms: [{level: 0, key: 'living', points: [[0, 0], [6, 0], [6, 4], [0, 4]]},
           {level: 1, key: 'bedroom', points: [[0, 0], [6, 0], [6, 4], [0, 4]]}]
 };
@@ -22,6 +24,8 @@ assert.strictEqual(levelAt(scene, 2.9), 1);
 // piece of furniture, the floor of a room, the ground outside
 assert.deepStrictEqual(resolveTarget(scene, {x: 1, y: 0.4, z: 0.09}), {target: 'wall', key: 'north', name: null, level: 0});
 assert.strictEqual(resolveTarget(scene, {x: 1, y: 3.2, z: 0.09}).key, 'northUp');
+assert.strictEqual(resolveTarget(scene, {x: 5, y: 0, z: 3}).target, 'room', 'the floor under a roof is its room');
+assert.strictEqual(resolveTarget(scene, {x: 5, y: 0, z: 3}, 'roof').name, 'Roof', 'a roof aimed at is the roof');
 assert.strictEqual(resolveTarget(scene, {x: 4.5, y: 1.5, z: 0.08}).target, 'window');
 assert.strictEqual(resolveTarget(scene, {x: 4.5, y: 0.4, z: 0.08}).target, 'wall', 'under the window');
 assert.strictEqual(resolveTarget(scene, {x: 5.92, y: 1, z: 2.1}).target, 'door');

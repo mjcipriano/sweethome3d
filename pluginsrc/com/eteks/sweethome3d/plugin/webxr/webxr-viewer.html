@@ -47,15 +47,16 @@
     var loading = document.getElementById('loading');
     loading.classList.add('error');
     document.getElementById('loadingText').textContent = 'Couldn\'t load the viewer.\n'
-        + 'It needs the three.js library from unpkg.com the first time: '
-        + 'check that this device is connected to the Internet, then reload the page.';
+        + 'Its scripts didn\'t come: check that this device still reaches the computer '
+        + 'that shows the home, then reload the page.';
     document.getElementById('status').textContent = 'Couldn\'t load the viewer';
   }
 </script>
 <script type="importmap">
 { "imports": {
-    "three": "https://unpkg.com/three@0.155.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.155.0/examples/jsm/"
+    "three": "./three.module.min.js",
+    "three/addons/loaders/MTLLoader.js": "./three-MTLLoader.js",
+    "three/addons/loaders/OBJLoader.js": "./three-OBJLoader.js"
 } }
 </script>
 <script type="module" src="webxr-viewer.js" onerror="viewerFailed()"></script>

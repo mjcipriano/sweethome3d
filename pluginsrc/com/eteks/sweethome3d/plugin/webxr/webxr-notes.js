@@ -80,6 +80,10 @@ export function resolveTarget(scene, point, key = null) {
   let found = null;
   let foundVolume = Infinity;
   for (const piece of scene.furniture || []) {
+    if (piece.shell) {
+      // The box of a roof or of the ground holds the whole home
+      continue;
+    }
     const [localX, localZ] = toLocal(piece, point.x, point.z);
     const bottom = base(piece.level) + piece.elevation;
     const volume = piece.width * piece.depth * piece.height;

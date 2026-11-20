@@ -4,6 +4,8 @@ The **WebXR Preview** plugin exports the current home and serves a WebXR page
 so you can look around the house in a VR headset - no app install on the
 headset, it uses the headset's browser.
 
+![The walk-through page on the computer](images/walkthrough.jpg)
+
 ## Nothing to install
 
 The preview is part of the application: **Tools > WebXR Preview...** is there
@@ -146,13 +148,17 @@ computer (**Tools > Game mode...**, or the *game mode* link of the page): see
 
 ## Notes and limitations
 
+- Outdoors the visitor follows the slopes of the ground built by the
+  `set_terrain` command; a bank steeper than a step (40 cm) stops them like a
+  wall. Roofs built by `add_roof` stop no one.
+
 - **Not yet verified on a physical headset.** The page was exercised in desktop
   Chrome (loading, start position, walking into a wall, turning, changing
   level, climbing stairs) and the walk-through logic has automated tests, but the controller
   mapping, teleport arc and comfort were not tried on a Quest. Please report
   what you see.
-- The headset needs internet access the first time: the viewer page loads
-  three.js from a CDN. The scene itself streams from your computer.
+- The headset needs no Internet access: the page, the three.js library
+  (0.155.0, MIT license) and the scene all come from your computer.
 - The scene is still an OBJ text file, which is slow to load for big homes
   (load time on a headset hasn't been measured). Textures are exported at full
   resolution.

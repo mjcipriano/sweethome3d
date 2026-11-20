@@ -150,6 +150,7 @@ class AssistantLibraryCommands {
     }
     if (place) {
       HomePieceOfFurniture piece = new HomePieceOfFurniture(catalogPiece);
+      piece.setPlanIcon(model.getPlanIcon());
       if (!Double.isNaN(x)) {
         piece.setX((float)x);
       }
@@ -160,6 +161,10 @@ class AssistantLibraryCommands {
       piece.setElevation((float)elevation);
       if (elevation < 0) {
         piece.setProperty(AssistantCommandExecutor.BELOW_FLOOR_PROPERTY, "true");
+      }
+      if (command.getBoolean("structure", false)) {
+        // A chimney, a post, a fence: a part of the building or of its site
+        piece.setProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY, "custom");
       }
       // Kept to change the parts later
       piece.setProperty(AssistantShapeCommands.PARTS_PROPERTY, AssistantShapeCommands.toJson(parts));

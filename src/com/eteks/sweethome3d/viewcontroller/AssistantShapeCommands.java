@@ -61,6 +61,8 @@ class AssistantShapeCommands {
   static final String ROOF_WINDOW_PROPERTY = "assistantRoofWindow";
   /** Property of the ground storing its points, in JSON. */
   static final String TERRAIN_PROPERTY = "assistantTerrain";
+  static final String TERRAIN_PARAMETERS_PROPERTY = "assistantTerrainParameters";
+  static final String TERRAIN_FOOTPRINT_PROPERTY = "assistantTerrainFootprint";
   /** Property of a slab storing the id of the room it's the floor of. */
   static final String ROOM_SLAB_PROPERTY = "assistantRoomSlab";
   /** Property of a piece made of parts storing them, in JSON. */
@@ -76,6 +78,9 @@ class AssistantShapeCommands {
   private final HomeController           homeController;
   private final AssistantCommandExecutor executor;
   // The triangles of the last ground whose height was asked
+  /** The ground is left open under a floor it comes closer than this under, in cm. */
+  private static final float             FOOTPRINT_MARGIN = 30;
+
   private String                         terrainSpec;
   private List<float [][]>               terrainTriangles;
 
@@ -157,6 +162,7 @@ class AssistantShapeCommands {
     piece.setY((bounds [2] + bounds [5]) / 2);
     piece.setElevation(bounds [1]);
     piece.setLevel(level);
+    piece.setPlanIcon(model.getPlanIcon());
     piece.setProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY, structure);
     return piece;
   }
@@ -182,7 +188,7 @@ class AssistantShapeCommands {
     final Object [] before = getModelState(piece, properties.keySet());
     piece.setModel(model.getModel());
     piece.setIcon(model.getIcon());
-    piece.setPlanIcon(null);
+    piece.setPlanIcon(model.getPlanIcon());
     piece.setWidth(model.getWidth());
     piece.setDepth(model.getDepth());
     piece.setHeight(model.getHeight());
@@ -406,32 +412,7 @@ class AssistantShapeCommands {
 
   private void setTerrain(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
     Map<String, Object> parameters = command.getParameters();
-    List<float []> points = AssistantFurnitureBuilder.getPoints(parameters, "points", 3);
-    if (parameters.get("grid") instanceof Map) {
-      // Heights at the crossings of a grid
-      Map<?, ?> grid = (Map<?, ?>)parameters.get("grid");
-      float x = AssistantFurnitureBuilder.getNumber(grid, "x", 0);
-      float y = AssistantFurnitureBuilder.getNumber(grid, "y", 0);
-      float width = AssistantFurnitureBuilder.getNumber(grid, "width", Float.NaN);
-      float depth = AssistantFurnitureBuilder.getNumber(grid, "depth", Float.NaN);
-      List<?> rows = grid.get("heights") instanceof List ? (List<?>)grid.get("heights") : null;
-      if (rows == null || rows.size() < 2 || !(width > 0) || !(depth > 0)) {
-        throw new IOException("\"grid\" needs x, y, width, depth and \"heights\": the rows of heights from the north "
-            + "to the south, each one from the west to the east, like [[0,0,0],[20,30,20]]");
-      }
-      for (int row = 0; row < rows.size(); row++) {
-        List<?> heights = rows.get(row) instanceof List ? (List<?>)rows.get(row) : null;
-        if (heights == null || heights.size() < 2) {
-          throw new IOException("each row of \"heights\" must give two heights at least");
-        }
-        for (int column = 0; column < heights.size(); column++) {
-          if (heights.get(column) instanceof Number) {
-            points.add(new float [] {x + width * column / (heights.size() - 1), y + depth * row / (rows.size() - 1),
-                ((Number)heights.get(column)).floatValue()});
-          }
-        }
-      }
-    }
+    List<float []> points = getTerrainPoints(parameters);
     if (points.size() < 3) {
       throw new IOException("\"points\" must give 3 points [x,y,z] at least, z being the height of the ground there");
     } else if (points.size() > MAX_TERRAIN_POINTS) {
@@ -493,6 +474,111 @@ class AssistantShapeCommands {
     }
     float levelElevation = level != null ? level.getElevation() : 0;
 
+    int [] counts = new int [2];
+    AssistantGeneratedModel terrainModel = buildTerrainModel(parameters, triangles, level, lowest, skirt, notes, counts);
+    int openRooms = counts [0];
+    int areaCount = counts [1];
+    String name = command.getString("name") != null && command.getString("name").trim().length() > 0
+        ? command.getString("name").trim() : "Terrain";
+    HomePieceOfFurniture terrain = createPiece(name, terrainModel, level, false, "terrain");
+    StringBuilder spec = new StringBuilder("[");
+    for (float [] point : points) {
+      spec.append(spec.length() > 1 ? "," : "").append('[').append(format(point [0])).append(',')
+          .append(format(point [1])).append(',').append(format(point [2])).append(']');
+    }
+    terrain.setProperty(TERRAIN_PROPERTY, spec.append(']').toString());
+    // What is needed to build the ground again when the rooms it is open under change
+    terrain.setProperty(TERRAIN_PARAMETERS_PROPERTY, toJson(parameters));
+    terrain.setProperty(TERRAIN_FOOTPRINT_PROPERTY, getFootprintSignature(level));
+    terrain.setProperty(HomeItemTags.TAGS_PROPERTY, "terrain");
+    // One ground at a time, unless told otherwise
+    this.executor.beginTurnUpdate();
+    int replaced = 0;
+    if (command.getBoolean("replace", true)) {
+      List<Selectable> oldTerrains = new ArrayList<Selectable>();
+      for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+        if (piece.getProperty(TERRAIN_PROPERTY) != null) {
+          oldTerrains.add(piece);
+        }
+      }
+      if (!oldTerrains.isEmpty()) {
+        // A deleted piece has no level any more
+        List<Level> oldLevels = new ArrayList<Level>();
+        for (Selectable oldTerrain : oldTerrains) {
+          oldLevels.add(((HomePieceOfFurniture)oldTerrain).getLevel());
+        }
+        this.homeController.getPlanController().deleteItems(oldTerrains);
+        replaced = oldTerrains.size();
+        // A level that was added for the ground replaced and holds nothing else isn't kept
+        for (Level oldLevel : oldLevels) {
+          if (oldLevel != null && oldLevel != level && oldLevel.getElevation() < 0
+              && "Terrain".equals(oldLevel.getName())
+              && this.home.getLevels().contains(oldLevel)
+              && this.home.getLevels().size() > 2
+              && this.executor.getStructureCommands().getContents(oldLevel).isEmpty()) {
+            this.executor.getStructureCommands().delete(oldLevel);
+          }
+        }
+      }
+    }
+    add(terrain);
+    tally [0]++;
+    notes.add((replaced > 0 ? "Replaced the ground by " : "Added the ground ") + this.executor.getId(terrain) + " \"" + name
+        + "\": " + points.size() + " points, " + triangles.size() + " triangles, heights from " + format(lowest) + " to "
+        + format(highest) + " cm (0 = the floor of the level at the elevation 0)"
+        + (areaCount == 0 ? "" : ", " + areaCount + (areaCount == 1 ? " area" : " areas") + " with a finish of their own")
+        + (level != null ? ", on the level " + this.executor.getId(level) + " \"" + level.getName() + "\" at "
+            + format(level.getElevation()) + " cm" + (levelAdded ? ", added for it under the others: the 3D view draws no flat "
+              + "ground over what stands on a level under the height 0, so the slopes show; this level is the place of the ground only" : "") : "")
+        + (level != null && (level.getElevation() >= 0 || level.getElevation() > lowest - skirt)
+            ? ". This level isn't under the lowest point of the ground: the flat ground of the 3D view may hide a part of it" : "")
+        + (openRooms > 0 ? ". It is left open under " + openRooms + (openRooms == 1 ? " room" : " rooms")
+            + " it reaches and their walls, so their floor shows; it follows the rooms when they are added, moved or deleted" : "")
+        + ". {\"action\":\"set_elevation\",\"id\":\"F#\",\"on_terrain\":true} puts a piece on it");
+  }
+
+  /**
+   * Returns the points (x, y, z) of the ground described by the parameters of <code>set_terrain</code>.
+   */
+  private static List<float []> getTerrainPoints(Map<String, Object> parameters) throws IOException {
+    List<float []> points = AssistantFurnitureBuilder.getPoints(parameters, "points", 3);
+    if (parameters.get("grid") instanceof Map) {
+      // Heights at the crossings of a grid
+      Map<?, ?> grid = (Map<?, ?>)parameters.get("grid");
+      float x = AssistantFurnitureBuilder.getNumber(grid, "x", 0);
+      float y = AssistantFurnitureBuilder.getNumber(grid, "y", 0);
+      float width = AssistantFurnitureBuilder.getNumber(grid, "width", Float.NaN);
+      float depth = AssistantFurnitureBuilder.getNumber(grid, "depth", Float.NaN);
+      List<?> rows = grid.get("heights") instanceof List ? (List<?>)grid.get("heights") : null;
+      if (rows == null || rows.size() < 2 || !(width > 0) || !(depth > 0)) {
+        throw new IOException("\"grid\" needs x, y, width, depth and \"heights\": the rows of heights from the north "
+            + "to the south, each one from the west to the east, like [[0,0,0],[20,30,20]]");
+      }
+      for (int row = 0; row < rows.size(); row++) {
+        List<?> heights = rows.get(row) instanceof List ? (List<?>)rows.get(row) : null;
+        if (heights == null || heights.size() < 2) {
+          throw new IOException("each row of \"heights\" must give two heights at least");
+        }
+        for (int column = 0; column < heights.size(); column++) {
+          if (heights.get(column) instanceof Number) {
+            points.add(new float [] {x + width * column / (heights.size() - 1), y + depth * row / (rows.size() - 1),
+                ((Number)heights.get(column)).floatValue()});
+          }
+        }
+      }
+    }
+    return points;
+  }
+
+  /**
+   * Returns the model of the ground through the given triangles, open under the rooms and the walls
+   * it reaches. <code>counts</code> receives the count of these rooms and the count of areas
+   * with a finish of their own.
+   */
+  private AssistantGeneratedModel buildTerrainModel(Map<String, Object> parameters, List<float [][]> triangles,
+                                                    Level level, float lowest, float skirt,
+                                                    List<String> notes, int [] counts) throws IOException {
+    float levelElevation = level != null ? level.getElevation() : 0;
     AssistantMeshBuilder mesh = new AssistantMeshBuilder();
     AssistantMeshBuilder.Material material = getMaterial(mesh, parameters, 0x6E9A4C, notes);
     // The areas with a color or a texture of their own, the last one above the others
@@ -511,6 +597,25 @@ class AssistantShapeCommands {
         }
       }
     }
+    // The ground is left open under the rooms and the walls it reaches: at the same height
+    // as a floor, it would show through it, and higher it would bury the room
+    List<Area> footprints = new ArrayList<Area>();
+    List<Float> footprintElevations = new ArrayList<Float>();
+    int openRooms = 0;
+    for (Room room : this.home.getRooms()) {
+      if (room.isFloorVisible() && room.getLevel() != level && room.getPointCount() >= 3) {
+        footprints.add(AssistantMeshBuilder.getArea(room.getPoints()));
+        footprintElevations.add(room.getLevel() != null ? room.getLevel().getElevation() : 0f);
+      }
+    }
+    int roomFootprints = footprints.size();
+    boolean [] roomOpen = new boolean [roomFootprints];
+    for (Wall wall : this.home.getWalls()) {
+      if (wall.getLevel() != level) {
+        footprints.add(AssistantMeshBuilder.getArea(wall.getPoints()));
+        footprintElevations.add(wall.getLevel() != null ? wall.getLevel().getElevation() : 0f);
+      }
+    }
     Map<String, int []> sides = new HashMap<String, int []>();
     List<float [][]> sidePoints = new ArrayList<float [][]>();
     for (float [][] triangle : triangles) {
@@ -518,13 +623,29 @@ class AssistantShapeCommands {
       if (plane == null) {
         continue;
       }
+      float triangleTop = Math.max(triangle [0][2], Math.max(triangle [1][2], triangle [2][2]));
       // Heights are measured from the floor of the level of the ground
       plane [0] -= levelElevation;
       float [][] corners = {{triangle [0][0], triangle [0][1]}, {triangle [1][0], triangle [1][1]},
                             {triangle [2][0], triangle [2][1]}};
       Area remaining = null;
+      java.awt.geom.Rectangle2D triangleBounds = AssistantMeshBuilder.getArea(corners).getBounds2D();
+      for (int i = 0; i < footprints.size(); i++) {
+        if (footprintElevations.get(i) <= triangleTop + FOOTPRINT_MARGIN
+            && footprints.get(i).intersects(triangleBounds)) {
+          if (remaining == null) {
+            remaining = AssistantMeshBuilder.getArea(corners);
+          }
+          Area before = i < roomFootprints ? new Area(remaining) : null;
+          remaining.subtract(footprints.get(i));
+          if (before != null && !roomOpen [i] && !before.equals(remaining)) {
+            roomOpen [i] = true;
+            openRooms++;
+          }
+        }
+      }
       for (int i = areas.size() - 1; i >= 0; i--) {
-        if (areas.get(i).intersects(AssistantMeshBuilder.getArea(corners).getBounds2D())) {
+        if (areas.get(i).intersects(triangleBounds)) {
           if (remaining == null) {
             remaining = AssistantMeshBuilder.getArea(corners);
           }
@@ -574,43 +695,83 @@ class AssistantShapeCommands {
             sideMaterial, nx, 0, ny);
       }
     }
-    String name = command.getString("name") != null && command.getString("name").trim().length() > 0
-        ? command.getString("name").trim() : "Terrain";
-    HomePieceOfFurniture terrain = createPiece(name, mesh.store("terrain"), level, false, "terrain");
-    StringBuilder spec = new StringBuilder("[");
-    for (float [] point : points) {
-      spec.append(spec.length() > 1 ? "," : "").append('[').append(format(point [0])).append(',')
-          .append(format(point [1])).append(',').append(format(point [2])).append(']');
-    }
-    terrain.setProperty(TERRAIN_PROPERTY, spec.append(']').toString());
-    terrain.setProperty(HomeItemTags.TAGS_PROPERTY, "terrain");
-    // One ground at a time, unless told otherwise
-    this.executor.beginTurnUpdate();
-    int replaced = 0;
-    if (command.getBoolean("replace", true)) {
-      List<Selectable> oldTerrains = new ArrayList<Selectable>();
-      for (HomePieceOfFurniture piece : this.home.getFurniture()) {
-        if (piece.getProperty(TERRAIN_PROPERTY) != null) {
-          oldTerrains.add(piece);
+    counts [0] = openRooms;
+    counts [1] = areas.size();
+    return mesh.store("terrain");
+  }
+
+  /**
+   * Returns a text that changes when the rooms and the walls the ground may be open under change.
+   */
+  private String getFootprintSignature(Level terrainLevel) {
+    StringBuilder signature = new StringBuilder();
+    for (Room room : this.home.getRooms()) {
+      if (room.isFloorVisible() && room.getLevel() != terrainLevel) {
+        signature.append('R').append(room.getLevel() != null ? room.getLevel().getElevation() : 0f);
+        for (float [] point : room.getPoints()) {
+          signature.append(',').append(point [0]).append(',').append(point [1]);
         }
       }
-      if (!oldTerrains.isEmpty()) {
-        this.homeController.getPlanController().deleteItems(oldTerrains);
-        replaced = oldTerrains.size();
+    }
+    for (Wall wall : this.home.getWalls()) {
+      if (wall.getLevel() != terrainLevel) {
+        signature.append('W').append(wall.getLevel() != null ? wall.getLevel().getElevation() : 0f);
+        for (float [] point : wall.getPoints()) {
+          signature.append(',').append(point [0]).append(',').append(point [1]);
+        }
       }
     }
-    add(terrain);
-    tally [0]++;
-    notes.add((replaced > 0 ? "Replaced the ground by " : "Added the ground ") + this.executor.getId(terrain) + " \"" + name
-        + "\": " + points.size() + " points, " + triangles.size() + " triangles, heights from " + format(lowest) + " to "
-        + format(highest) + " cm (0 = the floor of the level at the elevation 0)"
-        + (areas.isEmpty() ? "" : ", " + areas.size() + (areas.size() == 1 ? " area" : " areas") + " with a finish of their own")
-        + (level != null ? ", on the level " + this.executor.getId(level) + " \"" + level.getName() + "\" at "
-            + format(level.getElevation()) + " cm" + (levelAdded ? ", added for it under the others: the 3D view draws no flat "
-              + "ground over what stands on a level under the height 0, so the slopes show; this level is the place of the ground only" : "") : "")
-        + (level != null && (level.getElevation() >= 0 || level.getElevation() > lowest - skirt)
-            ? ". This level isn't under the lowest point of the ground: the flat ground of the 3D view may hide a part of it" : "")
-        + ". {\"action\":\"set_elevation\",\"id\":\"F#\",\"on_terrain\":true} puts a piece on it");
+    return Integer.toHexString(signature.toString().hashCode()) + "-" + signature.length();
+  }
+
+  /**
+   * Builds again the model of the grounds of the home if the rooms or the walls they are
+   * open under changed since they were built. The model of a ground follows from its
+   * description and from the rooms: replacing it isn't a change to undo.
+   * @return the count of grounds built again
+   */
+  @SuppressWarnings("unchecked")
+  int refreshTerrain() {
+    int count = 0;
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      String spec = piece.getProperty(TERRAIN_PARAMETERS_PROPERTY);
+      if (spec == null || piece.getProperty(TERRAIN_PROPERTY) == null) {
+        continue;
+      }
+      String signature = getFootprintSignature(piece.getLevel());
+      if (signature.equals(piece.getProperty(TERRAIN_FOOTPRINT_PROPERTY))) {
+        continue;
+      }
+      try {
+        Object parsed = JSONParser.parse(spec);
+        if (!(parsed instanceof Map)) {
+          continue;
+        }
+        Map<String, Object> parameters = (Map<String, Object>)parsed;
+        List<float []> points = getTerrainPoints(parameters);
+        List<float [][]> triangles = triangulate(points);
+        if (triangles.isEmpty()) {
+          continue;
+        }
+        float lowest = Float.MAX_VALUE;
+        for (float [] point : points) {
+          lowest = Math.min(lowest, point [2]);
+        }
+        float skirt = Math.max(1, Math.min(2000, AssistantFurnitureBuilder.getNumber(parameters, "thickness", 30)));
+        AssistantGeneratedModel model = buildTerrainModel(parameters, triangles, piece.getLevel(), lowest, skirt,
+            new ArrayList<String>(), new int [2]);
+        piece.setModel(model.getModel());
+        piece.setIcon(model.getIcon());
+        piece.setPlanIcon(model.getPlanIcon());
+        piece.setProperty(TERRAIN_FOOTPRINT_PROPERTY, signature);
+        count++;
+      } catch (IOException ex) {
+        // The ground keeps its model
+      } catch (RuntimeException ex) {
+        // The ground keeps its model
+      }
+    }
+    return count;
   }
 
   private static void addGround(AssistantMeshBuilder mesh, List<float [][]> polygons, float [] plane,
@@ -736,16 +897,7 @@ class AssistantShapeCommands {
         continue;
       }
       if (!spec.equals(this.terrainSpec)) {
-        List<float []> points = new ArrayList<float []>();
-        try {
-          Object parsed = JSONParser.parse(spec);
-          if (parsed instanceof List) {
-            points = AssistantFurnitureBuilder.getPoints(Collections.singletonMap("points", parsed), "points", 3);
-          }
-        } catch (IllegalArgumentException ex) {
-          // No points
-        }
-        this.terrainTriangles = triangulate(points);
+        this.terrainTriangles = HomeTerrain.getTriangles(spec);
         this.terrainSpec = spec;
       }
       for (float [][] triangle : this.terrainTriangles) {

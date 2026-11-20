@@ -33,6 +33,7 @@ import com.eteks.sweethome3d.model.HomeTexture;
 import com.eteks.sweethome3d.model.Level;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Selectable;
+import com.eteks.sweethome3d.model.TexturesCategory;
 import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.model.Wall;
 
@@ -97,7 +98,74 @@ public class AssistantDesignCommands {
       new Style("Minimalist", "pure white walls, light grey floor", 0xFAFAFA, 0xD4D4D2, 0xFFFFFF, "white tiles"),
       new Style("Dark", "charcoal walls, dark wood floor", 0x3F4347, 0x4A3628, 0xDADADA, "dark wood"),
       new Style("Earthy", "sage green walls, natural wood floor", 0xC9D1BE, 0xB08D62, 0xF7F5EE, "wood parquet"),
-      new Style("Mediterranean", "warm white walls, terracotta floor", 0xF6EEDD, 0xB8683F, 0xFFFBF2, "terracotta tiles")};
+      new Style("Mediterranean", "warm white walls, terracotta floor", 0xF6EEDD, 0xB8683F, 0xFFFBF2, "terracotta red tiles")};
+
+  private static final List<String> COLOR_WORDS = java.util.Arrays.asList(new String [] {
+      "light", "dark", "pale", "white", "black", "grey", "gray", "blue", "red", "green", "beige",
+      "brown", "yellow", "pink", "orange", "purple"});
+
+  /**
+   * Returns the one of the given textures that suits a floor described by <code>query</code>:
+   * its name must contain a word of the query that isn't a color (the material), and no color
+   * the query doesn't ask for. A pale wood floor mustn't get "Light blue tiles" because both
+   * are light.
+   */
+  public static CatalogTexture findFloorTexture(List<CatalogTexture> textures, String query) {
+    List<String> queryWords = AssistantCommandExecutor.tokenize(query.toLowerCase(Locale.ENGLISH));
+    CatalogTexture best = null;
+    int bestWordCount = Integer.MAX_VALUE;
+    for (CatalogTexture texture : textures) {
+      // The id of a texture of the default catalog tells what it is in English whatever
+      // the language of its name: eTeks#oldWoodenFloor
+      String description = getIdWords(texture.getId());
+      String name = description.length() > 0 ? description : texture.getName().toLowerCase(Locale.ENGLISH);
+      List<String> nameWords = AssistantCommandExecutor.tokenize(name);
+      if (nameWords.contains("wall")) {
+        continue;
+      }
+      boolean materialFound = false;
+      for (String word : queryWords) {
+        // tiles is found in "grey tile"
+        String stem = word.length() > 3 && word.endsWith("s") ? word.substring(0, word.length() - 1) : word;
+        if (!COLOR_WORDS.contains(word) && name.indexOf(stem) >= 0) {
+          materialFound = true;
+        }
+      }
+      boolean otherColor = false;
+      for (String word : nameWords) {
+        if (COLOR_WORDS.contains(word) && !queryWords.contains(word)) {
+          otherColor = true;
+        }
+      }
+      // The shortest name is the plainest texture of the material: "Wooden floor" rather than "Old wooden floor"
+      int wordCount = nameWords.size();
+      if (materialFound && !otherColor && wordCount < bestWordCount) {
+        best = texture;
+        bestWordCount = wordCount;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Returns the words of the id of a catalog texture, in lower case and separated by spaces
+   * ("old wooden floor" for eTeks#oldWoodenFloor), or an empty text if it has no such id.
+   */
+  static String getIdWords(String id) {
+    if (id == null || id.indexOf('#') < 0) {
+      return "";
+    }
+    StringBuilder words = new StringBuilder();
+    for (char c : id.substring(id.indexOf('#') + 1).toCharArray()) {
+      if (Character.isUpperCase(c) || Character.isDigit(c)) {
+        words.append(' ');
+      }
+      if (Character.isLetter(c)) {
+        words.append(Character.toLowerCase(c));
+      }
+    }
+    return words.toString().trim();
+  }
 
   /** The shapes of <code>add_room_shape</code>. */
   public static final String [] ROOM_SHAPES = {"rectangle", "L", "T", "U"};
@@ -314,10 +382,16 @@ public class AssistantDesignCommands {
     final boolean floorTextureWanted = command.getBoolean("textures", true);
     CatalogTexture foundTexture = null;
     if (floorTextureWanted) {
-      List<CatalogTexture> textures = this.buildingCommands.searchTextures(style.floorTextureQuery, 1);
-      if (!textures.isEmpty()) {
-        foundTexture = textures.get(0);
+      // The textures of the categories for floors come first
+      List<CatalogTexture> textures = new ArrayList<CatalogTexture>();
+      if (this.preferences.getTexturesCatalog() != null) {
+        for (TexturesCategory category : this.preferences.getTexturesCatalog().getCategories()) {
+          boolean floorCategory = category.getName() != null
+              && category.getName().toLowerCase(Locale.ENGLISH).indexOf("floor") >= 0;
+          textures.addAll(floorCategory ? 0 : textures.size(), category.getTextures());
+        }
       }
+      foundTexture = findFloorTexture(textures, style.floorTextureQuery);
     }
     final CatalogTexture floorTexture = foundTexture;
     List<Selectable> modified = new ArrayList<Selectable>(rooms);

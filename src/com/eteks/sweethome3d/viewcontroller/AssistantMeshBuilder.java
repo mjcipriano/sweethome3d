@@ -47,6 +47,9 @@ import com.eteks.sweethome3d.model.TextureImage;
  */
 final class AssistantMeshBuilder {
   private static final int ICON_SIZE = 48;
+  private static final int PLAN_ICON_SIZE = 160;
+  // Pictures are drawn three times larger then reduced, to keep thin parts and smooth edges
+  private static final int ICON_SAMPLING = 3;
   /** Images larger than this aren't copied in a model. */
   private static final int MAX_IMAGE_LENGTH = 8 * 1024 * 1024;
 
@@ -580,6 +583,7 @@ final class AssistantMeshBuilder {
     files.put(name + ".obj", obj.toString().getBytes("ISO-8859-1"));
     files.put(name + ".mtl", mtl.toString().getBytes("ISO-8859-1"));
     files.put("icon_" + this.suffix + ".png", createIcon(bounds));
+    files.put("planicon_" + this.suffix + ".png", createPlanIcon(bounds));
     AssistantGeneratedModel model = AssistantGeneratedModel.store(prefix, files,
         bounds [3] - bounds [0], bounds [5] - bounds [2], bounds [4] - bounds [1]);
     model.setBounds(bounds);
@@ -626,9 +630,7 @@ final class AssistantMeshBuilder {
    * above and from the side, drawn without the AWT toolkit this package doesn't use.
    */
   private byte [] createIcon(float [] bounds) throws IOException {
-    // Drawn three times larger then reduced, to keep thin parts and smooth edges
-    int sampling = 3;
-    int size = ICON_SIZE * sampling;
+    int size = ICON_SIZE * ICON_SAMPLING;
     double yaw = Math.toRadians(-25);
     double pitch = Math.toRadians(20);
     double cosYaw = Math.cos(yaw);
@@ -651,7 +653,36 @@ final class AssistantMeshBuilder {
       view [i] = new float [] {(float)x1, (float)y2, (float)z2};
       extent = Math.max(extent, Math.max(Math.abs((float)x1), Math.abs((float)y2)));
     }
-    float scale = extent > 0 ? (size / 2f - 3 * sampling) / extent : 1;
+    float scale = extent > 0 ? (size / 2f - 3 * ICON_SAMPLING) / extent : 1;
+    return rasterize(view, scale, scale, ICON_SIZE);
+  }
+
+  /**
+   * Returns the picture of the model seen from the top, which the plan draws in the
+   * rectangle of the piece: the width and the depth of the model fill the picture.
+   */
+  private byte [] createPlanIcon(float [] bounds) throws IOException {
+    int size = PLAN_ICON_SIZE * ICON_SAMPLING;
+    float centerX = (bounds [0] + bounds [3]) / 2;
+    float centerZ = (bounds [2] + bounds [5]) / 2;
+    // View frame: sx to the right of the plan, sy to its top, sz upward
+    float [][] view = new float [this.vertices.size()][];
+    for (int i = 0; i < view.length; i++) {
+      float [] vertex = this.vertices.get(i);
+      view [i] = new float [] {vertex [0] - centerX, -(vertex [2] - centerZ), vertex [1]};
+    }
+    float width = bounds [3] - bounds [0];
+    float depth = bounds [5] - bounds [2];
+    return rasterize(view, width > 0 ? size / width : 1, depth > 0 ? size / depth : 1, PLAN_ICON_SIZE);
+  }
+
+  /**
+   * Returns the PNG picture of the faces of this mesh, their vertices being given in a frame
+   * where x goes to the right, y upward and z toward the viewer.
+   */
+  private byte [] rasterize(float [][] view, float scale, float scaleY, int iconSize) throws IOException {
+    int sampling = ICON_SAMPLING;
+    int size = iconSize * sampling;
     float [] depths = new float [size * size];
     java.util.Arrays.fill(depths, -Float.MAX_VALUE);
     int [] colors = new int [size * size];
@@ -677,11 +708,11 @@ final class AssistantMeshBuilder {
         float light = Math.max(0, (nx * -0.35f + ny * 0.6f + nz * 0.72f) / length);
         float shade = 0.5f + 0.5f * light;
         float ax = size / 2f + a [0] * scale;
-        float ay = size / 2f - a [1] * scale;
+        float ay = size / 2f - a [1] * scaleY;
         float bx = size / 2f + b [0] * scale;
-        float by = size / 2f - b [1] * scale;
+        float by = size / 2f - b [1] * scaleY;
         float cx = size / 2f + c [0] * scale;
-        float cy = size / 2f - c [1] * scale;
+        float cy = size / 2f - c [1] * scaleY;
         float area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
         if (Math.abs(area) < 1E-6f) {
           continue;
@@ -712,9 +743,9 @@ final class AssistantMeshBuilder {
         }
       }
     }
-    byte [] pixels = new byte [ICON_SIZE * (1 + ICON_SIZE * 4)];
-    for (int y = 0; y < ICON_SIZE; y++) {
-      for (int x = 0; x < ICON_SIZE; x++) {
+    byte [] pixels = new byte [iconSize * (1 + iconSize * 4)];
+    for (int y = 0; y < iconSize; y++) {
+      for (int x = 0; x < iconSize; x++) {
         int red = 0;
         int green = 0;
         int blue = 0;
@@ -731,7 +762,7 @@ final class AssistantMeshBuilder {
           }
         }
         if (count > 0) {
-          int pixel = y * (1 + ICON_SIZE * 4) + 1 + x * 4;
+          int pixel = y * (1 + iconSize * 4) + 1 + x * 4;
           pixels [pixel] = (byte)(red / count);
           pixels [pixel + 1] = (byte)(green / count);
           pixels [pixel + 2] = (byte)(blue / count);
@@ -739,6 +770,6 @@ final class AssistantMeshBuilder {
         }
       }
     }
-    return AssistantGeneratedModel.encodePng(pixels, ICON_SIZE);
+    return AssistantGeneratedModel.encodePng(pixels, iconSize);
   }
 }

@@ -1,18 +1,101 @@
-# AI Design Assistant
+# Design Assistant
 
-This is the handoff source of truth for the AI design assistant feature, the
-way `docs/OPTIMIZATION_PROGRESS.md` is for performance work. Update it in the
-same commit or pull request as every accepted change, new command, protocol
-change, or newly discovered blocker. Do not leave progress only in chat or a PR
-comment.
+**Help > Design assistant...** opens a chat inside Sweet Home 3D. The
+assistant answers questions about the home ("what is the total floor area?")
+and edits it ("add a reading corner to the living room") with the same
+undoable commands as the [MCP server](MCP_SERVER.md). It talks to the AI
+service you choose, with your own key.
 
-The assistant is reachable from **Help -> Design assistant...**. All of its
-logic lives in `viewcontroller` (`AssistantClient`, `AssistantCommandParser`,
-`AssistantCommand`, `AssistantCommandExecutor`, `HomeAssistantContext`,
-`JSONParser`) and `swing` (`AssistantPanel`), so the package dependency graph is
-unchanged. It is multi-provider: any OpenAI-compatible endpoint (OpenRouter,
-DeepSeek, LM Studio, Ollama) or the Anthropic API. Provider, URL, key and model
-persist in user preferences (BYO key; an empty key works for local servers).
+![The design assistant after a request](images/assistant.png)
+
+It differs from the MCP server in who runs the AI: with the assistant, Sweet
+Home 3D calls a service through its API; with the MCP server, Claude Desktop
+or Claude Code runs on your computer and calls Sweet Home 3D, without any key.
+With Claude, prefer the MCP server: Claude then also sees pictures of the plan
+and of the 3D view.
+
+## Set it up
+
+1. Choose **Help > Design assistant...**, then **Settings...**
+
+   ![The settings of the assistant](images/assistant-settings.png)
+
+2. Choose the provider and fill in the three fields:
+
+   | Service | Provider | API URL | Model (examples) |
+   | --- | --- | --- | --- |
+   | OpenRouter | OpenAI-compatible | `https://openrouter.ai/api/v1` | the id of a model of its catalog |
+   | DeepSeek | OpenAI-compatible | `https://api.deepseek.com/v1` | `deepseek-chat` |
+   | LM Studio, on this computer | OpenAI-compatible | `http://localhost:1234/v1` | the model loaded in LM Studio |
+   | Ollama, on this computer | OpenAI-compatible | `http://localhost:11434/v1` | the name of a pulled model |
+   | Anthropic | Anthropic | `https://api.anthropic.com/v1` | the id of a Claude model |
+
+   The key is the one the service gave you; local servers need none. The
+   application adds `/chat/completions` (or `/messages` for Anthropic) to the
+   URL.
+3. Click **OK**. The settings are kept for the next sessions.
+
+About the key:
+
+- It is stored in clear text in your Sweet Home 3D preferences. To keep it
+  out of them, set the environment variable `SWEETHOME3D_ASSISTANT_API_KEY`
+  instead: it is then never written to disk.
+- The key is cleared as soon as the provider or the URL changes, so it isn't
+  sent to another service by accident, and it isn't sent over plain `http://`
+  except to this computer or a private network address.
+- Each request sends the description of the home (rooms, walls, furniture
+  names and positions) and your messages to the service you configured.
+
+## Use it
+
+Type a request and press Enter or **Send**. The answer appears as it is
+written; when it contains edits, they are applied and a line tells what
+changed:
+
+```
+You: Add a reading corner to the living room
+Assistant: I'll add a reading corner by the east window of the living room: an armchair turned
+toward the room and a lamp beside it.
+[Applied changes: added 2 pieces of furniture. Use Edit > Undo to revert.]
+```
+
+- **One request is one step of Edit > Undo**, even when it took the assistant
+  several turns: it may search the catalog, add furniture, look at the result
+  of its commands and go on, up to 5 turns per request.
+- **Preview edits before applying** shows the list of commands before any of
+  them runs; declining stops the request.
+- **Picture...** sends an image with your next message, for a model that
+  reads images: "add this painting above the sofa", "which piece of the
+  catalog looks like this chair?".
+- Refer to what is selected in the plan: "move this 50 cm to the left",
+  "make these chairs red".
+- **Help > What can I ask the assistant?** lists example requests.
+
+![Examples of requests](images/assistant-examples.png)
+
+What it can do is what the [commands](MCP_COMMANDS.md) can do: rooms, walls,
+levels, stairs, roofs, furniture from the catalog or built from parts,
+colors, textures and styles, tags and layers, checks and reports. It can't
+save the home, and it adds furniture only by the exact names of your catalog.
+
+The assistant of the picture above was answered by a canned local server
+used for tests, not by a real model: answers of a real model vary.
+
+## Development ledger
+
+The rest of this page is the handoff source of truth for the development of
+the assistant, the way `docs/OPTIMIZATION_PROGRESS.md` is for performance
+work. Update it in the same commit or pull request as every accepted change,
+new command, protocol change, or newly discovered blocker. Do not leave
+progress only in chat or a PR comment.
+
+All of the logic lives in `viewcontroller` (`AssistantClient`,
+`AssistantCommandParser`, `AssistantCommand`, `AssistantCommandExecutor`,
+`HomeAssistantContext`, `JSONParser`) and `swing` (`AssistantPanel`), so the
+package dependency graph is unchanged. It is multi-provider: any
+OpenAI-compatible endpoint (OpenRouter, DeepSeek, LM Studio, Ollama) or the
+Anthropic API. Provider, URL, key and model persist in user preferences (BYO
+key; an empty key works for local servers).
 
 ## Design constraints
 
@@ -167,7 +250,8 @@ extending the executor:
 - **Ids survive edits made during a request.** `AssistantCommandExecutor.
   snapshotDescribedItems()` records the items the ids designate when the home
   is described (`AssistantPanel.buildSystemPrompt`, MCP `get_home`); `execute`
-  resolves `F#`/`W#`/`R#` against that snapshot.
+  resolves `F#`/`W#`/`R#` against that snapshot. *Replaced on 2026-11-19 by
+  ids stored in the items (`HomeItemIds`), see below.*
 - **API key.** The settings dialog clears the key as soon as the provider or
   the API URL changes, so a key is never sent to another service by accident.
   `AssistantClient` refuses to send a key over plain `http://` except to this
@@ -315,6 +399,66 @@ a wall or cutting an opening without a door model, recognising the walls of a
 floor plan image automatically, turning a photo into a real 3D model (needs an
 image-to-3D service), PBR materials for Blender.
 
+### House modeling: ids, levels, roofs, slabs, ground (2026-11-19, DONE, v7.25.0)
+
+User documentation: `docs/MCP_COMMANDS.md` and `docs/HOUSE_MODELING_TUTORIAL.md`.
+
+- **Persistent ids** (`HomeItemIds`): a number stored in the property
+  `assistantId` of each item, the high-water mark in the properties
+  `assistantLastId<F|W|R|L>` of the environment of the home. `where` designates
+  items in bulk (`AssistantCommandExecutor.resolveWhere`). 100 commands per call.
+- **Levels and walls** (`AssistantStructureCommands`): `delete_level`,
+  `modify_level`, `merge_levels`, `modify_wall`, `set_plan_visibility`,
+  `describe_item`. `FurniturePlanVisibility` (property `planOnUpperLevels`)
+  makes `PlanComponent` draw a piece as a dashed outline or not at all.
+- **Roofs** (`AssistantRoofGeometry`, `AssistantRoofModel`): `add_roof` with
+  `points`, `add_dormer`, `fit_walls_to_roof`. Convex parts, lowest plane per
+  part, highest part where they overlap; not a straight skeleton for a
+  polygon that isn't convex.
+- **Slabs and ground** (`AssistantShapeCommands`): `add_slab`, `set_terrain`
+  (Delaunay triangles, on a level under the others), room `floor_offset`.
+- **Parts** (`AssistantMeshBuilder`, `AssistantFurnitureBuilder`): prism,
+  wedge, extrude, textures per part, `modify_furniture_parts`.
+- **Pictures**: `store_as`, `compare_with` of `get_3d_image`.
+- Tests: `AssistantHouseModelingTest`.
+
+Follow-up found while writing the tutorial (2026-11-20):
+
+- The ground is left open under the rooms it reaches and their walls: at the
+  height of a floor it showed through it.
+- `check_home` no longer reports pieces put on the ground with `on_terrain`
+  (property `assistantOutdoor`) nor pieces created with `"structure":true`.
+- `apply_style` takes a floor texture of the material of the style
+  (`AssistantDesignCommands.findFloorTexture`): "Light blue tiles" was taken
+  for a pale wood floor because both are light.
+- Game mode and review notes: roofs and the ground are exported with
+  `"shell":true` and stop no one; a level without room isn't the height
+  someone walks at outdoors; a note on a floor isn't given to the roof whose
+  box holds the home.
+- The scene description gives the triangles of the ground (`terrain`,
+  `HomeTerrain.getTriangles`): the game mode (`groundAt`) and the walk-through
+  (`groundHeightAt`, `standAt`) walk on its slopes.
+- `HomeReport` lists roofs, slabs and the ground under "Building and site".
+- `ElevationDrawing` draws the faces of the models built by these commands,
+  sloped walls and the ground, instead of boxes.
+- Undo restores the properties `assistantOutdoor` and `assistantBelowFloor`.
+- Slabs: the scene description gives the triangles of their top (`ramps`,
+  `GeneratedModelFaces`), walked on in the game mode and the walk-through.
+- Generated pieces have a picture seen from the top (`createPlanIcon`), which
+  the plan draws whatever the preference (`FurniturePlanVisibility.isDrawnFromTop`).
+- The ground follows the rooms: `HomeController.refreshTerrain` builds its
+  model again after each edit, undo and redo when the rooms or walls it is
+  open under changed (`AssistantShapeCommands.refreshTerrain`, properties
+  `assistantTerrainParameters` and `assistantTerrainFootprint`).
+- `apply_style` finds floor textures by the id of the default catalog, in any
+  language.
+- three.js 0.155.0 comes with the pages (no Internet access needed).
+- `HomeMCPBridge` stops when asked by the **Release program folder** button
+  (file `mcp-bridge-stop` of the application folder).
+- Help: page "What this edition adds" (English).
+- `CommandReferenceDocTest` fails when a command of the reference is missing
+  in `docs/MCP_COMMANDS.md`; `docs/tools/screenshots` regenerates the pictures.
+
 ### Backlog / later
 
 - **Native tool/function calling.** Use Anthropic `tool_use` and OpenAI `tools`
@@ -351,4 +495,3 @@ Manual smoke test: configure a local LM Studio or Ollama endpoint in Settings,
 open a home, and try prompts such as "what is the total floor area?",
 "add a chair to the right of the selection", "move the sofa 50cm north",
 "delete all chairs".
-</content>

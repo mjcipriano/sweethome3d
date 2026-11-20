@@ -5419,6 +5419,26 @@ public class HomePane extends JRootPane implements HomeView {
     buttonsPanel.add(desktopButton);
     buttonsPanel.add(codeButton);
     buttonsPanel.add(copyButton);
+    final JButton releaseButton = new JButton("Release program folder");
+    releaseButton.setToolTipText("<html>Stops the programs Claude launched from the folder of this application,<br>"
+        + "which keep it busy: do it before deleting that folder or replacing it by a new version.</html>");
+    releaseButton.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          Window window = SwingUtilities.getWindowAncestor(releaseButton);
+          try {
+            HomeMCPBridge.requestStop(applicationFolder);
+            JOptionPane.showMessageDialog(window,
+                "<html>The programs Claude launched from the folder of Sweet Home 3D stop within a few seconds:<br>"
+                + "once this application is closed too, its folder can be deleted or replaced.<br><br>"
+                + "Claude shows Sweet Home 3D as disconnected until Claude is started again.</html>",
+                dialogTitle, JOptionPane.INFORMATION_MESSAGE);
+          } catch (IOException ex) {
+            JOptionPane.showMessageDialog(window, "Couldn't ask these programs to stop (" + ex.getMessage() + ").",
+                dialogTitle, JOptionPane.WARNING_MESSAGE);
+          }
+        }
+      });
+    buttonsPanel.add(releaseButton);
     JPanel northPanel = new JPanel(new BorderLayout(0, 6));
     northPanel.add(new JLabel("<html>Lets Claude (or another MCP client on this computer) read this home,<br>"
         + "search the furniture catalog and edit the home.</html>"), BorderLayout.NORTH);

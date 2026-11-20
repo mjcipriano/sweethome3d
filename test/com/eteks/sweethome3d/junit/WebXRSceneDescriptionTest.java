@@ -170,6 +170,16 @@ public class WebXRSceneDescriptionTest {
     assertEquals(2.7, number(furniture.get(0), "height"), 1e-4);
     assertEquals(WebXRSceneDescription.getKey(stairs), ((Map<String, Object>)furniture.get(0)).get("key"));
     assertEquals(WebXRSceneDescription.getKey(stairs), ((Map<String, Object>)allStairs.get(0)).get("key"));
+    assertEquals(Boolean.FALSE, ((Map<String, Object>)furniture.get(0)).get("shell"));
+    // A roof or the ground built by the assistant commands isn't a box that stops the player
+    catalogStairs.setProperty("assistantStructure", "roof");
+    home.addPieceOfFurniture(catalogStairs);
+    List<Object> furnitureWithRoof = (List<Object>)((Map<String, Object>)JSONParser.parse(
+        WebXRSceneDescription.toJSON(home))).get("furniture");
+    assertEquals(2, furnitureWithRoof.size());
+    assertEquals(Boolean.TRUE, ((Map<String, Object>)furnitureWithRoof.get(1)).get("shell"));
+    home.deletePieceOfFurniture(catalogStairs);
+    catalogStairs.setProperty("assistantStructure", null);
     assertTrue(WebXRSceneDescription.getKey(stairs).matches("[A-Za-z0-9]+"));
     List<Object> rooms = (List<Object>)scene.get("rooms");
     assertEquals(2, rooms.size());

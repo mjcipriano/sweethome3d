@@ -47,6 +47,9 @@ public final class ElevationDrawing {
 
   private static final int MARGIN = 120;
 
+  /** Beyond this count of faces, a piece is drawn as the box of its size. */
+  private static final int MAX_MODEL_FACES = 6000;
+
   private ElevationDrawing() {
   }
 
@@ -62,6 +65,9 @@ public final class ElevationDrawing {
     private final int     kind;     // 0 wall, 1 door or window, 2 furniture
     private final String  name;
     private final Integer color;
+    private float [][]    polygon;  // For a face of a model: its points (horizontal position, height)
+    private boolean       ground;   // A triangle of the ground, which doesn't count in the size of the home
+    private boolean       outlined; // A wall, drawn with its outline
 
     Shape(float left, float right, float bottom, float top, float depth, int kind, String name, Integer color) {
       this.left = left;
@@ -138,12 +144,84 @@ public final class ElevationDrawing {
       }
       if (piece instanceof HomeFurnitureGroup) {
         addFurniture(shapes, side, ((HomeFurnitureGroup)piece).getFurniture());
+      } else if (HomeTerrain.isTerrain(piece)) {
+        addTerrain(shapes, side, piece);
+      } else if (addModelFaces(shapes, side, piece)) {
+        // Drawn as the faces of its model
       } else {
         float bottom = piece.getGroundElevation();
         addShape(shapes, side, piece.getPoints(), bottom, bottom + piece.getHeight(),
             piece.isDoorOrWindow() ? 1 : 2, piece.getName(), piece.getColor());
       }
     }
+  }
+
+  /**
+   * Adds the triangles of the ground, seen from the side.
+   */
+  private static void addTerrain(List<Shape> shapes, String side, HomePieceOfFurniture piece) {
+    int color = 0x8FB36B;
+    for (float [][] triangle : HomeTerrain.getTriangles(piece.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY))) {
+      float [][] points = new float [3][];
+      float depth = 0;
+      for (int i = 0; i < 3; i++) {
+        float [] projection = project(side, triangle [i][0], triangle [i][1]);
+        points [i] = new float [] {projection [0], triangle [i][2]};
+        depth += projection [1] / 3;
+      }
+      addPolygon(shapes, points, depth, null, color);
+      shapes.get(shapes.size() - 1).ground = true;
+    }
+  }
+
+  private static void addPolygon(List<Shape> shapes, float [][] points, float depth, String name, int color) {
+    float left = Float.MAX_VALUE;
+    float right = -Float.MAX_VALUE;
+    float bottom = Float.MAX_VALUE;
+    float top = -Float.MAX_VALUE;
+    for (float [] point : points) {
+      left = Math.min(left, point [0]);
+      right = Math.max(right, point [0]);
+      bottom = Math.min(bottom, point [1]);
+      top = Math.max(top, point [1]);
+    }
+    // A face seen by its edge draws nothing
+    Shape shape = new Shape(left, right, bottom, top, depth, 3, name, color);
+    shape.polygon = points;
+    // A face seen by its edge draws nothing, but callers count on the shape being added
+    shapes.add(shape);
+  }
+
+  /**
+   * Adds the faces turned to the viewer of the model of a piece built by the assistant
+   * commands (a roof, a slab, a piece made of parts), which the box of its size describes
+   * badly. Returns <code>false</code> if the piece isn't such a piece or if its model can't be read.
+   */
+  private static boolean addModelFaces(List<Shape> shapes, String side, HomePieceOfFurniture piece) {
+    List<GeneratedModelFaces.Face> faces = GeneratedModelFaces.getFaces(piece, MAX_MODEL_FACES);
+    if (faces == null) {
+      return false;
+    }
+    for (GeneratedModelFaces.Face face : faces) {
+      float [][] polygon = new float [face.points.length][];
+      float depth = 0;
+      for (int j = 0; j < polygon.length; j++) {
+        float [] projection = project(side, face.points [j][0], face.points [j][1]);
+        polygon [j] = new float [] {projection [0], face.points [j][2]};
+        depth += projection [1] / polygon.length;
+      }
+      // The area of the face in the drawing tells the side it shows
+      double area = 0;
+      for (int j = 0; j < polygon.length; j++) {
+        float [] next = polygon [(j + 1) % polygon.length];
+        area += polygon [j][0] * next [1] - next [0] * polygon [j][1];
+      }
+      // Faces are described counter clockwise seen from outside
+      if (area > 0.5) {
+        addPolygon(shapes, polygon, depth, piece.getName(), face.color);
+      }
+    }
+    return true;
   }
 
   /**
@@ -164,20 +242,44 @@ public final class ElevationDrawing {
       float bottom = level != null ? level.getElevation() : 0;
       float startHeight = wall.getHeight() != null ? wall.getHeight() : home.getWallHeight();
       float endHeight = wall.getHeightAtEnd() != null ? wall.getHeightAtEnd() : startHeight;
-      addShape(shapes, side, wall.getPoints(), bottom, bottom + Math.max(startHeight, endHeight), 0, null, null);
+      if (startHeight == endHeight) {
+        addShape(shapes, side, wall.getPoints(), bottom, bottom + startHeight, 0, null, null);
+      } else {
+        // A wall with a sloped top, as under a roof
+        float [] start = project(side, wall.getXStart(), wall.getYStart());
+        float [] end = project(side, wall.getXEnd(), wall.getYEnd());
+        if (Math.abs(end [0] - start [0]) <= wall.getThickness()) {
+          // Seen from its end: its height is the one of its closest end
+          addShape(shapes, side, wall.getPoints(), bottom,
+              bottom + (start [1] <= end [1] ? startHeight : endHeight), 0, null, null);
+        } else {
+          addPolygon(shapes, new float [][] {{start [0], bottom}, {end [0], bottom},
+              {end [0], bottom + endHeight}, {start [0], bottom + startHeight}}, Math.min(start [1], end [1]), null, 0xE4E1DA);
+          shapes.get(shapes.size() - 1).outlined = true;
+        }
+      }
     }
     addFurniture(shapes, side, home.getFurniture());
     if (shapes.isEmpty()) {
       return null;
     }
+    boolean groundOnly = true;
+    for (Shape shape : shapes) {
+      groundOnly &= shape.ground;
+    }
+    if (groundOnly) {
+      return null;
+    }
     float front = Float.MAX_VALUE;
     for (Shape shape : shapes) {
-      front = Math.min(front, shape.depth);
+      if (!shape.ground) {
+        front = Math.min(front, shape.depth);
+      }
     }
     if (section > 0) {
       // Leave out what stands in front of the cut
       for (int i = shapes.size() - 1; i >= 0; i--) {
-        if (shapes.get(i).depth < front + section) {
+        if (shapes.get(i).depth < front + section && !shapes.get(i).ground) {
           shapes.remove(i);
         }
       }
@@ -198,6 +300,9 @@ public final class ElevationDrawing {
     float bottom = 0;
     float top = -Float.MAX_VALUE;
     for (Shape shape : shapes) {
+      if (shape.ground) {
+        continue;
+      }
       left = Math.min(left, shape.left);
       right = Math.max(right, shape.right);
       bottom = Math.min(bottom, shape.bottom);
@@ -219,7 +324,23 @@ public final class ElevationDrawing {
     svg.append(String.format(Locale.US,
         "<g stroke=\"#333333\" stroke-width=\"%.1f\" font-family=\"sans-serif\" font-size=\"%.0f\">\n",
         Math.max(1.5f, width / 1500), fontSize));
+    // The ground is drawn around the home only, above the lines of its sizes
+    svg.append(String.format(Locale.US, "<clipPath id=\"site\"><path d=\"M%1$d,%2$d h%3$.1f v%4$.1f h-%3$.1f z\"/></clipPath>\n",
+        -MARGIN / 2, -MARGIN, width + MARGIN, top + MARGIN + 34));
     for (Shape shape : shapes) {
+      if (shape.polygon != null) {
+        String color = String.format("#%06X", shape.color.intValue() & 0xFFFFFF);
+        svg.append("<polygon points=\"");
+        for (float [] point : shape.polygon) {
+          svg.append(String.format(Locale.US, "%.1f,%.1f ", point [0] - left, top - point [1]));
+        }
+        svg.append("\" fill=\"").append(color).append('"');
+        if (!shape.outlined) {
+          svg.append(" stroke=\"").append(color).append("\" stroke-width=\"0.5\"");
+        }
+        svg.append(" clip-path=\"url(#site)\"/>\n");
+        continue;
+      }
       String fill = shape.kind == 0 ? "#E4E1DA" : shape.kind == 1 ? "#DCEBF5" : "#EAD9BD";
       if (shape.kind == 2 && shape.color != null) {
         fill = String.format("#%06X", shape.color.intValue() & 0xFFFFFF);

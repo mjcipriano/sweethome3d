@@ -55,14 +55,15 @@
     var start = document.getElementById('start');
     start.classList.add('error');
     document.getElementById('startText').textContent = 'Couldn\'t load the game.\n'
-        + 'It needs the three.js library from unpkg.com the first time: '
-        + 'check that this computer is connected to the Internet, then reload the page.';
+        + 'Its scripts didn\'t come: reload the page, and if it was opened from a folder, '
+        + 'check that the folder is complete.';
   }
 </script>
 <script type="importmap">
 { "imports": {
-    "three": "https://unpkg.com/three@0.155.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.155.0/examples/jsm/"
+    "three": "./three.module.min.js",
+    "three/addons/loaders/MTLLoader.js": "./three-MTLLoader.js",
+    "three/addons/loaders/OBJLoader.js": "./three-OBJLoader.js"
 } }
 </script>
 <script type="module" src="webxr-game.js" onerror="gameFailed()"></script>

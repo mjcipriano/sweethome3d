@@ -306,6 +306,10 @@ webxr-plugin: $(INSTALL_JAR)
 	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-game-physics.js \
 	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-notes.js \
 	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/webxr-notes-ui.js \
+	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/three.module.min.js \
+	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/three-MTLLoader.js \
+	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/three-OBJLoader.js \
+	  pluginsrc/com/eteks/sweethome3d/plugin/webxr/three-LICENSE.txt \
 	  .plugin-build/webxr/com/eteks/sweethome3d/plugin/webxr/
 	$(JAR) cf plugins/WebXRPreview.sh3p -C .plugin-build/webxr .
 	rm -rf .plugin-build/webxr

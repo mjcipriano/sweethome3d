@@ -55,6 +55,8 @@ public class AssistantCommandExecutor {
   public static final String STRUCTURE_PROPERTY = "assistantStructure";
   /** Property set to <code>"true"</code> on the pieces put under the floor of their level on purpose. */
   public static final String BELOW_FLOOR_PROPERTY = "assistantBelowFloor";
+  /** Property of a piece put on the terrain: it stands outdoors on purpose. */
+  public static final String OUTDOOR_PROPERTY = "assistantOutdoor";
   /** Maximum number of matches reported for one search_catalog command. */
   private static final int MAX_SEARCH_RESULTS = 8;
 
@@ -196,6 +198,14 @@ public class AssistantCommandExecutor {
 
   AssistantShapeCommands getShapeCommands() {
     return this.shapeCommands;
+  }
+
+  /**
+   * Builds again the grounds made by <code>set_terrain</code> whose rooms changed.
+   * @return the count of grounds built again
+   */
+  public int refreshTerrain() {
+    return this.shapeCommands.refreshTerrain();
   }
 
   AssistantStructureCommands getStructureCommands() {
@@ -503,6 +513,7 @@ public class AssistantCommandExecutor {
         }
         ((HomePieceOfFurniture)item).setElevation((float)elevation);
         ((HomePieceOfFurniture)item).setProperty(BELOW_FLOOR_PROPERTY, elevation < 0 ? "true" : null);
+        ((HomePieceOfFurniture)item).setProperty(OUTDOOR_PROPERTY, null);
         return true;
       } else if (item instanceof HomePieceOfFurniture && command.getBoolean("on_terrain", false)) {
         HomePieceOfFurniture piece = (HomePieceOfFurniture)item;
@@ -512,6 +523,8 @@ public class AssistantCommandExecutor {
           return false;
         }
         piece.setElevation(height - (piece.getLevel() != null ? piece.getLevel().getElevation() : 0));
+        // A tree or a car on the ground isn't furniture out of its room
+        piece.setProperty(OUTDOOR_PROPERTY, "true");
         return true;
       }
     } else if ("set_visible".equals(action)) {
@@ -1303,6 +1316,8 @@ public class AssistantCommandExecutor {
     private com.eteks.sweethome3d.model.Baseboard leftBaseboard, rightBaseboard;
     // Furniture properties the assistant changes
     private String    planVisibility;
+    private String    outdoor;
+    private String    belowFloor;
     // Room
     private float [][] points;
     private boolean    floorVisible, ceilingVisible, areaVisible;
@@ -1339,6 +1354,8 @@ public class AssistantCommandExecutor {
         state.name = piece.getName();
         state.lowPoly = piece.getProperty(ModelLOD.LOW_POLY_PROPERTY);
         state.planVisibility = piece.getProperty(FurniturePlanVisibility.PROPERTY);
+        state.outdoor = piece.getProperty(OUTDOOR_PROPERTY);
+        state.belowFloor = piece.getProperty(BELOW_FLOOR_PROPERTY);
         state.texture1 = piece.getTexture();
         state.level = piece.getLevel();
       } else if (item instanceof Wall) {
@@ -1435,6 +1452,12 @@ public class AssistantCommandExecutor {
         }
         if (!same(piece.getProperty(FurniturePlanVisibility.PROPERTY), this.planVisibility)) {
           piece.setProperty(FurniturePlanVisibility.PROPERTY, this.planVisibility);
+        }
+        if (!same(piece.getProperty(OUTDOOR_PROPERTY), this.outdoor)) {
+          piece.setProperty(OUTDOOR_PROPERTY, this.outdoor);
+        }
+        if (!same(piece.getProperty(BELOW_FLOOR_PROPERTY), this.belowFloor)) {
+          piece.setProperty(BELOW_FLOOR_PROPERTY, this.belowFloor);
         }
         if (piece.isTexturable() && piece.getTexture() != this.texture1) {
           piece.setTexture(this.texture1);

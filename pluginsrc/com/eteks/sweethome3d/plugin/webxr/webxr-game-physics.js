@@ -3,7 +3,7 @@
 // is a set of boxes (walls cut by their doors and windows, door and window
 // panels, furniture), of floors (the rooms of each level) and of stairs.
 // Kept free of three.js, so it can be tested with Node.js.
-import {stairHeightAt} from './webxr-walk.js';
+import {stairHeightAt, terrainHeightAt, rampHeightAt} from './webxr-walk.js';
 
 export const PLAYER_RADIUS = 0.22;
 export const PLAYER_HEIGHT = 1.75;
@@ -92,8 +92,16 @@ function addWallBoxes(world, wall, x1, z1, x2, z2, base, openings) {
  */
 export function createWorld(scene) {
   const levels = scene.levels && scene.levels.length > 0 ? scene.levels : [{elevation: 0, height: 2.5, floor: true}];
+  // Someone walks outdoors at the height of the lowest level that has a floor: a level
+  // without room, as the one of the ground built by set_terrain, isn't a basement
   const world = {scene, levels, solids: [], panels: [], floors: [], stairs: [], broken: new Set(),
-                 base: Math.min(0, ...levels.map(level => level.elevation))};
+                 base: Math.min(0, ...levels.filter(level => level.floor !== false).map(level => level.elevation)),
+                 lowest: Math.min(0, ...levels.map(level => level.elevation))};
+  // Where there is no ground built by set_terrain, the land is flat at this height
+  world.flat = world.base;
+  for (const triangle of scene.terrain || []) {
+    world.base = Math.min(world.base, triangle[2], triangle[5], triangle[8]);
+  }
   const openings = (scene.openings || []).map(opening => ({...opening, panel: null}));
   for (const wall of scene.walls || []) {
     const level = levels[wall.level];
@@ -133,7 +141,8 @@ export function createWorld(scene) {
   }
   for (const piece of scene.furniture || []) {
     const level = levels[piece.level];
-    if (level && !piece.stairs && piece.width > 0 && piece.depth > 0 && piece.height > 0) {
+    // A roof or the ground isn't the box of its size: it is drawn, and stops no one
+    if (level && !piece.stairs && !piece.shell && piece.width > 0 && piece.depth > 0 && piece.height > 0) {
       const solid = box('furniture', piece.key, piece.x, piece.z, piece.width / 2, piece.depth / 2, piece.angle,
           level.elevation + piece.elevation, level.elevation + piece.elevation + piece.height);
       solid.name = piece.name;
@@ -209,8 +218,19 @@ function inStairHole(world, levelIndex, x, z) {
  * top that isn't more than a step above his feet.
  */
 export function groundAt(world, x, z, feet) {
-  let ground = world.base;
   const reach = feet + STEP_HEIGHT;
+  let ground = world.flat <= reach ? world.flat : world.base;
+  const terrain = terrainHeightAt(world.scene, x, z);
+  if (terrain !== null
+      // The ground is open under the rooms it reaches
+      && !world.floors.some(floor => floor.y <= terrain + 0.3 && pointInPolygon(floor.points, x, z))) {
+    ground = terrain <= reach ? terrain : world.base;
+  }
+  // The top of a slab, which may slope
+  const ramp = rampHeightAt(world.scene, x, z, reach);
+  if (ramp !== null && ramp > ground) {
+    ground = ramp;
+  }
   for (const floor of world.floors) {
     if (floor.y > ground && floor.y <= reach && pointInPolygon(floor.points, x, z)
         && !inStairHole(world, floor.level, x, z)) {

@@ -9,6 +9,8 @@ so the zoom is fast from far away and still precise close to the home. In the
 virtual visit a notch walks 25 cm (2.5 cm before). Shift makes it three times
 faster, and touchpads scroll smoothly (`getPreciseWheelRotation`).
 
+![The tool bar with the 3D zoom buttons](images/toolbar.png)
+
 Other ways to zoom:
 
 | Control | Action |
@@ -36,6 +38,11 @@ the side of the home the camera is on, and that face it - with their doors
 and windows, and brings them back as the camera turns. Seen from the top, and
 in the virtual visit, every wall is shown. Nothing changes in the home: it is
 a setting of the 3D view, off again at the next start.
+
+![The ground floor without and with the doll house display](images/dollhouse.jpg)
+
+In this picture **3D view > Display selected level** also leaves out the first
+floor and the roof.
 
 ## 360 degree panorama
 
