@@ -62,7 +62,9 @@ The ground floor of the demo house in the Scandinavian style:
 
 **Plan > Home report and budget...** shows the floor areas and
 perimeters by room and level, the wall lengths and surfaces, the furniture
-counts and prices, with **Copy** and **Save as text file...**.
+counts and prices, with **Copy** and **Save as text file...**. Roofs, slabs,
+the ground and the other parts built for the house are listed apart from the
+furniture, under *Building and site*.
 
 ### Budget
 
@@ -95,9 +97,11 @@ the home seen from its front, back, right or left side, with its overall width
 and height and the floors. A **section** distance cuts the home that far
 behind its front and leaves out what stands before the cut, which shows the
 inside. It is a schematic drawing: each wall, door, window and piece of
-furniture is the rectangle it fills seen from that side, not the projection
-of its 3D model - a home made of large imported models comes out as boxes.
-Roofs, trees and other generated pieces are boxes too.
+catalog furniture is the rectangle it fills seen from that side, not the
+projection of its 3D model - a home made of large imported models comes out
+as boxes. What the house modeling commands build is drawn with its real
+shape: roofs and their dormers, slabs, pieces made of parts, walls cut to the
+slope of a roof, and the ground around the home.
 
 ![The dialog of elevation drawings](images/elevation-dialog.png)
 

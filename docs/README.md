@@ -33,7 +33,8 @@ the house modeling tutorial and a script that replays them.
 
 ## Screenshots
 
-The pictures of these guides are in [`images`](images). They show the demo
+The pictures of these guides are in [`images`](images);
+[`tools/screenshots`](tools/screenshots) regenerates them. They show the demo
 house of the tutorial in the development build under Linux; the application
 looks the same under Windows and macOS apart from the window frame and fonts.
 The 3D and plan pictures of the MCP pages are the actual output of

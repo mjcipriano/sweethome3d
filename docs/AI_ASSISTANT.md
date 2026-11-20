@@ -250,7 +250,8 @@ extending the executor:
 - **Ids survive edits made during a request.** `AssistantCommandExecutor.
   snapshotDescribedItems()` records the items the ids designate when the home
   is described (`AssistantPanel.buildSystemPrompt`, MCP `get_home`); `execute`
-  resolves `F#`/`W#`/`R#` against that snapshot.
+  resolves `F#`/`W#`/`R#` against that snapshot. *Replaced on 2026-11-19 by
+  ids stored in the items (`HomeItemIds`), see below.*
 - **API key.** The settings dialog clears the key as soon as the provider or
   the API URL changes, so a key is never sent to another service by accident.
   `AssistantClient` refuses to send a key over plain `http://` except to this
@@ -434,6 +435,15 @@ Follow-up found while writing the tutorial (2026-11-20):
   `"shell":true` and stop no one; a level without room isn't the height
   someone walks at outdoors; a note on a floor isn't given to the roof whose
   box holds the home.
+- The scene description gives the triangles of the ground (`terrain`,
+  `HomeTerrain.getTriangles`): the game mode (`groundAt`) and the walk-through
+  (`groundHeightAt`, `standAt`) walk on its slopes.
+- `HomeReport` lists roofs, slabs and the ground under "Building and site".
+- `ElevationDrawing` draws the faces of the models built by these commands,
+  sloped walls and the ground, instead of boxes.
+- Undo restores the properties `assistantOutdoor` and `assistantBelowFloor`.
+- `CommandReferenceDocTest` fails when a command of the reference is missing
+  in `docs/MCP_COMMANDS.md`; `docs/tools/screenshots` regenerates the pictures.
 
 ### Backlog / later
 

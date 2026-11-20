@@ -121,7 +121,7 @@ the first floor in a coastal one, and paint the outside walls cream."*
 ```json
 {"action":"select_level","name":"Ground floor"}
 {"action":"add_furniture","name":"Corner sofa","x":130,"y":95,"angle":0}
-{"action":"add_furniture","name":"TV unit","x":190,"y":390,"angle":180}
+{"action":"add_furniture","name":"TV unit","x":262,"y":390,"angle":180}
 {"action":"apply_style","style":"Scandinavian","where":{"level":"Ground floor","type":"rooms","bbox":[-20,-20,1010,740]}}
 {"action":"apply_style","style":"Coastal","where":{"level":"First floor","type":"rooms"}}
 {"action":"set_color","ids":["W1","W5","W6","W4","W9","W10","W12","W14","W15","W16","W17"],"part":"left","color":"#E9DFC8"}
@@ -336,6 +336,6 @@ Save the home with **File > Save**: the tools can't.
   view where no terrain replaces it.
 - **Roofs in the plan** can't be clicked: select them in the furniture list.
 - **Dormer windows** get new ids each time a dormer is added to their roof.
-- **In the game mode and the walk-through**, the ground built by
-  `set_terrain` is drawn but not walked on: the visitor stays at the height 0
-  outdoors.
+- **In the game mode and the walk-through**, the visitor walks on the slopes
+  of the ground, but roofs stop no one, and a slab is the box of its size: a
+  sloped driveway is walked on at the height of its highest point.

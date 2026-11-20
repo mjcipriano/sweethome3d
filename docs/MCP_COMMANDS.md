@@ -354,9 +354,9 @@ game mode start. Camera moves aren't undoable.
 | --- | --- |
 | `check_home` | Reports plan defects with ids: walls that don't meet, duplicates, rooms without door, doors out of walls, furniture under the floor or out of rooms, heavy models |
 | `fix_home` | Repairs the defects marked fixable; `"types":["wall_gap"]` limits it |
-| `home_report` | Floor areas, wall lengths and surfaces, furniture counts and prices |
+| `home_report` | Floor areas, wall lengths and surfaces, furniture counts and prices; roofs, slabs and the ground are listed apart |
 | `set_unit_prices` | `paint`, `flooring`, `ceiling`, `baseboard`, `currency`: the report then ends with a budget |
-| `export_elevation` | Writes a SVG elevation drawing: `side`, `path`, `section` |
+| `export_elevation` | Writes a SVG elevation drawing: `side`, `path`, `section`. Roofs, slabs, pieces made of parts and the ground are drawn with their real shape, catalog furniture as boxes |
 
 `check_home` doesn't report roofs, slabs, the ground, pieces put on the ground
 with `on_terrain`, pieces created with `"structure":true`, or pieces given a

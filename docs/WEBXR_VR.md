@@ -148,6 +148,10 @@ computer (**Tools > Game mode...**, or the *game mode* link of the page): see
 
 ## Notes and limitations
 
+- Outdoors the visitor follows the slopes of the ground built by the
+  `set_terrain` command; a bank steeper than a step (40 cm) stops them like a
+  wall. Roofs built by `add_roof` stop no one.
+
 - **Not yet verified on a physical headset.** The page was exercised in desktop
   Chrome (loading, start position, walking into a wall, turning, changing
   level, climbing stairs) and the walk-through logic has automated tests, but the controller
