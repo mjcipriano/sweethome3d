@@ -1,5 +1,18 @@
 # Changelog
 
+## [7.26.0](https://github.com/mjcipriano/sweethome3d/compare/v7.25.0...v7.26.0) (2026-11-20)
+
+
+### Features
+
+* slabs walked at their slope, ground that follows the rooms, offline 3D pages ([6484bb1](https://github.com/mjcipriano/sweethome3d/commit/6484bb16439e36759c972251ca6a68417096b985))
+* walk on the ground in game mode and VR, real shapes in elevation drawings ([740ec76](https://github.com/mjcipriano/sweethome3d/commit/740ec76096cd95a7cc8ef5106b805ac3e3425563))
+
+
+### Bug Fixes
+
+* ground open under rooms, outdoor pieces in check_home, style floor textures, roofs and ground in game mode ([67eea8c](https://github.com/mjcipriano/sweethome3d/commit/67eea8c048f044fadbcd469f093ad9005ad1a767))
+
 ## [7.25.0](https://github.com/mjcipriano/sweethome3d/compare/v7.24.0...v7.25.0) (2026-11-20)
 
 
