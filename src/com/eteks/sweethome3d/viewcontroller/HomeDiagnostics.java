@@ -342,6 +342,7 @@ public class HomeDiagnostics {
           }
         }
         if (piece.isVisible()
+            && !structure
             && !"true".equals(piece.getProperty(AssistantCommandExecutor.AUTO_ROOF_PROPERTY))) {
           boolean roomAtLevel = false;
           boolean inRoom = false;

@@ -1259,7 +1259,10 @@ public class AssistantCommandExecutor {
       if (summary.length() > 0) {
         summary.append('\n');
       }
-      summary.append(note).append('.');
+      summary.append(note);
+      if (!note.endsWith(".")) {
+        summary.append('.');
+      }
     }
     return summary.length() > 0 ? summary.toString() : null;
   }

@@ -163,7 +163,11 @@ class AssistantShapeCommands {
 
   private void add(HomePieceOfFurniture piece) {
     this.executor.beginTurnUpdate();
+    // Furniture is added to the selected level
     Level selectedLevel = this.home.getSelectedLevel();
+    if (piece.getLevel() != null && piece.getLevel() != selectedLevel) {
+      this.home.setSelectedLevel(piece.getLevel());
+    }
     this.homeController.getFurnitureController().addFurniture(Collections.singletonList(piece));
     if (this.home.getSelectedLevel() != selectedLevel && selectedLevel != null) {
       this.home.setSelectedLevel(selectedLevel);
@@ -289,7 +293,12 @@ class AssistantShapeCommands {
         + format(Math.abs(AssistantRoofGeometry.getSignedArea(AssistantRoofGeometry.toDoubles(
             points.toArray(new float [points.size()][]))) / 10000))
         + " m2, from " + format(slab.getElevation()) + " to " + format(slab.getElevation() + slab.getHeight())
-        + " cm above the floor of its level" + (level != null ? " \"" + level.getName() + "\"" : ""));
+        + " cm above the floor of its level" + (level != null ? " \"" + level.getName() + "\"" : "")
+        + ((level == null || level.getElevation() >= 0)
+              && (level != null ? level.getElevation() : 0) + slab.getElevation() + slab.getHeight() <= 0.5f
+              && getTerrainHeight(slab.getX(), slab.getY()) == null
+            ? ". Its top isn't above the height 0: the flat ground of the 3D view hides it, unless set_terrain replaces the ground there"
+            : ""));
   }
 
   /**
@@ -438,8 +447,51 @@ class AssistantShapeCommands {
     if (triangles.isEmpty()) {
       throw new IOException("the points are aligned: they give no ground");
     }
-    Level level = command.getString("level") != null ? getLevel(command, "set_terrain", notes)
-        : this.home.getLevels().isEmpty() ? null : this.home.getLevels().get(0);
+    float lowest = Float.MAX_VALUE;
+    float highest = -Float.MAX_VALUE;
+    for (float [] point : points) {
+      lowest = Math.min(lowest, point [2]);
+      highest = Math.max(highest, point [2]);
+    }
+    float skirt = Math.max(1, Math.min(2000, AssistantFurnitureBuilder.getNumber(parameters, "thickness", 30)));
+    // The 3D view draws a flat ground at the height 0, except over what stands on a level under it:
+    // the ground goes to such a level, lower than its lowest point
+    Level level = null;
+    boolean levelAdded = false;
+    if (command.getString("level") != null) {
+      level = getLevel(command, "set_terrain", notes);
+    } else {
+      for (Level homeLevel : this.home.getLevels()) {
+        if (homeLevel.getElevation() < 0 && homeLevel.getElevation() <= lowest - skirt
+            && (level == null || homeLevel.getElevation() > level.getElevation())) {
+          level = homeLevel;
+        }
+      }
+      if (level == null) {
+        Level selectedLevel = this.home.getSelectedLevel();
+        float elevation = (float)Math.floor(Math.min(-50, lowest - skirt) / 10) * 10;
+        float nextElevation = 0;
+        for (Level homeLevel : this.home.getLevels()) {
+          nextElevation = Math.min(nextElevation, homeLevel.getElevation());
+        }
+        level = this.executor.getBuildingCommands().createLevel("Terrain", elevation,
+            Math.max(10, nextElevation - elevation - 1), 1);
+        levelAdded = true;
+        if (selectedLevel == null) {
+          // A home without level got two of them: the one of its items is the one to work at
+          for (Level homeLevel : this.home.getLevels()) {
+            if (homeLevel != level) {
+              selectedLevel = homeLevel;
+              break;
+            }
+          }
+        }
+        if (selectedLevel != null) {
+          this.home.setSelectedLevel(selectedLevel);
+        }
+      }
+    }
+    float levelElevation = level != null ? level.getElevation() : 0;
 
     AssistantMeshBuilder mesh = new AssistantMeshBuilder();
     AssistantMeshBuilder.Material material = getMaterial(mesh, parameters, 0x6E9A4C, notes);
@@ -459,13 +511,6 @@ class AssistantShapeCommands {
         }
       }
     }
-    float lowest = Float.MAX_VALUE;
-    float highest = -Float.MAX_VALUE;
-    for (float [] point : points) {
-      lowest = Math.min(lowest, point [2]);
-      highest = Math.max(highest, point [2]);
-    }
-    float skirt = Math.max(1, Math.min(2000, AssistantFurnitureBuilder.getNumber(parameters, "thickness", 30)));
     Map<String, int []> sides = new HashMap<String, int []>();
     List<float [][]> sidePoints = new ArrayList<float [][]>();
     for (float [][] triangle : triangles) {
@@ -473,6 +518,8 @@ class AssistantShapeCommands {
       if (plane == null) {
         continue;
       }
+      // Heights are measured from the floor of the level of the ground
+      plane [0] -= levelElevation;
       float [][] corners = {{triangle [0][0], triangle [0][1]}, {triangle [1][0], triangle [1][1]},
                             {triangle [2][0], triangle [2][1]}};
       Area remaining = null;
@@ -522,8 +569,9 @@ class AssistantShapeCommands {
           ny = -ny;
         }
         mesh.addPolygon(new float [][] {
-            {point [0], lowest - skirt, point [1]}, {next [0], lowest - skirt, next [1]},
-            {next [0], next [2], next [1]}, {point [0], point [2], point [1]}}, sideMaterial, nx, 0, ny);
+            {point [0], lowest - skirt - levelElevation, point [1]}, {next [0], lowest - skirt - levelElevation, next [1]},
+            {next [0], next [2] - levelElevation, next [1]}, {point [0], point [2] - levelElevation, point [1]}},
+            sideMaterial, nx, 0, ny);
       }
     }
     String name = command.getString("name") != null && command.getString("name").trim().length() > 0
@@ -555,12 +603,13 @@ class AssistantShapeCommands {
     tally [0]++;
     notes.add((replaced > 0 ? "Replaced the ground by " : "Added the ground ") + this.executor.getId(terrain) + " \"" + name
         + "\": " + points.size() + " points, " + triangles.size() + " triangles, heights from " + format(lowest) + " to "
-        + format(highest) + " cm above the floor of " + (level != null ? "the level \"" + level.getName() + "\"" : "the home")
+        + format(highest) + " cm (0 = the floor of the level at the elevation 0)"
         + (areas.isEmpty() ? "" : ", " + areas.size() + (areas.size() == 1 ? " area" : " areas") + " with a finish of their own")
-        + (lowest < 0 && (level == null || level.getElevation() <= 0)
-            ? ". The flat ground Sweet Home 3D draws at the height 0 hides what is under it: give heights of 0 at least "
-              + "(make the lowest point of the site the height 0 and raise the levels of the house) to see every slope"
-            : "")
+        + (level != null ? ", on the level " + this.executor.getId(level) + " \"" + level.getName() + "\" at "
+            + format(level.getElevation()) + " cm" + (levelAdded ? ", added for it under the others: the 3D view draws no flat "
+              + "ground over what stands on a level under the height 0, so the slopes show; this level is the place of the ground only" : "") : "")
+        + (level != null && (level.getElevation() >= 0 || level.getElevation() > lowest - skirt)
+            ? ". This level isn't under the lowest point of the ground: the flat ground of the 3D view may hide a part of it" : "")
         + ". {\"action\":\"set_elevation\",\"id\":\"F#\",\"on_terrain\":true} puts a piece on it");
   }
 
@@ -677,7 +726,7 @@ class AssistantShapeCommands {
   }
 
   /**
-   * Returns the height above the ground level 0 of the terrain at a point of
+   * Returns the height above the elevation 0 of the terrain at a point of
    * the plan, or <code>null</code> if no terrain covers it.
    */
   Float getTerrainHeight(float x, float y) {
@@ -708,8 +757,7 @@ class AssistantShapeCommands {
             + (triangle [0][0] - triangle [2][0]) * (y - triangle [2][1])) / determinant;
         double w3 = 1 - w1 - w2;
         if (w1 >= -1E-4 && w2 >= -1E-4 && w3 >= -1E-4) {
-          return (float)(w1 * triangle [0][2] + w2 * triangle [1][2] + w3 * triangle [2][2])
-              + (piece.getLevel() != null ? piece.getLevel().getElevation() : 0);
+          return (float)(w1 * triangle [0][2] + w2 * triangle [1][2] + w3 * triangle [2][2]);
         }
       }
     }
@@ -873,6 +921,9 @@ class AssistantShapeCommands {
     }
     if (!windows.isEmpty()) {
       Level selectedLevel = this.home.getSelectedLevel();
+      if (level != null && level != selectedLevel) {
+        this.home.setSelectedLevel(level);
+      }
       this.homeController.getFurnitureController().addFurniture(windows);
       if (this.home.getSelectedLevel() != selectedLevel && selectedLevel != null) {
         this.home.setSelectedLevel(selectedLevel);

@@ -2045,8 +2045,10 @@ public class FurnitureController implements Controller {
         && (piece.getLevel() == null
             || piece.getLevel().isViewable())
         && (piece.getLevel() == selectedLevel
-            || piece.isAtLevel(selectedLevel)
-               && FurniturePlanVisibility.getAtLevel(piece, selectedLevel) != FurniturePlanVisibility.HIDE);
+            || piece.isAtLevel(selectedLevel))
+        // A roof or a piece of a level below that the plan outlines or doesn't show isn't picked in it,
+        // and furniture moved under it isn't put on top of it
+        && FurniturePlanVisibility.getAtLevel(piece, selectedLevel) == FurniturePlanVisibility.DRAW;
   }
 
   /**

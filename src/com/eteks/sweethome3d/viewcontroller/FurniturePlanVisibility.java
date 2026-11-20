@@ -28,8 +28,9 @@ import com.eteks.sweethome3d.model.Level;
  * How a piece of furniture is drawn in the plan of the levels above its own
  * one, which it reaches when it's higher than its level: a roof placed on the
  * level of the walls it covers rises through the floor above, where the plan
- * would draw it as a solid shape over the rooms. The choice is stored in a
- * property of the piece, saved with the home.
+ * would draw it as a solid shape over the rooms. A roof is shown the same way
+ * in the plan of its own level, where it's above the rooms too. The choice is
+ * stored in a property of the piece, saved with the home.
  * @author Sweet Home 3D
  */
 public final class FurniturePlanVisibility {
@@ -66,15 +67,16 @@ public final class FurniturePlanVisibility {
 
   /**
    * Returns how <code>piece</code> is drawn in the plan of the levels above
-   * its own one. Without choice, roofs are outlined and other pieces drawn.
+   * its own one. Without choice, roofs are outlined, the ground is hidden and other pieces are drawn.
    */
   public static String get(HomePieceOfFurniture piece) {
     String value = parse(piece.getProperty(PROPERTY));
     if (value != null) {
       return value;
-    } else if ("true".equals(piece.getProperty(AssistantCommandExecutor.AUTO_ROOF_PROPERTY))
-               || "roof".equals(piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY))
-               || HomeItemTags.hasTag(piece, "roof")) {
+    } else if ("terrain".equals(piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY))) {
+      // The ground under a house would cover the plan of each of its levels
+      return HIDE;
+    } else if (isRoof(piece)) {
       return OUTLINE;
     } else {
       return DRAW;
@@ -82,17 +84,33 @@ public final class FurniturePlanVisibility {
   }
 
   /**
+   * Returns <code>true</code> if <code>piece</code> is a roof, which is above
+   * the rooms even in the plan of its own level.
+   */
+  public static boolean isRoof(HomePieceOfFurniture piece) {
+    return "true".equals(piece.getProperty(AssistantCommandExecutor.AUTO_ROOF_PROPERTY))
+        || "roof".equals(piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY))
+        || HomeItemTags.hasTag(piece, "roof");
+  }
+
+  /**
    * Returns how <code>piece</code> is drawn in the plan of <code>level</code>:
-   * {@link #DRAW} at its own level and at the levels of the same elevation,
-   * the value of {@link #get(HomePieceOfFurniture) get} at the levels above.
+   * the value of {@link #get(HomePieceOfFurniture) get} at the levels above
+   * its own one, and at its own level too if it's a roof or if it stands above
+   * the height of the walls, {@link #DRAW} otherwise.
    */
   public static String getAtLevel(HomePieceOfFurniture piece, Level level) {
     Level pieceLevel = piece.getLevel();
-    if (pieceLevel == null || level == null || pieceLevel == level
-        || pieceLevel.getElevation() >= level.getElevation()) {
-      return DRAW;
-    } else {
+    if (pieceLevel != null && level != null && pieceLevel != level
+        && pieceLevel.getElevation() < level.getElevation()) {
       return get(piece);
+    } else if (isRoof(piece)
+               || pieceLevel != null && pieceLevel.getHeight() > 0 && piece.getElevation() >= pieceLevel.getHeight() - 1) {
+      // Above what the plan of the level shows
+      String value = get(piece);
+      return value == HIDE && !isRoof(piece) ? DRAW : value;
+    } else {
+      return DRAW;
     }
   }
 }

@@ -144,6 +144,8 @@ public final class HomeItemIds {
     }
     token = token.trim();
     if (isId(token)) {
+      // The items added since the last call get their id now
+      ensureIds(home);
       char type = Character.toUpperCase(token.charAt(0));
       int number = parseNumber(token.substring(1));
       List<? extends HomeObject> items = type == 'F' ? home.getFurniture()

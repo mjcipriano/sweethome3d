@@ -468,7 +468,7 @@ class AssistantBuildingCommands {
    * Adds a level above the others with the undoable edit of the plan
    * controller, then gives it the given characteristics (NaN keeps a default).
    */
-  private Level createLevel(String name, double elevation, double height, double floorThickness) {
+  Level createLevel(String name, double elevation, double height, double floorThickness) {
     this.executor.beginTurnUpdate();
     this.homeController.getPlanController().addLevel();
     Level level = this.home.getSelectedLevel();

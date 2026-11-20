@@ -283,8 +283,17 @@ final class AssistantRoofModel {
       java.util.Arrays.fill(types, AssistantRoofGeometry.GABLE);
       types [low] = AssistantRoofGeometry.HIP;
     } else if (type.equals("gable") || type.equals("pitched") || type.equals("saddle")) {
-      // Gables at the ends of the wings: the edges between two convex corners shorter than their neighbors
-      int gables = 0;
+      // Gables at the ends of the wings: the edges that are a short side of one of the rectangles the roof
+      // is made of, its ridge running along the long sides
+      List<double [][]> parts = AssistantRoofGeometry.getConvexParts(this.points);
+      boolean rectangles = true;
+      for (double [][] part : parts) {
+        rectangles &= part.length == 4
+            && Math.abs((part [1][0] - part [0][0]) * (part [2][0] - part [1][0])
+                + (part [1][1] - part [0][1]) * (part [2][1] - part [1][1])) < 1
+            && Math.abs((part [3][0] - part [2][0]) * (part [0][0] - part [3][0])
+                + (part [3][1] - part [2][1]) * (part [0][1] - part [3][1])) < 1;
+      }
       for (int i = 0; i < count; i++) {
         double [] point = this.points [i];
         double [] next = this.points [(i + 1) % count];
@@ -292,16 +301,34 @@ final class AssistantRoofModel {
         if (ridge != null) {
           boolean alongX = Math.abs(next [0] - point [0]) >= Math.abs(next [1] - point [1]);
           end &= ridge.equals("x") ? !alongX : ridge.equals("y") ? alongX : false;
+        } else if (rectangles) {
+          boolean shortSide = false;
+          for (double [][] part : parts) {
+            for (int side = 0; side < 4; side++) {
+              double [] start = part [side];
+              double [] stop = part [(side + 1) % 4];
+              double [] after = part [(side + 2) % 4];
+              boolean same = Math.hypot(start [0] - point [0], start [1] - point [1]) < 0.6
+                      && Math.hypot(stop [0] - next [0], stop [1] - next [1]) < 0.6
+                  || Math.hypot(start [0] - next [0], start [1] - next [1]) < 0.6
+                      && Math.hypot(stop [0] - point [0], stop [1] - point [1]) < 0.6;
+              shortSide |= same && Math.hypot(after [0] - stop [0], after [1] - stop [1]) >= lengths [i] - 0.5;
+            }
+          }
+          end &= shortSide;
         } else {
           end &= lengths [i] < lengths [(i + count - 1) % count] - 0.5 && lengths [i] < lengths [(i + 1) % count] - 0.5;
         }
         if (end) {
           types [i] = AssistantRoofGeometry.GABLE;
-          gables++;
         }
       }
-      if (gables == 0 && count == 4) {
-        types [1] = types [3] = AssistantRoofGeometry.GABLE;
+      // Two gables don't meet at a corner: the longest becomes an eave
+      for (int i = 0; i < count; i++) {
+        int next = (i + 1) % count;
+        if (types [i] == AssistantRoofGeometry.GABLE && types [next] == AssistantRoofGeometry.GABLE) {
+          types [lengths [i] > lengths [next] + 0.5 ? i : next] = AssistantRoofGeometry.HIP;
+        }
       }
     } else {
       throw new IOException("the type of a roof is hip, gable, shed or flat");
@@ -404,6 +431,10 @@ final class AssistantRoofModel {
     double position = dormer.get("offset") instanceof Number
         ? number(dormer, "offset", length / 2)
         : Math.max(0, Math.min(1, number(dormer, "position", 0.5))) * length;
+    if (!(dormer.get("edge") instanceof Number) && (Math.abs(ux) >= Math.abs(uy) ? ux < 0 : uy < 0)) {
+      // Along a side given by a cardinal point, places are measured from the west or from the north
+      position = length - position;
+    }
     position = Math.max(width / 2, Math.min(length - width / 2, position));
     String type = text(dormer, "type");
     if (type == null) {

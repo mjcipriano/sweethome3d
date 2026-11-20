@@ -74,14 +74,28 @@ able to modify it. Every `apply_commands` call is one step of **Edit > Undo**.
 | `apply_commands` | Runs a list of edit commands as one undoable change and returns a summary |
 | `undo` / `redo` | Undoes or redoes the last change |
 
-Ids designate the items of the last `get_home` call, even if the home changed
-since, and items added later get an id at the next `get_home`. An id whose
-item was deleted meanwhile, or that the description didn't give, is an error:
-the answer names it (`No item has the id R54...`) and is flagged `isError`,
-while the other commands of the call are still applied. Ids are positions in
-the lists of the home, so each `get_home` numbers the items again: an id kept
-from before a deletion **and** before a later `get_home` designates another
-item, which the server can't detect. Read the ids again after deleting.
+An id (`F12` furniture, `W3` walls, `R5` rooms, `L2` levels) belongs to its
+item for good: it's a number given once and stored in a property of the item
+(`assistantId`), saved with the home. Deleting an item doesn't change the ids
+of the others, and its id isn't given to another item afterwards. Items added
+by a call get their id at the end of it, and the answer of the commands that
+build something names it. An id whose item was deleted is an error: the answer
+names it (`No item has the id R54...`) and is flagged `isError`, while the
+other commands of the call are still applied. The internal id of an object
+(`HomeObject.getId()`, shown by `describe_item`) is accepted too.
+
+Any command that takes ids also takes `"where"`, which designates every item
+matching all the criteria given:
+
+```json
+{"action":"move_to_level","where":{"level":"Roof-gen","type":"furniture"},"level":"L2"}
+{"action":"delete","where":{"tag":"scaffold","bbox":[0,0,500,400]}}
+```
+
+`level` is a name or an id, `tag` a tag of furniture, `name` a part of a name,
+`type` one or several of `furniture`, `doors_and_windows`, `lights`, `stairs`,
+`groups`, `all_furniture`, `walls`, `rooms`, and `bbox` a box `[x1,y1,x2,y2]`
+that contains the item. An empty `where` designates nothing.
 
 `get_home` lists every room and wall but only the first 80 pieces of
 furniture. Its filters return a part of a large home, with the same ids:
@@ -97,7 +111,7 @@ A filtered description lists up to 500 pieces. A room is followed by
 piece by its `pitch` or `roll`.
 
 The commands are the ones of the assistant
-protocol (`HomeAssistantContext.getCommandReference()`), at most 30 per call:
+protocol (`HomeAssistantContext.getCommandReference()`), at most 100 per call:
 
 - build: `add_rectangular_room` (room + walls, optionally `next_to` another
   room), `add_room`, `add_wall`, `add_level`, `select_level`, `auto_roof`,
@@ -120,12 +134,16 @@ protocol (`HomeAssistantContext.getCommandReference()`), at most 30 per call:
 - change: `move`, `rotate` (also `pitch` and `roll`, and both at 0 to set a
   tilted piece upright), `resize`, `set_color`, `set_texture`, `modify_room`,
   `set_elevation`, `set_visible`, `rename`, `duplicate`, `delete`,
-  `reduce_detail`, `restore_detail`, `select`, `move_to_level`;
+  `reduce_detail`, `restore_detail`, `select`, `move_to_level`, `modify_wall`,
+  `set_plan_visibility`, `modify_furniture_parts`;
+- house and site: `add_roof` with `points`, `add_dormer`, `fit_walls_to_roof`,
+  `add_slab`, `set_terrain`, `modify_level`, `delete_level`, `merge_levels`
+  (see "Modeling a whole house" below);
 - look: `set_camera` (a place and a direction, a `view` as in `get_3d_image`,
   or a stored `point_of_view`), `store_point_of_view` (keeps the camera in
   **3D view > Go to point of view**);
 - check: `check_home`, `fix_home`, `home_report`, `search_catalog`,
-  `search_textures`.
+  `search_textures`, `describe_item` (every property of one item).
 
 ### Rooms: ceiling, floor, name and shape
 
@@ -157,6 +175,145 @@ textures are named "Grass": ...`. Add `"category":"<category>"`, or
 `"catalog_id":"<id>"` for the textures of libraries that have one, to choose.
 The answer always names the texture applied and its category.
 
+`set_texture` also takes `"scale"` (2 = twice as large), `"angle"` in degrees
+and `"offset_x"` / `"offset_y"` (fractions of the size of the texture).
+
+## Modeling a whole house
+
+These commands exist so a house and its site need only its real levels: no
+helper level for a garage slab, a lawn or a roof.
+
+### Levels
+
+`get_home` lists each level with its id, elevation, height, floor thickness
+and what it holds, `EMPTY` if nothing, and says when levels share a name:
+
+```
+- L4 "Roof-gen" at 524 cm, height 120, floor thickness 12: EMPTY, name shared with 2 other levels (designate it by its id)
+```
+
+- `delete_level` deletes an empty level. One that isn't empty is refused with
+  the list of what is on it, unless `"move_contents_to":"<level>"` or
+  `"delete_contents":true` is given.
+- `merge_levels` moves everything from a level into another one and deletes
+  it. Furniture keeps its height above the ground (its elevation changes by
+  the difference between the levels); walls and rooms stand on the floor of
+  the new level, which the answer says.
+- `modify_level` changes `new_name`, `elevation`, `height`,
+  `floor_thickness`, `viewable` and `elevation_index`.
+- A level is designated by its id, or by its name when only one level has
+  it: a name several levels share is refused with their ids. The `level`
+  filter of `get_home` takes an id for one level, or a name for all the
+  levels with it.
+
+### Roofs
+
+`add_roof` with `points` builds **one roof over any polygon**, as one piece
+of furniture on the level given (the selected one by default):
+
+```json
+{"action":"add_roof","level":"Level 1","points":[[-10,-10],[1010,-10],[1010,610],[-10,610]],
+ "eave_height":250,"overhang":40,"pitch":35,
+ "edges":[{"type":"hip"},{"type":"gable"},{"type":"hip"},{"type":"gable"}],
+ "gutters":true,"texture":"Red tiles"}
+```
+
+`points` are the outside corners of the walls, `eave_height` the top of
+these walls above the floor of the level. `edges` has one item per edge (the
+first one from point 1 to point 2): `hip` is an eave with a slope rising from
+it, `gable` (or `shed`, `flat`) a vertical end. Each edge may have its own
+`pitch` and `overhang`. Without `edges`, `"type"` chooses them: `hip`,
+`gable` (gables at the short ends of each wing), `shed` (one slope from
+`low_side`) or `flat`.
+
+How the shape is computed: the polygon is covered by convex parts whose sides
+lie along its edges - the polygon itself if it's convex, the largest
+rectangles in it if its corners are square. Over each part a plane rises from
+each eave and the roof is the lowest of them, which is the roof a straight
+skeleton gives for a convex polygon. Where parts overlap the highest shows, so
+the wings of an L, T or U shaped house meet in valleys and the ridge of a
+narrow wing ends in the slope of a wider one, as such roofs are framed. This
+is **not** a straight skeleton of the whole polygon when it isn't convex: a
+straight skeleton gives slanted ridges between wings of different widths. A
+polygon that is neither convex nor made of square corners is cut in convex
+parts that may meet with a step; the answer says so, and one `add_roof` per
+wing gives a better result.
+
+Options: `texture` (with `texture_scale`, `texture_angle`) or `color`,
+`gable_color`, `fascia` and `fascia_color`, `underside_color`, `soffit`,
+`ridge_cap`, `gutters` with `downspouts`, `gable_walls` (the walls the roof
+draws under its gables, on by default), `thickness`.
+
+- `add_dormer` adds a dormer on a slope: `roof`, `side` (the eave it looks
+  over: north, south, east, west, or `edge` with a number), `position` from 0
+  (west or north end of that side) to 1, `width`, `height` of its front wall,
+  `type` (gable, shed, hip, flat), `window` (a catalog window, placed in its
+  front wall, which is cut around it). The roof is rebuilt with the dormer
+  and is open under it.
+- `fit_walls_to_roof` gives the outside walls under a roof the height of its
+  underside. A wall under a peak is cut in two walls that slope up to it,
+  since the top of a wall is one straight line. Use `"gable_walls":false` on
+  the roof to see these walls rather than the ones of the roof.
+
+In the plan, a roof is drawn as a thin dashed outline at its own level and at
+the levels above, and isn't picked by a click there (select it in the
+furniture list). `set_plan_visibility` changes this for any piece that rises
+through the levels above its own: `draw`, `outline` or `hide`, stored in the
+property `planOnUpperLevels` of the piece. What is tagged `roof` is outlined
+by default.
+
+### Slabs and floor heights
+
+`add_slab` builds a slab of any shape as a piece of furniture: `points`,
+`top` (height of its top above the floor of the level, negative under it),
+`thickness`, `color` or `texture`, `name`. `"top_at":[[x,y,z],[x,y,z],[x,y,z]]`
+tilts its top through three points, for a ramp or a sloped driveway.
+`add_room` and `modify_room` take `"floor_offset"` and `"slab_thickness"`: a
+slab with the finish of the floor replaces the floor of the room, which is
+hidden. Furniture dragged over a slab in the plan is put on it.
+
+`set_elevation` takes a negative elevation, and `check_home` doesn't report
+slabs, the ground, roofs or pieces put under the floor on purpose.
+
+### Ground
+
+`set_terrain` builds the ground through points of known height:
+
+```json
+{"action":"set_terrain","points":[[-1500,-1500,220],[2500,-1500,220],[-1500,-300,0],[2500,-300,0],
+ [-1500,2500,-90],[2500,2500,-90]],"areas":[{"points":[[0,1030],[400,1030],[400,2500],[0,2500]],"color":"#77777A"}]}
+```
+
+Heights are in centimeters, 0 being the floor of the level at the elevation
+0; a `grid` of heights is accepted too. The points are joined by triangles
+(Delaunay). `areas` give a color or a texture to parts of it. The 3D view of
+Sweet Home 3D draws a flat ground at the height 0, except over what stands on
+a level under it: the ground is therefore put on a level under the others
+(`Terrain`, added if needed), where it replaces the flat ground over its
+bounding rectangle. It is hidden in the plans of the other levels.
+`{"action":"set_elevation","id":"F12","on_terrain":true}` puts a piece on the
+ground at its place.
+
+A slab whose top isn't above the height 0 is hidden by the flat ground where
+no terrain replaces it; the answer of `add_slab` says so.
+
+### Parts of custom furniture
+
+`create_furniture` parts have three more shapes: `prism` (a polygon `points`
+pushed up by `height`), `wedge` (`high_side` back, front, left or right, or
+`ridge` x or y for a peak) and `extrude` (a bar along a `path` of points
+x,y,z with a `width` and `height` or a `diameter`). Any part takes a
+`texture` (with `texture_scale`, `texture_angle`) and `yaw`, `pitch`, `roll`.
+The parts are kept with the piece, so `modify_furniture_parts` changes some
+of them (`set` with an `index`, `add`, `remove`) without building it again.
+
+### Walls
+
+`modify_wall` changes `height`, `height_at_end` (a sloped top), `thickness`,
+`arc_extent`, `top_color`, the ends (`x1`...`y2`) and the baseboards. A
+baseboard is how one wall gets two finishes by height: a baseboard 90 cm high
+with a brick texture under a wall side with siding.
+
 ## Pictures
 
 Claude works better when it can look at what it did. `get_3d_image` takes:
@@ -176,6 +333,8 @@ Claude works better when it can look at what it did. `get_3d_image` takes:
 | `timeout` | Ray tracer: seconds after which it is stopped and an error comes back (default: no limit) |
 | `width`, `height` | 800 x 500 by default, at most 1600 x 1200 |
 | `save_to`, `replace` | Absolute path of a `.png` file written at up to 4096 x 4096 pixels; a copy 1000 pixels wide comes back. Needs **Allow changes to this home** |
+| `store_as` | Name under which the view of the picture is kept in the points of view of the home; `"point_of_view":"<name>"` draws the same view again after changes, for before / after pictures. Needs **Allow changes to this home** |
+| `compare_with`, `compare_mode`, `compare_opacity` | Absolute path of a photo (PNG or JPEG): the picture returned shows the home at the left and the photo at the right, or with `"compare_mode":"overlay"` the photo drawn over the picture at the given opacity (0.5 by default), stretched to its size |
 
 A view, a point of view or a camera given to `get_3d_image` is used for that
 picture only: the camera of the user doesn't move. The `set_camera` command

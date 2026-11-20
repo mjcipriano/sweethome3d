@@ -1905,6 +1905,12 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
   private Rectangle2D getItemsBounds(Graphics g, Collection<? extends Selectable> items) {
     Rectangle2D itemsBounds = null;
     for (Selectable item : items) {
+      if (item instanceof HomePieceOfFurniture
+          && FurniturePlanVisibility.getAtLevel((HomePieceOfFurniture)item, this.home.getSelectedLevel())
+              == FurniturePlanVisibility.HIDE) {
+        // Not shown in the plan of this level
+        continue;
+      }
       if (itemsBounds == null) {
         itemsBounds = getItemBounds(g, item);
       } else {
