@@ -1,0 +1,6 @@
+[{"action": "add_rectangular_room", "name": "Living room", "x": 0, "y": 0, "width": 600, "depth": 420, "thickness": 20, "height": 260},
+ {"action": "add_rectangular_room", "name": "Kitchen", "next_to": "Living room", "side": "east", "width": 380, "depth": 420, "thickness": 20, "height": 260},
+ {"action": "add_rectangular_room", "name": "Hall", "next_to": "Living room", "side": "south", "width": 300, "depth": 280, "thickness": 20, "height": 260},
+ {"action": "add_rectangular_room", "name": "Study", "next_to": "Hall", "side": "east", "width": 280, "depth": 280, "thickness": 20, "height": 260},
+ {"action": "add_rectangular_room", "name": "Dining room", "next_to": "Study", "side": "east", "width": 380, "depth": 280, "thickness": 20, "height": 260},
+ {"action": "add_rectangular_room", "name": "Garage", "next_to": "Kitchen", "side": "east", "offset": 140, "width": 560, "depth": 580, "thickness": 20, "height": 260, "floor_color": "#9A9A9A"}]

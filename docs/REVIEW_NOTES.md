@@ -7,6 +7,8 @@ home, and Claude (through the MCP server) or the design assistant reads them
 with the item and the point each one is about, does what they ask, and marks
 them as done.
 
+![Three notes pinned in the game mode, and their list](images/game-notes.jpg)
+
 ## Writing notes
 
 | Page | How |

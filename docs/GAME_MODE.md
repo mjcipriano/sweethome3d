@@ -5,6 +5,8 @@ you move in it as in a video game: walk, run, jump, climb, fly, in first or
 third person, open the doors, and break things - for the time of the game
 only. Nothing is changed in the home.
 
+![Flying over the house in third person](images/game-flying.jpg)
+
 It uses the same export as the WebXR preview (`docs/WEBXR_VR.md`), with the
 same reduction of heavy homes, and the two pages link to each other. It is
 made for a keyboard and a mouse; in a headset, use the walk-through.
@@ -26,6 +28,22 @@ made for a keyboard and a mouse; in a headset, use the walk-through.
 | V | First / third person view |
 | R | Back to the start (where the virtual visitor stands in the home) |
 | H | Hide / show the help |
+
+| The page when it opens | A closed door |
+| --- | --- |
+| ![The game page with its help](images/game-start.jpg) | ![In front of a closed door](images/game-door-closed.jpg) |
+
+| The door opened with E | First person view |
+| --- | --- |
+| ![The door open](images/game-door-open.jpg) | ![The dining room in first person](images/game-first-person.jpg) |
+
+| Third person view (V) | A table broken with a click |
+| --- | --- |
+| ![Outdoors in third person](images/game-third-person.jpg) | ![A broken table](images/game-broken.jpg) |
+
+The game starts where the virtual visitor stands in the home: place him in
+the plan first (**3D view > Virtual visit**, then drag him), or ask Claude to
+"put the visitor in the hall".
 
 ## What the world is made of
 
@@ -63,6 +81,9 @@ made for a keyboard and a mouse; in a headset, use the walk-through.
   fills its whole rectangle, and round walls are a few straight ones without
   their doors.
 - Sloping ceilings, roofs and the underside of stairs don't stop anyone.
+- The ground built by `set_terrain` is drawn but not walked on: outdoors the
+  player stays at the height of the lowest floor, above or under its slopes.
+  Roofs built by `add_roof` and that ground stop no one.
 - A wall breaks as a whole, from end to end.
 - The three.js library is loaded from unpkg.com, as for the walk-through.
 

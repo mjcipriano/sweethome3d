@@ -1,0 +1,4 @@
+[{"action": "fit_walls_to_roof", "roof": "F51", "all": true},
+ {"action": "add_dormer", "roof": "F51", "side": "south", "position": 0.22, "width": 180, "height": 150, "type": "gable", "window": "Small window"},
+ {"action": "add_dormer", "roof": "F51", "side": "south", "position": 0.78, "width": 180, "height": 150, "type": "gable", "window": "Small window"},
+ {"action": "add_dormer", "roof": "F51", "side": "north", "position": 0.5, "width": 260, "height": 150, "type": "shed", "window": "Double small window"}]

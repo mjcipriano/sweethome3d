@@ -1,0 +1,12 @@
+[{"action": "set_terrain", "texture": "Grass", "points": [[-1400, -1200, 60], [300, -1200, 70], [2800, -1200, 60], [-400, -300, 0], [1900, -300, 0], [-400, 760, 0], [1900, 760, 0], [-1400, 300, 10], [2800, 300, 10], [-1400, 2400, -140], [700, 2400, -140], [2800, 2400, -140]]},
+ {"action": "select_level", "name": "Ground floor"},
+ {"action": "add_slab", "name": "Driveway", "points": [[1040, 740], [1580, 740], [1580, 1700], [1040, 1700]], "top_at": [[1040, 760, 4], [1580, 760, 4], [1310, 1700, -76]], "thickness": 14, "color": "#8C8C8C"},
+ {"action": "add_slab", "name": "Path", "points": [[95, 740], [205, 740], [205, 1700], [95, 1700]], "top_at": [[95, 760, 4], [205, 760, 4], [150, 1700, -76]], "thickness": 14, "texture": "Pebbles"},
+ {"action": "add_slab", "name": "Terrace", "points": [[-440, -20], [-20, -20], [-20, 440], [-440, 440]], "top": 4, "thickness": 14, "texture": "Paving stone"},
+ {"action": "create_furniture", "name": "Tree", "x": -700, "y": 900, "tags": ["garden"], "parts": [{"shape": "cylinder", "z": 0, "diameter": 34, "height": 230, "top_scale": 0.6, "color": "#6B4A2B"}, {"shape": "sphere", "z": 170, "diameter": 300, "color": "#3F7A35"}, {"shape": "sphere", "x": 70, "y": 40, "z": 270, "diameter": 200, "color": "#4C8B3F"}, {"shape": "sphere", "x": -60, "y": -30, "z": 290, "diameter": 180, "color": "#356B2E"}]},
+ {"action": "duplicate", "where": {"name": "Tree"}, "dx": 1250, "dy": 520, "count": 1},
+ {"action": "duplicate", "where": {"name": "Tree", "bbox": [-900, 700, -500, 1100]}, "dx": 2700, "dy": -1500, "count": 1},
+ {"action": "set_elevation", "where": {"tag": "garden"}, "on_terrain": true},
+ {"action": "select_level", "name": "First floor"},
+ {"action": "create_furniture", "name": "Chimney", "x": 760, "y": 250, "elevation": 300, "structure": true, "parts": [{"shape": "box", "z": 0, "width": 70, "depth": 70, "height": 220, "texture": "Small red bricks"}, {"shape": "box", "z": 220, "width": 86, "depth": 86, "height": 8, "color": "#B8B4AC"}, {"shape": "cylinder", "z": 228, "diameter": 30, "height": 35, "color": "#A0522D"}]},
+ {"action": "select_level", "name": "Ground floor"}]

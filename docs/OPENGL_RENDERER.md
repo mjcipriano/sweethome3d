@@ -19,6 +19,10 @@ Java 3D stays the default; the renderer is an option.
 - **Help > 3D rendering information** names the graphics card followed by
   `(OpenGL renderer)` when this renderer is the one in use.
 
+| Antialiasing only | With shadows and ambient occlusion |
+| --- | --- |
+| ![Without shadow](images/render-plain.jpg) | ![With shadows and ambient occlusion](images/render-shadows.jpg) |
+
 If the JOGL classes can't be loaded or the OpenGL canvas can't be created, Java 3D is used and
 a message is printed on the error output.
 

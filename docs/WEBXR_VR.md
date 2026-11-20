@@ -4,6 +4,8 @@ The **WebXR Preview** plugin exports the current home and serves a WebXR page
 so you can look around the house in a VR headset - no app install on the
 headset, it uses the headset's browser.
 
+![The walk-through page on the computer](images/walkthrough.jpg)
+
 ## Nothing to install
 
 The preview is part of the application: **Tools > WebXR Preview...** is there

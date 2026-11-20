@@ -38,6 +38,11 @@ the pieces that have a tag, or that are of a type:
   everything** makes all furniture visible, and the other buttons create,
   fill, rename and delete tags.
 
+![The window of layers and tags](images/layers-and-tags.png)
+
+Roofs and the ground built by the house modeling commands are tagged `roof`
+and `terrain`: untick these rows to look into the house or to hide the garden.
+
 Every change is one step of **Edit > Undo**. Tags are saved in the home file
 (as the property `tags` of each piece, a text separated by commas), and so is
 whether a piece is hidden.
@@ -69,7 +74,9 @@ buy" or "tag all the lights of the first floor" work.
 Three ways to get a piece that is in no catalog, from the simplest:
 
 1. **From parts** - `create_furniture` builds the model from boxes, cylinders,
-   cones and spheres. No file is needed, so it works from Claude Desktop too:
+   cones, spheres, prisms, wedges and bars along a path
+   ([Command reference](MCP_COMMANDS.md#furniture-made-from-parts)). No file
+   is needed, so it works from Claude Desktop too:
 
    ```json
    {"action":"create_furniture","name":"Oak table","x":200,"y":300,
@@ -86,7 +93,9 @@ Three ways to get a piece that is in no catalog, from the simplest:
    toward its front, `z` up; `x`,`y` are the centre of a part and `z` its
    bottom. Per part: `rotation` (degrees around the vertical), `axis` `x`/`y`
    to lay a cylinder or a cone down, `diameter`, `top_scale` (0 to 1) to taper
-   it, `color`. At most 150 parts. The piece gets an icon drawn from its parts.
+   it, `color` or `texture`. At most 150 parts. The piece gets an icon drawn
+   from its parts, and keeps its parts: `modify_furniture_parts` changes some
+   of them later.
 2. **From a model file** - `import_furniture` reads an OBJ, DAE, 3DS, KMZ or ZIP
    file. Claude Code can write an OBJ file itself (or run a script that
    generates one) and import it, which allows any shape.
@@ -120,9 +129,8 @@ commands tagged `garden`, a look at each, then one
 `export_furniture_library` with `"tag":"garden"`.
 
 Limits: doors and windows can't be saved in the catalog or in a library this
-way yet (they would lose what makes them cut walls), groups must be ungrouped
-first, and parts are plain colors - apply a texture to the piece afterwards
-with `set_texture`. These commands read and write only the files whose path
+way yet (they would lose what makes them cut walls), and groups must be
+ungrouped first. These commands read and write only the files whose path
 is given, and need **Allow changes to this home** on the MCP server.
 
 ## Implementation

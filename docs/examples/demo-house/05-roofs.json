@@ -1,0 +1,3 @@
+[{"action": "add_roof", "level": "First floor", "points": [[-20, -20], [1020, -20], [1020, 740], [-20, 740]], "eave_height": 120, "pitch": 40, "overhang": 50, "type": "gable", "texture": "Red tiles", "texture_scale": 2, "fascia_color": "#FFFFFF", "gable_color": "#E9DFC8", "gutters": true, "ridge_cap": true},
+ {"action": "add_roof", "level": "Ground floor", "points": [[1020, 120], [1600, 120], [1600, 740], [1020, 740]], "eave_height": 260, "pitch": 22, "overhang": 40, "edges": [{"type": "hip"}, {"type": "hip"}, {"type": "hip"}, {"type": "gable", "overhang": 0}], "texture": "Red tiles", "texture_scale": 2, "fascia_color": "#FFFFFF", "gutters": true},
+ {"action": "modify_room", "where": {"level": "First floor", "type": "rooms"}, "ceiling_visible": false}]

@@ -1,0 +1,4 @@
+[{"action": "fix_home"},
+ {"action": "check_home"},
+ {"action": "set_camera", "view": "south_east", "ids": ["R1", "R6"]},
+ {"action": "store_point_of_view", "name": "Street side"}]

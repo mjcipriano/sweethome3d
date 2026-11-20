@@ -1,8 +1,18 @@
 # Design Tools: Replace, Room Shapes, Styles, Report, Web Page
 
 Tools added after comparing with similar programs (`docs/GAP_ANALYSIS.md`).
-The first three are also commands of the design assistant and of the MCP
-server, and each is one step of **Edit > Undo**.
+Most are also commands of the design assistant and of the MCP server
+([Command reference](MCP_COMMANDS.md)), and each is one step of **Edit > Undo**.
+
+| Tool | Menu |
+| --- | --- |
+| [Replace furniture in place](#replace-furniture-in-place) | **Furniture > Replace by the piece selected in catalog** |
+| [Room shapes](#room-shapes) | **Plan > Add room from shape...** |
+| [Decoration styles](#decoration-styles) | **Plan > Apply style to rooms...** |
+| [Home report and budget](#home-report) | **Plan > Home report and budget...** |
+| [Versions of a home](#versions-of-a-home) | **File > Versions...** |
+| [Elevation drawings](#elevation-drawings) | **Plan > Export elevation drawing...** |
+| [3D web page to share](#3d-web-page-to-share) | **Tools > Export 3D web page...** |
 
 ## Replace furniture in place
 
@@ -20,6 +30,8 @@ the elevation, the level, the visibility and the tags of the old one.
 its walls from a few sizes, to the right of the plan and selected, ready to
 be dragged in place.
 
+![The dialog of room shapes](images/room-shape-dialog.png)
+
 `{"action":"add_room_shape","shape":"L","name":"Living","x":0,"y":0,"width":600,"depth":500,"cut_width":250,"cut_depth":200}`
 
 `width` and `depth` are the bounding box inside the walls. L cuts the top
@@ -32,16 +44,23 @@ that already stand along a side aren't added twice.
 **Plan > Apply style to rooms...** colors the floor, the ceiling and the wall
 sides facing the selected rooms (or every room of the level): Scandinavian,
 Modern, Industrial, Traditional, Coastal, Mid-century, Minimalist, Dark,
-Earthy, Mediterranean. The floor gets the texture of the catalog that fits
-best when there is one. The other side of a wall shared with a room that
-isn't styled is left alone.
+Earthy, Mediterranean. The floor gets a texture of the catalog when one is of
+the material of the style - a wooden floor for a style with a wood floor -
+and its plain color otherwise. The other side of a wall shared with a room
+that isn't styled is left alone.
+
+![The dialog of styles](images/style-dialog.png)
+
+The ground floor of the demo house in the Scandinavian style:
+
+![A floor decorated with a style, from the top](images/view-top-ground.jpg)
 
 `{"action":"apply_style","style":"Coastal","ids":["R1","R2"]}`
 (`"textures":false` for plain colors; `list_styles` lists them).
 
 ## Home report
 
-**Plan > Home report (areas, quantities, cost)...** shows the floor areas and
+**Plan > Home report and budget...** shows the floor areas and
 perimeters by room and level, the wall lengths and surfaces, the furniture
 counts and prices, with **Copy** and **Save as text file...**.
 
@@ -53,6 +72,8 @@ and a currency, then **Update budget**: the report ends with the cost of each
 and a total that includes the furniture that has a price. The prices are
 saved with the home. Wall surfaces count both sides of every wall and don't
 deduct doors and windows, so the paint line is an upper bound.
+
+![The home report with its budget](images/home-report.png)
 
 `{"action":"set_unit_prices","paint":8,"flooring":35,"baseboard":6,"currency":"EUR"}`
 (a negative value removes a price).
@@ -76,6 +97,13 @@ behind its front and leaves out what stands before the cut, which shows the
 inside. It is a schematic drawing: each wall, door, window and piece of
 furniture is the rectangle it fills seen from that side, not the projection
 of its 3D model - a home made of large imported models comes out as boxes.
+Roofs, trees and other generated pieces are boxes too.
+
+![The dialog of elevation drawings](images/elevation-dialog.png)
+
+The demo house seen from the south:
+
+![An elevation drawing](images/elevation-south.svg)
 
 `{"action":"export_elevation","side":"south","path":"/home/me/front.svg","section":0}`
 
