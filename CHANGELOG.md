@@ -1,5 +1,19 @@
 # Changelog
 
+## [7.25.0](https://github.com/mjcipriano/sweethome3d/compare/v7.24.0...v7.25.0) (2026-11-20)
+
+
+### Features
+
+* model a whole house through the MCP server without helper levels ([950d604](https://github.com/mjcipriano/sweethome3d/commit/950d6045b8de4548208bbbd1bdeb7ee73ce2d45d))
+* model a whole house through the MCP server without helper levels ([ed83fa4](https://github.com/mjcipriano/sweethome3d/commit/ed83fa4480a466c727e52c9e11560eb36c9bd050))
+* persistent ids, level, wall, slab, terrain and roof commands for the MCP server ([6acce68](https://github.com/mjcipriano/sweethome3d/commit/6acce68fd20bd7f5232cae28d6dcfd927a4722d7))
+
+
+### Bug Fixes
+
+* check_home doesn't report the window of a dormer as out of a wall ([7ce5282](https://github.com/mjcipriano/sweethome3d/commit/7ce5282587b4520c52a9ffebf624f34d8d5fc588))
+
 ## [7.24.0](https://github.com/mjcipriano/sweethome3d/compare/v7.23.1...v7.24.0) (2026-11-19)
 
 
