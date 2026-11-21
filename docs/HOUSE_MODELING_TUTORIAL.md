@@ -325,6 +325,12 @@ Save the home with **File > Save**: the tools can't.
 | Add a cross gable | `add_dormer` with `"setback":0` and `"ridge":"match"`, then `fit_walls_to_roof` |
 | Know the headroom under the slopes | `headroom` |
 | Draw the lot, its setbacks and its stakes, from a survey if you have one | `add_property_line`, `add_setback`, `import_parcel` ([Command reference](MCP_COMMANDS.md#site-lot-lines-setbacks-and-georeference)) |
+| Keep a checkpoint, compare with it, come back to it | `save_version`, `compare_versions`, `restore_version` ([MCP server](MCP_SERVER.md#versions-and-saving)) |
+| Fence the lot, plant a hedge, lay a path | `add_fence`, `add_hedge`, `add_path`, `add_planting_bed` ([Command reference](MCP_COMMANDS.md#garden)) |
+| Furnish the rooms as a starting point | `furnish_room` ([Command reference](MCP_COMMANDS.md#furnishing-a-room-by-itself)) |
+| See the sun on a day and at an hour | `set_sun` with `"follow":true` ([Command reference](MCP_COMMANDS.md#lights-sun-doors-and-materials)) |
+| Get an elevation with dimensions, or the home as PDF or OBJ | `get_elevation_image`, `export_home` ([MCP server](MCP_SERVER.md#exports)) |
+| List doors and windows, add outlets, estimate framing | `schedule`, `add_symbols`, `framing_estimate` ([Command reference](MCP_COMMANDS.md#schedules-symbols-and-framing)) |
 | Undo a house built in many calls at once | `begin_group` ... `end_group` ([Command reference](MCP_COMMANDS.md#undo-groups)) |
 | Give a wall a brick base | `modify_wall` with a `baseboard` 90 cm high and a brick texture ([Command reference](MCP_COMMANDS.md#rooms-and-walls)) |
 | Raise or sink the floor of a room | `modify_room` with `floor_offset` |

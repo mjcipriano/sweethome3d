@@ -5,13 +5,13 @@
 | Guide | What it covers |
 | --- | --- |
 | [Getting started](GETTING_STARTED.md) | Install, the window, a first home, where each addition is in the menus |
-| [Connecting Claude (MCP server)](MCP_SERVER.md) | Setup with Claude Desktop and Claude Code, the tools, pictures of the plan and the 3D view, security, troubleshooting |
+| [Connecting Claude (MCP server)](MCP_SERVER.md) | Setup with Claude Desktop and Claude Code, the tools, versions and saving, exports, pictures of the plan and the 3D view, elevations, security, troubleshooting |
 | [Command reference](MCP_COMMANDS.md) | Every edit command of the MCP server and of the design assistant |
 | [House modeling tutorial](HOUSE_MODELING_TUTORIAL.md) | A two-storey house with roofs, dormers, a garage and a sloped garden, step by step |
 | [Design assistant](AI_ASSISTANT.md) | The chat inside the application, with your own AI provider |
-| [Design tools](DESIGN_TOOLS.md) | Replace furniture, room shapes, styles, report and budget, versions, elevation drawings, 3D web page |
+| [Design tools](DESIGN_TOOLS.md) | Replace furniture, room shapes, styles, report and budget, versions, elevation drawings, 3D web page, and the menu items for garden, symbols, schedules, furnishing, doors and the sun |
 | [Tags, layers and furniture made by the AI](LAYERS_AND_FURNITURE_LIBRARIES.md) | Tags and layers of furniture, furniture built from parts, furniture libraries |
-| [3D view navigation](VIEW_3D_NAVIGATION.md) | Zoom, standard views, doll house display, 360 degree panorama, room dimensions |
+| [3D view navigation](VIEW_3D_NAVIGATION.md) | Zoom, standard views, doll house display, the sun at a date and a time, 360 degree panorama, room dimensions |
 | [OpenGL renderer](OPENGL_RENDERER.md) | The optional renderer of the 3D view: quality options, measurements, limits |
 | [Walking through a home in VR](WEBXR_VR.md) | Meta Quest and SteamVR headsets, through the browser |
 | [Game mode](GAME_MODE.md) | The home played as a video game in the browser |
