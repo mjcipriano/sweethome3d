@@ -201,7 +201,7 @@ public class HomeMCPBridge {
     String token = HomeMCPServer.readToken(folder);
     int port = HomeMCPServer.readPort(folder);
     String reason = "Sweet Home 3D isn't sharing a home: in Sweet Home 3D, open the home and choose "
-        + "Help > Claude MCP server..., then Start server. Then try again.";
+        + "Tools > Claude MCP server..., then Start server. Then try again.";
     if (token != null) {
       try {
         HttpURLConnection connection = (HttpURLConnection)new URL("http://127.0.0.1:"
@@ -231,7 +231,7 @@ public class HomeMCPBridge {
           return null;
         }
         reason = "The server of Sweet Home 3D refused the request (HTTP " + status + "). "
-            + "Stop and start it again from Help > Claude MCP server... in Sweet Home 3D.";
+            + "Stop and start it again from Tools > Claude MCP server... in Sweet Home 3D.";
       } catch (IOException ex) {
         // No server listens: answered below
       }

@@ -88,7 +88,7 @@ floor and the roof.
 
 ## 360 degree panorama
 
-**3D view > Export 360° panorama...** computes a picture of everything around
+**File > Export > Export 360° panorama...** computes a picture of everything around
 the virtual visitor (place him in the plan first) with the photo renderer, and
 writes a folder with `panorama.jpg` and an `index.html` to look around in it:
 drag to turn, wheel to zoom. The page contains the picture, so it opens with

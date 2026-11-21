@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sends the command files of this folder to the MCP server of Sweet Home 3D.
 
-Start the server first (Help > Claude MCP server... > Start server) in an
+Start the server first (Tools > Claude MCP server... > Start server) in an
 empty home, then run:
 
     python3 replay.py                 # every step, in order

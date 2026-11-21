@@ -207,7 +207,7 @@ public class HomeController implements Controller {
           }
         }
       };
-    this.undoManager = new UndoManager();
+    this.undoManager = new HistoryManager();
     this.undoSupport.addUndoableEditListener(this.undoManager);
     this.notUndoableModifications = home.isModified();
 
@@ -1483,6 +1483,174 @@ public class HomeController implements Controller {
       throw new RecorderException("Versions aren't available here");
     }
     return HomeVersions.saveVersion(this.home, this.application.getHomeRecorder(), label);
+  }
+
+  /**
+   * Reads a version of the home without changing the home.
+   */
+  public Home readHomeVersion(java.io.File version) throws RecorderException {
+    if (this.application == null) {
+      throw new RecorderException("Versions aren't available here");
+    }
+    return this.application.getHomeRecorder().readHome(version.getPath());
+  }
+
+  /**
+   * Replaces the levels and the items of the home by the ones of the given version,
+   * as one change that can be undone. The file of the home, its camera and its
+   * 3D settings are kept.
+   * @return the count of items of the version
+   */
+  public int restoreHomeVersion(java.io.File version) throws RecorderException {
+    Home versionHome = readHomeVersion(version);
+    final HomeContents before = HomeContents.of(this.home);
+    final HomeContents after = HomeContents.of(versionHome);
+    // The items leave the home they were read in
+    after.removeFrom(versionHome);
+    before.removeFrom(this.home);
+    after.addTo(this.home);
+    final String name = "Restore version " + HomeVersions.getLabel(version);
+    this.undoSupport.postEdit(new javax.swing.undo.AbstractUndoableEdit() {
+        @Override
+        public void undo() throws CannotUndoException {
+          super.undo();
+          after.removeFrom(home);
+          before.addTo(home);
+        }
+
+        @Override
+        public void redo() throws CannotRedoException {
+          super.redo();
+          before.removeFrom(home);
+          after.addTo(home);
+        }
+
+        @Override
+        public String getPresentationName() {
+          return name;
+        }
+      });
+    return after.getItemCount();
+  }
+
+  /**
+   * Returns the homes open in the application, this one included.
+   */
+  public List<Home> getOpenHomes() {
+    return this.application != null
+        ? new ArrayList<Home>(this.application.getHomes())
+        : new ArrayList<Home>(java.util.Collections.singletonList(this.home));
+  }
+
+  /**
+   * Writes a copy of the home in the file <code>path</code> at once. The home, its
+   * file and its modified state don't change.
+   */
+  public void saveHomeCopy(String path) throws RecorderException {
+    if (this.application == null) {
+      throw new RecorderException("Homes can't be saved here");
+    }
+    Home savedHome = this.home.clone();
+    savedHome.removeUnusedModelLODs();
+    this.application.getHomeRecorder().writeHome(savedHome, path);
+  }
+
+  /**
+   * Saves the home in its file at once, without dialog, or in the file
+   * <code>path</code> which becomes its file if it isn't <code>null</code>.
+   */
+  public void saveHomeNow(String path) throws RecorderException {
+    final String homeName = path != null ? path : this.home.getName();
+    if (this.application == null || homeName == null) {
+      throw new RecorderException("This home has no file yet");
+    }
+    Home savedHome = this.home.clone();
+    savedHome.removeUnusedModelLODs();
+    savedHome.setName(this.contentManager != null
+        ? this.contentManager.getPresentationName(homeName, ContentManager.ContentType.SWEET_HOME_3D) : homeName);
+    this.application.getHomeRecorder().writeHome(savedHome, homeName);
+    updateSavedHome(homeName, savedHome.getVersion(), null);
+  }
+
+  /**
+   * Opens the home of the file <code>path</code> at once in its own window and returns it,
+   * or returns the home already open from that file.
+   */
+  public Home openHomeNow(String path) throws RecorderException {
+    if (this.application == null) {
+      throw new RecorderException("Homes can't be opened here");
+    }
+    for (Home openHome : this.application.getHomes()) {
+      if (path.equals(openHome.getName())) {
+        return openHome;
+      }
+    }
+    Home openedHome = this.application.getHomeRecorder().readHome(path);
+    openedHome.setName(path);
+    this.application.addHome(openedHome);
+    return openedHome;
+  }
+
+  /**
+   * Creates an empty home at once in its own window and returns it.
+   */
+  public Home createHomeNow() throws RecorderException {
+    if (this.application == null) {
+      throw new RecorderException("Homes can't be created here");
+    }
+    Home newHome = this.application.createHome();
+    this.application.addHome(newHome);
+    return newHome;
+  }
+
+  /**
+   * Returns the names of the changes that can be undone, the most recent first,
+   * at most <code>maxCount</code> of them.
+   */
+  public List<String> getUndoHistory(int maxCount) {
+    return getHistory(maxCount, true);
+  }
+
+  /**
+   * Returns the names of the changes that can be redone, the next one first.
+   */
+  public List<String> getRedoHistory(int maxCount) {
+    return getHistory(maxCount, false);
+  }
+
+  private List<String> getHistory(int maxCount, boolean undo) {
+    List<String> names = new ArrayList<String>();
+    HistoryManager manager = (HistoryManager)this.undoManager;
+    List<UndoableEdit> edits = manager.getEdits();
+    int next = manager.getNextIndex();
+    if (undo) {
+      for (int i = next - 1; i >= 0 && names.size() < maxCount; i--) {
+        if (edits.get(i).isSignificant()) {
+          names.add(edits.get(i).getPresentationName());
+        }
+      }
+    } else {
+      for (int i = next; i < edits.size() && names.size() < maxCount; i++) {
+        if (edits.get(i).isSignificant()) {
+          names.add(edits.get(i).getPresentationName());
+        }
+      }
+    }
+    return names;
+  }
+
+  /**
+   * An undo manager that shows its edits.
+   */
+  private static class HistoryManager extends UndoManager {
+    List<UndoableEdit> getEdits() {
+      return new ArrayList<UndoableEdit>(this.edits);
+    }
+
+    int getNextIndex() {
+      UndoableEdit next = editToBeUndone();
+      return next != null ? this.edits.indexOf(next) + 1 : 0;
+    }
   }
 
   /**

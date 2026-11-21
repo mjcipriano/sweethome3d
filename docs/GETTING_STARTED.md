@@ -64,7 +64,7 @@ before deleting the old folder.
 7. **File > Save**, then **File > Versions...** to keep named copies as you go.
 
 Or let an AI do it: connect Claude ([MCP server](MCP_SERVER.md)) or open
-**Help > Design assistant...** ([Design assistant](AI_ASSISTANT.md)) and ask
+**Tools > Design assistant...** ([Design assistant](AI_ASSISTANT.md)) and ask
 for "a living room of 6 by 4 meters with a sofa and a TV".
 
 ## Where the additions are
@@ -74,28 +74,37 @@ edition adds* with the same list (in English).
 
 | Menu | Item | Guide |
 | --- | --- | --- |
-| **File** | Versions... | [Design tools](DESIGN_TOOLS.md#versions-of-a-home) |
-| **Furniture** | Tags (by right click in the furniture list or the plan) | [Tags and layers](LAYERS_AND_FURNITURE_LIBRARIES.md) |
-| | Replace by the piece selected in catalog | [Design tools](DESIGN_TOOLS.md#replace-furniture-in-place) |
-| | Layers and tags... | [Tags and layers](LAYERS_AND_FURNITURE_LIBRARIES.md) |
-| **Plan** | Add room from shape... | [Design tools](DESIGN_TOOLS.md#room-shapes) |
+| **File** | Versions... (save, compare, restore) | [Design tools](DESIGN_TOOLS.md#versions-of-a-home) |
+| | Export > Export to SVG, CSV and OBJ format | The plan, the furniture list and the 3D model |
+| | Export > Export elevation drawing..., Export elevation picture... | [Design tools](DESIGN_TOOLS.md#elevation-drawings) |
+| | Export > Export 360° panorama... | [3D view navigation](VIEW_3D_NAVIGATION.md#360-degree-panorama) |
+| | Export > Export to Blender... | Writes the model and a Blender script for a high quality render |
+| | Export > Export 3D web page... | [Design tools](DESIGN_TOOLS.md#3d-web-page-to-share) |
+| **Furniture** | Replace by the piece selected in catalog | [Design tools](DESIGN_TOOLS.md#replace-furniture-in-place) |
+| | Align and distribute | The alignments of furniture, in one submenu |
+| | Open / Close the selected doors and windows | [Menus for the commands](DESIGN_TOOLS.md#menus-for-the-commands) |
+| | Furnish the selected room... | [Menus for the commands](DESIGN_TOOLS.md#menus-for-the-commands) |
+| | Import | Furniture, textures and their libraries |
+| | Tags (also by right click), Layers and tags... | [Tags and layers](LAYERS_AND_FURNITURE_LIBRARIES.md) |
+| **Plan** | Modify | Walls, rooms, lines, dimensions and texts, in one submenu |
+| | Add room from shape... | [Design tools](DESIGN_TOOLS.md#room-shapes) |
 | | Apply style to rooms... | [Design tools](DESIGN_TOOLS.md#decoration-styles) |
-| | Home report and budget... | [Design tools](DESIGN_TOOLS.md#home-report) |
-| | Export elevation drawing... | [Design tools](DESIGN_TOOLS.md#elevation-drawings) |
 | | Add room dimensions | [3D view navigation](VIEW_3D_NAVIGATION.md#room-dimensions-in-one-step) |
+| | Garden, Electrical and plumbing symbols, Measure the selection | [Menus for the commands](DESIGN_TOOLS.md#menus-for-the-commands) |
 | **3D view** | Standard views (keys 1 to 9, **3D views** in the tool bar), Zoom in 3D view, Zoom out 3D view, Show whole home in 3D view | [3D view navigation](VIEW_3D_NAVIGATION.md) |
 | | Hide walls in front of the camera (doll house) | [3D view navigation](VIEW_3D_NAVIGATION.md#doll-house-display) |
+| | Sun at the date and time of the camera, Date and time of the sun... | [Menus for the commands](DESIGN_TOOLS.md#menus-for-the-commands) |
 | | Use OpenGL renderer, OpenGL renderer quality | [OpenGL renderer](OPENGL_RENDERER.md) |
 | | Show full detail, Reduce detail of heavy models automatically, Generate model LOD cache | [Performance](PERFORMANCE.md) |
-| | Export 360° panorama... | [3D view navigation](VIEW_3D_NAVIGATION.md#360-degree-panorama) |
-| | Export to Blender... | Writes the model and a Blender script for a high quality render |
-| **Tools** | WebXR Preview... | [Walking through a home in VR](WEBXR_VR.md) |
+| **Tools** | Design assistant..., What can I ask the assistant? | [Design assistant](AI_ASSISTANT.md) |
+| | Claude MCP server... | [MCP server](MCP_SERVER.md) |
+| | Check the plan..., Schedules, Framing estimate... | [Menus for the commands](DESIGN_TOOLS.md#menus-for-the-commands) |
+| | Home report and budget... | [Design tools](DESIGN_TOOLS.md#home-report) |
+| | WebXR Preview... | [Walking through a home in VR](WEBXR_VR.md) |
 | | Game mode... | [Game mode](GAME_MODE.md) |
 | | Review notes... | [Review notes](REVIEW_NOTES.md) |
-| | Export 3D web page..., View 3D web page folder... | [Design tools](DESIGN_TOOLS.md#3d-web-page-to-share) |
+| | View 3D web page folder... | [Design tools](DESIGN_TOOLS.md#3d-web-page-to-share) |
 | **Help** | 3D rendering information... | The graphics card and the renderer in use |
-| | Design assistant..., What can I ask the assistant? | [Design assistant](AI_ASSISTANT.md) |
-| | Claude MCP server... | [MCP server](MCP_SERVER.md) |
 
 ## Next
 

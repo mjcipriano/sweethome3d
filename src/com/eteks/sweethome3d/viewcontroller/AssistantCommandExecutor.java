@@ -81,6 +81,10 @@ public class AssistantCommandExecutor {
   private final AssistantObjectCommands   objectCommands;
   private final AssistantPlanCommands     planCommands;
   private final AssistantSiteCommands      siteCommands;
+  private final AssistantArrangeCommands arrangeCommands;
+  private final AssistantGardenCommands gardenCommands;
+  private final AssistantScheduleCommands scheduleCommands;
+  private final AssistantSceneCommands sceneCommands;
   private final AssistantLayerCommands    layerCommands;
   private final AssistantLibraryCommands  libraryCommands;
   private final AssistantDesignCommands   designCommands;
@@ -97,6 +101,52 @@ public class AssistantCommandExecutor {
      */
     float [] getModelSize(com.eteks.sweethome3d.model.Content model) throws java.io.IOException;
   }
+
+  /**
+   * Reads in 3D models what the commands about materials and doors need.
+   */
+  public interface ModelInspector {
+    /**
+     * Returns the names of the materials of <code>model</code>.
+     */
+    List<String> getMaterialNames(com.eteks.sweethome3d.model.Content model) throws java.io.IOException;
+
+    /**
+     * Returns the transformations that turn by <code>angle</code> degrees the leaves of
+     * <code>model</code> which are on hinges, with the bounds of the model before and after.
+     */
+    ModelOpening getOpening(com.eteks.sweethome3d.model.Content model, float [][] modelRotation,
+                            com.eteks.sweethome3d.model.Transformation [] currentTransformations,
+                            float angle) throws java.io.IOException;
+  }
+
+  /**
+   * The leaves of a door or a window turned on their hinges.
+   */
+  public static class ModelOpening {
+    /** The transformations of the model, or <code>null</code> when it is closed. */
+    public com.eteks.sweethome3d.model.Transformation [] transformations;
+    /** Lower x, y, z then upper x, y, z of the model as it is, y upward. */
+    public float [] currentBounds;
+    /** The same once the transformations are applied. */
+    public float [] newBounds;
+    public int      hingeCount;
+    public int      railCount;
+  }
+
+  private ModelInspector modelInspector;
+
+  /**
+   * Sets the object that reads the materials and the hinges of 3D models.
+   */
+  public void setModelInspector(ModelInspector modelInspector) {
+    this.modelInspector = modelInspector;
+  }
+
+  ModelInspector getModelInspector() {
+    return this.modelInspector;
+  }
+
   private boolean groupOpen;
   private long    groupActivityTime;
   private final AssistantStructureCommands structureCommands;
@@ -116,6 +166,10 @@ public class AssistantCommandExecutor {
     this.planCommands = new AssistantPlanCommands(home, homeController, this,
         this.buildingCommands, this.objectCommands);
     this.siteCommands = new AssistantSiteCommands(home, homeController, this);
+    this.arrangeCommands = new AssistantArrangeCommands(home, preferences, homeController, this);
+    this.gardenCommands = new AssistantGardenCommands(home, preferences, homeController, this);
+    this.scheduleCommands = new AssistantScheduleCommands(home, preferences, homeController, this);
+    this.sceneCommands = new AssistantSceneCommands(home, preferences, homeController, this);
     this.layerCommands = new AssistantLayerCommands(home, homeController, this);
     this.libraryCommands = new AssistantLibraryCommands(home, preferences, homeController, this);
     this.designCommands = new AssistantDesignCommands(home, preferences, homeController, this, this.buildingCommands);
@@ -680,7 +734,11 @@ public class AssistantCommandExecutor {
                && !this.layerCommands.apply(action, command, tally, notes)
                && !this.libraryCommands.apply(action, command, tally, notes)
                && !this.designCommands.apply(action, command, tally, notes)
-               && !this.siteCommands.apply(action, command, tally, notes)) {
+               && !this.siteCommands.apply(action, command, tally, notes)
+               && !this.arrangeCommands.apply(action, command, tally, notes)
+               && !this.gardenCommands.apply(action, command, tally, notes)
+               && !this.scheduleCommands.apply(action, command, tally, notes)
+               && !this.sceneCommands.apply(action, command, tally, notes)) {
       this.planCommands.apply(action, command, tally, notes);
     }
     // Unknown actions are ignored so a single bad command doesn't break a turn

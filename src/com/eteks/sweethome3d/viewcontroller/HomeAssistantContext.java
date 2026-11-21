@@ -638,6 +638,10 @@ public class HomeAssistantContext {
         + "of the items given by ids, and their coordinates in srs)\n"
         + "  {\"action\":\"begin_group\"} ... {\"action\":\"end_group\"}  (everything changed by the calls between them is undone as ONE step; "
         + "the undo tool ends the group and undoes it)\n"
+        + AssistantArrangeCommands.getReference()
+        + AssistantGardenCommands.getReference()
+        + AssistantScheduleCommands.getReference()
+        + AssistantSceneCommands.getReference()
         + "To MODIFY items that already exist, reference them by the id shown in the project "
         + "summary (F# furniture, W# walls, R# rooms, P# lines; an id never changes), by \"target\":\"selection\", by name, or in bulk by "
         + "\"where\":{\"level\":\"<level>\",\"tag\":\"<tag>\",\"name\":\"<part of a name, or Pine|Oak for either>\",\"type\":\"furniture|doors_and_windows|"

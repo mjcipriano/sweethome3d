@@ -414,6 +414,29 @@ public final class HomeDesignToolsView {
     JButton compareButton = new JButton("Compare with now");
     JButton openButton = new JButton("Open in a new window");
     JButton deleteButton = new JButton("Delete");
+    JButton restoreButton = new JButton("Restore in this home");
+    restoreButton.setToolTipText("<html>Replaces the levels and the items of the home by the ones of the version.<br>"
+        + "The state before it is saved as a version, and Edit > Undo reverts it.</html>");
+    restoreButton.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          int index = list.getSelectedIndex();
+          if (index >= 0 && JOptionPane.showConfirmDialog(SwingUtilities.getRootPane(parent),
+                "<html>Replace what the home holds by the version \"" + listModel.get(index) + "\"?<br>"
+                + "The home as it is now is saved as a version first, and Edit &gt; Undo comes back to it.</html>",
+                "Restore version", JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+            try {
+              File version = versions.get(index);
+              controller.saveHomeVersion("before restore");
+              controller.restoreHomeVersion(version);
+              refresh.run();
+              comparisonArea.setText("The version was restored. The file of the home isn't saved yet.");
+            } catch (Exception ex) {
+              JOptionPane.showMessageDialog(SwingUtilities.getRootPane(parent),
+                  "The version couldn't be restored: " + ex.getMessage());
+            }
+          }
+        }
+      });
     saveButton.addActionListener(new ActionListener() {
         public void actionPerformed(ActionEvent ev) {
           String label = JOptionPane.showInputDialog(SwingUtilities.getRootPane(parent),
@@ -467,6 +490,7 @@ public final class HomeDesignToolsView {
     JPanel buttons = new JPanel(new GridLayout(0, 1, 0, 4));
     buttons.add(saveButton);
     buttons.add(compareButton);
+    buttons.add(restoreButton);
     buttons.add(openButton);
     buttons.add(deleteButton);
     JPanel east = new JPanel(new BorderLayout());

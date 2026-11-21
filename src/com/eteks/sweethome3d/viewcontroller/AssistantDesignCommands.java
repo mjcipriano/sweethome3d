@@ -205,6 +205,9 @@ public class AssistantDesignCommands {
       applyStyle(command, tally, notes);
     } else if ("list_styles".equals(action)) {
       notes.add("Styles: " + describeStyles());
+    } else if (("set_unit_prices".equals(action) || "set_budget".equals(action))
+               && AssistantScheduleCommands.setItemUnitPrices(this.home, this.homeController, this.executor, command, tally, notes)) {
+      // The prices of rooms or walls were changed
     } else if ("set_unit_prices".equals(action) || "set_budget".equals(action)) {
       int count = 0;
       for (String key : HomeReport.UNIT_PRICE_KEYS) {

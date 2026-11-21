@@ -199,6 +199,210 @@ public final class HomeVersions {
     return text.toString().trim();
   }
 
+  /**
+   * Returns the version of <code>home</code> designated by <code>token</code>: its number in the
+   * list of versions (1 = the most recent), the name of its file, or a part of its label.
+   * @return the version, or <code>null</code> if none or several match
+   */
+  public static File find(Home home, String token) {
+    List<File> versions = getVersions(home);
+    if (token == null || versions.isEmpty()) {
+      return null;
+    }
+    String text = token.trim();
+    try {
+      int index = Integer.parseInt(text);
+      return index >= 1 && index <= versions.size() ? versions.get(index - 1) : null;
+    } catch (NumberFormatException ex) {
+      // A name
+    }
+    File match = null;
+    for (File version : versions) {
+      if (version.getName().equalsIgnoreCase(text) || version.getPath().equals(text)
+          || getLabel(version).equalsIgnoreCase(text)) {
+        return version;
+      }
+      if (getLabel(version).toLowerCase(Locale.ENGLISH).contains(text.toLowerCase(Locale.ENGLISH))) {
+        if (match != null) {
+          return null;
+        }
+        match = version;
+      }
+    }
+    return match;
+  }
+
+  /**
+   * Returns the list of the versions of <code>home</code> with their numbers.
+   */
+  public static String describe(Home home) {
+    List<File> versions = getVersions(home);
+    if (getFolder(home) == null) {
+      return "This home was never saved in a file: it has no versions yet.";
+    } else if (versions.isEmpty()) {
+      return "This home has no version yet. They are kept in " + getFolder(home) + ".";
+    }
+    StringBuilder text = new StringBuilder("Versions of this home, the most recent first (in " + getFolder(home) + "):\n");
+    for (int i = 0; i < versions.size(); i++) {
+      text.append(i + 1).append(". ").append(getLabel(versions.get(i))).append("  (")
+          .append(Math.max(1, versions.get(i).length() / 1024)).append(" KB)\n");
+    }
+    return text.toString().trim();
+  }
+
+  private static void collectItems(List<HomePieceOfFurniture> furniture, Map<String, Object> items) {
+    for (HomePieceOfFurniture piece : furniture) {
+      if (piece instanceof HomeFurnitureGroup) {
+        collectItems(((HomeFurnitureGroup)piece).getFurniture(), items);
+      }
+      String id = HomeItemIds.getId(piece);
+      if (id != null) {
+        items.put(id, piece);
+      }
+    }
+  }
+
+  private static Map<String, Object> collectItems(Home home) {
+    Map<String, Object> items = new java.util.LinkedHashMap<String, Object>();
+    collectItems(home.getFurniture(), items);
+    for (Wall wall : home.getWalls()) {
+      if (HomeItemIds.getId(wall) != null) {
+        items.put(HomeItemIds.getId(wall), wall);
+      }
+    }
+    for (Room room : home.getRooms()) {
+      if (HomeItemIds.getId(room) != null) {
+        items.put(HomeItemIds.getId(room), room);
+      }
+    }
+    return items;
+  }
+
+  private static String describeItem(String id, Object item) {
+    if (item instanceof HomePieceOfFurniture) {
+      HomePieceOfFurniture piece = (HomePieceOfFurniture)item;
+      return id + " \"" + piece.getName() + "\" at (" + Math.round(piece.getX()) + ", " + Math.round(piece.getY()) + ")";
+    } else if (item instanceof Wall) {
+      Wall wall = (Wall)item;
+      return id + " wall from (" + Math.round(wall.getXStart()) + ", " + Math.round(wall.getYStart()) + ") to ("
+          + Math.round(wall.getXEnd()) + ", " + Math.round(wall.getYEnd()) + ")";
+    } else {
+      Room room = (Room)item;
+      return id + " room" + (room.getName() != null ? " \"" + room.getName() + "\"" : "") + " "
+          + String.format(Locale.US, "%.1f", room.getArea() / 10000.) + " m2";
+    }
+  }
+
+  private static String describeChange(Object oldItem, Object newItem) {
+    List<String> changes = new ArrayList<String>();
+    if (oldItem instanceof HomePieceOfFurniture && newItem instanceof HomePieceOfFurniture) {
+      HomePieceOfFurniture oldPiece = (HomePieceOfFurniture)oldItem;
+      HomePieceOfFurniture newPiece = (HomePieceOfFurniture)newItem;
+      if (Math.hypot(oldPiece.getX() - newPiece.getX(), oldPiece.getY() - newPiece.getY()) > 0.5) {
+        changes.add("moved from (" + Math.round(oldPiece.getX()) + ", " + Math.round(oldPiece.getY()) + ") to ("
+            + Math.round(newPiece.getX()) + ", " + Math.round(newPiece.getY()) + ")");
+      }
+      if (Math.abs(oldPiece.getElevation() - newPiece.getElevation()) > 0.5) {
+        changes.add("elevation " + Math.round(oldPiece.getElevation()) + " -> " + Math.round(newPiece.getElevation()));
+      }
+      if (Math.abs(Math.toDegrees(oldPiece.getAngle() - newPiece.getAngle())) > 0.5) {
+        changes.add("turned to " + Math.round(Math.toDegrees(newPiece.getAngle())) + " degrees");
+      }
+      if (Math.abs(oldPiece.getWidth() - newPiece.getWidth()) > 0.5 || Math.abs(oldPiece.getDepth() - newPiece.getDepth()) > 0.5
+          || Math.abs(oldPiece.getHeight() - newPiece.getHeight()) > 0.5) {
+        changes.add("size " + Math.round(oldPiece.getWidth()) + " x " + Math.round(oldPiece.getDepth()) + " x "
+            + Math.round(oldPiece.getHeight()) + " -> " + Math.round(newPiece.getWidth()) + " x "
+            + Math.round(newPiece.getDepth()) + " x " + Math.round(newPiece.getHeight()));
+      }
+      if (oldPiece.getName() != null && !oldPiece.getName().equals(newPiece.getName())) {
+        changes.add("renamed from \"" + oldPiece.getName() + "\"");
+      }
+      if (oldPiece.isVisible() != newPiece.isVisible()) {
+        changes.add(newPiece.isVisible() ? "shown" : "hidden");
+      }
+      if (oldPiece.getColor() == null ? newPiece.getColor() != null : !oldPiece.getColor().equals(newPiece.getColor())) {
+        changes.add("color changed");
+      }
+    } else if (oldItem instanceof Wall && newItem instanceof Wall) {
+      Wall oldWall = (Wall)oldItem;
+      Wall newWall = (Wall)newItem;
+      if (Math.hypot(oldWall.getXStart() - newWall.getXStart(), oldWall.getYStart() - newWall.getYStart()) > 0.5
+          || Math.hypot(oldWall.getXEnd() - newWall.getXEnd(), oldWall.getYEnd() - newWall.getYEnd()) > 0.5) {
+        changes.add("moved or resized (" + Math.round(oldWall.getLength()) + " -> " + Math.round(newWall.getLength()) + " cm long)");
+      }
+      Float oldHeight = oldWall.getHeight();
+      Float newHeight = newWall.getHeight();
+      if (oldHeight == null ? newHeight != null : newHeight == null || Math.abs(oldHeight - newHeight) > 0.5) {
+        changes.add("height " + (oldHeight != null ? String.valueOf(Math.round(oldHeight)) : "default") + " -> "
+            + (newHeight != null ? String.valueOf(Math.round(newHeight)) : "default"));
+      }
+      if (Math.abs(oldWall.getThickness() - newWall.getThickness()) > 0.05) {
+        changes.add("thickness " + oldWall.getThickness() + " -> " + newWall.getThickness());
+      }
+    } else if (oldItem instanceof Room && newItem instanceof Room) {
+      Room oldRoom = (Room)oldItem;
+      Room newRoom = (Room)newItem;
+      if (Math.abs(oldRoom.getArea() - newRoom.getArea()) > 50 || !Arrays.deepEquals(oldRoom.getPoints(), newRoom.getPoints())) {
+        changes.add("shape changed (" + String.format(Locale.US, "%.1f -> %.1f m2", oldRoom.getArea() / 10000., newRoom.getArea() / 10000.) + ")");
+      }
+      if (oldRoom.getName() == null ? newRoom.getName() != null : !oldRoom.getName().equals(newRoom.getName())) {
+        changes.add("renamed from \"" + oldRoom.getName() + "\"");
+      }
+    }
+    return changes.isEmpty() ? null : join(changes);
+  }
+
+  /**
+   * Returns the items added, removed and changed from <code>oldHome</code> to <code>newHome</code>,
+   * matched by their ids, at most <code>maxLines</code> of each kind.
+   */
+  public static String compareItems(Home oldHome, Home newHome, int maxLines) {
+    Map<String, Object> oldItems = collectItems(oldHome);
+    Map<String, Object> newItems = collectItems(newHome);
+    if (oldItems.isEmpty() && newItems.isEmpty()) {
+      return "";
+    }
+    List<String> added = new ArrayList<String>();
+    List<String> removed = new ArrayList<String>();
+    List<String> changed = new ArrayList<String>();
+    for (Map.Entry<String, Object> entry : newItems.entrySet()) {
+      Object oldItem = oldItems.get(entry.getKey());
+      if (oldItem == null) {
+        added.add(describeItem(entry.getKey(), entry.getValue()));
+      } else {
+        String change = describeChange(oldItem, entry.getValue());
+        if (change != null) {
+          changed.add(describeItem(entry.getKey(), entry.getValue()) + ": " + change);
+        }
+      }
+    }
+    for (Map.Entry<String, Object> entry : oldItems.entrySet()) {
+      if (!newItems.containsKey(entry.getKey())) {
+        removed.add(describeItem(entry.getKey(), entry.getValue()));
+      }
+    }
+    StringBuilder text = new StringBuilder();
+    appendLines(text, "Items added", added, maxLines);
+    appendLines(text, "Items removed", removed, maxLines);
+    appendLines(text, "Items changed", changed, maxLines);
+    if (text.length() == 0) {
+      text.append("No item with an id was added, removed, moved or resized.");
+    }
+    return text.toString().trim();
+  }
+
+  private static void appendLines(StringBuilder text, String title, List<String> lines, int maxLines) {
+    if (!lines.isEmpty()) {
+      text.append(title).append(" (").append(lines.size()).append("):\n");
+      for (int i = 0; i < lines.size() && i < maxLines; i++) {
+        text.append("- ").append(lines.get(i)).append('\n');
+      }
+      if (lines.size() > maxLines) {
+        text.append("- ... and ").append(lines.size() - maxLines).append(" more\n");
+      }
+    }
+  }
+
   private static String join(List<String> values) {
     StringBuilder text = new StringBuilder();
     for (String value : values) {

@@ -1,6 +1,6 @@
 # Design Assistant
 
-**Help > Design assistant...** opens a chat inside Sweet Home 3D. The
+**Tools > Design assistant...** opens a chat inside Sweet Home 3D. The
 assistant answers questions about the home ("what is the total floor area?")
 and edits it ("add a reading corner to the living room") with the same
 undoable commands as the [MCP server](MCP_SERVER.md). It talks to the AI
@@ -16,7 +16,7 @@ and of the 3D view.
 
 ## Set it up
 
-1. Choose **Help > Design assistant...**, then **Settings...**
+1. Choose **Tools > Design assistant...**, then **Settings...**
 
    ![The settings of the assistant](images/assistant-settings.png)
 
@@ -69,7 +69,7 @@ toward the room and a lamp beside it.
   catalog looks like this chair?".
 - Refer to what is selected in the plan: "move this 50 cm to the left",
   "make these chairs red".
-- **Help > What can I ask the assistant?** lists example requests.
+- **Tools > What can I ask the assistant?** lists example requests.
 
 ![Examples of requests](images/assistant-examples.png)
 
@@ -264,7 +264,7 @@ extending the executor:
   once per request; only the project brief is refreshed at each step. The brief
   now gives each room's extent and centre in centimeters.
 - **Stop.** The Send button becomes Stop while a request runs.
-- **MCP server.** `Help > Claude MCP server...` exposes the home to Claude and
+- **MCP server.** `Tools > Claude MCP server...` exposes the home to Claude and
   other MCP clients through the same executor: see `docs/MCP_SERVER.md`.
 
 ### Design tools from the gap analysis (2026-11-16, DONE)
@@ -347,7 +347,7 @@ tests in `AssistantObjectCommandsTest`.
   Commands designate the original file with `"image":"attached"`. The protocol
   tells the model to match a photographed piece with the closest catalog piece,
   resized and recolored.
-- **Blender export** - `3D view > Export to Blender...` (and the MCP tool
+- **Blender export** - `File > Export > Export to Blender...` (and the MCP tool
   `export_blender`) writes `scene.obj` with its materials and textures plus
   `render_blender.py`, which rebuilds the home in Blender: real size, the
   camera of the home, the sun at the home's place and time, its lamps, glass
@@ -499,6 +499,46 @@ Round 3 of requests from modeling a real house through the MCP server.
   house (pictures from outside and from the rooms under the roof).
 - Not done: lines aren't drawn in the game mode and the WebXR pages (the
   stakes are); a setback isn't shown in 3D.
+
+### Agent control and missing features (2026-11-21, DONE)
+
+- **MCP tools** (31, were 16): `save_version`, `list_versions`,
+  `compare_versions`, `restore_version` (`HomeContents`, one undoable edit
+  posted by `HomeController.restoreHomeVersion`), `save_home` (its own file
+  only with `HomeMCPHandler.setSavingAllowed`, off by default; `copy_to`
+  otherwise), `list_homes`, `open_home`, `new_home`, `switch_home`
+  (`HomePane.serveWithMCP` starts the server of the other window and writes
+  its port, which the bridge reads at each request), `export_home`,
+  `get_history`, `undo` / `redo` with `steps`, `get_changes`
+  (`HomeChangeJournal`, paused during tool calls), `add_note`, `start_visit`,
+  `get_elevation_image` (a far camera with a narrow field of view, and
+  `HomeComponent3D.getClipDistances` keeping depth precision for far
+  cameras).
+- **Commands**: `AssistantArrangeCommands` (group, ungroup, align, distribute,
+  mirror, lock, measure), `AssistantGardenCommands` and
+  `AssistantRoomFurnisher` (fence, hedge, path, planting bed, trees,
+  `furnish_room`, `suggest_layout`), `AssistantScheduleCommands` (schedules,
+  symbols, framing estimate, prices per room and wall), `AssistantSceneCommands`
+  (`set_light`, `set_sun`, `set_environment`, `open_door`, `list_materials`,
+  `set_material`).
+- **3D view**: home property `sunFollowsTime` and its menu item; the first
+  scene light takes the direction of the sun at the time of the camera.
+- **Report**: openings deducted from wall surfaces (`HomeQuantities`), so the
+  paint budget is lower than before for the same prices.
+- Tests: `HomeMCPFileToolsTest`, `AssistantSceneCommandsTest`,
+  `AssistantArrangeCommandsTest`, `AssistantGardenCommandsTest`,
+  `AssistantScheduleCommandsTest`. The file tools, the sun, doors, materials,
+  elevations, the garden and `furnish_room` were tried in the application.
+- **Menus** (`swing/HomeToolsMenus`): each new command has a menu item that
+  builds it from the selection and runs it through an
+  `AssistantCommandExecutor`. The menu bar was reorganized: **File > Export**
+  holds every export, **Furniture > Align and distribute** and **Import**,
+  **Plan > Modify**, and a **Tools** menu with the assistant, the MCP server,
+  the reports and the plug-ins (they were in **Help** and **Plan**).
+- Known limits: sliding doors don't open; `furnish_room` uses English catalog
+  names and a fixed list per kind of room; garden pieces aren't rebuilt when
+  the ground changes; symbols don't follow their wall; pieces inside groups
+  aren't in `get_changes`.
 
 ### Backlog / later
 
