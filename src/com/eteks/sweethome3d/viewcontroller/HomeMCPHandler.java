@@ -308,6 +308,26 @@ public class HomeMCPHandler {
     String startVisit(String mode) throws Exception;
   }
 
+  /**
+   * Draws lines and texts over a picture.
+   */
+  public interface ImageAnnotator {
+    /**
+     * Returns the PNG <code>image</code> with the given lines <code>{x1, y1, x2, y2}</code> and
+     * texts drawn over it, in pixels. A text is centered on its place <code>{x, y}</code>.
+     */
+    byte [] annotate(byte [] image, float [][] lines, String [] texts, float [][] textPlaces);
+  }
+
+  private volatile ImageAnnotator imageAnnotator;
+
+  /**
+   * Sets the object that draws the dimensions of elevation pictures.
+   */
+  public void setImageAnnotator(ImageAnnotator imageAnnotator) {
+    this.imageAnnotator = imageAnnotator;
+  }
+
   private volatile HomeOperations homeOperations;
   private volatile boolean        savingAllowed;
   private HomeChangeJournal       changeJournal;
@@ -639,7 +659,7 @@ public class HomeMCPHandler {
         || "restore_version".equals(name) || "save_home".equals(name) || "list_homes".equals(name)
         || "open_home".equals(name) || "new_home".equals(name) || "switch_home".equals(name)
         || "export_home".equals(name) || "get_history".equals(name) || "get_changes".equals(name)
-        || "add_note".equals(name) || "start_visit".equals(name);
+        || "add_note".equals(name) || "start_visit".equals(name) || "get_elevation_image".equals(name);
   }
 
   /**
@@ -854,6 +874,19 @@ public class HomeMCPHandler {
         + "undoable change, and returns a summary of what was applied or skipped. "
         + HomeAssistantContext.getCommandReference(),
         schema(commandsProperties), false));
+    Map<String, Object> elevationProperties = new LinkedHashMap<String, Object>();
+    elevationProperties.put("side", enumProperty("The side the building is seen from", "south", "north", "east", "west"));
+    elevationProperties.put("width", property("number", "Width of the image in pixels (default 1200, at most 2000)"));
+    elevationProperties.put("height", property("number", "Height of the image in pixels (default 700, at most 1500)"));
+    elevationProperties.put("dimensions", property("boolean", "Draws the width of the building and the heights of its levels and of its top (default true)"));
+    elevationProperties.put("save_to", property("string", "Absolute path of a .png file to write the picture to"));
+    elevationProperties.put("replace", property("boolean", "true to replace the file of save_to if it exists"));
+    tools.add(tool("get_elevation_image", "Elevation picture",
+        "Returns an elevation of the building: a picture of one of its sides drawn square on from the real 3D "
+        + "models (roofs, dormers, doors, windows, textures), without perspective to within 2 %, with the width "
+        + "of the building and the heights of its levels and of its top in meters. The export_elevation command "
+        + "writes a schematic line drawing in SVG instead.",
+        schema(elevationProperties, "side"), true));
     Map<String, Object> stepsProperties = new LinkedHashMap<String, Object>();
     stepsProperties.put("steps", property("number", "How many changes (default 1, at most 50); get_history lists them"));
     tools.add(tool("undo", "Undo", "Undoes the last change made to the home, or the last \"steps\" changes.",
@@ -1070,6 +1103,8 @@ public class HomeMCPHandler {
       return toolResult(HomeReviewNotes.describe(this.home, !Boolean.TRUE.equals(arguments.get("all"))), false);
     } else if ("get_plan_image".equals(name)) {
       return getPlanImage(arguments);
+    } else if ("get_elevation_image".equals(name)) {
+      return getElevationImage(arguments);
     } else if ("get_history".equals(name)) {
       return toolResult(describeHistory(), false);
     } else if ("get_changes".equals(name)) {
@@ -1610,6 +1645,149 @@ public class HomeMCPHandler {
     Map<String, Object> result = new LinkedHashMap<String, Object>();
     result.put("content", contents);
     result.put("isError", Boolean.valueOf(count == 0));
+    return result;
+  }
+
+  private static String formatMeters(double centimeters) {
+    return String.format(java.util.Locale.US, "%.2f m", centimeters / 100);
+  }
+
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> getElevationImage(Map<String, Object> arguments) {
+    ImageProvider provider = this.imageProvider;
+    if (provider == null) {
+      return toolResult("The home can't be rendered in 3D here.", true);
+    }
+    String side = string(arguments, "side") != null ? string(arguments, "side").toLowerCase() : "";
+    if (!"south".equals(side) && !"north".equals(side) && !"east".equals(side) && !"west".equals(side)) {
+      return toolResult("\"side\" is south, north, east or west: the side the building is seen from.", true);
+    }
+    int width = (int)Math.max(300, Math.min(2000, number(arguments, "width", 1200)));
+    int height = (int)Math.max(200, Math.min(1500, number(arguments, "height", 700)));
+    String saveTo = string(arguments, "save_to");
+    java.io.File savedFile = null;
+    if (saveTo != null) {
+      savedFile = new java.io.File(saveTo);
+      if (!isEditingAllowed()) {
+        return toolResult("Writing a file needs the permission to change things.", true);
+      } else if (!savedFile.isAbsolute() || !savedFile.getName().toLowerCase().endsWith(".png")
+          || savedFile.getParentFile() == null || !savedFile.getParentFile().isDirectory()) {
+        return toolResult("\"save_to\" must be the absolute path of a .png file in a folder that exists.", true);
+      } else if (savedFile.exists() && !bool(arguments, "replace", false)) {
+        return toolResult(savedFile + " exists: give \"replace\":true to replace it.", true);
+      }
+    }
+    // The building: its walls, and its roofs and what was built on them
+    List<Selectable> building = new ArrayList<Selectable>(this.home.getWalls());
+    float [] wallBounds = HomeViewpoints.getBounds(this.home, building, null);
+    if (wallBounds == null) {
+      return toolResult("This home has no wall to draw an elevation of.", true);
+    }
+    for (com.eteks.sweethome3d.model.HomePieceOfFurniture piece : this.home.getFurniture()) {
+      String structure = piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY);
+      if (piece.isVisible() && ("roof".equals(structure) || "dormer".equals(structure) || "custom".equals(structure))) {
+        building.add(piece);
+      }
+    }
+    float [] bounds = HomeViewpoints.getBounds(this.home, building, null);
+    boolean alongX = "south".equals(side) || "north".equals(side);
+    double left = alongX ? bounds [0] : bounds [1];
+    double right = alongX ? bounds [3] : bounds [4];
+    double bottom = Math.min(0, bounds [2]);
+    double top = bounds [5];
+    double buildingWidth = right - left;
+    double buildingHeight = top - bottom;
+    // Centimeters for a pixel, with room around the building for its dimensions
+    double scale = Math.max(buildingWidth * 1.3 / width, buildingHeight * 1.4 / height);
+    double center = (left + right) / 2;
+    double middle = (bottom + top) / 2 - 0.04 * height * scale;
+    // Seen from so far that lines that go away from the eye stay parallel to within 2 %
+    double depth = alongX ? bounds [4] - bounds [1] : bounds [3] - bounds [0];
+    double distance = Math.max(depth, Math.max(buildingWidth, buildingHeight)) * 50;
+    float fieldOfView = (float)(2 * Math.atan(scale * width / 2 / distance));
+    float x = (float)("east".equals(side) ? bounds [3] + distance : "west".equals(side) ? bounds [0] - distance : center);
+    float y = (float)("south".equals(side) ? bounds [4] + distance : "north".equals(side) ? bounds [1] - distance : center);
+    float yaw = (float)Math.toRadians("south".equals(side) ? 180 : "north".equals(side) ? 0 : "east".equals(side) ? 90 : 270);
+    HomeViewpoints.Pose pose = new HomeViewpoints.Pose(x, y, (float)middle, yaw, 0, fieldOfView, true);
+    Image3D image = provider.get3DImage(new Image3DRequest(width, height, Image3DRequest.OPENGL, true, true, false,
+        pose, null, true, 0));
+    if (image == null || image.getImage() == null) {
+      return toolResult(image != null && image.getDescription() != null ? image.getDescription()
+          : "The elevation couldn't be drawn here.", true);
+    }
+    byte [] picture = image.getImage();
+    // Where the walls of the building stand in the picture
+    double wallLeft = alongX ? wallBounds [0] : wallBounds [1];
+    double wallRight = alongX ? wallBounds [3] : wallBounds [4];
+    // In the pictures from the north and from the east, the plan is seen mirrored
+    boolean mirrored = "north".equals(side) || "east".equals(side);
+    double pixelLeft = width / 2. + (mirrored ? center - wallRight : wallLeft - center) / scale;
+    double pixelRight = width / 2. + (mirrored ? center - wallLeft : wallRight - center) / scale;
+    StringBuilder text = new StringBuilder("Elevation seen from the " + side + ", " + width + " x " + height + " pixels, "
+        + String.format(java.util.Locale.US, "%.2f", scale) + " cm for a pixel. The walls are " + formatMeters(wallRight - wallLeft)
+        + " wide on this side, the building " + formatMeters(buildingWidth) + " with its roofs; its top is "
+        + formatMeters(top) + " above the floor at the elevation 0.");
+    ImageAnnotator annotator = this.imageAnnotator;
+    if (bool(arguments, "dimensions", true) && annotator != null) {
+      List<float []> lines = new ArrayList<float []>();
+      List<String> texts = new ArrayList<String>();
+      List<float []> places = new ArrayList<float []>();
+      float groundY = (float)(height / 2. - (0 - middle) / scale);
+      // The width of the walls, under the ground line
+      float widthY = Math.min(height - 22, groundY + 34);
+      lines.add(new float [] {(float)pixelLeft, widthY, (float)pixelRight, widthY});
+      lines.add(new float [] {(float)pixelLeft, widthY - 7, (float)pixelLeft, widthY + 7});
+      lines.add(new float [] {(float)pixelRight, widthY - 7, (float)pixelRight, widthY + 7});
+      texts.add(formatMeters(wallRight - wallLeft));
+      places.add(new float [] {(float)(pixelLeft + pixelRight) / 2, widthY + 13});
+      // The heights, at the left of the building
+      float axisX = (float)Math.max(46, width / 2. - buildingWidth / 2 / scale - 30);
+      java.util.TreeMap<Float, String> heights = new java.util.TreeMap<Float, String>();
+      heights.put(Float.valueOf(0), "0.00");
+      for (Level level : this.home.getLevels()) {
+        if (level.isViewable() && level.getElevation() > 1 && level.getElevation() < top - 1) {
+          boolean used = false;
+          for (com.eteks.sweethome3d.model.Wall wall : this.home.getWalls()) {
+            used |= wall.getLevel() == level;
+          }
+          if (used) {
+            heights.put(Float.valueOf(level.getElevation()), String.format(java.util.Locale.US, "+%.2f", level.getElevation() / 100));
+          }
+        }
+      }
+      heights.put(Float.valueOf((float)top), String.format(java.util.Locale.US, "+%.2f", top / 100));
+      float topY = (float)(height / 2. - (top - middle) / scale);
+      lines.add(new float [] {axisX, groundY, axisX, topY});
+      text.append(" Heights drawn at the left, in meters above that floor:");
+      for (Map.Entry<Float, String> entry : heights.entrySet()) {
+        float markY = (float)(height / 2. - (entry.getKey() - middle) / scale);
+        lines.add(new float [] {axisX - 6, markY, axisX + 6, markY});
+        texts.add(entry.getValue());
+        places.add(new float [] {axisX - 26, markY});
+        text.append(' ').append(entry.getValue());
+      }
+      text.append('.');
+      byte [] annotated = annotator.annotate(picture, lines.toArray(new float [lines.size()][]),
+          texts.toArray(new String [texts.size()]), places.toArray(new float [places.size()][]));
+      if (annotated != null) {
+        picture = annotated;
+      }
+    }
+    if (savedFile != null) {
+      try {
+        java.io.OutputStream out = new java.io.FileOutputStream(savedFile);
+        try {
+          out.write(picture);
+        } finally {
+          out.close();
+        }
+        text.insert(0, "Saved to " + savedFile.getAbsolutePath() + ". ");
+      } catch (java.io.IOException ex) {
+        return toolResult("Couldn't write " + saveTo + ": " + ex.getMessage(), true);
+      }
+    }
+    Map<String, Object> result = imageResult(picture);
+    ((List<Object>)result.get("content")).add(textContent(text.toString()));
     return result;
   }
 

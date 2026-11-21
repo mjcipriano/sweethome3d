@@ -2059,6 +2059,16 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       if (camera.getZ() > homeHeight) {
         frontClipDistance = Math.max(frontClipDistance, (camera.getZ() - homeHeight) / 10);
       }
+      // Seen from very far, as for an elevation, nothing is close to the camera:
+      // a front distance of a few centimeters would leave no precision to sort what is far
+      BoundingBox approximateHomeBounds = getApproximateHomeBounds();
+      if (approximateHomeBounds != null
+          && !approximateHomeBounds.intersect(new Point3d(camera.getX(), camera.getY(), camera.getZ()))) {
+        float distanceToClosestBoxSide = getDistanceToBox(camera.getX(), camera.getY(), camera.getZ(), approximateHomeBounds);
+        if (!Float.isNaN(distanceToClosestBoxSide) && distanceToClosestBoxSide > 10000) {
+          frontClipDistance = Math.max(frontClipDistance, 0.5f * distanceToClosestBoxSide);
+        }
+      }
     }
     if (camera.getZ() > 0 && width != 0 && height != 0) {
       float halfVerticalFieldOfView = (float)Math.atan(Math.tan(fieldOfView / 2) * height / width);

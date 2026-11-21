@@ -5359,6 +5359,41 @@ public class HomePane extends JRootPane implements HomeView {
         });
       this.mcpHandler.setModelSizeProvider(new AssistantModelSizeProvider());
       this.mcpHandler.setModelInspector(new AssistantModelInspector());
+      this.mcpHandler.setImageAnnotator(new HomeMCPHandler.ImageAnnotator() {
+          public byte [] annotate(byte [] image, float [][] lines, String [] texts, float [][] textPlaces) {
+            try {
+              BufferedImage picture = ImageIO.read(new java.io.ByteArrayInputStream(image));
+              Graphics2D g2D = picture.createGraphics();
+              g2D.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+              g2D.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+              g2D.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, Math.max(11, picture.getWidth() / 90)));
+              java.awt.FontMetrics metrics = g2D.getFontMetrics();
+              // White under black, to be read over any color
+              for (int pass = 0; pass < 2; pass++) {
+                g2D.setColor(pass == 0 ? new Color(255, 255, 255, 220) : new Color(20, 20, 20));
+                g2D.setStroke(new java.awt.BasicStroke(pass == 0 ? 4f : 1.4f));
+                for (float [] line : lines) {
+                  g2D.draw(new java.awt.geom.Line2D.Float(line [0], line [1], line [2], line [3]));
+                }
+              }
+              for (int i = 0; i < texts.length; i++) {
+                int textWidth = metrics.stringWidth(texts [i]);
+                float x = textPlaces [i][0] - textWidth / 2f;
+                float y = textPlaces [i][1] + metrics.getAscent() / 2f - 1;
+                g2D.setColor(new Color(255, 255, 255, 215));
+                g2D.fill(new java.awt.geom.Rectangle2D.Float(x - 3, y - metrics.getAscent(), textWidth + 6, metrics.getHeight()));
+                g2D.setColor(new Color(20, 20, 20));
+                g2D.drawString(texts [i], x, y);
+              }
+              g2D.dispose();
+              ByteArrayOutputStream out = new ByteArrayOutputStream();
+              ImageIO.write(picture, "png", out);
+              return out.toByteArray();
+            } catch (IOException ex) {
+              return null;
+            }
+          }
+        });
       this.mcpHandler.setSceneExporter(new HomeMCPHandler.SceneExporter() {
           public String exportForBlender(File folder) throws Exception {
             return HomePane.this.exportForBlender(folder).getAbsolutePath();

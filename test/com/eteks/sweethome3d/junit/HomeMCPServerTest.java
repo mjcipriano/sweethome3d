@@ -135,7 +135,7 @@ public class HomeMCPServerTest {
 
       response = call(handler, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}");
       List<Object> tools = (List<Object>)((Map<String, Object>)response.get("result")).get("tools");
-      assertEquals(30, tools.size());
+      assertEquals(31, tools.size());
       for (Object tool : tools) {
         Map<String, Object> toolMap = (Map<String, Object>)tool;
         assertNotNull(toolMap.get("name"));
@@ -848,7 +848,7 @@ public class HomeMCPServerTest {
       Map<String, Object> result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [0])).get("result");
       assertEquals("2025-06-18", result.get("protocolVersion"));
       result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [1])).get("result");
-      assertEquals(30, ((List<Object>)result.get("tools")).size());
+      assertEquals(31, ((List<Object>)result.get("tools")).size());
       result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [2])).get("result");
       assertEquals(Boolean.TRUE, result.get("isError"));
       assertTrue(lines [2], lines [2].contains("Start server"));
