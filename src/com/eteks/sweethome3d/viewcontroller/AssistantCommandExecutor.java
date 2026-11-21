@@ -81,6 +81,10 @@ public class AssistantCommandExecutor {
   private final AssistantObjectCommands   objectCommands;
   private final AssistantPlanCommands     planCommands;
   private final AssistantSiteCommands      siteCommands;
+  private final AssistantArrangeCommands arrangeCommands;
+  private final AssistantGardenCommands gardenCommands;
+  private final AssistantScheduleCommands scheduleCommands;
+  private final AssistantSceneCommands sceneCommands;
   private final AssistantLayerCommands    layerCommands;
   private final AssistantLibraryCommands  libraryCommands;
   private final AssistantDesignCommands   designCommands;
@@ -116,6 +120,10 @@ public class AssistantCommandExecutor {
     this.planCommands = new AssistantPlanCommands(home, homeController, this,
         this.buildingCommands, this.objectCommands);
     this.siteCommands = new AssistantSiteCommands(home, homeController, this);
+    this.arrangeCommands = new AssistantArrangeCommands(home, preferences, homeController, this);
+    this.gardenCommands = new AssistantGardenCommands(home, preferences, homeController, this);
+    this.scheduleCommands = new AssistantScheduleCommands(home, preferences, homeController, this);
+    this.sceneCommands = new AssistantSceneCommands(home, preferences, homeController, this);
     this.layerCommands = new AssistantLayerCommands(home, homeController, this);
     this.libraryCommands = new AssistantLibraryCommands(home, preferences, homeController, this);
     this.designCommands = new AssistantDesignCommands(home, preferences, homeController, this, this.buildingCommands);
@@ -680,7 +688,11 @@ public class AssistantCommandExecutor {
                && !this.layerCommands.apply(action, command, tally, notes)
                && !this.libraryCommands.apply(action, command, tally, notes)
                && !this.designCommands.apply(action, command, tally, notes)
-               && !this.siteCommands.apply(action, command, tally, notes)) {
+               && !this.siteCommands.apply(action, command, tally, notes)
+               && !this.arrangeCommands.apply(action, command, tally, notes)
+               && !this.gardenCommands.apply(action, command, tally, notes)
+               && !this.scheduleCommands.apply(action, command, tally, notes)
+               && !this.sceneCommands.apply(action, command, tally, notes)) {
       this.planCommands.apply(action, command, tally, notes);
     }
     // Unknown actions are ignored so a single bad command doesn't break a turn
