@@ -1,5 +1,15 @@
 # Changelog
 
+## [7.27.0](https://github.com/mjcipriano/sweethome3d/compare/v7.26.0...v7.27.0) (2026-11-21)
+
+
+### Features
+
+* one-key standard views of the house and sideways moves of the 3D view ([cff5f1b](https://github.com/mjcipriano/sweethome3d/commit/cff5f1ba457709d618389ac566fed5c9f7dc1fa2))
+* one-key standard views of the house and sideways moves of the 3D view ([2d24661](https://github.com/mjcipriano/sweethome3d/commit/2d2466106a18ec71bc18cac4867461b5543fd21a))
+* site lines, georeference, roof and dormer edits, and MCP connector fixes ([d61a32c](https://github.com/mjcipriano/sweethome3d/commit/d61a32cc24863d7a24615497f8f918be063f652f))
+* site lines, georeference, roof and dormer edits, and MCP connector fixes ([b5cfe24](https://github.com/mjcipriano/sweethome3d/commit/b5cfe2404057924374f872dadd8463fccef434eb))
+
 ## [7.26.0](https://github.com/mjcipriano/sweethome3d/compare/v7.25.0...v7.26.0) (2026-11-20)
 
 
