@@ -99,6 +99,7 @@ public class AssistantPanel extends JPanel {
         ? new AssistantCommandExecutor(home, preferences, homeController) : null;
     if (this.commandExecutor != null) {
       this.commandExecutor.setModelSizeProvider(new AssistantModelSizeProvider());
+      this.commandExecutor.setModelInspector(new AssistantModelInspector());
     }
     setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 

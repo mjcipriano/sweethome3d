@@ -130,6 +130,21 @@ public class HomeMCPHandler {
     private final boolean allLevels;
     private final int     previewWidth;
     private final int     timeout;
+    private Home          drawnHome;
+
+    /**
+     * Sets the home to draw in place of the home of the handler: one of its versions.
+     */
+    public void setDrawnHome(Home drawnHome) {
+      this.drawnHome = drawnHome;
+    }
+
+    /**
+     * Returns the home to draw in place of the home of the handler, or <code>null</code>.
+     */
+    public Home getDrawnHome() {
+      return this.drawnHome;
+    }
 
     public Image3DRequest(int width, int height, String renderer, boolean shadows, boolean ambientOcclusion,
                           boolean highQuality, HomeViewpoints.Pose pose, Level level, boolean allLevels,
@@ -272,6 +287,74 @@ public class HomeMCPHandler {
   private volatile SceneExporter sceneExporter;
 
   /**
+   * What this handler asks the application to do with files and windows.
+   */
+  public interface HomeOperations {
+    /**
+     * Writes the home in the file or folder <code>target</code> in the given format
+     * (pdf, svg, obj, csv, web_page or panorama) and returns what was written.
+     */
+    String export(String format, java.io.File target, Map<String, Object> options) throws Exception;
+
+    /**
+     * Makes the MCP server answer for <code>otherHome</code>, open in the application,
+     * with the same permissions, and returns a sentence about it.
+     */
+    String serve(Home otherHome) throws Exception;
+
+    /**
+     * Starts a visit of the home in the browser of the user: <code>game</code> or <code>walk</code>.
+     */
+    String startVisit(String mode) throws Exception;
+  }
+
+  /**
+   * Draws lines and texts over a picture.
+   */
+  public interface ImageAnnotator {
+    /**
+     * Returns the PNG <code>image</code> with the given lines <code>{x1, y1, x2, y2}</code> and
+     * texts drawn over it, in pixels. A text is centered on its place <code>{x, y}</code>.
+     */
+    byte [] annotate(byte [] image, float [][] lines, String [] texts, float [][] textPlaces);
+  }
+
+  private volatile ImageAnnotator imageAnnotator;
+
+  /**
+   * Sets the object that draws the dimensions of elevation pictures.
+   */
+  public void setImageAnnotator(ImageAnnotator imageAnnotator) {
+    this.imageAnnotator = imageAnnotator;
+  }
+
+  private volatile HomeOperations homeOperations;
+  private volatile boolean        savingAllowed;
+  private HomeChangeJournal       changeJournal;
+
+  /**
+   * Sets the object that exports the home and switches between homes.
+   */
+  public void setHomeOperations(HomeOperations homeOperations) {
+    this.homeOperations = homeOperations;
+  }
+
+  /**
+   * Returns whether clients may save the home in its own file.
+   */
+  public boolean isSavingAllowed() {
+    return this.savingAllowed && isEditingAllowed();
+  }
+
+  /**
+   * Sets whether clients may save the home in its own file and replace files.
+   * Without it they can only save versions and copies in new files.
+   */
+  public void setSavingAllowed(boolean savingAllowed) {
+    this.savingAllowed = savingAllowed;
+  }
+
+  /**
    * Sets the object that exports the home for the <code>export_blender</code> tool.
    */
   public void setSceneExporter(SceneExporter sceneExporter) {
@@ -283,6 +366,13 @@ public class HomeMCPHandler {
    */
   public void setModelSizeProvider(AssistantCommandExecutor.ModelSizeProvider modelSizeProvider) {
     this.commandExecutor.setModelSizeProvider(modelSizeProvider);
+  }
+
+  /**
+   * Sets the object that reads the materials and the hinges of 3D models.
+   */
+  public void setModelInspector(AssistantCommandExecutor.ModelInspector modelInspector) {
+    this.commandExecutor.setModelInspector(modelInspector);
   }
 
   /**
@@ -305,6 +395,7 @@ public class HomeMCPHandler {
     this.homeController = homeController;
     this.commandExecutor = new AssistantCommandExecutor(home, preferences, homeController);
     this.serverVersion = serverVersion != null ? serverVersion : "";
+    this.changeJournal = new HomeChangeJournal(home);
   }
 
   /**
@@ -450,7 +541,21 @@ public class HomeMCPHandler {
         }
         // A group of calls left open by a client that went away mustn't keep the changes of the user out of Undo
         this.commandExecutor.endIdleGroup(AssistantCommandExecutor.GROUP_IDLE_DELAY);
-        return result(id, callTool((String)name, arguments));
+        // What the tools change isn't a change made by the user by hand
+        this.changeJournal.setPaused(true);
+        try {
+          Map<String, Object> toolResult = callTool((String)name, arguments);
+          int handChanges = this.changeJournal.getChangeCount();
+          if (handChanges > 0 && toolResult.get("content") instanceof List
+              && ("apply_commands".equals(name) || "get_home".equals(name) || "check_home".equals(name)
+                  || "undo".equals(name) || "redo".equals(name))) {
+            ((List<Object>)toolResult.get("content")).add(textContent("Note: the user changed " + handChanges
+                + (handChanges == 1 ? " item" : " items") + " by hand since your last get_changes: call get_changes to see which."));
+          }
+          return result(id, toolResult);
+        } finally {
+          this.changeJournal.setPaused(false);
+        }
       } else {
         return error(id, METHOD_NOT_FOUND, "Method not found: " + method);
       }
@@ -549,7 +654,12 @@ public class HomeMCPHandler {
         || "get_3d_image".equals(name) || "get_3d_info".equals(name) || "get_catalog_image".equals(name)
         || "export_blender".equals(name)
         || "get_notes".equals(name) || "update_note".equals(name)
-        || "apply_commands".equals(name) || "undo".equals(name) || "redo".equals(name);
+        || "apply_commands".equals(name) || "undo".equals(name) || "redo".equals(name)
+        || "save_version".equals(name) || "list_versions".equals(name) || "compare_versions".equals(name)
+        || "restore_version".equals(name) || "save_home".equals(name) || "list_homes".equals(name)
+        || "open_home".equals(name) || "new_home".equals(name) || "switch_home".equals(name)
+        || "export_home".equals(name) || "get_history".equals(name) || "get_changes".equals(name)
+        || "add_note".equals(name) || "start_visit".equals(name) || "get_elevation_image".equals(name);
   }
 
   /**
@@ -764,8 +874,111 @@ public class HomeMCPHandler {
         + "undoable change, and returns a summary of what was applied or skipped. "
         + HomeAssistantContext.getCommandReference(),
         schema(commandsProperties), false));
-    tools.add(tool("undo", "Undo", "Undoes the last change made to the home.", schema(null), false));
-    tools.add(tool("redo", "Redo", "Redoes the last undone change.", schema(null), false));
+    Map<String, Object> elevationProperties = new LinkedHashMap<String, Object>();
+    elevationProperties.put("side", enumProperty("The side the building is seen from", "south", "north", "east", "west"));
+    elevationProperties.put("width", property("number", "Width of the image in pixels (default 1200, at most 2000)"));
+    elevationProperties.put("height", property("number", "Height of the image in pixels (default 700, at most 1500)"));
+    elevationProperties.put("dimensions", property("boolean", "Draws the width of the building and the heights of its levels and of its top (default true)"));
+    elevationProperties.put("save_to", property("string", "Absolute path of a .png file to write the picture to"));
+    elevationProperties.put("replace", property("boolean", "true to replace the file of save_to if it exists"));
+    tools.add(tool("get_elevation_image", "Elevation picture",
+        "Returns an elevation of the building: a picture of one of its sides drawn square on from the real 3D "
+        + "models (roofs, dormers, doors, windows, textures), without perspective to within 2 %, with the width "
+        + "of the building and the heights of its levels and of its top in meters. The export_elevation command "
+        + "writes a schematic line drawing in SVG instead.",
+        schema(elevationProperties, "side"), true));
+    Map<String, Object> stepsProperties = new LinkedHashMap<String, Object>();
+    stepsProperties.put("steps", property("number", "How many changes (default 1, at most 50); get_history lists them"));
+    tools.add(tool("undo", "Undo", "Undoes the last change made to the home, or the last \"steps\" changes.",
+        schema(stepsProperties), false));
+    tools.add(tool("redo", "Redo", "Redoes the last undone change, or the last \"steps\" undone changes.",
+        schema(stepsProperties), false));
+    tools.add(tool("get_history", "Undo history",
+        "Lists the changes that undo and redo would revert or apply again, the most recent first, "
+        + "made by you or by the user.", schema(null), true));
+    tools.add(tool("get_changes", "Changes made by hand",
+        "Lists the items the user added, deleted or modified by hand in Sweet Home 3D since you last called "
+        + "this tool, with their ids. Other answers end with a note when there are such changes.",
+        schema(null), true));
+    Map<String, Object> versionProperties = new LinkedHashMap<String, Object>();
+    versionProperties.put("label", property("string", "A few words that describe this state of the home, e.g. \"before moving the kitchen\""));
+    tools.add(tool("save_version", "Save a version",
+        "Saves a copy of the home as a named version in the folder of versions beside its file "
+        + "(File > Versions... in Sweet Home 3D). The home and its file don't change. Do it before a large "
+        + "change, to be able to compare or to come back. The home must have been saved in a file once by the user.",
+        schema(versionProperties), false));
+    tools.add(tool("list_versions", "List versions", "Lists the versions saved for this home, the most recent first.",
+        schema(null), true));
+    Map<String, Object> compareProperties = new LinkedHashMap<String, Object>();
+    compareProperties.put("version", property("string", "The version: its number in list_versions (1 = the most recent) or a part of its label"));
+    compareProperties.put("with", property("string", "Another version to compare it with (default: the home as it is now)"));
+    compareProperties.put("picture", property("boolean", "true to add a picture: the version at the left, the other state at the right"));
+    compareProperties.put("view", property("string", "The view of that picture, as in get_3d_image (default south_east)"));
+    tools.add(tool("compare_versions", "Compare versions",
+        "Says what changed from a version to the home as it is now, or to another version: counts and areas, "
+        + "then the items added, removed, moved or resized with their ids. Optionally with a side by side picture.",
+        schema(compareProperties, "version"), true));
+    Map<String, Object> restoreProperties = new LinkedHashMap<String, Object>();
+    restoreProperties.put("version", property("string", "The version: its number in list_versions or a part of its label"));
+    restoreProperties.put("keep_current", property("boolean", "Saves the current state as a version first (default true)"));
+    tools.add(tool("restore_version", "Restore a version",
+        "Replaces the levels and items of the home by the ones of a version, as one change that undo reverts. "
+        + "The file of the home isn't written. The ids of the items are the ones they had in that version.",
+        schema(restoreProperties, "version"), false));
+    Map<String, Object> saveProperties = new LinkedHashMap<String, Object>();
+    saveProperties.put("copy_to", property("string", "Absolute path of a .sh3d file to write a copy to, instead of saving the home in its own file"));
+    saveProperties.put("replace", property("boolean", "With copy_to: true to replace a file that exists (needs the permission to save)"));
+    tools.add(tool("save_home", "Save the home",
+        "Saves the home in its own file, which needs the permission \"Allow saving\" of the user in Sweet Home 3D "
+        + "(Help > Claude MCP server...). With copy_to, writes a copy in a new file instead, which only needs the "
+        + "permission to change things: the home keeps its file and its unsaved state. Prefer save_version for checkpoints.",
+        schema(saveProperties), false));
+    tools.add(tool("list_homes", "List open homes",
+        "Lists the homes open in Sweet Home 3D with their files, and which one this connection reads and edits.",
+        schema(null), true));
+    Map<String, Object> openProperties = new LinkedHashMap<String, Object>();
+    openProperties.put("path", property("string", "Absolute path of the .sh3d file"));
+    tools.add(tool("open_home", "Open a home",
+        "Opens a .sh3d file in a new window of Sweet Home 3D and makes this connection read and edit it "
+        + "(the home open before stays open). To work on a copy: save_home with copy_to, then open_home on the copy.",
+        schema(openProperties, "path"), false));
+    tools.add(tool("new_home", "New home",
+        "Creates an empty home in a new window of Sweet Home 3D and makes this connection read and edit it.",
+        schema(null), false));
+    Map<String, Object> switchProperties = new LinkedHashMap<String, Object>();
+    switchProperties.put("home", property("string", "The number of the home in list_homes, or a part of its file name"));
+    tools.add(tool("switch_home", "Switch home",
+        "Makes this connection read and edit another home already open in Sweet Home 3D.",
+        schema(switchProperties, "home"), false));
+    Map<String, Object> exportProperties = new LinkedHashMap<String, Object>();
+    exportProperties.put("format", enumProperty("pdf: the printed pages (plan, furniture list, 3D view); svg: the plan as a drawing; "
+        + "obj: the 3D model with its materials; csv: the furniture list; web_page: a folder with the 3D visit for a browser; "
+        + "panorama: a 360 degree picture from the place of the virtual visitor, with its page",
+        "pdf", "svg", "obj", "csv", "web_page", "panorama"));
+    exportProperties.put("path", property("string", "Absolute path of the file to write (pdf, svg, obj, csv), or of an existing folder that will receive a new folder (web_page, panorama)"));
+    exportProperties.put("replace", property("boolean", "true to replace a file that exists"));
+    exportProperties.put("width", property("number", "panorama: width of the picture in pixels (default 4096, from 1024 to 8192)"));
+    tools.add(tool("export_home", "Export the home",
+        "Writes the home in another format. Pictures are made by get_3d_image and get_plan_image (save_to), "
+        + "elevation drawings by the export_elevation command, a Blender scene by export_blender.",
+        schema(exportProperties, "format", "path"), false));
+    Map<String, Object> addNoteProperties = new LinkedHashMap<String, Object>();
+    addNoteProperties.put("text", property("string", "The note, for the user to read"));
+    addNoteProperties.put("id", property("string", "The item the note is pinned to (F#, W#, R#); or give x and y"));
+    addNoteProperties.put("x", property("number", "Abscissa of the place of the note in cm"));
+    addNoteProperties.put("y", property("number", "Ordinate of the place of the note in cm"));
+    addNoteProperties.put("height", property("number", "Height of the note above the floor of its level in cm (default 120)"));
+    tools.add(tool("add_note", "Add a review note",
+        "Pins a review note to an item or a place of the home, which the user reads in the walk-through, the game "
+        + "mode and Tools > Review notes...: a question, something to check on site, why something was done.",
+        schema(addNoteProperties, "text"), false));
+    Map<String, Object> visitProperties = new LinkedHashMap<String, Object>();
+    visitProperties.put("mode", enumProperty("game: walk, jump and fly as in a video game; walk: the walk-through for a screen or a VR headset",
+        "game", "walk"));
+    tools.add(tool("start_visit", "Start a visit",
+        "Opens the visit of the home in the web browser of the user, from the place of the virtual visitor "
+        + "(set_camera with mode visitor moves it). Only when the user asks to see or visit the home.",
+        schema(visitProperties), false));
     return tools;
   }
 
@@ -890,6 +1103,19 @@ public class HomeMCPHandler {
       return toolResult(HomeReviewNotes.describe(this.home, !Boolean.TRUE.equals(arguments.get("all"))), false);
     } else if ("get_plan_image".equals(name)) {
       return getPlanImage(arguments);
+    } else if ("get_elevation_image".equals(name)) {
+      return getElevationImage(arguments);
+    } else if ("get_history".equals(name)) {
+      return toolResult(describeHistory(), false);
+    } else if ("get_changes".equals(name)) {
+      this.commandExecutor.snapshotDescribedItems();
+      return toolResult(this.changeJournal.describe(true), false);
+    } else if ("list_versions".equals(name)) {
+      return toolResult(HomeVersions.describe(this.home), false);
+    } else if ("compare_versions".equals(name)) {
+      return compareVersions(arguments);
+    } else if ("list_homes".equals(name)) {
+      return toolResult(describeHomes(), false);
     } else if (!isEditingAllowed()) {
       return toolResult("Editing is disabled: the user didn't allow changes to this home. "
           + "Ask them to enable it in Sweet Home 3D (Help > Claude MCP server).", true);
@@ -922,21 +1148,44 @@ public class HomeMCPHandler {
       } catch (Exception ex) {
         return toolResult("Couldn't export the home: " + ex.getMessage(), true);
       }
-    } else if ("undo".equals(name)) {
+    } else if ("save_version".equals(name) || "restore_version".equals(name) || "save_home".equals(name)
+               || "open_home".equals(name) || "new_home".equals(name) || "switch_home".equals(name)
+               || "export_home".equals(name) || "add_note".equals(name) || "start_visit".equals(name)) {
       try {
-        boolean groupEnded = this.commandExecutor.endGroup();
-        this.homeController.undo();
-        return toolResult(groupEnded ? "Ended the group of calls and undid it as one step." : "Undone.", false);
-      } catch (CannotUndoException ex) {
-        return toolResult("Nothing to undo.", true);
+        return callFileTool(name, arguments);
+      } catch (Exception ex) {
+        return toolResult("Couldn't run " + name + ": " + (ex.getMessage() != null ? ex.getMessage() : ex.toString()), true);
       }
+    } else if ("undo".equals(name) || "redo".equals(name)) {
+      boolean undo = "undo".equals(name);
+      int steps = (int)Math.max(1, Math.min(50, number(arguments, "steps", 1)));
+      boolean groupEnded = undo && this.commandExecutor.endGroup();
+      List<String> names = undo ? this.homeController.getUndoHistory(steps) : this.homeController.getRedoHistory(steps);
+      int done = 0;
+      try {
+        for (; done < steps; done++) {
+          if (undo) {
+            this.homeController.undo();
+          } else {
+            this.homeController.redo();
+          }
+        }
+      } catch (RuntimeException ex) {
+        // CannotUndoException or CannotRedoException: nothing left
+      }
+      if (done == 0) {
+        return toolResult(undo ? "Nothing to undo." : "Nothing to redo.", true);
+      } else if (steps == 1) {
+        return toolResult(undo ? (groupEnded ? "Ended the group of calls and undid it as one step." : "Undone.") : "Redone.", false);
+      }
+      StringBuilder text = new StringBuilder((undo ? "Undid " : "Redid ") + done + (done == 1 ? " change" : " changes")
+          + (done < steps ? " (there were no more)" : "") + ":");
+      for (int i = 0; i < done && i < names.size(); i++) {
+        text.append("\n- ").append(names.get(i));
+      }
+      return toolResult(text.toString(), false);
     } else {
-      try {
-        this.homeController.redo();
-        return toolResult("Redone.", false);
-      } catch (CannotRedoException ex) {
-        return toolResult("Nothing to redo.", true);
-      }
+      return toolResult("Unknown tool: " + name, true);
     }
   }
 
@@ -1397,6 +1646,463 @@ public class HomeMCPHandler {
     result.put("content", contents);
     result.put("isError", Boolean.valueOf(count == 0));
     return result;
+  }
+
+  private static String formatMeters(double centimeters) {
+    return String.format(java.util.Locale.US, "%.2f m", centimeters / 100);
+  }
+
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> getElevationImage(Map<String, Object> arguments) {
+    ImageProvider provider = this.imageProvider;
+    if (provider == null) {
+      return toolResult("The home can't be rendered in 3D here.", true);
+    }
+    String side = string(arguments, "side") != null ? string(arguments, "side").toLowerCase() : "";
+    if (!"south".equals(side) && !"north".equals(side) && !"east".equals(side) && !"west".equals(side)) {
+      return toolResult("\"side\" is south, north, east or west: the side the building is seen from.", true);
+    }
+    int width = (int)Math.max(300, Math.min(2000, number(arguments, "width", 1200)));
+    int height = (int)Math.max(200, Math.min(1500, number(arguments, "height", 700)));
+    String saveTo = string(arguments, "save_to");
+    java.io.File savedFile = null;
+    if (saveTo != null) {
+      savedFile = new java.io.File(saveTo);
+      if (!isEditingAllowed()) {
+        return toolResult("Writing a file needs the permission to change things.", true);
+      } else if (!savedFile.isAbsolute() || !savedFile.getName().toLowerCase().endsWith(".png")
+          || savedFile.getParentFile() == null || !savedFile.getParentFile().isDirectory()) {
+        return toolResult("\"save_to\" must be the absolute path of a .png file in a folder that exists.", true);
+      } else if (savedFile.exists() && !bool(arguments, "replace", false)) {
+        return toolResult(savedFile + " exists: give \"replace\":true to replace it.", true);
+      }
+    }
+    // The building: its walls, and its roofs and what was built on them
+    List<Selectable> building = new ArrayList<Selectable>(this.home.getWalls());
+    float [] wallBounds = HomeViewpoints.getBounds(this.home, building, null);
+    if (wallBounds == null) {
+      return toolResult("This home has no wall to draw an elevation of.", true);
+    }
+    for (com.eteks.sweethome3d.model.HomePieceOfFurniture piece : this.home.getFurniture()) {
+      String structure = piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY);
+      if (piece.isVisible() && ("roof".equals(structure) || "dormer".equals(structure) || "custom".equals(structure))) {
+        building.add(piece);
+      }
+    }
+    float [] bounds = HomeViewpoints.getBounds(this.home, building, null);
+    boolean alongX = "south".equals(side) || "north".equals(side);
+    double left = alongX ? bounds [0] : bounds [1];
+    double right = alongX ? bounds [3] : bounds [4];
+    double bottom = Math.min(0, bounds [2]);
+    double top = bounds [5];
+    double buildingWidth = right - left;
+    double buildingHeight = top - bottom;
+    // Centimeters for a pixel, with room around the building for its dimensions
+    double scale = Math.max(buildingWidth * 1.3 / width, buildingHeight * 1.4 / height);
+    double center = (left + right) / 2;
+    double middle = (bottom + top) / 2 - 0.04 * height * scale;
+    // Seen from so far that lines that go away from the eye stay parallel to within 2 %
+    double depth = alongX ? bounds [4] - bounds [1] : bounds [3] - bounds [0];
+    double distance = Math.max(depth, Math.max(buildingWidth, buildingHeight)) * 50;
+    float fieldOfView = (float)(2 * Math.atan(scale * width / 2 / distance));
+    float x = (float)("east".equals(side) ? bounds [3] + distance : "west".equals(side) ? bounds [0] - distance : center);
+    float y = (float)("south".equals(side) ? bounds [4] + distance : "north".equals(side) ? bounds [1] - distance : center);
+    float yaw = (float)Math.toRadians("south".equals(side) ? 180 : "north".equals(side) ? 0 : "east".equals(side) ? 90 : 270);
+    HomeViewpoints.Pose pose = new HomeViewpoints.Pose(x, y, (float)middle, yaw, 0, fieldOfView, true);
+    Image3D image = provider.get3DImage(new Image3DRequest(width, height, Image3DRequest.OPENGL, true, true, false,
+        pose, null, true, 0));
+    if (image == null || image.getImage() == null) {
+      return toolResult(image != null && image.getDescription() != null ? image.getDescription()
+          : "The elevation couldn't be drawn here.", true);
+    }
+    byte [] picture = image.getImage();
+    // Where the walls of the building stand in the picture
+    double wallLeft = alongX ? wallBounds [0] : wallBounds [1];
+    double wallRight = alongX ? wallBounds [3] : wallBounds [4];
+    // In the pictures from the north and from the east, the plan is seen mirrored
+    boolean mirrored = "north".equals(side) || "east".equals(side);
+    double pixelLeft = width / 2. + (mirrored ? center - wallRight : wallLeft - center) / scale;
+    double pixelRight = width / 2. + (mirrored ? center - wallLeft : wallRight - center) / scale;
+    StringBuilder text = new StringBuilder("Elevation seen from the " + side + ", " + width + " x " + height + " pixels, "
+        + String.format(java.util.Locale.US, "%.2f", scale) + " cm for a pixel. The walls are " + formatMeters(wallRight - wallLeft)
+        + " wide on this side, the building " + formatMeters(buildingWidth) + " with its roofs; its top is "
+        + formatMeters(top) + " above the floor at the elevation 0.");
+    ImageAnnotator annotator = this.imageAnnotator;
+    if (bool(arguments, "dimensions", true) && annotator != null) {
+      List<float []> lines = new ArrayList<float []>();
+      List<String> texts = new ArrayList<String>();
+      List<float []> places = new ArrayList<float []>();
+      float groundY = (float)(height / 2. - (0 - middle) / scale);
+      // The width of the walls, under the ground line
+      float widthY = Math.min(height - 22, groundY + 34);
+      lines.add(new float [] {(float)pixelLeft, widthY, (float)pixelRight, widthY});
+      lines.add(new float [] {(float)pixelLeft, widthY - 7, (float)pixelLeft, widthY + 7});
+      lines.add(new float [] {(float)pixelRight, widthY - 7, (float)pixelRight, widthY + 7});
+      texts.add(formatMeters(wallRight - wallLeft));
+      places.add(new float [] {(float)(pixelLeft + pixelRight) / 2, widthY + 13});
+      // The heights, at the left of the building
+      float axisX = (float)Math.max(46, width / 2. - buildingWidth / 2 / scale - 30);
+      java.util.TreeMap<Float, String> heights = new java.util.TreeMap<Float, String>();
+      heights.put(Float.valueOf(0), "0.00");
+      for (Level level : this.home.getLevels()) {
+        if (level.isViewable() && level.getElevation() > 1 && level.getElevation() < top - 1) {
+          boolean used = false;
+          for (com.eteks.sweethome3d.model.Wall wall : this.home.getWalls()) {
+            used |= wall.getLevel() == level;
+          }
+          if (used) {
+            heights.put(Float.valueOf(level.getElevation()), String.format(java.util.Locale.US, "+%.2f", level.getElevation() / 100));
+          }
+        }
+      }
+      heights.put(Float.valueOf((float)top), String.format(java.util.Locale.US, "+%.2f", top / 100));
+      float topY = (float)(height / 2. - (top - middle) / scale);
+      lines.add(new float [] {axisX, groundY, axisX, topY});
+      text.append(" Heights drawn at the left, in meters above that floor:");
+      for (Map.Entry<Float, String> entry : heights.entrySet()) {
+        float markY = (float)(height / 2. - (entry.getKey() - middle) / scale);
+        lines.add(new float [] {axisX - 6, markY, axisX + 6, markY});
+        texts.add(entry.getValue());
+        places.add(new float [] {axisX - 26, markY});
+        text.append(' ').append(entry.getValue());
+      }
+      text.append('.');
+      byte [] annotated = annotator.annotate(picture, lines.toArray(new float [lines.size()][]),
+          texts.toArray(new String [texts.size()]), places.toArray(new float [places.size()][]));
+      if (annotated != null) {
+        picture = annotated;
+      }
+    }
+    if (savedFile != null) {
+      try {
+        java.io.OutputStream out = new java.io.FileOutputStream(savedFile);
+        try {
+          out.write(picture);
+        } finally {
+          out.close();
+        }
+        text.insert(0, "Saved to " + savedFile.getAbsolutePath() + ". ");
+      } catch (java.io.IOException ex) {
+        return toolResult("Couldn't write " + saveTo + ": " + ex.getMessage(), true);
+      }
+    }
+    Map<String, Object> result = imageResult(picture);
+    ((List<Object>)result.get("content")).add(textContent(text.toString()));
+    return result;
+  }
+
+  /**
+   * Returns the text or the whole number given for an argument, or <code>null</code>.
+   */
+  private static String token(Map<String, Object> arguments, String name) {
+    Object value = arguments.get(name);
+    if (value instanceof Number) {
+      return String.valueOf(((Number)value).longValue());
+    }
+    return value instanceof String && ((String)value).trim().length() > 0 ? ((String)value).trim() : null;
+  }
+
+  private String describeHistory() {
+    if (this.homeController == null) {
+      return "No history here.";
+    }
+    List<String> undoNames = this.homeController.getUndoHistory(30);
+    List<String> redoNames = this.homeController.getRedoHistory(30);
+    StringBuilder text = new StringBuilder();
+    if (undoNames.isEmpty()) {
+      text.append("Nothing to undo.");
+    } else {
+      text.append("Changes undo would revert, the most recent first (undo with \"steps\":N reverts the N first):");
+      for (int i = 0; i < undoNames.size(); i++) {
+        text.append('\n').append(i + 1).append(". ").append(undoNames.get(i));
+      }
+    }
+    if (!redoNames.isEmpty()) {
+      text.append("\nChanges redo would apply again, the next one first:");
+      for (int i = 0; i < redoNames.size(); i++) {
+        text.append('\n').append(i + 1).append(". ").append(redoNames.get(i));
+      }
+    }
+    if (this.commandExecutor.isGroupOpen()) {
+      text.append("\nA group of calls is open (begin_group): its changes count as one step once ended.");
+    }
+    text.append(this.home.isModified() ? "\nThe home has changes that aren't saved in its file." : "\nThe home is saved.");
+    return text.toString();
+  }
+
+  private String describeHomes() {
+    if (this.homeController == null) {
+      return "Only this home is known here.";
+    }
+    List<Home> homes = this.homeController.getOpenHomes();
+    if (!homes.contains(this.home)) {
+      homes.add(this.home);
+    }
+    StringBuilder text = new StringBuilder("Homes open in Sweet Home 3D:");
+    for (int i = 0; i < homes.size(); i++) {
+      Home openHome = homes.get(i);
+      text.append('\n').append(i + 1).append(". ").append(openHome.getName() != null ? openHome.getName() : "(never saved)")
+          .append(openHome.isModified() ? ", with unsaved changes" : "")
+          .append(openHome == this.home ? "  <- the home of this connection" : "");
+    }
+    return text.toString();
+  }
+
+  private Home findOpenHome(String token) {
+    List<Home> homes = this.homeController.getOpenHomes();
+    try {
+      int index = Integer.parseInt(token.trim());
+      return index >= 1 && index <= homes.size() ? homes.get(index - 1) : null;
+    } catch (NumberFormatException ex) {
+      // A name
+    }
+    Home match = null;
+    for (Home openHome : homes) {
+      if (openHome.getName() != null && (openHome.getName().equals(token.trim())
+          || new java.io.File(openHome.getName()).getName().toLowerCase().contains(token.trim().toLowerCase()))) {
+        if (match != null) {
+          return null;
+        }
+        match = openHome;
+      }
+    }
+    return match;
+  }
+
+  private Map<String, Object> compareVersions(Map<String, Object> arguments) {
+    if (this.homeController == null) {
+      return toolResult("Versions aren't available here.", true);
+    }
+    java.io.File version = HomeVersions.find(this.home, token(arguments, "version"));
+    if (version == null) {
+      return toolResult("No version, or several, match \"" + token(arguments, "version") + "\". "
+          + HomeVersions.describe(this.home), true);
+    }
+    java.io.File otherVersion = null;
+    if (token(arguments, "with") != null) {
+      otherVersion = HomeVersions.find(this.home, token(arguments, "with"));
+      if (otherVersion == null) {
+        return toolResult("No version, or several, match \"" + token(arguments, "with") + "\". "
+            + HomeVersions.describe(this.home), true);
+      }
+    }
+    try {
+      Home oldHome = this.homeController.readHomeVersion(version);
+      Home newHome = otherVersion != null ? this.homeController.readHomeVersion(otherVersion) : this.home;
+      String text = "From the version \"" + HomeVersions.getLabel(version) + "\" to "
+          + (otherVersion != null ? "the version \"" + HomeVersions.getLabel(otherVersion) + "\"" : "the home as it is now") + ":\n"
+          + HomeVersions.compare(oldHome, newHome) + "\n" + HomeVersions.compareItems(oldHome, newHome, 40);
+      ImageProvider provider = this.imageProvider;
+      ImageComposer composer = this.imageComposer;
+      if (bool(arguments, "picture", false) && provider != null && composer != null) {
+        String view = string(arguments, "view") != null ? string(arguments, "view") : "south_east";
+        HomeViewpoints.Pose pose;
+        try {
+          pose = HomeViewpoints.getPose(this.home, view, new ArrayList<com.eteks.sweethome3d.model.Selectable>(), null, 700f / 440, 0);
+        } catch (RuntimeException ex) {
+          return toolResult(text + "\nNo picture: " + ex.getMessage(), false);
+        }
+        byte [][] images = new byte [2][];
+        Home [] drawnHomes = {oldHome, otherVersion != null ? newHome : null};
+        for (int i = 0; i < 2; i++) {
+          Image3DRequest request = new Image3DRequest(700, 440, Image3DRequest.AUTO, true, true, false, pose, null, true, 0);
+          request.setDrawnHome(drawnHomes [i]);
+          Image3D image = provider.get3DImage(request);
+          images [i] = image != null ? image.getImage() : null;
+        }
+        byte [] composed = images [0] != null && images [1] != null ? composer.compose(images [0], images [1], false, 1) : null;
+        if (composed != null) {
+          Map<String, Object> result = imageResult(composed);
+          ((List<Object>)result.get("content")).add(textContent("Left: the version \"" + HomeVersions.getLabel(version)
+              + "\". Right: " + (otherVersion != null ? "the version \"" + HomeVersions.getLabel(otherVersion) + "\"" : "the home now")
+              + ".\n" + text));
+          return result;
+        }
+        text += "\nThe picture couldn't be drawn here.";
+      }
+      return toolResult(text, false);
+    } catch (Exception ex) {
+      return toolResult("Couldn't read the version: " + ex.getMessage(), true);
+    }
+  }
+
+  /**
+   * Runs the tools that write files, open homes or start a visit.
+   */
+  private Map<String, Object> callFileTool(String name, Map<String, Object> arguments) throws Exception {
+    HomeOperations operations = this.homeOperations;
+    if ("save_version".equals(name)) {
+      java.io.File version = this.homeController.saveHomeVersion(string(arguments, "label"));
+      return toolResult("Saved the version \"" + HomeVersions.getLabel(version) + "\" (" + version.getPath()
+          + "). The home and its file didn't change. compare_versions and restore_version use it.", false);
+    } else if ("restore_version".equals(name)) {
+      java.io.File version = HomeVersions.find(this.home, token(arguments, "version"));
+      if (version == null) {
+        return toolResult("No version, or several, match \"" + token(arguments, "version") + "\". "
+            + HomeVersions.describe(this.home), true);
+      }
+      this.commandExecutor.endGroup();
+      String kept = "";
+      if (bool(arguments, "keep_current", true)) {
+        java.io.File current = this.homeController.saveHomeVersion("before restore");
+        kept = " The state before it was saved as the version \"" + HomeVersions.getLabel(current) + "\".";
+      }
+      int count = this.homeController.restoreHomeVersion(version);
+      this.commandExecutor.clearDescribedItems();
+      return toolResult("Restored the version \"" + HomeVersions.getLabel(version) + "\": the home now holds its "
+          + count + " items and its levels. Undo reverts it. The file of the home wasn't written." + kept
+          + " Call get_home: ids are the ones of that version.", false);
+    } else if ("save_home".equals(name)) {
+      String copyTo = string(arguments, "copy_to");
+      if (copyTo != null) {
+        java.io.File file = new java.io.File(copyTo);
+        if (!file.isAbsolute() || !file.getName().toLowerCase().endsWith(".sh3d")) {
+          return toolResult("\"copy_to\" must be the absolute path of a .sh3d file.", true);
+        } else if (file.getParentFile() == null || !file.getParentFile().isDirectory()) {
+          return toolResult("The folder " + file.getParent() + " doesn't exist.", true);
+        } else if (file.exists() && !(bool(arguments, "replace", false) && isSavingAllowed())) {
+          return toolResult(file + " exists. Replacing a file needs \"replace\":true and the permission "
+              + "\"Allow saving\" in Sweet Home 3D (Help > Claude MCP server...); or give another name.", true);
+        } else if (file.getPath().equals(this.home.getName())) {
+          return toolResult("That is the file of the home: call save_home without copy_to.", true);
+        }
+        this.homeController.saveHomeCopy(file.getPath());
+        return toolResult("Wrote a copy of the home to " + file.getPath() + ". The home keeps its own file"
+            + (this.home.isModified() ? " and its unsaved changes" : "") + ". open_home opens the copy.", false);
+      } else if (!isSavingAllowed()) {
+        return toolResult("Saving the home in its file isn't allowed: the user didn't tick \"Allow saving\" in "
+            + "Sweet Home 3D (Help > Claude MCP server...). save_version keeps a checkpoint without it, and "
+            + "save_home with copy_to writes a copy in a new file.", true);
+      } else if (this.home.getName() == null) {
+        return toolResult("This home has no file yet: the user must save it once (File > Save as...), "
+            + "or call save_home with copy_to.", true);
+      }
+      this.commandExecutor.endGroup();
+      this.homeController.saveHomeNow(null);
+      return toolResult("Saved the home in " + this.home.getName() + ".", false);
+    } else if ("open_home".equals(name) || "new_home".equals(name) || "switch_home".equals(name)) {
+      if (operations == null) {
+        return toolResult("Homes can't be opened here.", true);
+      }
+      Home otherHome;
+      if ("new_home".equals(name)) {
+        otherHome = this.homeController.createHomeNow();
+      } else if ("open_home".equals(name)) {
+        String path = string(arguments, "path");
+        if (path == null || !new java.io.File(path).isAbsolute() || !new java.io.File(path).isFile()) {
+          return toolResult("\"path\" must be the absolute path of a .sh3d file that exists.", true);
+        }
+        otherHome = this.homeController.openHomeNow(path);
+      } else {
+        otherHome = token(arguments, "home") != null ? findOpenHome(token(arguments, "home")) : null;
+        if (otherHome == null) {
+          return toolResult("No open home, or several, match \"" + token(arguments, "home") + "\". " + describeHomes(), true);
+        }
+      }
+      if (otherHome == this.home) {
+        return toolResult("This connection already reads and edits that home.", false);
+      }
+      this.commandExecutor.endGroup();
+      String served = operations.serve(otherHome);
+      return toolResult(("new_home".equals(name) ? "Created an empty home. " : "open_home".equals(name)
+          ? "Opened " + otherHome.getName() + ". " : "") + served
+          + " The ids you know belong to the other home: call get_home.", false);
+    } else if ("export_home".equals(name)) {
+      if (operations == null) {
+        return toolResult("The home can't be exported here.", true);
+      }
+      String format = string(arguments, "format") != null ? string(arguments, "format").toLowerCase() : "";
+      String path = string(arguments, "path");
+      boolean folder = "web_page".equals(format) || "panorama".equals(format);
+      if (!folder && !"pdf".equals(format) && !"svg".equals(format) && !"obj".equals(format) && !"csv".equals(format)) {
+        return toolResult("\"format\" is pdf, svg, obj, csv, web_page or panorama.", true);
+      } else if (path == null || !new java.io.File(path).isAbsolute()) {
+        return toolResult("\"path\" must be an absolute path.", true);
+      }
+      java.io.File target = new java.io.File(path);
+      if (folder) {
+        if (!target.isDirectory()) {
+          return toolResult("For " + format + ", \"path\" is an existing folder: a new folder is created in it.", true);
+        }
+      } else {
+        if (!target.getName().toLowerCase().endsWith("." + format)) {
+          return toolResult("The name of the file must end with ." + format + ".", true);
+        } else if (target.getParentFile() == null || !target.getParentFile().isDirectory()) {
+          return toolResult("The folder " + target.getParent() + " doesn't exist.", true);
+        } else if (target.exists() && !bool(arguments, "replace", false)) {
+          return toolResult(target + " exists: give \"replace\":true to replace it, or another name.", true);
+        }
+      }
+      return toolResult(operations.export(format, target, arguments), false);
+    } else if ("add_note".equals(name)) {
+      return addNote(arguments);
+    } else {
+      if (operations == null) {
+        return toolResult("A visit can't be started here.", true);
+      }
+      String mode = string(arguments, "mode") != null ? string(arguments, "mode").toLowerCase() : "game";
+      if (!"game".equals(mode) && !"walk".equals(mode)) {
+        return toolResult("\"mode\" is game or walk.", true);
+      }
+      return toolResult(operations.startVisit(mode), false);
+    }
+  }
+
+  private Map<String, Object> addNote(Map<String, Object> arguments) {
+    String text = string(arguments, "text");
+    if (text == null) {
+      return toolResult("The \"text\" argument is required.", true);
+    }
+    String id = string(arguments, "id");
+    com.eteks.sweethome3d.model.HomeObject item = null;
+    String target = "ground";
+    String itemName = null;
+    Float x = arguments.get("x") instanceof Number ? Float.valueOf(((Number)arguments.get("x")).floatValue()) : null;
+    Float y = arguments.get("y") instanceof Number ? Float.valueOf(((Number)arguments.get("y")).floatValue()) : null;
+    Level level = this.home.getSelectedLevel();
+    if (id != null) {
+      item = HomeItemIds.find(this.home, id);
+      if (item instanceof com.eteks.sweethome3d.model.HomePieceOfFurniture) {
+        com.eteks.sweethome3d.model.HomePieceOfFurniture piece = (com.eteks.sweethome3d.model.HomePieceOfFurniture)item;
+        target = piece instanceof com.eteks.sweethome3d.model.HomeDoorOrWindow ? "door" : "furniture";
+        itemName = piece.getName();
+        level = piece.getLevel();
+        if (x == null || y == null) {
+          x = piece.getX();
+          y = piece.getY();
+        }
+      } else if (item instanceof com.eteks.sweethome3d.model.Wall) {
+        com.eteks.sweethome3d.model.Wall wall = (com.eteks.sweethome3d.model.Wall)item;
+        target = "wall";
+        level = wall.getLevel();
+        if (x == null || y == null) {
+          x = (wall.getXStart() + wall.getXEnd()) / 2;
+          y = (wall.getYStart() + wall.getYEnd()) / 2;
+        }
+      } else if (item instanceof com.eteks.sweethome3d.model.Room) {
+        com.eteks.sweethome3d.model.Room room = (com.eteks.sweethome3d.model.Room)item;
+        target = "room";
+        itemName = room.getName();
+        level = room.getLevel();
+        if (x == null || y == null) {
+          x = room.getXCenter();
+          y = room.getYCenter();
+        }
+      } else {
+        return toolResult("No piece of furniture, wall or room has the id " + id + ".", true);
+      }
+    } else if (x == null || y == null) {
+      return toolResult("Give the item of the note with \"id\", or its place with \"x\" and \"y\".", true);
+    }
+    float height = (float)number(arguments, "height", 120) + (level != null ? level.getElevation() : 0);
+    String noteId = HomeReviewNotes.addNote(this.home, text, target, item, itemName, x, y, Float.valueOf(height),
+        level != null ? level.getName() : null);
+    if (noteId == null) {
+      return toolResult("The home can't hold more notes: delete some with update_note.", true);
+    }
+    return toolResult("Added the note " + noteId + " on " + (id != null ? id : "the place (" + Math.round(x) + ", " + Math.round(y) + ")")
+        + "; " + HomeReviewNotes.getOpenCount(this.home) + " notes are open. The user reads it in Tools > Review notes..., "
+        + "the walk-through and the game mode.", false);
   }
 
   private static Map<String, Object> textContent(String text) {

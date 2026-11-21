@@ -51,6 +51,12 @@ in Sweet Home 3D.
   pictures, security.
 - [Command reference](docs/MCP_COMMANDS.md) - every edit command.
 
+Claude can also save versions of the home, compare and restore them, work on
+a copy, export the home (PDF, OBJ, a 3D web page...), draw dimensioned
+elevations, fence and plant the garden, furnish a room, and list doors,
+windows and symbols in schedules. It writes the file of your home only if
+you allow it.
+
 ### Model a whole house
 
 Roofs over any polygon with hips and gables, dormers and cross gables with

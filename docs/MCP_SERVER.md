@@ -127,10 +127,69 @@ check its work with a picture.
 | `get_notes` | The review notes pinned to walls, furniture and rooms during a visit ([Review notes](REVIEW_NOTES.md)) |
 | `update_note` | Marks a note done with a reply, or deletes it |
 | `apply_commands` | Runs a list of edit commands as one undoable change and returns a summary with the ids of what was created ([Command reference](MCP_COMMANDS.md)). `"file":"<absolute path>"` runs the commands of a JSON file instead, up to 2000 |
-| `undo` / `redo` | Undoes or redoes the last change |
+| `undo` / `redo` | Undoes or redoes the last change, or the last `steps` changes |
+| `get_history` | The changes undo and redo would revert or apply again, yours and Claude's |
+| `get_changes` | What you added, deleted or modified by hand since Claude last asked |
+| `get_elevation_image` | A picture of one side of the building drawn square on, with its dimensions ([below](#elevations)) |
+| `save_version`, `list_versions`, `compare_versions`, `restore_version` | Versions of the home ([below](#versions-and-saving)) |
+| `save_home` | Saves the home in its file if you allowed it, or writes a copy in a new file |
+| `list_homes`, `open_home`, `new_home`, `switch_home` | The homes open in the application, and which one Claude works on |
+| `export_home` | Writes the home as PDF, SVG, OBJ, CSV, a 3D web page or a 360 degree panorama |
+| `add_note` | Pins a review note to an item or a place |
+| `start_visit` | Opens the game mode or the walk-through in your browser |
 
-The tools can't save the home, can't open another one, and can't reach the
-network. Saving stays your decision: **File > Save**.
+The tools can't reach the network. They write the file of the home only if
+you tick **Allow saving this home in its file, and replacing files** in the
+dialog; without it, saving stays your decision (**File > Save**) and Claude
+can only keep versions and write copies in new files.
+
+## Versions and saving
+
+*"Save a version before you move the kitchen."* - *"What changed since this
+morning?"* - *"Go back to the version before the new roof."*
+
+| Tool | What it does |
+| --- | --- |
+| `save_version` | Saves a copy of the home with a `label` in the folder of versions beside its file, the one of **File > Versions...**. The home and its file don't change |
+| `list_versions` | The versions, the most recent first, numbered from 1 |
+| `compare_versions` | From a `version` (its number or a part of its label) to the home now, or to another version (`with`): counts and areas, then the items added, removed, moved, resized or renamed, with their ids. `"picture":true` adds both states side by side |
+| `restore_version` | Replaces the levels and the items of the home by the ones of a version, as **one change that undo reverts**. The state before it is saved as a version first (`"keep_current":false` skips that). The file of the home isn't written |
+| `save_home` | Saves the home in its file: needs **Allow saving**. With `"copy_to":"<path>.sh3d"` it writes a copy in a new file instead, and the home keeps its file and its unsaved state |
+
+![A version at the left, the home now at the right](images/compare-versions.jpg)
+
+A home needs a file before it can have versions: save it once yourself.
+Replacing a file that exists (`"replace":true`) needs **Allow saving** too.
+To let Claude try something on a copy: `save_home` with `copy_to`, then
+`open_home` on the copy.
+
+`open_home`, `new_home` and `switch_home` open or choose a home in its own
+window of Sweet Home 3D; from the next call Claude reads and edits that one,
+with the same permissions. The home open before stays open. Ids belong to
+their home.
+
+`get_changes` lists what you did by hand between two calls of Claude - a
+wall you drew, a sofa you moved - with ids. When there are such changes, the
+answers of `get_home`, `apply_commands`, `check_home`, `undo` and `redo` end
+with a note that says so.
+
+## Exports
+
+`export_home` takes a `format` and a `path`:
+
+| Format | Writes |
+| --- | --- |
+| `pdf` | The pages of **File > Print to PDF**: plan, furniture list, 3D view |
+| `svg` | The plan of the selected level |
+| `obj` | The 3D model, with its `.mtl` file and its textures beside it |
+| `csv` | The furniture list |
+| `web_page` | A new folder with the 3D visit for a browser, in the folder `path` |
+| `panorama` | A new folder with a 360 degree picture from the place of the virtual visitor and its page, in the folder `path` (`width` from 1024 to 8192) |
+
+A file that exists is replaced only with `"replace":true`. Pictures are made
+by `get_3d_image` and `get_plan_image`, elevation drawings in SVG by the
+`export_elevation` command, schedules in CSV by `export_schedule`, and a
+Blender scene by `export_blender`.
 
 ## Ids and filters
 
@@ -286,6 +345,20 @@ size, with this heap, only the OpenGL renderer is usable. Under WSLg the same
 home took 1.2 to 5.6 s without shadow, 8 to 35 s with shadows, and 71 s with
 the ray tracer.
 
+### Elevations
+
+`get_elevation_image` draws one `side` of the building (`south`, `north`,
+`east`, `west`) square on, from the real 3D models: roofs, dormers, doors,
+windows and textures. The camera stands so far that lines going away from
+it stay parallel to within 2 %. The width of the walls and the heights of
+the levels and of the top are drawn in meters; `"dimensions":false` leaves
+them out, and `save_to` writes the picture.
+
+![The south elevation of the demo house with its width and its heights](images/elevation-picture.jpg)
+
+The answer gives the scale in centimeters for a pixel, so other sizes can be
+measured in the picture. Trees and furniture in front of the building show.
+
 ### Comparing with a photo
 
 `"compare_with":"<absolute path of a PNG or JPEG>"` returns the picture of
@@ -329,15 +402,20 @@ pieces or textures named exactly.
   | `import_furniture`: the model file given, and the materials and images it names in its own folder | `export_blender`: the folder given |
   | `import_furniture_library`: the `.sh3f` file given | `export_furniture_library`: the `.sh3f` file given |
   | `get_3d_image`: the photo given by `compare_with` | `export_elevation`: the `.svg` file given |
-  | `apply_commands`: the JSON file given by `file` | |
-  | `import_parcel`: the GeoJSON file given by `path` | |
+  | `apply_commands`: the JSON file given by `file` | `save_version`: a new file in the folder of versions of the home |
+  | `import_parcel`: the GeoJSON file given by `path` | `save_home` with `copy_to`: the `.sh3d` file given |
+  | `open_home`: the `.sh3d` file given | `export_home`, `export_schedule`, `get_elevation_image`: the file or the folder given |
+  | `compare_versions`, `restore_version`: the versions of the home | `save_home`: the file of the home, with **Allow saving** only |
 
   `get_3d_image` and `export_furniture_library` refuse to overwrite a file
   without `"replace":true`.
   `add_to_catalog` and `import_furniture_library` change the furniture
   catalog of the user. Writing and importing need **Allow changes to this
-  home**. The tools can't read other files, save the home, or reach the
-  network.
+  home**. Writing the file of the home, and replacing a `.sh3d` file that
+  exists, need **Allow saving this home in its file, and replacing files**,
+  which is off each time the application starts. The tools can't read other
+  files or reach the network. `start_visit` opens your web browser on the
+  visit served by Sweet Home 3D on this computer.
 
 ## When something goes wrong
 
@@ -351,6 +429,8 @@ pieces or textures named exactly.
 | "The tool ... has no argument ..." | Claude knows the tools of an older version of Sweet Home 3D. An argument the server doesn't know is refused with the list of the ones it has, instead of being dropped. Start a new conversation, or restart Claude, so it reads the tools again |
 | A picture takes minutes | It was drawn by the ray tracer: ask for `"renderer":"opengl"`, or give a `timeout` |
 | Claude can't change anything | Tick **Allow changes to this home** |
+| Claude says saving isn't allowed | That is the default. Tick **Allow saving this home in its file, and replacing files**, or let it save versions and copies |
+| Claude can't save a version | The home was never saved: choose **File > Save as...** once |
 
 ## Implementation
 
@@ -366,7 +446,15 @@ pieces or textures named exactly.
   `AssistantFurnitureBuilder`, `AssistantLibraryCommands`,
   `AssistantLayerCommands`, `AssistantDesignCommands`, `AssistantSiteCommands`
   (lines of the plan, compass, georeference, parcels) with `HomeGeoreference`
-  and `HomeRoofs` (ceilings and headroom under roofs).
+  and `HomeRoofs` (ceilings and headroom under roofs), `AssistantArrangeCommands`
+  (group, align, mirror, measure), `AssistantGardenCommands` with
+  `AssistantRoomFurnisher`, `AssistantScheduleCommands` with `HomeQuantities`
+  and `AssistantSymbols`, `AssistantSceneCommands` (lights, sun, doors,
+  materials).
+- `viewcontroller/HomeVersions`, `HomeContents` (the contents of a home put in
+  place of others, for `restore_version`), `HomeChangeJournal` (what the user
+  changes by hand between two calls).
+- `swing/AssistantModelInspector` - the materials and the hinges of 3D models.
 - `viewcontroller/HomeViewpoints` - the cameras of the standard views and of
   the views from the inside, computed from the bounds of the items.
   `HomePane.create3DImage` applies them to a copy of the home and renders it

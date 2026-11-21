@@ -169,6 +169,60 @@ public final class HomeReviewNotes {
   }
 
   /**
+   * Adds a note about <code>item</code>, or about a place of the home if it's <code>null</code>.
+   * @param target one of wall, door, window, furniture, room or ground
+   * @param x  abscissa of the place in cm, or <code>null</code>
+   * @param z  its height above the ground in cm, or <code>null</code>
+   * @return the id of the note, or <code>null</code> if the home can't hold more notes
+   */
+  public static String addNote(Home home, String text, String target, HomeObject item, String name,
+                               Float x, Float y, Float z, String levelName) {
+    List<Map<String, Object>> notes = getNotes(home);
+    if (notes.size() >= MAX_NOTES || text == null || text.trim().length() == 0) {
+      return null;
+    }
+    int number = notes.size() + 1;
+    boolean used = true;
+    while (used) {
+      used = false;
+      for (Map<String, Object> note : notes) {
+        used |= ("n" + number).equals(note.get("id"));
+      }
+      if (used) {
+        number++;
+      }
+    }
+    Map<String, Object> source = new LinkedHashMap<String, Object>();
+    source.put("id", "n" + number);
+    source.put("text", text);
+    source.put("status", STATUS_OPEN);
+    if (target != null) {
+      source.put("target", target);
+    }
+    if (item != null) {
+      source.put("key", getKey(item));
+    }
+    if (name != null) {
+      source.put("name", name);
+    }
+    if (levelName != null) {
+      source.put("level", levelName);
+    }
+    if (x != null && y != null) {
+      source.put("x", x);
+      source.put("y", y);
+      if (z != null) {
+        source.put("z", z);
+      }
+    }
+    source.put("created", new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss").format(new java.util.Date()));
+    Map<String, Object> note = clean(source, number);
+    notes.add(note);
+    setNotes(home, notes);
+    return (String)note.get("id");
+  }
+
+  /**
    * Marks a note as done or open again, with what was done about it, or
    * deletes it if <code>status</code> is <code>"deleted"</code>.
    * @return <code>false</code> if the home has no note with this id
