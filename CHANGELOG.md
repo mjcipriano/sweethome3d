@@ -1,5 +1,12 @@
 # Changelog
 
+## [7.28.1](https://github.com/mjcipriano/sweethome3d/compare/v7.28.0...v7.28.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* in-app help, assistant examples and MCP instructions describe the 7.28 menus and tools ([ecc0490](https://github.com/mjcipriano/sweethome3d/commit/ecc0490cafca5f41e8db7831a39ea8eee924f8ad))
+
 ## [7.28.0](https://github.com/mjcipriano/sweethome3d/compare/v7.27.0...v7.28.0) (2026-11-21)
 
 
