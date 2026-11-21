@@ -13,6 +13,7 @@ Most are also commands of the design assistant and of the MCP server
 | [Versions of a home](#versions-of-a-home) | **File > Versions...** |
 | [Elevation drawings](#elevation-drawings) | **File > Export > Export elevation drawing...** |
 | [3D web page to share](#3d-web-page-to-share) | **File > Export > Export 3D web page...** |
+| [Menus for the commands](#menus-for-the-commands) | Garden, symbols, schedules, furnishing a room, doors, the sun, measures |
 
 ## Replace furniture in place
 

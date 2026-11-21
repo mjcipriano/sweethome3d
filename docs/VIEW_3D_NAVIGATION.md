@@ -86,6 +86,21 @@ a setting of the 3D view, off again at the next start.
 In this picture **3D view > Display selected level** also leaves out the first
 floor and the roof.
 
+## Sun at a date and a time
+
+**3D view > Sun at the date and time of the camera** lights and shadows the
+3D view from where the sun is, in place of its fixed lights. **3D view >
+Date and time of the sun...** chooses the date and the local time; the place
+is the latitude, the longitude and the time zone of the compass (**Plan >
+Modify compass...**), and the north of the plan is its north direction. At
+night the view is dimmed. Shadows need the OpenGL renderer with **Shadows**
+ticked in **3D view > OpenGL renderer quality**.
+
+The choice is stored in the home. The ray tracer of **3D view > Create
+photo...** always used the date and the time of the camera; this brings the
+same sun to the live view. The assistant and Claude set it with `set_sun`
+([Command reference](MCP_COMMANDS.md#lights-sun-doors-and-materials)).
+
 ## 360 degree panorama
 
 **File > Export > Export 360° panorama...** computes a picture of everything around

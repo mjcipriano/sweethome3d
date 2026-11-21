@@ -644,7 +644,17 @@ public class HomeMCPHandler {
         + "The user may have left review notes while visiting the home (get_notes): requests pinned to a wall, "
         + "a piece of furniture or a room; do them and mark each one with update_note. "
         + "Every apply_commands call is one step of the application's "
-        + "Undo, also available through the undo tool.");
+        + "Undo, also available through the undo tool (\"steps\":N for several; get_history lists them). "
+        + "Before a large change, save_version keeps a checkpoint that compare_versions and restore_version use; "
+        + "save_home writes the file of the home only if the user allowed saving, and otherwise a copy in a new file (copy_to), "
+        + "which open_home opens to work on it. get_changes tells what the user changed by hand between your calls. "
+        + "export_home writes the home as PDF, SVG, OBJ, CSV, a 3D web page or a panorama, and get_elevation_image draws a side "
+        + "of the building square on with its dimensions. Other commands of apply_commands: group, align, distribute, mirror "
+        + "and measure (distances, the free space around a piece, what is at a point); set_light, set_sun, set_environment, "
+        + "open_door and set_material (one material of a model); add_fence, add_hedge, add_path, add_planting_bed and add_trees "
+        + "for the garden; furnish_room places the furniture of a kind of room by rules, as a starting point; "
+        + "schedule, add_symbol, add_symbols and framing_estimate list doors, windows and rooms, add electrical and plumbing "
+        + "symbols and estimate framing; set_unit_prices also takes a room or a wall.");
     return result;
   }
 
