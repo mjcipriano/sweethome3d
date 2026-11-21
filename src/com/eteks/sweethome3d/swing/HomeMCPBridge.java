@@ -60,6 +60,8 @@ public class HomeMCPBridge {
   private static final String STOP_FILE = "mcp-bridge-stop";
   private static final int    STOP_CHECK_PERIOD = 2000;
   private static final int    CONNECT_TIMEOUT = 3000;
+  private static final long   TOOLS_CHECK_PERIOD = Long.getLong("com.eteks.sweethome3d.mcp.toolsCheckPeriod", 15000);
+  private static final String TOOLS_LIST_REQUEST = "{\"jsonrpc\":\"2.0\",\"id\":\"sweethome3d-bridge-tools\",\"method\":\"tools/list\"}";
   // Rendering a picture of a large home takes a while
   private static final int    READ_TIMEOUT = 15 * 60 * 1000;
 
@@ -145,6 +147,10 @@ public class HomeMCPBridge {
    */
   public static void run(InputStream in, OutputStream out, File folder) throws IOException {
     BufferedReader reader = new BufferedReader(new InputStreamReader(in, "UTF-8"));
+    // The tools the client was given, to tell it when the server has other ones: the ones of a
+    // new version of the application, or the ones of this program when it answered while no server ran
+    Object knownTools = null;
+    long lastCheckTime = 0;
     for (String line; (line = reader.readLine()) != null; ) {
       if (line.trim().length() == 0) {
         continue;
@@ -156,7 +162,35 @@ public class HomeMCPBridge {
         out.write('\n');
         out.flush();
       }
+      if (line.indexOf("\"tools/list\"") >= 0) {
+        knownTools = getTools(response);
+      } else if (knownTools != null && System.currentTimeMillis() - lastCheckTime >= TOOLS_CHECK_PERIOD) {
+        lastCheckTime = System.currentTimeMillis();
+        Object tools = getTools(forward(TOOLS_LIST_REQUEST, folder));
+        if (tools != null && !tools.equals(knownTools)) {
+          knownTools = tools;
+          out.write("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n".getBytes("UTF-8"));
+          out.flush();
+        }
+      }
     }
+  }
+
+  /**
+   * Returns the tools listed by the answer to a <code>tools/list</code> request, or <code>null</code>.
+   */
+  public static Object getTools(String response) {
+    if (response != null) {
+      try {
+        Object parsed = com.eteks.sweethome3d.viewcontroller.JSONParser.parse(response);
+        if (parsed instanceof java.util.Map && ((java.util.Map<?, ?>)parsed).get("result") instanceof java.util.Map) {
+          return ((java.util.Map<?, ?>)((java.util.Map<?, ?>)parsed).get("result")).get("tools");
+        }
+      } catch (IllegalArgumentException ex) {
+        // Not an answer to read
+      }
+    }
+    return null;
   }
 
   /**

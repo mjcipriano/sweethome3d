@@ -59,7 +59,13 @@ class AssistantShapeCommands {
   static final String ROOF_SPEC_PROPERTY = "assistantRoofSpec";
   /** Property of the window of a dormer storing the id of its roof. */
   static final String ROOF_WINDOW_PROPERTY = "assistantRoofWindow";
+  /** Property of a room whose ceiling follows the roof: <code>follow_roof</code>, or <code>follow_roof:240</code> with a flat part. */
+  static final String ROOM_CEILING_PROPERTY = "assistantRoomCeiling";
+  /** Property of the piece that is the ceiling of a room: the id of the room. */
+  static final String ROOM_CEILING_PIECE_PROPERTY = "assistantRoomCeilingOf";
   /** Property of the ground storing its points, in JSON. */
+  /** The ceiling that follows a roof is this far under it, in cm. */
+  private static final float CEILING_GAP = 1;
   static final String TERRAIN_PROPERTY = "assistantTerrain";
   static final String TERRAIN_PARAMETERS_PROPERTY = "assistantTerrainParameters";
   static final String TERRAIN_FOOTPRINT_PROPERTY = "assistantTerrainFootprint";
@@ -106,6 +112,14 @@ class AssistantShapeCommands {
         addRoof(command, tally, notes);
       } else if ("add_dormer".equals(action)) {
         addDormer(command, tally, notes);
+      } else if ("remove_dormer".equals(action) || "delete_dormer".equals(action)) {
+        modifyDormer(command, true, tally, notes);
+      } else if ("modify_dormer".equals(action)) {
+        modifyDormer(command, false, tally, notes);
+      } else if ("modify_roof".equals(action)) {
+        modifyRoof(command, tally, notes);
+      } else if ("headroom".equals(action) || "room_headroom".equals(action)) {
+        reportHeadroom(command, notes);
       } else if ("fit_walls_to_roof".equals(action)) {
         fitWallsToRoof(command, tally, notes);
       } else if ("modify_furniture_parts".equals(action) || "modify_parts".equals(action)) {
@@ -136,7 +150,7 @@ class AssistantShapeCommands {
   /**
    * Returns the level named by the parameter <code>level</code> of a command, or the selected one.
    */
-  private Level getLevel(AssistantCommand command, String action, List<String> notes) throws IOException {
+  Level getLevel(AssistantCommand command, String action, List<String> notes) throws IOException {
     if (command.getString("level") != null) {
       Level level = this.executor.getStructureCommands().getLevel(command, action, notes, "level");
       if (level == null) {
@@ -151,8 +165,8 @@ class AssistantShapeCommands {
    * Returns a piece showing <code>model</code> at the place where it was
    * built, the heights of the model being measured from the floor of <code>level</code>.
    */
-  private HomePieceOfFurniture createPiece(String name, AssistantGeneratedModel model, Level level,
-                                           boolean movable, String structure) {
+  HomePieceOfFurniture createPiece(String name, AssistantGeneratedModel model, Level level,
+                                   boolean movable, String structure) {
     float [] bounds = model.getBounds();
     CatalogPieceOfFurniture catalogPiece = new CatalogPieceOfFurniture(name, model.getIcon(), model.getModel(),
         model.getWidth(), model.getDepth(), model.getHeight(), bounds [1], movable, null, null,
@@ -167,7 +181,7 @@ class AssistantShapeCommands {
     return piece;
   }
 
-  private void add(HomePieceOfFurniture piece) {
+  void add(HomePieceOfFurniture piece) {
     this.executor.beginTurnUpdate();
     // Furniture is added to the selected level
     Level selectedLevel = this.home.getSelectedLevel();
@@ -959,7 +973,7 @@ class AssistantShapeCommands {
     piece.setProperty(HomeItemTags.TAGS_PROPERTY, "roof");
     add(piece);
     tally [0]++;
-    int windows = addDormerWindows(piece, roof, level, tally);
+    int windows = syncDormerWindows(piece, null, roof, level, -1, tally);
     boolean allLevelsShown = this.home.getEnvironment().isAllLevelsVisible();
     if (!allLevelsShown && this.home.getLevels().size() > 1) {
       this.home.getEnvironment().setAllLevelsVisible(true);
@@ -1011,78 +1025,460 @@ class AssistantShapeCommands {
     }
     resolved.remove("action");
     resolved.remove("roof");
+    // Its windows: "window":"<name>" with an optional "windows":N for N of them side by side,
+    // or "windows":[...] with a name or {"name","width","height","sill"} for each one
+    List<Object> windows = new ArrayList<Object>();
     Object window = resolved.get("window");
-    if (window instanceof String && ((String)window).trim().length() > 0 && !(resolved.get("window_width") instanceof Number)) {
-      CatalogPieceOfFurniture catalogPiece = this.executor.findCatalogPiece((String)window, true);
-      if (catalogPiece == null) {
-        notes.add("No window of the catalog is named \"" + window + "\": the dormer was built without window (use search_catalog)");
-        resolved.remove("window");
-      } else {
-        resolved.put("window", catalogPiece.getName());
-        resolved.put("window_width", Double.valueOf(catalogPiece.getWidth()));
-        resolved.put("window_height", Double.valueOf(catalogPiece.getHeight()));
+    Object list = resolved.get("windows");
+    if (list instanceof List) {
+      for (Object item : (List<?>)list) {
+        Map<?, ?> itemMap = item instanceof Map ? (Map<?, ?>)item : null;
+        Object name = itemMap != null ? itemMap.get("name") : item;
+        if (name == null) {
+          name = window;
+        }
+        Map<String, Object> resolvedWindow = resolveWindow(name, notes);
+        if (resolvedWindow != null) {
+          if (itemMap != null) {
+            for (String size : new String [] {"width", "height", "sill"}) {
+              if (itemMap.get(size) instanceof Number) {
+                resolvedWindow.put(size, itemMap.get(size));
+              }
+            }
+          }
+          windows.add(resolvedWindow);
+        }
       }
+    } else if (window instanceof String && ((String)window).trim().length() > 0) {
+      int count = list instanceof Number ? Math.max(1, Math.min(6, ((Number)list).intValue())) : 1;
+      Map<String, Object> resolvedWindow = resolveWindow(window, notes);
+      for (int i = 0; i < count && resolvedWindow != null; i++) {
+        Map<String, Object> copy = new LinkedHashMap<String, Object>(resolvedWindow);
+        if (resolved.get("window_width") instanceof Number && resolved.get("window_height") instanceof Number) {
+          copy.put("width", resolved.get("window_width"));
+          copy.put("height", resolved.get("window_height"));
+        }
+        windows.add(copy);
+      }
+    }
+    if (windows.isEmpty() && window == null
+        && (list instanceof List && !((List<?>)list).isEmpty()
+            || list instanceof Number && ((Number)list).intValue() > 0)) {
+      notes.add("The dormer was built without window: name the window of the catalog with \"window\":\"<name>\" "
+          + "beside \"windows\":N, or with \"name\" in each item of \"windows\" (use search_catalog)");
+    }
+    resolved.remove("window");
+    resolved.remove("window_width");
+    resolved.remove("window_height");
+    if (windows.isEmpty()) {
+      resolved.remove("windows");
+    } else {
+      resolved.put("windows", windows);
     }
     return resolved;
   }
 
   /**
-   * Adds the windows of the dormers of a roof, after removing the ones it had.
+   * Returns the name and the size of the catalog window of the given name, or <code>null</code>.
    */
-  private int addDormerWindows(HomePieceOfFurniture roofPiece, AssistantRoofModel roof, Level level, int [] tally) {
-    List<Selectable> oldWindows = new ArrayList<Selectable>();
+  private Map<String, Object> resolveWindow(Object name, List<String> notes) {
+    if (!(name instanceof String) || ((String)name).trim().length() == 0) {
+      return null;
+    }
+    CatalogPieceOfFurniture catalogPiece = this.executor.findCatalogPiece((String)name, true);
+    if (catalogPiece == null) {
+      notes.add("No window of the catalog is named \"" + name + "\": the dormer was built without it (use search_catalog)");
+      return null;
+    }
+    Map<String, Object> window = new LinkedHashMap<String, Object>();
+    window.put("name", catalogPiece.getName());
+    window.put("width", Double.valueOf(catalogPiece.getWidth()));
+    window.put("height", Double.valueOf(catalogPiece.getHeight()));
+    return window;
+  }
+
+  /**
+   * Puts the windows of the dormers of a roof at their place. The windows the roof had before
+   * are kept, moved with their dormer, and deleted if their dormer no longer exists; windows
+   * added or copied by the user are left alone.
+   * @param oldRoof       the roof before its change, or <code>null</code> for a new roof
+   * @param removedDormer the index of the dormer removed from the description of the roof, or -1
+   * @return the count of windows of the dormers
+   */
+  private int syncDormerWindows(HomePieceOfFurniture roofPiece, AssistantRoofModel oldRoof, AssistantRoofModel roof,
+                                Level level, int removedDormer, int [] tally) {
+    List<HomePieceOfFurniture> tagged = new ArrayList<HomePieceOfFurniture>();
     for (HomePieceOfFurniture piece : this.home.getFurniture()) {
       if (roofPiece.getId().equals(piece.getProperty(ROOF_WINDOW_PROPERTY))) {
-        oldWindows.add(piece);
+        tagged.add(piece);
+      }
+    }
+    float levelElevation = 0;
+    // The window that stands at each place of the roof as it was
+    List<float []> oldSlots = oldRoof != null ? oldRoof.getWindows() : new ArrayList<float []>();
+    final HomePieceOfFurniture [] oldPieces = new HomePieceOfFurniture [oldSlots.size()];
+    for (int i = 0; i < oldSlots.size(); i++) {
+      float [] slot = oldSlots.get(i);
+      double bestDistance = 40;
+      for (HomePieceOfFurniture piece : tagged) {
+        double distance = Math.hypot(piece.getX() - slot [0], piece.getY() - slot [1]);
+        boolean used = false;
+        for (HomePieceOfFurniture oldPiece : oldPieces) {
+          used |= oldPiece == piece;
+        }
+        if (!used && distance < bestDistance && Math.abs(piece.getElevation() - levelElevation - slot [3]) < 80) {
+          bestDistance = distance;
+          oldPieces [i] = piece;
+        }
+      }
+    }
+    final List<float []> slots = roof.getWindows();
+    final List<HomePieceOfFurniture> moved = new ArrayList<HomePieceOfFurniture>();
+    final List<float []> movedSlots = new ArrayList<float []>();
+    final List<boolean []> movedResized = new ArrayList<boolean []>();
+    List<HomePieceOfFurniture> added = new ArrayList<HomePieceOfFurniture>();
+    boolean [] reused = new boolean [oldSlots.size()];
+    for (int i = 0; i < slots.size(); i++) {
+      float [] slot = slots.get(i);
+      HomePieceOfFurniture existing = null;
+      for (int j = 0; j < oldSlots.size() && existing == null; j++) {
+        float [] oldSlot = oldSlots.get(j);
+        int oldDormer = (int)oldSlot [7];
+        int dormer = removedDormer < 0 || oldDormer < removedDormer ? oldDormer
+            : oldDormer == removedDormer ? -1 : oldDormer - 1;
+        if (!reused [j] && oldPieces [j] != null && dormer == (int)slot [7] && (int)oldSlot [8] == (int)slot [8]) {
+          existing = oldPieces [j];
+          reused [j] = true;
+          // A window the user resized keeps its size
+          movedResized.add(new boolean [] {Math.abs(existing.getWidth() - oldSlot [4]) < 0.5f
+              && Math.abs(existing.getHeight() - oldSlot [5]) < 0.5f});
+        }
+      }
+      if (existing != null) {
+        moved.add(existing);
+        movedSlots.add(slot);
+      } else if (roof.getWindowNames().get(i) != null) {
+        CatalogPieceOfFurniture catalogPiece = this.executor.findCatalogPiece(roof.getWindowNames().get(i), true);
+        if (catalogPiece != null) {
+          HomePieceOfFurniture piece = this.homeController.getFurnitureController().createHomePieceOfFurniture(catalogPiece);
+          piece.setX(slot [0]);
+          piece.setY(slot [1]);
+          piece.setAngle(slot [2]);
+          piece.setElevation(slot [3]);
+          if (piece.isResizable()) {
+            piece.setWidth(slot [4]);
+            piece.setHeight(slot [5]);
+          }
+          piece.setLevel(level);
+          piece.setProperty(ROOF_WINDOW_PROPERTY, roofPiece.getId());
+          piece.setProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY, "dormer");
+          added.add(piece);
+        }
+      }
+    }
+    List<Selectable> deleted = new ArrayList<Selectable>();
+    for (int j = 0; j < oldSlots.size(); j++) {
+      if (!reused [j] && oldPieces [j] != null) {
+        deleted.add(oldPieces [j]);
       }
     }
     this.executor.beginTurnUpdate();
-    if (!oldWindows.isEmpty()) {
-      this.homeController.getPlanController().deleteItems(oldWindows);
+    if (!moved.isEmpty()) {
+      this.executor.postModification(new ArrayList<Selectable>(moved), new Runnable() {
+          public void run() {
+            for (int i = 0; i < moved.size(); i++) {
+              HomePieceOfFurniture piece = moved.get(i);
+              float [] slot = movedSlots.get(i);
+              piece.setX(slot [0]);
+              piece.setY(slot [1]);
+              piece.setAngle(slot [2]);
+              piece.setElevation(slot [3]);
+              if (piece.isResizable() && movedResized.get(i) [0]) {
+                piece.setWidth(slot [4]);
+                piece.setHeight(slot [5]);
+              }
+            }
+          }
+        });
     }
-    Object spec = JSONParser.parse(roofPiece.getProperty(ROOF_SPEC_PROPERTY));
-    List<?> dormers = spec instanceof Map && ((Map<?, ?>)spec).get("dormers") instanceof List
-        ? (List<?>)((Map<?, ?>)spec).get("dormers") : Collections.emptyList();
-    List<String> names = new ArrayList<String>();
-    for (Object dormer : dormers) {
-      if (dormer instanceof Map && ((Map<?, ?>)dormer).get("window") instanceof String
-          && ((Map<?, ?>)dormer).get("window_width") instanceof Number) {
-        names.add((String)((Map<?, ?>)dormer).get("window"));
-      }
+    if (!deleted.isEmpty()) {
+      this.homeController.getPlanController().deleteItems(deleted);
+      tally [5] += deleted.size();
     }
-    List<HomePieceOfFurniture> windows = new ArrayList<HomePieceOfFurniture>();
-    for (int i = 0; i < roof.getWindows().size() && i < names.size(); i++) {
-      float [] window = roof.getWindows().get(i);
-      CatalogPieceOfFurniture catalogPiece = this.executor.findCatalogPiece(names.get(i), true);
-      if (catalogPiece == null) {
-        continue;
-      }
-      HomePieceOfFurniture piece = this.homeController.getFurnitureController().createHomePieceOfFurniture(catalogPiece);
-      piece.setX(window [0]);
-      piece.setY(window [1]);
-      piece.setAngle(window [2]);
-      piece.setElevation(window [3]);
-      if (piece.isResizable()) {
-        piece.setWidth(window [4]);
-        piece.setHeight(window [5]);
-      }
-      piece.setLevel(level);
-      piece.setProperty(ROOF_WINDOW_PROPERTY, roofPiece.getId());
-      piece.setProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY, "dormer");
-      windows.add(piece);
-    }
-    if (!windows.isEmpty()) {
+    if (!added.isEmpty()) {
       Level selectedLevel = this.home.getSelectedLevel();
       if (level != null && level != selectedLevel) {
         this.home.setSelectedLevel(level);
       }
-      this.homeController.getFurnitureController().addFurniture(windows);
+      this.homeController.getFurnitureController().addFurniture(added);
       if (this.home.getSelectedLevel() != selectedLevel && selectedLevel != null) {
         this.home.setSelectedLevel(selectedLevel);
       }
-      tally [1] += windows.size();
+      tally [1] += added.size();
     }
-    return windows.size();
+    return moved.size() + added.size();
+  }
+
+  /**
+   * Returns the description of a roof kept in its piece.
+   */
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> getRoofSpec(HomePieceOfFurniture roofPiece) throws IOException {
+    Object parsed;
+    try {
+      parsed = JSONParser.parse(roofPiece.getProperty(ROOF_SPEC_PROPERTY));
+    } catch (IllegalArgumentException ex) {
+      parsed = null;
+    }
+    if (!(parsed instanceof Map)) {
+      throw new IOException("the description of this roof can't be read");
+    }
+    return new LinkedHashMap<String, Object>((Map<String, Object>)parsed);
+  }
+
+  /**
+   * Builds a roof again from a new description, in an undoable way, and returns its shape.
+   */
+  private AssistantRoofModel rebuildRoof(HomePieceOfFurniture roofPiece, Map<String, Object> oldSpec,
+                                         Map<String, Object> spec, int removedDormer,
+                                         int [] tally, List<String> notes) throws IOException {
+    AssistantRoofModel oldRoof = AssistantRoofModel.create(oldSpec);
+    AssistantRoofModel roof = AssistantRoofModel.create(spec);
+    Level level = roofPiece.getLevel();
+    AssistantGeneratedModel model = roof.build(spec, getTextureFinder(), getGroundHeight(level));
+    float [] bounds = model.getBounds();
+    Map<String, String> properties = new LinkedHashMap<String, String>();
+    properties.put(ROOF_SPEC_PROPERTY, toJson(spec));
+    replaceModel(roofPiece, model, (bounds [0] + bounds [3]) / 2, (bounds [2] + bounds [5]) / 2, bounds [1], properties);
+    tally [4]++;
+    syncDormerWindows(roofPiece, oldRoof, roof, level, removedDormer, tally);
+    for (String note : roof.getNotes()) {
+      notes.add("Roof: " + note);
+    }
+    return roof;
+  }
+
+  private String describeDormers(AssistantRoofModel roof) {
+    if (roof.getDormerDescriptions().isEmpty()) {
+      return "it has no dormer";
+    }
+    StringBuilder text = new StringBuilder("its dormers: ");
+    for (String description : roof.getDormerDescriptions()) {
+      text.append(text.charAt(text.length() - 2) == ':' ? "" : "; ").append(description);
+    }
+    return text.toString();
+  }
+
+  /**
+   * Returns the description of the edges and of the dormers of a roof, for <code>describe_item</code>,
+   * or <code>null</code> if <code>piece</code> isn't a roof built by <code>add_roof</code>.
+   */
+  String describeRoof(HomePieceOfFurniture piece) {
+    if (piece.getProperty(ROOF_SPEC_PROPERTY) == null) {
+      return null;
+    }
+    try {
+      AssistantRoofModel roof = AssistantRoofModel.create(getRoofSpec(piece));
+      StringBuilder text = new StringBuilder("roof with eaves at " + format(roof.getEaveHeight()) + " cm, edges: ");
+      for (int i = 0; i < roof.getEdgeCount(); i++) {
+        text.append(i > 0 ? ", " : "").append(i + 1).append(' ').append(roof.getEdgeTypeName(i));
+        if (roof.isEdgeSloped(i)) {
+          text.append(' ').append(format(roof.getEdgePitch(i))).append(" deg");
+        }
+      }
+      return text.append("; ").append(describeDormers(roof)).toString();
+    } catch (IOException ex) {
+      return null;
+    }
+  }
+
+  /**
+   * Removes a dormer of a roof, or changes it.
+   */
+  @SuppressWarnings("unchecked")
+  private void modifyDormer(AssistantCommand command, boolean remove, int [] tally, List<String> notes) throws IOException {
+    String action = remove ? "remove_dormer" : "modify_dormer";
+    HomePieceOfFurniture roofPiece = getRoof(command, action);
+    Map<String, Object> oldSpec = getRoofSpec(roofPiece);
+    Map<String, Object> spec = new LinkedHashMap<String, Object>(oldSpec);
+    List<Object> dormers = new ArrayList<Object>();
+    if (spec.get("dormers") instanceof List) {
+      dormers.addAll((List<?>)spec.get("dormers"));
+    }
+    AssistantRoofModel oldRoof = AssistantRoofModel.create(oldSpec);
+    double indexValue = command.getDouble("index", command.getDouble("dormer", dormers.size() == 1 ? 1 : Double.NaN));
+    int index = Double.isNaN(indexValue) ? -1 : (int)Math.round(indexValue) - 1;
+    if (index < 0 || index >= dormers.size() || !(dormers.get(index) instanceof Map)) {
+      throw new IOException(dormers.isEmpty() ? "the roof " + this.executor.getId(roofPiece) + " has no dormer"
+          : "give the dormer with \"index\" from 1 to " + dormers.size() + "; " + describeDormers(oldRoof));
+    }
+    if (remove) {
+      dormers.remove(index);
+    } else {
+      Map<String, Object> dormer = new LinkedHashMap<String, Object>((Map<String, Object>)dormers.get(index));
+      Map<String, Object> changes = new LinkedHashMap<String, Object>(command.getParameters());
+      for (String key : new String [] {"action", "roof", "id", "index", "dormer"}) {
+        changes.remove(key);
+      }
+      if (changes.isEmpty()) {
+        throw new IOException("give what changes: width, height, offset or position, setback, type, pitch, ridge, "
+            + "side or edge, overhang, window, windows");
+      }
+      // A place given one way replaces the place given the other way
+      if (changes.containsKey("offset")) {
+        dormer.remove("position");
+      } else if (changes.containsKey("position")) {
+        dormer.remove("offset");
+      }
+      if (changes.containsKey("side")) {
+        dormer.remove("edge");
+      } else if (changes.containsKey("edge")) {
+        dormer.remove("side");
+      }
+      if (changes.containsKey("pitch") && !changes.containsKey("ridge")) {
+        dormer.remove("ridge");
+      }
+      boolean windowsChanged = changes.containsKey("window") || changes.containsKey("windows");
+      Object oldWindows = dormer.get("windows");
+      dormer.putAll(changes);
+      if (windowsChanged) {
+        if (!changes.containsKey("window") && changes.get("windows") instanceof Number
+            && oldWindows instanceof List && !((List<?>)oldWindows).isEmpty()
+            && ((List<?>)oldWindows).get(0) instanceof Map) {
+          // Only their count changes
+          dormer.put("window", ((Map<?, ?>)((List<?>)oldWindows).get(0)).get("name"));
+        }
+        if (Boolean.FALSE.equals(changes.get("window")) || Boolean.FALSE.equals(changes.get("windows"))) {
+          dormer.remove("window");
+          dormer.remove("windows");
+        } else {
+          dormer = resolveDormer(dormer, notes);
+        }
+      }
+      dormers.set(index, dormer);
+    }
+    if (dormers.isEmpty()) {
+      spec.remove("dormers");
+    } else {
+      spec.put("dormers", dormers);
+    }
+    AssistantRoofModel roof = rebuildRoof(roofPiece, oldSpec, spec, remove ? index : -1, tally, notes);
+    notes.add((remove ? "Removed the dormer " : "Modified the dormer ") + (index + 1) + " of the roof "
+        + this.executor.getId(roofPiece) + "; " + describeDormers(roof)
+        + (remove && !roof.getDormerDescriptions().isEmpty() ? " (the dormers after the removed one were numbered again)" : "")
+        + ". Run fit_walls_to_roof again if walls were fitted to this roof");
+    refreshCeilings(notes);
+  }
+
+  /**
+   * Changes the description of a roof without building it from scratch.
+   */
+  @SuppressWarnings("unchecked")
+  private void modifyRoof(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
+    final HomePieceOfFurniture roofPiece = getRoof(command, "modify_roof");
+    Map<String, Object> oldSpec = getRoofSpec(roofPiece);
+    AssistantRoofModel oldRoof = AssistantRoofModel.create(oldSpec);
+    Map<String, Object> spec = new LinkedHashMap<String, Object>(oldSpec);
+    int changes = 0;
+    for (String parameter : ROOF_PARAMETERS) {
+      Object value = command.getParameters().get(parameter);
+      if (value != null && !parameter.equals("dormers")) {
+        spec.put(parameter, value);
+        changes++;
+      }
+    }
+    if (command.has("type") && !command.has("edges")) {
+      // The type gives the kind of every edge
+      spec.remove("edges");
+    }
+    // One edge: {"edge":{"index":2,"type":"gable","pitch":35,"overhang":20}}, or a list of such edges
+    List<Object> edgeChanges = new ArrayList<Object>();
+    if (command.getParameters().get("edge") instanceof Map) {
+      edgeChanges.add(command.getParameters().get("edge"));
+    } else if (command.getParameters().get("edge") instanceof List) {
+      edgeChanges.addAll((List<?>)command.getParameters().get("edge"));
+    }
+    if (!edgeChanges.isEmpty()) {
+      // The edges as they are, by their number
+      AssistantRoofModel current = AssistantRoofModel.create(spec);
+      List<Object> edges = new ArrayList<Object>();
+      for (int i = 0; i < current.getEdgeCount(); i++) {
+        Map<String, Object> edge = new LinkedHashMap<String, Object>();
+        edge.put("type", current.getEdgeTypeName(i));
+        edge.put("pitch", Double.valueOf(current.getEdgePitch(i)));
+        edge.put("overhang", Double.valueOf(current.getEdgeOverhang(i)));
+        edges.add(edge);
+      }
+      for (Object edgeChange : edgeChanges) {
+        if (edgeChange instanceof Map && ((Map<?, ?>)edgeChange).get("index") instanceof Number) {
+          int index = ((Number)((Map<?, ?>)edgeChange).get("index")).intValue() - 1;
+          if (index < 0 || index >= edges.size()) {
+            throw new IOException("the edges of this roof are numbered from 1 to " + edges.size()
+                + " (the edge 1 goes from its first point to the second one)");
+          }
+          Map<String, Object> edge = (Map<String, Object>)edges.get(index);
+          for (Map.Entry<?, ?> entry : ((Map<?, ?>)edgeChange).entrySet()) {
+            if (!"index".equals(entry.getKey())) {
+              edge.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+          }
+          if (((Map<?, ?>)edgeChange).get("type") != null && ((Map<?, ?>)edgeChange).get("overhang") == null
+              && "abut".equals(String.valueOf(((Map<?, ?>)edgeChange).get("type")))) {
+            edge.put("overhang", Double.valueOf(0));
+          }
+          changes++;
+        } else {
+          throw new IOException("\"edge\" must give the \"index\" of the edge to change, from 1");
+        }
+      }
+      spec.put("edges", edges);
+    }
+    if (changes == 0) {
+      throw new IOException("give what changes: eave_height, pitch, overhang, type, edges, \"edge\":{\"index\":N,\"type\":\"hip|gable|abut\"}, "
+          + "points, thickness, color, texture, gutters, soffit, ridge_cap, gable_walls...");
+    }
+    if (spec.get("dormers") instanceof List) {
+      // The windows of dormers keep their size
+      spec.put("dormers", new ArrayList<Object>((List<?>)spec.get("dormers")));
+    }
+    AssistantRoofModel roof = rebuildRoof(roofPiece, oldSpec, spec, -1, tally, notes);
+    final float raise = (float)(roof.getEaveHeight() - oldRoof.getEaveHeight());
+    int raised = 0;
+    if (command.getBoolean("raise_walls", false) && Math.abs(raise) > 0.01f) {
+      // The walls under the roof follow its eaves
+      final List<Selectable> walls = new ArrayList<Selectable>();
+      for (Wall wall : this.home.getWalls()) {
+        if (wall.getLevel() == roofPiece.getLevel()
+            && !Double.isNaN(roof.getGeometry().getUndersideHeight((wall.getXStart() + wall.getXEnd()) / 2,
+                   (wall.getYStart() + wall.getYEnd()) / 2))) {
+          float height = wall.getHeight() != null ? wall.getHeight() : this.home.getWallHeight();
+          if (height + raise >= 1 && (wall.getHeightAtEnd() == null || wall.getHeightAtEnd() + raise >= 1)) {
+            walls.add(wall);
+          }
+        }
+      }
+      if (!walls.isEmpty()) {
+        this.executor.postModification(walls, new Runnable() {
+            public void run() {
+              for (Selectable item : walls) {
+                Wall wall = (Wall)item;
+                wall.setHeight((wall.getHeight() != null ? wall.getHeight() : home.getWallHeight()) + raise);
+                if (wall.getHeightAtEnd() != null) {
+                  wall.setHeightAtEnd(wall.getHeightAtEnd() + raise);
+                }
+              }
+            }
+          });
+        raised = walls.size();
+        tally [4] += raised;
+      }
+    }
+    notes.add("Modified the roof " + this.executor.getId(roofPiece) + ": " + describe(roof, roofPiece, roofPiece.getLevel())
+        + (raised > 0 ? "; " + raised + " walls under it were " + (raise > 0 ? "raised" : "lowered") + " by "
+            + format(Math.abs(raise)) + " cm" : Math.abs(raise) > 0.01f
+            ? "; its eaves moved by " + format(raise) + " cm: the walls under it didn't (\"raise_walls\":true moves them too)" : "")
+        + ". Run fit_walls_to_roof again if walls were fitted to this roof");
+    refreshCeilings(notes);
   }
 
   /**
@@ -1128,14 +1524,10 @@ class AssistantShapeCommands {
     return ids.toString();
   }
 
-  @SuppressWarnings("unchecked")
   private void addDormer(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
     HomePieceOfFurniture roofPiece = getRoof(command, "add_dormer");
-    Object parsed = JSONParser.parse(roofPiece.getProperty(ROOF_SPEC_PROPERTY));
-    if (!(parsed instanceof Map)) {
-      throw new IOException("the description of this roof can't be read");
-    }
-    Map<String, Object> spec = new LinkedHashMap<String, Object>((Map<String, Object>)parsed);
+    Map<String, Object> oldSpec = getRoofSpec(roofPiece);
+    Map<String, Object> spec = new LinkedHashMap<String, Object>(oldSpec);
     List<Object> dormers = new ArrayList<Object>();
     if (spec.get("dormers") instanceof List) {
       dormers.addAll((List<?>)spec.get("dormers"));
@@ -1144,29 +1536,213 @@ class AssistantShapeCommands {
     dormer.remove("id");
     dormers.add(dormer);
     spec.put("dormers", dormers);
-    AssistantRoofModel roof = AssistantRoofModel.create(spec);
-    int previousCount = dormers.size() - 1;
-    if (roof.getDormerCount() <= countDormers(roofPiece)) {
-      for (String note : roof.getNotes()) {
+    AssistantRoofModel check = AssistantRoofModel.create(spec);
+    if (check.getDormerCount() <= countDormers(roofPiece)) {
+      for (String note : check.getNotes()) {
         notes.add("Roof: " + note);
       }
       throw new IOException("the dormer couldn't be built");
     }
-    Level level = roofPiece.getLevel();
-    AssistantGeneratedModel model = roof.build(spec, getTextureFinder(), getGroundHeight(level));
-    float [] bounds = model.getBounds();
-    Map<String, String> properties = new LinkedHashMap<String, String>();
-    properties.put(ROOF_SPEC_PROPERTY, toJson(spec));
-    replaceModel(roofPiece, model, (bounds [0] + bounds [3]) / 2, (bounds [2] + bounds [5]) / 2, bounds [1], properties);
-    tally [4]++;
-    int windows = addDormerWindows(roofPiece, roof, level, tally);
-    notes.add("Added a dormer to the roof " + this.executor.getId(roofPiece) + ", which has now " + roof.getDormerCount()
-        + (roof.getDormerCount() == 1 ? " dormer" : " dormers") + " and " + windows
-        + (windows == 1 ? " dormer window" : " dormer windows")
-        + (previousCount > 0 && windows > 0 ? " (the windows of its dormers were added again: their ids changed)" : ""));
-    for (String note : roof.getNotes()) {
-      notes.add("Roof: " + note);
+    AssistantRoofModel roof = rebuildRoof(roofPiece, oldSpec, spec, -1, tally, notes);
+    notes.add("Added the dormer " + dormers.size() + " to the roof " + this.executor.getId(roofPiece) + "; "
+        + describeDormers(roof) + ". The windows the other dormers had are kept. \"offset\" is measured in cm along the "
+        + "side, from its west or north end for a \"side\" given by a cardinal point and from the start of the edge for "
+        + "an \"edge\" number, to the center of the dormer; \"position\" is the same from 0 to 1");
+    refreshCeilings(notes);
+  }
+
+  /**
+   * Builds again the ceilings that follow a roof, after roofs changed.
+   */
+  private void refreshCeilings(List<String> notes) {
+    int count = 0;
+    for (Room room : this.home.getRooms()) {
+      String ceiling = room.getProperty(ROOM_CEILING_PROPERTY);
+      if (ceiling != null) {
+        try {
+          setRoomCeiling(room, "follow_roof", HomeRoofs.getFlatCeilingHeight(room));
+          count++;
+        } catch (IOException ex) {
+          notes.add("The ceiling of the room " + this.executor.getId(room) + " no longer follows a roof (" + ex.getMessage() + ")");
+        }
+      }
     }
+    if (count > 0) {
+      notes.add(count + (count == 1 ? " ceiling that follows" : " ceilings that follow") + " the roof "
+          + (count == 1 ? "was" : "were") + " built again");
+    }
+  }
+
+  private HomePieceOfFurniture getRoomCeiling(Room room) {
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      if (room.getId().equals(piece.getProperty(ROOM_CEILING_PIECE_PROPERTY))) {
+        return piece;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Gives a room the ceiling of the roof above it: a lining under its slopes, flat from the height
+   * <code>flatHeight</code> if it's given. The flat ceiling the room has at the height of the level must be hidden.
+   * @param mode <code>follow_roof</code>, or <code>flat</code> to remove such a ceiling
+   * @return a description of the ceiling
+   */
+  String setRoomCeiling(Room room, String mode, double flatHeight) throws IOException {
+    HomePieceOfFurniture oldCeiling = getRoomCeiling(room);
+    String normalizedMode = mode != null ? mode.trim().toLowerCase(Locale.ENGLISH).replace('-', '_') : "follow_roof";
+    if (normalizedMode.equals("flat") || normalizedMode.equals("level") || normalizedMode.equals("none")
+        || normalizedMode.equals("default")) {
+      this.executor.beginTurnUpdate();
+      if (oldCeiling != null) {
+        this.homeController.getPlanController().deleteItems(Collections.singletonList(oldCeiling));
+      }
+      room.setProperty(ROOM_CEILING_PROPERTY, null);
+      return "its ceiling no longer follows the roof";
+    } else if (!normalizedMode.equals("follow_roof") && !normalizedMode.equals("roof") && !normalizedMode.equals("sloped")) {
+      throw new IOException("\"ceiling\" is follow_roof or flat");
+    }
+    if (!Double.isNaN(flatHeight) && !(flatHeight >= 50 && flatHeight <= 2000)) {
+      throw new IOException("\"flat_ceiling_at\" is the height of the flat part of the ceiling above the floor, from 50 to 2000 cm");
+    }
+    float roomElevation = room.getLevel() != null ? room.getLevel().getElevation() : 0;
+    Area roomArea = AssistantMeshBuilder.getArea(room.getPoints());
+    AssistantMeshBuilder mesh = new AssistantMeshBuilder();
+    HomeTexture texture = room.getCeilingTexture();
+    int color = room.getCeilingColor() != null ? room.getCeilingColor() : 0xFAFAF7;
+    AssistantMeshBuilder.Material material = texture != null
+        ? mesh.getMaterial(texture, texture.getScale(), texture.getAngle(), texture.getXOffset(), texture.getYOffset(), color)
+        : mesh.getMaterial(color);
+    Area covered = new Area();
+    double slopedArea = 0;
+    double flatArea = 0;
+    double [] flatPlane = {flatHeight, 0, 0};
+    for (HomeRoofs.Roof roof : HomeRoofs.get(this.home)) {
+      if (roof.elevation + roof.model.getGeometry().getMaxHeight() <= roomElevation + 1) {
+        // A roof under the room
+        continue;
+      }
+      for (AssistantRoofGeometry.Cell cell : roof.model.getGeometry().getCeilingCells()) {
+        Area piece = AssistantMeshBuilder.getArea(AssistantRoofGeometry.toFloats(cell.polygon));
+        piece.intersect(roomArea);
+        // What an other roof already covers keeps its ceiling
+        piece.subtract(covered);
+        if (piece.isEmpty()) {
+          continue;
+        }
+        covered.add(piece);
+        // The underside of the roof above the floor of the room, a centimeter under it
+        double [] plane = {cell.plane [0] - cell.part.getThickness() + roof.elevation - roomElevation - CEILING_GAP,
+                           cell.plane [1], cell.plane [2]};
+        for (float [][] trapezoid : AssistantMeshBuilder.getTrapezoids(piece)) {
+          double [][] polygon = AssistantRoofGeometry.toDoubles(trapezoid);
+          if (AssistantRoofGeometry.getSignedArea(polygon) < 0) {
+            polygon = AssistantRoofGeometry.reverse(polygon);
+          }
+          double [][] sloped = Double.isNaN(flatHeight) ? polygon
+              : AssistantRoofGeometry.clipLower(polygon, plane, flatPlane, true);
+          if (sloped.length >= 3) {
+            slopedArea += Math.abs(AssistantRoofGeometry.getSignedArea(sloped));
+            addCeiling(mesh, sloped, plane, material);
+          }
+          if (!Double.isNaN(flatHeight)) {
+            double [][] flat = AssistantRoofGeometry.clipLower(polygon, flatPlane, plane, false);
+            if (flat.length >= 3) {
+              flatArea += Math.abs(AssistantRoofGeometry.getSignedArea(flat));
+              addCeiling(mesh, flat, flatPlane, material);
+            }
+          }
+        }
+      }
+    }
+    if (slopedArea + flatArea < 1) {
+      throw new IOException("no roof built by add_roof with \"points\" is above this room");
+    }
+    HomePieceOfFurniture ceiling;
+    AssistantGeneratedModel model = mesh.store("ceiling");
+    String name = (room.getName() != null ? room.getName() : "Room") + " ceiling";
+    if (oldCeiling != null) {
+      float [] bounds = model.getBounds();
+      replaceModel(oldCeiling, model, (bounds [0] + bounds [3]) / 2, (bounds [2] + bounds [5]) / 2, bounds [1],
+          new LinkedHashMap<String, String>());
+      ceiling = oldCeiling;
+    } else {
+      ceiling = createPiece(name, model, room.getLevel(), false, "ceiling");
+      ceiling.setProperty(ROOM_CEILING_PIECE_PROPERTY, room.getId());
+      add(ceiling);
+    }
+    room.setProperty(ROOM_CEILING_PROPERTY, Double.isNaN(flatHeight) ? "follow_roof" : "follow_roof:" + format(flatHeight));
+    double roomSurface = Math.abs(AssistantRoofGeometry.getSignedArea(AssistantRoofGeometry.toDoubles(room.getPoints())));
+    return "the piece " + this.executor.getId(ceiling) + " \"" + ceiling.getName() + "\" is its ceiling under the roof: "
+        + format(slopedArea / 10000) + " m2 under the slopes"
+        + (flatArea > 0 ? " and " + format(flatArea / 10000) + " m2 flat at " + format(flatHeight) + " cm" : "")
+        + (roomSurface - slopedArea - flatArea > 100
+            ? "; " + format((roomSurface - slopedArea - flatArea) / 10000) + " m2 of the room have no roof above them" : "");
+  }
+
+  private static void addCeiling(AssistantMeshBuilder mesh, double [][] polygon, double [] plane,
+                                 AssistantMeshBuilder.Material material) {
+    float [][] points = new float [polygon.length][];
+    for (int i = 0; i < polygon.length; i++) {
+      points [i] = new float [] {(float)polygon [i][0],
+          (float)(plane [0] + plane [1] * polygon [i][0] + plane [2] * polygon [i][1]), (float)polygon [i][1]};
+    }
+    mesh.addPolygon(points, material, 0, -1, 0);
+  }
+
+  /**
+   * Returns a sentence about the headroom of a room, or <code>null</code> if no ceiling is above it.
+   */
+  String describeHeadroom(Room room) {
+    double [] headroom = HomeRoofs.getHeadroom(this.home, HomeRoofs.get(this.home), room);
+    if (headroom == null || headroom [3] <= 0) {
+      return null;
+    }
+    double total = headroom [3] + headroom [4];
+    return "headroom from " + format(headroom [0]) + " to " + format(headroom [1]) + " cm, "
+        + format(headroom [2] / 10000) + " m2 of " + format(total / 10000) + " m2 ("
+        + Math.round(headroom [2] * 100 / total) + " %) at least " + Math.round(HomeRoofs.STANDING_HEIGHT)
+        + " cm high (7 ft)"
+        + (headroom [4] > total * 0.02 ? ", " + format(headroom [4] / 10000) + " m2 without any ceiling" : "");
+  }
+
+  /**
+   * Reports the headroom of rooms.
+   */
+  private void reportHeadroom(AssistantCommand command, List<String> notes) {
+    List<Room> rooms = new ArrayList<Room>();
+    for (Selectable item : this.executor.resolveTargets(command)) {
+      if (item instanceof Room) {
+        rooms.add((Room)item);
+      }
+    }
+    boolean all = rooms.isEmpty();
+    if (all) {
+      rooms.addAll(this.home.getRooms());
+    }
+    StringBuilder text = new StringBuilder("Headroom (height of the ceiling above the floor: the underside of the roofs, "
+        + "the flat part of a ceiling, the ceiling of the level):");
+    int count = 0;
+    List<HomeRoofs.Roof> roofs = HomeRoofs.get(this.home);
+    for (Room room : rooms) {
+      double [] headroom = HomeRoofs.getHeadroom(this.home, roofs, room);
+      if (headroom == null || headroom [3] <= 0) {
+        if (!all) {
+          text.append("\n- ").append(this.executor.getId(room)).append(": no ceiling above it");
+          count++;
+        }
+        continue;
+      }
+      // Without roof above, a room has the height of its level: said only if asked
+      if (all && Math.abs(headroom [1] - headroom [0]) < 0.5 && Double.isNaN(HomeRoofs.getCeilingElevation(roofs,
+              room.getXCenter(), room.getYCenter(), room.getLevel() != null ? room.getLevel().getElevation() : 0))) {
+        continue;
+      }
+      text.append("\n- ").append(this.executor.getId(room))
+          .append(room.getName() != null ? " \"" + room.getName() + "\"" : "").append(": ").append(describeHeadroom(room));
+      count++;
+    }
+    notes.add(count > 0 ? text.toString() : "Headroom: no room is under a roof built by add_roof; every room has the height of its level");
   }
 
   private static int countDormers(HomePieceOfFurniture roofPiece) {
@@ -1238,7 +1814,8 @@ class AssistantShapeCommands {
       return;
     }
 
-    List<AssistantRoofGeometry.Cell> cells = geometry.getCells(false);
+    // The roof as seen from under it, with its dormers and cross gables
+    List<AssistantRoofGeometry.Cell> cells = geometry.getCeilingCells();
     // The pieces each wall is cut in: {t1, t2, height at t1, height at t2}
     final List<Wall> fittedWalls = new ArrayList<Wall>();
     final List<List<double []>> wallPieces = new ArrayList<List<double []>>();
@@ -1251,8 +1828,17 @@ class AssistantShapeCommands {
       float wallElevation = wall.getLevel() != null ? wall.getLevel().getElevation() : 0;
       float currentHeight = wall.getHeight() != null ? wall.getHeight() : this.home.getWallHeight();
       float currentHeightAtEnd = wall.getHeightAtEnd() != null ? wall.getHeightAtEnd() : currentHeight;
-      List<double []> profile = AssistantRoofGeometry.getProfile(wall.getXStart(), wall.getYStart(),
-          wall.getXEnd(), wall.getYEnd(), cells);
+      // Measured a hair toward the inside of the roof: a wall along the front of a dormer or of a
+      // cross gable stands on the line where the roof changes, and goes up to the gable
+      double [] roofCenter = AssistantRoofGeometry.getCenter(polygon);
+      double nudgeX = -(wall.getYEnd() - wall.getYStart()) / wall.getLength() * 0.5;
+      double nudgeY = (wall.getXEnd() - wall.getXStart()) / wall.getLength() * 0.5;
+      if (nudgeX * (roofCenter [0] - wall.getXStart()) + nudgeY * (roofCenter [1] - wall.getYStart()) < 0) {
+        nudgeX = -nudgeX;
+        nudgeY = -nudgeY;
+      }
+      List<double []> profile = AssistantRoofGeometry.getProfile(wall.getXStart() + nudgeX, wall.getYStart() + nudgeY,
+          wall.getXEnd() + nudgeX, wall.getYEnd() + nudgeY, cells);
       List<double []> pieces = new ArrayList<double []>();
       double covered = 0;
       for (double [] piece : profile) {
@@ -1295,7 +1881,7 @@ class AssistantShapeCommands {
           pieces.remove(i);
         }
       }
-      boolean valid = pieces.size() <= 8;
+      boolean valid = pieces.size() <= 24;
       for (double [] piece : pieces) {
         valid &= piece [2] >= 1 && piece [3] >= 1 && AssistantCommandExecutor.sizeSane(piece [2])
             && AssistantCommandExecutor.sizeSane(piece [3]);
@@ -1324,6 +1910,7 @@ class AssistantShapeCommands {
       for (int j = 1; j < pieces.size(); j++) {
         chain [j] = (Wall)wall.duplicate();
         chain [j].setProperty(HomeItemIds.ID_PROPERTY, null);
+        chain [j].setLevel(wall.getLevel());
         newWalls.add(chain [j]);
       }
       chains.add(chain);
@@ -1332,6 +1919,14 @@ class AssistantShapeCommands {
         modified.add(wall.getWallAtEnd());
       }
     }
+    // The walls joined to a cut wall will be joined to its last piece
+    for (Wall other : this.home.getWalls()) {
+      if (!modified.contains(other)
+          && (fittedWalls.contains(other.getWallAtStart()) || fittedWalls.contains(other.getWallAtEnd()))) {
+        modified.add(other);
+      }
+    }
+    final List<Wall> homeWalls = new ArrayList<Wall>(this.home.getWalls());
     this.executor.postModification(modified, new Runnable() {
         public void run() {
           for (int i = 0; i < fittedWalls.size(); i++) {
@@ -1343,6 +1938,23 @@ class AssistantShapeCommands {
             float xEnd = wall.getXEnd();
             float yEnd = wall.getYEnd();
             Wall wallAtEnd = wall.getWallAtEnd();
+            // The walls that join the end of this wall, with the end they join it by
+            List<Wall> joinedByStart = new ArrayList<Wall>();
+            List<Wall> joinedByEnd = new ArrayList<Wall>();
+            if (chain.length > 1) {
+              for (Wall other : homeWalls) {
+                if (other != wall) {
+                  if (other.getWallAtStart() == wall
+                      && Math.hypot(other.getXStart() - xEnd, other.getYStart() - yEnd) < 1) {
+                    joinedByStart.add(other);
+                  }
+                  if (other.getWallAtEnd() == wall
+                      && Math.hypot(other.getXEnd() - xEnd, other.getYEnd() - yEnd) < 1) {
+                    joinedByEnd.add(other);
+                  }
+                }
+              }
+            }
             for (int j = 0; j < chain.length; j++) {
               double [] piece = pieces.get(j);
               Wall part = chain [j];
@@ -1359,20 +1971,46 @@ class AssistantShapeCommands {
             }
             if (chain.length > 1) {
               Wall last = chain [chain.length - 1];
-              last.setWallAtEnd(wallAtEnd);
-              if (wallAtEnd != null) {
-                if (wallAtEnd.getWallAtStart() == wall) {
-                  wallAtEnd.setWallAtStart(last);
-                } else if (wallAtEnd.getWallAtEnd() == wall) {
-                  wallAtEnd.setWallAtEnd(last);
-                }
+              for (Wall other : joinedByStart) {
+                other.setWallAtStart(last);
               }
+              for (Wall other : joinedByEnd) {
+                other.setWallAtEnd(last);
+              }
+              last.setWallAtEnd(wallAtEnd);
             }
           }
         }
       });
     if (!newWalls.isEmpty()) {
-      this.homeController.getPlanController().addWalls(newWalls);
+      // New walls go to the selected level: each one is added at the level of the wall it continues
+      Level selectedLevel = this.home.getSelectedLevel();
+      List<Level> wallLevels = new ArrayList<Level>();
+      for (Wall wall : newWalls) {
+        if (!wallLevels.contains(wall.getLevel())) {
+          wallLevels.add(wall.getLevel());
+        }
+      }
+      for (Level wallLevel : wallLevels) {
+        List<Wall> levelWalls = new ArrayList<Wall>();
+        for (Wall wall : newWalls) {
+          if (wall.getLevel() == wallLevel) {
+            levelWalls.add(wall);
+          }
+        }
+        if (wallLevel != null && wallLevel != this.home.getSelectedLevel()) {
+          this.home.setSelectedLevel(wallLevel);
+        }
+        this.homeController.getPlanController().addWalls(levelWalls);
+        for (Wall wall : levelWalls) {
+          if (wall.getLevel() != wallLevel) {
+            wall.setLevel(wallLevel);
+          }
+        }
+      }
+      if (this.home.getSelectedLevel() != selectedLevel && selectedLevel != null) {
+        this.home.setSelectedLevel(selectedLevel);
+      }
       tally [3] += newWalls.size();
     }
     tally [4] += fittedWalls.size();
@@ -1398,7 +2036,7 @@ class AssistantShapeCommands {
         + (cut > 0 ? ", " + cut + (cut == 1 ? " wall was" : " walls were") + " cut where the slope changes, as under the peak of a gable ("
             + newWalls.size() + (newWalls.size() == 1 ? " wall" : " walls") + " added)" : "")
         + (skipped > 0 ? "; " + skipped + " round or uncovered walls were left as they are" : "")
-        + ". The roof was built with gable walls of its own: build it with \"gable_walls\":false to show these walls instead");
+        + ". Walls under a dormer or a cross gable go up to its roof. The roof was built with gable walls of its own: build it with \"gable_walls\":false to show these walls instead");
   }
 
   private static double getDistanceToEdges(double [][] polygon, double x, double y) {
@@ -1409,6 +2047,26 @@ class AssistantShapeCommands {
       distance = Math.min(distance, java.awt.geom.Line2D.ptSegDist(point [0], point [1], next [0], next [1], x, y));
     }
     return distance;
+  }
+
+  /**
+   * Returns the height above the elevation 0 of what someone stands on outdoors at a point of
+   * the plan: the ground built by <code>set_terrain</code>, or the floor of a room that isn't much
+   * higher, or 0.
+   */
+  float getStandingHeight(float x, float y) {
+    Float terrain = getTerrainHeight(x, y);
+    float height = terrain != null ? terrain : 0;
+    Float floor = null;
+    for (Room room : this.home.getRooms()) {
+      float elevation = room.getLevel() != null ? room.getLevel().getElevation() : 0;
+      // A terrace or a porch, not the floor of the storey above
+      if (room.isFloorVisible() && elevation <= height + 150 && (floor == null || elevation < floor)
+          && room.containsPoint(x, y, 0)) {
+        floor = elevation;
+      }
+    }
+    return floor != null ? Math.max(floor, terrain != null ? Math.min(terrain, floor) : floor) : height;
   }
 
   // ---- Furniture made of parts ----

@@ -113,12 +113,12 @@ check its work with a picture.
 
 | Tool | What it does |
 | --- | --- |
-| `get_home` | Text description of the levels, rooms (area, extent, center), walls, furniture and selection, with ids. Optional filters `level`, `type` and `name` |
+| `get_home` | Text description of the levels, rooms (area, extent, center), walls, furniture and selection, with ids. Optional filters `level`, `type`, `name`, `where` and `fields` |
 | `list_catalog` | Categories and item names of the furniture catalog |
 | `search_catalog` | Best catalog matches for a query (`doors_and_windows` to search doors and windows) |
 | `search_textures` | Best texture matches, for the `set_texture` command |
 | `get_catalog_image` | The pictures of up to 8 catalog pieces or textures, to choose between search results |
-| `check_home` | Report of plan defects (unjoined walls, duplicates, rooms without door, doors out of walls...) with ids |
+| `check_home` | Report of plan defects (unjoined walls, duplicates, rooms without door, doors out of walls or above the roof, walls beyond a setback...) with ids, each an error, a warning or an info. Options `min_severity`, `ignore`, `ignore_tags`, `remember`, `forget` ([details](MCP_COMMANDS.md#checks-reports-and-exports)) |
 | `get_report` | Floor areas and perimeters by room, wall lengths and surfaces, furniture counts and prices |
 | `get_plan_image` | PNG picture of the 2D plan of a level, or of a part of it enlarged |
 | `get_3d_image` | PNG picture of the home in 3D (see [Pictures](#pictures)) |
@@ -126,7 +126,7 @@ check its work with a picture.
 | `export_blender` | Writes the model and a Blender scene script in a folder, for a high quality render |
 | `get_notes` | The review notes pinned to walls, furniture and rooms during a visit ([Review notes](REVIEW_NOTES.md)) |
 | `update_note` | Marks a note done with a reply, or deletes it |
-| `apply_commands` | Runs a list of edit commands as one undoable change and returns a summary ([Command reference](MCP_COMMANDS.md)) |
+| `apply_commands` | Runs a list of edit commands as one undoable change and returns a summary with the ids of what was created ([Command reference](MCP_COMMANDS.md)). `"file":"<absolute path>"` runs the commands of a JSON file instead, up to 2000 |
 | `undo` / `redo` | Undoes or redoes the last change |
 
 The tools can't save the home, can't open another one, and can't reach the
@@ -135,7 +135,7 @@ network. Saving stays your decision: **File > Save**.
 ## Ids and filters
 
 `get_home` gives every item an id: `F12` furniture, `W3` walls, `R5` rooms,
-`L2` levels.
+`L2` levels, `P1` lines of the plan (property lines, setbacks, easements).
 
 ```
 - Levels (3), from the lowest:
@@ -161,7 +161,13 @@ furniture. Its filters return a part of a large home, with the same ids:
 | --- | --- |
 | `level` | An id for one level, or a name for every level with it |
 | `type` | `rooms`, `walls`, `furniture` (with doors and windows) or `doors_and_windows`, several separated by commas |
-| `name` | Only the rooms and furniture whose name contains this text |
+| `name` | Only the rooms and furniture whose name contains this text; `Pine\|Oak` for either |
+| `where` | The same criteria as the commands: `{"level","tag","name","type","bbox":[x1,y1,x2,y2]}`. The answer is a flat list of the items that match them all |
+| `fields` | With `where`, what to list of each item: `name`, `position`, `size`, `level`, `elevation`, `angle`, `tags`, `type`, `area`, `points`, `color`. The id is always given |
+
+```json
+{"where":{"bbox":[-600,800,1900,1500],"name":"Pine|Oak"},"fields":["name","position"]}
+```
 
 A filtered description lists up to 500 pieces. A level is listed with what it
 holds, `EMPTY` if nothing, and a note when other levels share its name. A room
@@ -323,6 +329,8 @@ pieces or textures named exactly.
   | `import_furniture`: the model file given, and the materials and images it names in its own folder | `export_blender`: the folder given |
   | `import_furniture_library`: the `.sh3f` file given | `export_furniture_library`: the `.sh3f` file given |
   | `get_3d_image`: the photo given by `compare_with` | `export_elevation`: the `.svg` file given |
+  | `apply_commands`: the JSON file given by `file` | |
+  | `import_parcel`: the GeoJSON file given by `path` | |
 
   `get_3d_image` and `export_furniture_library` refuse to overwrite a file
   without `"replace":true`.
@@ -340,6 +348,7 @@ pieces or textures named exactly.
 | It worked, then stopped after an update | The registration holds the path of the application: connect again from the new version |
 | The application folder can't be deleted or replaced | The bridge program launched by Claude (`sweethome3d-mcp`) runs from it: click **Release program folder** in **Help > Claude MCP server...**, or quit Claude, then close Sweet Home 3D |
 | "No item has the id ..." | The item was deleted. Ask Claude to call `get_home` again |
+| "The tool ... has no argument ..." | Claude knows the tools of an older version of Sweet Home 3D. An argument the server doesn't know is refused with the list of the ones it has, instead of being dropped. Start a new conversation, or restart Claude, so it reads the tools again |
 | A picture takes minutes | It was drawn by the ray tracer: ask for `"renderer":"opengl"`, or give a `timeout` |
 | Claude can't change anything | Tick **Allow changes to this home** |
 
@@ -355,7 +364,9 @@ pieces or textures named exactly.
   visibility), `AssistantShapeCommands` (roofs, dormers, slabs, ground),
   `AssistantRoofGeometry` and `AssistantRoofModel`, `AssistantMeshBuilder`,
   `AssistantFurnitureBuilder`, `AssistantLibraryCommands`,
-  `AssistantLayerCommands`, `AssistantDesignCommands`.
+  `AssistantLayerCommands`, `AssistantDesignCommands`, `AssistantSiteCommands`
+  (lines of the plan, compass, georeference, parcels) with `HomeGeoreference`
+  and `HomeRoofs` (ceilings and headroom under roofs).
 - `viewcontroller/HomeViewpoints` - the cameras of the standard views and of
   the views from the inside, computed from the bounds of the items.
   `HomePane.create3DImage` applies them to a copy of the home and renders it
@@ -364,7 +375,9 @@ pieces or textures named exactly.
   (POST only: no server-initiated stream, no session), token file, header checks.
 - `swing/HomeMCPBridge` - the stdio program launched by clients (forwards to
   the server, answers the handshake and the tool list itself while no server
-  runs via `HomeMCPHandler.handleOffline`), and the registration in Claude
+  runs via `HomeMCPHandler.handleOffline`, and sends
+  `notifications/tools/list_changed` when the tools of the server differ from
+  the ones it gave its client), and the registration in Claude
   Desktop and Claude Code. `scripts/package-release.ps1` adds its launcher
   `sweethome3d-mcp` to the application image.
 - `swing/HomePane.showMCPServerDialog` - the menu item and dialog.

@@ -1193,7 +1193,8 @@ public class HomeController3D implements Controller {
                                             ? home.getFurniture()
                                             : Home.getFurnitureSubList(selectedItems)) {
         if (selectionEmpty
-            && (containsVisibleWalls && HomeTerrain.isTerrain(piece)
+            && (containsVisibleWalls && (HomeTerrain.isTerrain(piece)
+                    || "site".equals(piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY)))
                 || buildingBox != null
                     && (piece.getX() < buildingBox [0] || piece.getY() < buildingBox [1]
                         || piece.getX() > buildingBox [2] || piece.getY() > buildingBox [3]))) {

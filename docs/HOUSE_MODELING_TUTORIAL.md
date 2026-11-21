@@ -175,7 +175,8 @@ degrees that leans against the house."*
   each edge instead: the fourth edge of the garage roof, along the house, is
   a vertical end without overhang.
 - The rooms under the slopes lose their flat ceiling with
-  `"ceiling_visible":false`.
+  `"ceiling_visible":false`. `"ceiling":"follow_roof"` gives them a ceiling
+  under the slopes instead ([Command reference](MCP_COMMANDS.md#ceilings-under-a-roof)).
 
 The answer names each roof and what to do next:
 
@@ -319,7 +320,12 @@ Save the home with **File > Save**: the tools can't.
 
 | To | Do |
 | --- | --- |
-| Change the pitch or the covering of a roof | Call `add_roof` again with the same `points` after deleting the first one, or ask Claude to "rebuild the roof at 35 degrees" |
+| Change the pitch, the eaves or the covering of a roof | `modify_roof`, which keeps its dormers ([Command reference](MCP_COMMANDS.md#changing-a-roof)) |
+| Move, widen or remove one dormer, or give it two windows | `modify_dormer`, `remove_dormer` ([Command reference](MCP_COMMANDS.md#dormers)) |
+| Add a cross gable | `add_dormer` with `"setback":0` and `"ridge":"match"`, then `fit_walls_to_roof` |
+| Know the headroom under the slopes | `headroom` |
+| Draw the lot, its setbacks and its stakes, from a survey if you have one | `add_property_line`, `add_setback`, `import_parcel` ([Command reference](MCP_COMMANDS.md#site-lot-lines-setbacks-and-georeference)) |
+| Undo a house built in many calls at once | `begin_group` ... `end_group` ([Command reference](MCP_COMMANDS.md#undo-groups)) |
 | Give a wall a brick base | `modify_wall` with a `baseboard` 90 cm high and a brick texture ([Command reference](MCP_COMMANDS.md#rooms-and-walls)) |
 | Raise or sink the floor of a room | `modify_room` with `floor_offset` |
 | Compare with photos of the real house | `get_3d_image` with `compare_with` ([Pictures](MCP_SERVER.md#comparing-with-a-photo)) |
@@ -338,7 +344,12 @@ Save the home with **File > Save**: the tools can't.
 - **Slabs at or under the height 0** are hidden by the flat ground of the 3D
   view where no terrain replaces it.
 - **Roofs in the plan** can't be clicked: select them in the furniture list.
-- **Dormer windows** get new ids each time a dormer is added to their roof.
+- **Walls under a roof** aren't fitted again by themselves: run
+  `fit_walls_to_roof` again after `modify_roof`, `add_dormer`,
+  `modify_dormer` or `remove_dormer`. Ceilings that follow the roof are
+  built again by themselves.
+- **Lot lines and georeference** are for placing a house on its lot, within
+  about a meter. They aren't a survey.
 - **In the game mode and the walk-through**, the visitor walks on the slopes
   of the ground and of slabs. Roofs stop no one, and neither does the edge of
   a slab higher than a step: the visitor passes under it.

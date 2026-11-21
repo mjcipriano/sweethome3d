@@ -46,6 +46,7 @@ import com.eteks.sweethome3d.model.FurnitureCategory;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomeFurnitureGroup;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
+import com.eteks.sweethome3d.model.Level;
 import com.eteks.sweethome3d.model.PieceOfFurniture;
 import com.eteks.sweethome3d.model.RecorderException;
 import com.eteks.sweethome3d.model.Selectable;
@@ -108,6 +109,61 @@ class AssistantLibraryCommands {
 
   // ---- Furniture made of parts ----
 
+  /**
+   * Returns the given parts with their heights measured from what stands under them: the ground
+   * built by <code>set_terrain</code>, or the floor of a room. A bar that follows a path is cut
+   * every meter, so a string line or a fence goes up and down with the slopes.
+   * @param x     the abscissa of the piece in the plan
+   * @param y     its ordinate
+   * @param angle its angle in radians
+   */
+  @SuppressWarnings("unchecked")
+  private List<Object> followTerrain(List<?> parts, double x, double y, double angle) {
+    AssistantShapeCommands shapeCommands = this.executor.getShapeCommands();
+    Level level = this.home.getSelectedLevel();
+    float levelElevation = level != null ? level.getElevation() : 0;
+    double cos = Math.cos(angle);
+    double sin = Math.sin(angle);
+    List<Object> result = new ArrayList<Object>();
+    for (Object item : parts) {
+      if (!(item instanceof Map)) {
+        result.add(item);
+        continue;
+      }
+      Map<String, Object> part = new java.util.LinkedHashMap<String, Object>((Map<String, Object>)item);
+      float partX = AssistantFurnitureBuilder.getNumber(part, "x", 0);
+      float partY = AssistantFurnitureBuilder.getNumber(part, "y", 0);
+      List<float []> path = AssistantFurnitureBuilder.getPoints(part, "path", 3);
+      if (path.size() >= 2) {
+        List<Object> newPath = new ArrayList<Object>();
+        for (int i = 0; i < path.size(); i++) {
+          float [] point = path.get(i);
+          float [] next = i + 1 < path.size() ? path.get(i + 1)
+              : Boolean.TRUE.equals(part.get("closed")) ? path.get(0) : null;
+          int steps = next == null ? 1
+              : Math.max(1, Math.min(200, (int)Math.ceil(Math.hypot(next [0] - point [0], next [1] - point [1]) / 100)));
+          for (int step = 0; step < steps; step++) {
+            double px = next == null ? point [0] : point [0] + (double)(next [0] - point [0]) * step / steps;
+            double py = next == null ? point [1] : point [1] + (double)(next [1] - point [1]) * step / steps;
+            double pz = next == null ? point [2] : point [2] + (double)(next [2] - point [2]) * step / steps;
+            double localX = partX + px;
+            double localY = partY + py;
+            float ground = shapeCommands.getStandingHeight((float)(x + localX * cos - localY * sin),
+                (float)(y + localX * sin + localY * cos)) - levelElevation;
+            newPath.add(java.util.Arrays.asList(new Object [] {px, py, pz + ground}));
+          }
+        }
+        part.put("path", newPath);
+      } else {
+        float ground = shapeCommands.getStandingHeight((float)(x + partX * cos - partY * sin),
+            (float)(y + partX * sin + partY * cos)) - levelElevation;
+        part.put("z", Double.valueOf(AssistantFurnitureBuilder.getNumber(part, "z", 0) + ground));
+      }
+      result.add(part);
+    }
+    return result;
+  }
+
   private void createFurniture(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
     String name = command.getString("name");
     if (name == null || name.trim().length() == 0) {
@@ -116,6 +172,12 @@ class AssistantLibraryCommands {
     name = name.trim();
     Object parts = command.getParameters().get("parts");
     List<String> partNotes = new ArrayList<String>();
+    boolean onTerrain = command.getBoolean("on_terrain", false) || command.getBoolean("follow_terrain", false);
+    if (onTerrain && parts instanceof List) {
+      // The heights of the parts are measured from the ground under each of them
+      parts = followTerrain((List<?>)parts, command.getDouble("x", 0), command.getDouble("y", 0),
+          Math.toRadians(command.getDouble("angle", 0)));
+    }
     AssistantGeneratedModel model = AssistantFurnitureBuilder.build(
         parts instanceof List ? (List<?>)parts : null, partNotes, this.executor.getShapeCommands().getTextureFinder());
     double x = command.getDouble("x", Double.NaN);
@@ -161,6 +223,10 @@ class AssistantLibraryCommands {
       piece.setElevation((float)elevation);
       if (elevation < 0) {
         piece.setProperty(AssistantCommandExecutor.BELOW_FLOOR_PROPERTY, "true");
+      }
+      if (onTerrain) {
+        // It stands on the ground outdoors on purpose
+        piece.setProperty(AssistantCommandExecutor.OUTDOOR_PROPERTY, "true");
       }
       if (command.getBoolean("structure", false)) {
         // A chimney, a post, a fence: a part of the building or of its site

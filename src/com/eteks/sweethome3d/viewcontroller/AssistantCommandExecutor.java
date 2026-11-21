@@ -13,6 +13,8 @@ package com.eteks.sweethome3d.viewcontroller;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 
@@ -29,6 +31,7 @@ import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.HomeTexture;
 import com.eteks.sweethome3d.model.ModelLOD;
 import com.eteks.sweethome3d.model.Level;
+import com.eteks.sweethome3d.model.Polyline;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Selectable;
 import com.eteks.sweethome3d.model.UserPreferences;
@@ -45,6 +48,12 @@ import com.eteks.sweethome3d.model.Wall;
 public class AssistantCommandExecutor {
   /** Upper bound on the commands applied in one turn, so a bad reply can't make a huge mess. */
   static final int   MAX_COMMANDS_PER_TURN = 100;
+  /** The most commands a file of commands may hold. */
+  public static final int MAX_COMMANDS_PER_FILE = 2000;
+  private static final int MAX_CREATED_IDS = 60;
+  private static final int MAX_LISTED_ITEMS = 500;
+  /** A group of calls left without a command for this time is ended. */
+  public static final long GROUP_IDLE_DELAY = 10 * 60000;
   /** Coordinates beyond this magnitude (10 km in cm) are considered nonsense and rejected. */
   static final float MAX_COORDINATE_CM = 1000000f;
   /** Sizes beyond this magnitude (1 km in cm) are considered nonsense and rejected. */
@@ -71,6 +80,7 @@ public class AssistantCommandExecutor {
   private final AssistantBuildingCommands buildingCommands;
   private final AssistantObjectCommands   objectCommands;
   private final AssistantPlanCommands     planCommands;
+  private final AssistantSiteCommands      siteCommands;
   private final AssistantLayerCommands    layerCommands;
   private final AssistantLibraryCommands  libraryCommands;
   private final AssistantDesignCommands   designCommands;
@@ -87,6 +97,8 @@ public class AssistantCommandExecutor {
      */
     float [] getModelSize(com.eteks.sweethome3d.model.Content model) throws java.io.IOException;
   }
+  private boolean groupOpen;
+  private long    groupActivityTime;
   private final AssistantStructureCommands structureCommands;
   private final AssistantShapeCommands     shapeCommands;
   // Remarks of the commands of a turn about the items they designate
@@ -103,6 +115,7 @@ public class AssistantCommandExecutor {
     this.objectCommands = new AssistantObjectCommands(home, preferences, homeController, this);
     this.planCommands = new AssistantPlanCommands(home, homeController, this,
         this.buildingCommands, this.objectCommands);
+    this.siteCommands = new AssistantSiteCommands(home, homeController, this);
     this.layerCommands = new AssistantLayerCommands(home, homeController, this);
     this.libraryCommands = new AssistantLibraryCommands(home, preferences, homeController, this);
     this.designCommands = new AssistantDesignCommands(home, preferences, homeController, this, this.buildingCommands);
@@ -138,9 +151,89 @@ public class AssistantCommandExecutor {
    * duplicates, doors out of walls...), with the ids of the described items.
    */
   public String checkHome() {
+    return checkHome(Collections.<String, Object>emptyMap());
+  }
+
+  /**
+   * Returns the report of the defects of the plan, without the ones the options tell to ignore:
+   * <code>ignore</code> (ids), <code>ignore_tags</code>, <code>min_severity</code> (info, warning or error),
+   * <code>remember</code> to keep the ids and the tags for the next checks of this home,
+   * <code>forget</code> to ignore nothing any more.
+   */
+  @SuppressWarnings("unchecked")
+  public String checkHome(Map<String, Object> options) {
     HomeItemIds.ensureIds(this.home);
-    return HomeDiagnostics.describe(HomeDiagnostics.check(this.home, this.home.getFurniture(),
-        new ArrayList<Wall>(this.home.getWalls()), this.home.getRooms()));
+    List<String> ignoredIds = getStrings(options.get("ignore"));
+    List<String> ignoredTags = getStrings(options.get("ignore_tags"));
+    if (options.get("ignore_tag") != null) {
+      ignoredTags.addAll(getStrings(options.get("ignore_tag")));
+    }
+    String note = "";
+    if (Boolean.TRUE.equals(options.get("forget"))) {
+      this.home.setProperty(HomeDiagnostics.IGNORE_PROPERTY, null);
+      note = "\nThe checks of this home no longer ignore anything by themselves.";
+    }
+    // What the checks of this home always ignore
+    List<String> rememberedIds = new ArrayList<String>();
+    List<String> rememberedTags = new ArrayList<String>();
+    String remembered = this.home.getProperty(HomeDiagnostics.IGNORE_PROPERTY);
+    if (remembered != null) {
+      try {
+        Object parsed = JSONParser.parse(remembered);
+        if (parsed instanceof Map) {
+          rememberedIds = getStrings(((Map<String, Object>)parsed).get("ids"));
+          rememberedTags = getStrings(((Map<String, Object>)parsed).get("tags"));
+        }
+      } catch (IllegalArgumentException ex) {
+        // Nothing remembered
+      }
+    }
+    if (Boolean.TRUE.equals(options.get("remember")) && (!ignoredIds.isEmpty() || !ignoredTags.isEmpty())) {
+      for (String id : ignoredIds) {
+        if (!rememberedIds.contains(id.toUpperCase(Locale.ENGLISH))) {
+          rememberedIds.add(id.toUpperCase(Locale.ENGLISH));
+        }
+      }
+      for (String tag : ignoredTags) {
+        if (!rememberedTags.contains(tag)) {
+          rememberedTags.add(tag);
+        }
+      }
+      Map<String, Object> value = new java.util.LinkedHashMap<String, Object>();
+      value.put("ids", rememberedIds);
+      value.put("tags", rememberedTags);
+      this.home.setProperty(HomeDiagnostics.IGNORE_PROPERTY, AssistantShapeCommands.toJson(value));
+      note = "\nThe next checks of this home will ignore the ids " + rememberedIds + " and the tags " + rememberedTags
+          + " ({\"forget\":true} ends it).";
+    }
+    ignoredIds.addAll(rememberedIds);
+    ignoredTags.addAll(rememberedTags);
+    List<HomeDiagnostics.Issue> issues = HomeDiagnostics.check(this.home, this.home.getFurniture(),
+        new ArrayList<Wall>(this.home.getWalls()), this.home.getRooms());
+    int minSeverity = HomeDiagnostics.parseSeverity(options.get("min_severity") != null
+        ? options.get("min_severity").toString() : null);
+    List<HomeDiagnostics.Issue> kept = HomeDiagnostics.filter(issues, ignoredIds, ignoredTags, 0);
+    int ignoredCount = issues.size() - kept.size();
+    kept = HomeDiagnostics.filter(kept, Collections.<String>emptyList(), Collections.<String>emptyList(), minSeverity);
+    return HomeDiagnostics.describe(kept, ignoredCount) + note;
+  }
+
+  private static List<String> getStrings(Object value) {
+    List<String> strings = new ArrayList<String>();
+    if (value instanceof List) {
+      for (Object item : (List<?>)value) {
+        if (item != null && item.toString().trim().length() > 0) {
+          strings.add(item.toString().trim());
+        }
+      }
+    } else if (value != null) {
+      for (String item : value.toString().split(",")) {
+        if (item.trim().length() > 0) {
+          strings.add(item.trim());
+        }
+      }
+    }
+    return strings;
   }
 
   /**
@@ -265,9 +358,18 @@ public class AssistantCommandExecutor {
    * the agentic loop can feed them back to the model.
    */
   public String execute(List<AssistantCommand> commands) {
+    return execute(commands, MAX_COMMANDS_PER_TURN);
+  }
+
+  /**
+   * Runs at most <code>maxCommandCount</code> commands as a single undoable change:
+   * a file of commands may hold more of them than a reply typed by a model.
+   */
+  public String execute(List<AssistantCommand> commands, int maxCommandCount) {
     if (commands == null || commands.isEmpty()) {
       return null;
     }
+    this.groupActivityTime = System.currentTimeMillis();
     // furniture, doors/windows, rooms, walls, modified items, deleted items
     int [] tally = new int [6];
     List<String> notFound = new ArrayList<String>();
@@ -278,15 +380,20 @@ public class AssistantCommandExecutor {
     this.turnFurniture = new ArrayList<HomePieceOfFurniture>(this.home.getFurniture());
     this.turnWalls = new ArrayList<Wall>(this.home.getWalls());
     this.turnRooms = new ArrayList<Room>(this.home.getRooms());
+    List<Polyline> polylinesBefore = new ArrayList<Polyline>(this.home.getPolylines());
+    List<Level> levelsBefore = new ArrayList<Level>(this.home.getLevels());
+    List<HomePieceOfFurniture> furnitureBefore = this.turnFurniture;
+    List<Wall> wallsBefore = this.turnWalls;
+    List<Room> roomsBefore = this.turnRooms;
     this.turnUpdateBegun = false;
     this.turnUnresolvedIds = new ArrayList<String>();
     this.turnWarnings = new ArrayList<String>();
     try {
       int applied = 0;
       for (AssistantCommand command : commands) {
-        if (++applied > MAX_COMMANDS_PER_TURN) {
-          notes.add("Stopped after " + MAX_COMMANDS_PER_TURN
-              + " commands (turn limit); " + (commands.size() - MAX_COMMANDS_PER_TURN)
+        if (++applied > maxCommandCount) {
+          notes.add("Stopped after " + maxCommandCount
+              + " commands (turn limit); " + (commands.size() - maxCommandCount)
               + " commands were ignored");
           break;
         }
@@ -309,6 +416,10 @@ public class AssistantCommandExecutor {
       notes.addAll(this.turnWarnings);
       // The items added by the turn get their ids now, in the order they were added
       HomeItemIds.ensureIds(this.home);
+      String created = describeCreatedItems(furnitureBefore, wallsBefore, roomsBefore, polylinesBefore, levelsBefore);
+      if (created != null) {
+        notes.add(created);
+      }
     } finally {
       if (this.turnUpdateBegun) {
         this.homeController.getUndoableEditSupport().endUpdate();
@@ -322,6 +433,199 @@ public class AssistantCommandExecutor {
       this.turnUpdateBegun = false;
     }
     return buildSummary(tally, notFound, notes);
+  }
+
+  /**
+   * Returns the ids of the items the home has now and didn't have at the start of the turn.
+   */
+  private String describeCreatedItems(List<HomePieceOfFurniture> furnitureBefore, List<Wall> wallsBefore,
+                                      List<Room> roomsBefore, List<Polyline> polylinesBefore, List<Level> levelsBefore) {
+    List<HomeObject> created = new ArrayList<HomeObject>();
+    Set<HomeObject> before = new HashSet<HomeObject>();
+    before.addAll(levelsBefore);
+    before.addAll(roomsBefore);
+    before.addAll(wallsBefore);
+    before.addAll(furnitureBefore);
+    before.addAll(polylinesBefore);
+    List<HomeObject> now = new ArrayList<HomeObject>();
+    now.addAll(this.home.getLevels());
+    now.addAll(this.home.getRooms());
+    now.addAll(this.home.getWalls());
+    now.addAll(this.home.getFurniture());
+    now.addAll(this.home.getPolylines());
+    for (HomeObject item : now) {
+      if (!before.contains(item)) {
+        created.add(item);
+      }
+    }
+    if (created.isEmpty()) {
+      return null;
+    }
+    StringBuilder text = new StringBuilder("Ids of what was created: ");
+    int listed = 0;
+    for (int i = 0; i < created.size(); i++) {
+      HomeObject item = created.get(i);
+      String id = HomeItemIds.getId(item);
+      if (id == null) {
+        continue;
+      }
+      if (listed == MAX_CREATED_IDS) {
+        text.append(", and ").append(created.size() - i).append(" more (get_home lists them)");
+        break;
+      }
+      text.append(listed++ > 0 ? ", " : "").append(id);
+      String name = item instanceof HomePieceOfFurniture ? ((HomePieceOfFurniture)item).getName()
+          : item instanceof Room ? ((Room)item).getName()
+          : item instanceof Level ? ((Level)item).getName()
+          : item instanceof Polyline ? item.getProperty(AssistantSiteCommands.LINE_NAME_PROPERTY) : null;
+      if (name != null && name.length() > 0 && !(item instanceof Wall)) {
+        text.append(" \"").append(name).append('"');
+      }
+    }
+    return listed > 0 ? text.toString() : null;
+  }
+
+  /**
+   * Returns one line for each of the items matching <code>where</code>, with the fields asked for:
+   * <code>name</code>, <code>position</code>, <code>size</code>, <code>level</code>, <code>elevation</code>,
+   * <code>angle</code>, <code>tags</code>, <code>type</code>, <code>area</code>, <code>points</code>,
+   * <code>color</code>. The id of an item is always given.
+   * @param where  the criteria of {@link #resolveWhere(Map)}, or <code>null</code> for every item
+   * @param fields the fields to give, or <code>null</code> for the name, the position, the size and the level
+   */
+  public String describeItems(Map<?, ?> where, List<String> fields) {
+    HomeItemIds.ensureIds(this.home);
+    this.turnWarnings = new ArrayList<String>();
+    List<Selectable> items;
+    try {
+      if (where != null && !where.isEmpty()) {
+        items = resolveWhere(where);
+      } else {
+        items = new ArrayList<Selectable>();
+        items.addAll(this.home.getRooms());
+        items.addAll(this.home.getWalls());
+        items.addAll(this.home.getFurniture());
+        items.addAll(this.home.getPolylines());
+      }
+      if (!this.turnWarnings.isEmpty()) {
+        return this.turnWarnings.get(0);
+      }
+    } finally {
+      this.turnWarnings = null;
+    }
+    List<String> wanted = new ArrayList<String>();
+    if (fields != null) {
+      for (String field : fields) {
+        wanted.add(field.trim().toLowerCase(Locale.ENGLISH));
+      }
+    }
+    if (wanted.isEmpty()) {
+      wanted.addAll(java.util.Arrays.asList("name", "position", "size", "level"));
+    }
+    StringBuilder text = new StringBuilder(items.size() + (items.size() == 1 ? " item" : " items")
+        + (where != null && !where.isEmpty() ? " matching the filter" : "") + " (cm):\n");
+    int listed = 0;
+    for (Selectable item : items) {
+      if (listed++ == MAX_LISTED_ITEMS) {
+        text.append("... and ").append(items.size() - MAX_LISTED_ITEMS).append(" more: narrow the filter\n");
+        break;
+      }
+      text.append("- ").append(getId(item));
+      HomePieceOfFurniture piece = item instanceof HomePieceOfFurniture ? (HomePieceOfFurniture)item : null;
+      Level level = item instanceof com.eteks.sweethome3d.model.Elevatable
+          ? ((com.eteks.sweethome3d.model.Elevatable)item).getLevel() : null;
+      for (String field : wanted) {
+        if (field.equals("name")) {
+          String name = piece != null ? piece.getName() : item instanceof Room ? ((Room)item).getName()
+              : item instanceof Polyline ? ((Polyline)item).getProperty(AssistantSiteCommands.LINE_NAME_PROPERTY) : null;
+          if (name != null) {
+            text.append(" \"").append(name).append('"');
+          }
+        } else if (field.equals("position") || field.equals("x") || field.equals("y")) {
+          if (piece != null) {
+            text.append(" at (").append(Math.round(piece.getX())).append(", ").append(Math.round(piece.getY())).append(")");
+          } else if (item instanceof Wall) {
+            Wall wall = (Wall)item;
+            text.append(" from (").append(Math.round(wall.getXStart())).append(", ").append(Math.round(wall.getYStart()))
+                .append(") to (").append(Math.round(wall.getXEnd())).append(", ").append(Math.round(wall.getYEnd())).append(")");
+          } else if (item instanceof Room) {
+            text.append(" center (").append(Math.round(((Room)item).getXCenter())).append(", ")
+                .append(Math.round(((Room)item).getYCenter())).append(")");
+          }
+        } else if (field.equals("size")) {
+          if (piece != null) {
+            text.append(' ').append(Math.round(piece.getWidth())).append(" x ").append(Math.round(piece.getDepth()))
+                .append(" x ").append(Math.round(piece.getHeight()));
+          } else if (item instanceof Wall) {
+            text.append(' ').append(Math.round(((Wall)item).getLength())).append(" long");
+          }
+        } else if (field.equals("level")) {
+          if (level != null) {
+            text.append(" [").append(level.getName()).append(']');
+          }
+        } else if (field.equals("elevation") && piece != null) {
+          text.append(" elevation ").append(Math.round(piece.getElevation()));
+        } else if (field.equals("angle") && piece != null) {
+          text.append(" angle ").append(Math.round(Math.toDegrees(piece.getAngle())));
+        } else if (field.equals("tags") && piece != null && piece.getProperty(HomeItemTags.TAGS_PROPERTY) != null) {
+          text.append(" tags ").append(piece.getProperty(HomeItemTags.TAGS_PROPERTY));
+        } else if (field.equals("type")) {
+          text.append(piece != null ? " " + HomeItemTags.getType(piece)
+              : item instanceof Wall ? " wall" : item instanceof Room ? " room" : " line");
+        } else if (field.equals("area") && item instanceof Room) {
+          text.append(' ').append(Math.round(((Room)item).getArea() / 100) / 100f).append(" m2");
+        } else if (field.equals("color") && piece != null && piece.getColor() != null) {
+          text.append(String.format(" #%06X", piece.getColor() & 0xFFFFFF));
+        } else if (field.equals("points") && (item instanceof Room || item instanceof Polyline)) {
+          text.append(" points");
+          for (float [] point : item.getPoints()) {
+            text.append(" [").append(Math.round(point [0])).append(',').append(Math.round(point [1])).append(']');
+          }
+        }
+      }
+      text.append('\n');
+    }
+    return text.toString().trim();
+  }
+
+  // ---- Groups of calls undone as one step ----
+
+  /**
+   * Starts a group: the changes of the calls that follow, until {@link #endGroup()}, make one step
+   * of Undo. Changes made by hand in the meantime join it.
+   */
+  public boolean beginGroup() {
+    if (this.groupOpen) {
+      return false;
+    }
+    this.homeController.getUndoableEditSupport().beginUpdate();
+    this.groupOpen = true;
+    this.groupActivityTime = System.currentTimeMillis();
+    return true;
+  }
+
+  /**
+   * Ends the group started by {@link #beginGroup()}, and returns <code>false</code> if there is none.
+   */
+  public boolean endGroup() {
+    if (!this.groupOpen) {
+      return false;
+    }
+    this.groupOpen = false;
+    this.homeController.getUndoableEditSupport().endUpdate();
+    return true;
+  }
+
+  public boolean isGroupOpen() {
+    return this.groupOpen;
+  }
+
+  /**
+   * Ends a group left open for longer than <code>delay</code> milliseconds without a command,
+   * so a client that went away doesn't keep the changes of the user out of Undo.
+   */
+  public boolean endIdleGroup(long delay) {
+    return this.groupOpen && System.currentTimeMillis() - this.groupActivityTime > delay && endGroup();
   }
 
   /**
@@ -352,7 +656,16 @@ public class AssistantCommandExecutor {
     } else if ("add_wall".equals(action)) {
       addWall(command, tally, notes);
     } else if ("select".equals(action)) {
-      select(command);
+      select(command, notes);
+    } else if ("begin_group".equals(action) || "begin_undo_group".equals(action)) {
+      notes.add(beginGroup()
+          ? "Started a group: what the calls change from now on is undone as one step, until {\"action\":\"end_group\"}. "
+              + "It ends by itself after " + (GROUP_IDLE_DELAY / 60000) + " minutes without a command"
+          : "A group is already started: {\"action\":\"end_group\"} ends it");
+    } else if ("end_group".equals(action) || "end_undo_group".equals(action)) {
+      notes.add(endGroup()
+          ? "Ended the group: Edit > Undo now undoes at once everything changed since begin_group"
+          : "No group was started");
     } else if ("move".equals(action) || "rotate".equals(action) || "resize".equals(action)
         || "set_color".equals(action) || "set_elevation".equals(action)
         || "set_visible".equals(action) || "rename".equals(action)
@@ -366,7 +679,8 @@ public class AssistantCommandExecutor {
                && !this.objectCommands.apply(action, command, tally, notes)
                && !this.layerCommands.apply(action, command, tally, notes)
                && !this.libraryCommands.apply(action, command, tally, notes)
-               && !this.designCommands.apply(action, command, tally, notes)) {
+               && !this.designCommands.apply(action, command, tally, notes)
+               && !this.siteCommands.apply(action, command, tally, notes)) {
       this.planCommands.apply(action, command, tally, notes);
     }
     // Unknown actions are ignored so a single bad command doesn't break a turn
@@ -697,7 +1011,7 @@ public class AssistantCommandExecutor {
         if (item != null && !targets.contains(item)) {
           targets.add(item);
         } else if (item == null && this.turnUnresolvedIds != null
-                   && trimmed.matches("[FWRfwr]\\s*\\d+")
+                   && trimmed.matches("[FWRPfwrp]\\s*\\d+")
                    && !this.turnUnresolvedIds.contains(trimmed.toUpperCase(Locale.ENGLISH).replace(" ", ""))) {
           this.turnUnresolvedIds.add(trimmed.toUpperCase(Locale.ENGLISH).replace(" ", ""));
         }
@@ -759,6 +1073,7 @@ public class AssistantCommandExecutor {
     List<Selectable> items = new ArrayList<Selectable>();
     String levelToken = where.get("level") != null ? where.get("level").toString() : null;
     String tag = where.get("tag") != null ? where.get("tag").toString().trim() : null;
+    // "Pine|Oak" matches the names that contain one of these texts
     String name = where.get("name") != null ? where.get("name").toString().trim().toLowerCase(Locale.ENGLISH) : null;
     List<String> typeTokens = new ArrayList<String>();
     if (where.get("type") instanceof List) {
@@ -801,6 +1116,7 @@ public class AssistantCommandExecutor {
     }
     boolean walls = false;
     boolean rooms = false;
+    boolean polylines = false;
     boolean allFurniture = false;
     List<String> furnitureTypes = new ArrayList<String>();
     for (String typeToken : typeTokens) {
@@ -809,26 +1125,28 @@ public class AssistantCommandExecutor {
         walls = true;
       } else if (type.equals("rooms") || type.equals("room")) {
         rooms = true;
+      } else if (type.equals("polylines") || type.equals("polyline") || type.equals("lines")) {
+        polylines = true;
       } else if (type.equals("all_furniture") || type.equals("pieces")) {
         allFurniture = true;
       } else if (HomeItemTags.parseType(type) != null) {
         furnitureTypes.add(HomeItemTags.parseType(type));
       } else if (type.length() > 0) {
         warn("Ignored \"where\": unknown type \"" + typeToken.trim()
-            + "\" (furniture, doors_and_windows, lights, stairs, groups, all_furniture, walls, rooms)");
+            + "\" (furniture, doors_and_windows, lights, stairs, groups, all_furniture, walls, rooms, polylines)");
         return items;
       }
     }
     if (typeTokens.isEmpty()) {
       // Tags are those of furniture
       allFurniture = true;
-      walls = rooms = tag == null;
+      walls = rooms = polylines = tag == null;
     }
     if (allFurniture || !furnitureTypes.isEmpty()) {
       for (HomePieceOfFurniture piece : HomeItemTags.getFurniture(this.home, tag, null)) {
         if ((allFurniture || furnitureTypes.contains(HomeItemTags.getType(piece)))
             && (levels == null || levels.contains(piece.getLevel()))
-            && (name == null || piece.getName() != null && piece.getName().toLowerCase(Locale.ENGLISH).indexOf(name) >= 0)
+            && (name == null || matchesName(piece.getName(), name))
             && (bbox == null || piece.getX() >= bbox [0] && piece.getX() <= bbox [2]
                 && piece.getY() >= bbox [1] && piece.getY() <= bbox [3])) {
           items.add(piece);
@@ -847,13 +1165,39 @@ public class AssistantCommandExecutor {
     if (rooms && tag == null) {
       for (Room room : this.home.getRooms()) {
         if ((levels == null || levels.contains(room.getLevel()))
-            && (name == null || room.getName() != null && room.getName().toLowerCase(Locale.ENGLISH).indexOf(name) >= 0)
+            && (name == null || matchesName(room.getName(), name))
             && (bbox == null || isInside(room.getPoints(), bbox))) {
           items.add(room);
         }
       }
     }
+    if (polylines && tag == null) {
+      for (Polyline polyline : this.home.getPolylines()) {
+        if ((levels == null || levels.contains(polyline.getLevel()))
+            && (name == null || matchesName(polyline.getProperty(AssistantSiteCommands.LINE_NAME_PROPERTY), name))
+            && (bbox == null || isInside(polyline.getPoints(), bbox))) {
+          items.add(polyline);
+        }
+      }
+    }
     return items;
+  }
+
+  /**
+   * Returns <code>true</code> if <code>name</code> contains <code>pattern</code>, a text in lower case
+   * or several ones separated by <code>|</code>.
+   */
+  static boolean matchesName(String name, String pattern) {
+    if (name == null) {
+      return false;
+    }
+    String lowerName = name.toLowerCase(Locale.ENGLISH);
+    for (String alternative : pattern.split("\\|")) {
+      if (alternative.trim().length() > 0 && lowerName.indexOf(alternative.trim()) >= 0) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static boolean isInside(float [][] points, float [] bbox) {
@@ -1025,6 +1369,19 @@ public class AssistantCommandExecutor {
         notes.add("The room was added without \"floor_offset\" (" + ex.getMessage() + ")");
       }
     }
+    if (command.has("ceiling") || command.has("flat_ceiling_at")) {
+      // A ceiling under the slopes of the roof
+      try {
+        String ceiling = this.shapeCommands.setRoomCeiling(room, command.getString("ceiling"),
+            command.getDouble("flat_ceiling_at", Double.NaN));
+        if (room.getProperty(AssistantShapeCommands.ROOM_CEILING_PROPERTY) != null) {
+          room.setCeilingVisible(false);
+        }
+        notes.add("Room " + getId(room) + (room.getName() != null ? " \"" + room.getName() + "\"" : "") + ": " + ceiling);
+      } catch (java.io.IOException ex) {
+        notes.add("The room was added with the ceiling of its level (" + ex.getMessage() + ")");
+      }
+    }
   }
 
   private void addWall(AssistantCommand command, int [] tally, List<String> notes) {
@@ -1065,25 +1422,45 @@ public class AssistantCommandExecutor {
     return Double.isNaN(value) || Math.abs(value) <= MAX_SIZE_CM;
   }
 
-  private void select(AssistantCommand command) {
-    List<String> names = command.getStringList("names");
-    if (names.isEmpty()) {
+  /**
+   * Selects the items a command designates by ids, names or <code>where</code>, and tells what they are.
+   */
+  private void select(AssistantCommand command, List<String> notes) {
+    List<Selectable> selection = resolveTargets(command);
+    if (selection.isEmpty()) {
+      notes.add("select found no item"
+          + (command.getParameters().get("where") != null ? " matching \"where\"" : ""));
       return;
     }
-    List<Selectable> selection = new ArrayList<Selectable>();
-    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
-      if (piece.getName() != null && containsName(names, piece.getName())) {
-        selection.add(piece);
+    this.home.setSelectedItems(selection);
+    StringBuilder text = new StringBuilder("Selected " + selection.size() + (selection.size() == 1 ? " item: " : " items: "));
+    for (int i = 0; i < selection.size(); i++) {
+      if (i == MAX_CREATED_IDS) {
+        text.append(", and ").append(selection.size() - i).append(" more");
+        break;
+      }
+      Selectable item = selection.get(i);
+      text.append(i > 0 ? "; " : "").append(getId(item));
+      if (item instanceof HomePieceOfFurniture) {
+        HomePieceOfFurniture piece = (HomePieceOfFurniture)item;
+        text.append(" \"").append(piece.getName()).append("\" at (").append(Math.round(piece.getX())).append(", ")
+            .append(Math.round(piece.getY())).append(")");
+      } else if (item instanceof Room) {
+        text.append(" room \"").append(((Room)item).getName() != null ? ((Room)item).getName() : "").append('"');
+      } else if (item instanceof Wall) {
+        Wall wall = (Wall)item;
+        text.append(" wall (").append(Math.round(wall.getXStart())).append(", ").append(Math.round(wall.getYStart()))
+            .append(") to (").append(Math.round(wall.getXEnd())).append(", ").append(Math.round(wall.getYEnd())).append(")");
+      } else if (item instanceof Polyline) {
+        String name = ((Polyline)item).getProperty(AssistantSiteCommands.LINE_NAME_PROPERTY);
+        text.append(" line").append(name != null ? " \"" + name + "\"" : "");
+      }
+      Level level = item instanceof com.eteks.sweethome3d.model.Elevatable ? ((com.eteks.sweethome3d.model.Elevatable)item).getLevel() : null;
+      if (level != null && this.home.getLevels().size() > 1) {
+        text.append(" [").append(level.getName()).append(']');
       }
     }
-    for (Room room : this.home.getRooms()) {
-      if (room.getName() != null && containsName(names, room.getName())) {
-        selection.add(room);
-      }
-    }
-    if (!selection.isEmpty()) {
-      this.home.setSelectedItems(selection);
-    }
+    notes.add(text.toString());
   }
 
   private static boolean containsName(List<String> names, String candidate) {

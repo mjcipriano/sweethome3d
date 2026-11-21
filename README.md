@@ -53,9 +53,10 @@ in Sweet Home 3D.
 
 ### Model a whole house
 
-Roofs over any polygon with hips and gables, dormers with their window, walls
-cut to the slope of the roof, slabs and ramps, and a ground with slopes - all
-on the real levels of the house.
+Roofs over any polygon with hips and gables, dormers and cross gables with
+their windows, walls cut to the slope of the roof, ceilings that follow it,
+slabs and ramps, a ground with slopes, and the lot with its property lines
+and setbacks - all on the real levels of the house.
 
 ![The demo house seen from the street](docs/images/house-3d.jpg)
 

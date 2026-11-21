@@ -45,6 +45,9 @@ final class AssistantRoofModel {
   private final AssistantRoofGeometry geometry = new AssistantRoofGeometry();
   private final List<String>          notes = new ArrayList<String>();
   private final List<float []>        windows = new ArrayList<float []>();
+  private final List<String>          windowNames = new ArrayList<String>();
+  private final List<String>          dormerDescriptions = new ArrayList<String>();
+  private boolean []                  edgeAbuts;
   private double [][]                 points;
   private int []                      edgeTypes;
   private double []                   edgeSlopes;
@@ -69,10 +72,49 @@ final class AssistantRoofModel {
 
   /**
    * Returns the windows of the dormers, each one as {x, y, angle in radians,
-   * height of its bottom, width, height}.
+   * height of its bottom, width, height, index of the part of its dormer,
+   * index of its dormer in the description of the roof, index of the window in its dormer}.
    */
   List<float []> getWindows() {
     return this.windows;
+  }
+
+  /**
+   * Returns the names of the catalog windows of {@link #getWindows()}, <code>null</code> for the ones without name.
+   */
+  List<String> getWindowNames() {
+    return this.windowNames;
+  }
+
+  /**
+   * Returns a line about each dormer of the description, built or not, with its number.
+   */
+  List<String> getDormerDescriptions() {
+    return this.dormerDescriptions;
+  }
+
+  /**
+   * Returns the type of an edge as descriptions give it: hip, gable or abut.
+   */
+  String getEdgeTypeName(int edge) {
+    return this.edgeAbuts [edge] ? "abut" : this.edgeTypes [edge] == AssistantRoofGeometry.HIP ? "hip" : "gable";
+  }
+
+  double getEdgePitch(int edge) {
+    return Math.toDegrees(Math.atan(this.edgeSlopes [edge]));
+  }
+
+  double getEdgeOverhang(int edge) {
+    return this.edgeOverhangs [edge];
+  }
+
+  /**
+   * Returns the length of an edge.
+   */
+  double getEdgeLength(int edge) {
+    double [] point = this.points [edge];
+    double [] next = this.points [(edge + 1) % this.points.length];
+    return Math.hypot(next [0] - point [0], next [1] - point [1]);
   }
 
   int getDormerCount() {
@@ -121,11 +163,19 @@ final class AssistantRoofModel {
     } else if (type.equals("hip") || type.equals("hipped") || type.equals("eave") || type.equals("slope")) {
       return AssistantRoofGeometry.HIP;
     } else if (type.equals("gable") || type.equals("shed") || type.equals("flat") || type.equals("vertical")
-               || type.equals("rake") || type.equals("none")) {
+               || type.equals("rake") || type.equals("none") || isAbut(type)) {
       return AssistantRoofGeometry.GABLE;
     } else {
       return -1;
     }
+  }
+
+  /**
+   * Returns <code>true</code> for the type of an edge along the wall of a taller part of the building:
+   * the roof runs up to that wall, without overhang and without a gable wall of its own.
+   */
+  private static boolean isAbut(String type) {
+    return type.equals("abut") || type.equals("abutting") || type.equals("wall") || type.equals("against_wall");
   }
 
   private void parse(Map<?, ?> spec) throws IOException {
@@ -167,6 +217,7 @@ final class AssistantRoofModel {
     this.edgeTypes = getDefaultTypes(text(spec, "type"), text(spec, "ridge"), text(spec, "low_side"));
     this.edgeSlopes = new double [count];
     this.edgeOverhangs = new double [count];
+    this.edgeAbuts = new boolean [count];
     List<?> edges = spec.get("edges") instanceof List ? (List<?>)spec.get("edges") : null;
     for (int i = 0; i < count; i++) {
       double edgePitch = pitch;
@@ -177,15 +228,16 @@ final class AssistantRoofModel {
         int type = parseType(text(edgeSpec, "type"));
         if (type >= 0) {
           this.edgeTypes [i] = type;
+          this.edgeAbuts [i] = isAbut(text(edgeSpec, "type"));
         } else if (edgeSpec.get("type") != null) {
           this.notes.add("unknown type \"" + edgeSpec.get("type") + "\" of the edge " + (edgeIndices.get(i) + 1)
-              + " (hip, gable, shed or flat)");
+              + " (hip, gable, shed, flat or abut)");
         }
         edgePitch = number(edgeSpec, "pitch", pitch);
         if (!(edgePitch >= 1 && edgePitch <= 80)) {
           edgePitch = pitch;
         }
-        edgeOverhang = number(edgeSpec, "overhang", overhang);
+        edgeOverhang = number(edgeSpec, "overhang", this.edgeAbuts [i] ? 0 : overhang);
         if (!(edgeOverhang >= 0 && edgeOverhang <= 300)) {
           edgeOverhang = overhang;
         }
@@ -193,6 +245,10 @@ final class AssistantRoofModel {
         int type = parseType(((String)edge).trim().toLowerCase(Locale.ENGLISH));
         if (type >= 0) {
           this.edgeTypes [i] = type;
+          this.edgeAbuts [i] = isAbut(((String)edge).trim().toLowerCase(Locale.ENGLISH));
+          if (this.edgeAbuts [i]) {
+            edgeOverhang = 0;
+          }
         }
       }
       this.edgeSlopes [i] = Math.tan(Math.toRadians(edgePitch));
@@ -240,10 +296,15 @@ final class AssistantRoofModel {
           + "a roof made of one add_roof per wing gives a better result");
     }
     if (spec.get("dormers") instanceof List) {
+      int index = 0;
       for (Object dormer : (List<?>)spec.get("dormers")) {
         if (dormer instanceof Map) {
-          addDormer((Map<?, ?>)dormer);
+          int noteCount = this.notes.size();
+          String description = addDormer((Map<?, ?>)dormer, index);
+          this.dormerDescriptions.add((index + 1) + ": " + (description != null ? description
+              : "NOT BUILT - " + (this.notes.size() > noteCount ? this.notes.get(this.notes.size() - 1) : "")));
         }
+        index++;
       }
     }
   }
@@ -406,7 +467,10 @@ final class AssistantRoofModel {
 
   // ---- Dormers ----
 
-  private void addDormer(Map<?, ?> dormer) {
+  /**
+   * Adds a dormer, and returns its description or <code>null</code> if it can't be built.
+   */
+  private String addDormer(Map<?, ?> dormer, int dormerIndex) {
     int edge = -1;
     String side = text(dormer, "side");
     if (dormer.get("edge") instanceof Number) {
@@ -417,7 +481,7 @@ final class AssistantRoofModel {
     if (edge < 0 || edge >= this.points.length || this.edgeTypes [edge] != AssistantRoofGeometry.HIP) {
       this.notes.add("a dormer was ignored: \"side\" must be north, south, east or west, or \"edge\" the number "
           + "of an edge, with a slope rising from it");
-      return;
+      return null;
     }
     double [] start = this.points [edge];
     double [] end = this.points [(edge + 1) % this.points.length];
@@ -428,9 +492,18 @@ final class AssistantRoofModel {
     double width = Math.max(40, Math.min(length - 20, number(dormer, "width", 120)));
     double height = Math.max(20, Math.min(400, number(dormer, "height", 110)));
     double setback = Math.max(0, number(dormer, "setback", 40));
-    double position = dormer.get("offset") instanceof Number
-        ? number(dormer, "offset", length / 2)
-        : Math.max(0, Math.min(1, number(dormer, "position", 0.5))) * length;
+    // "offset" is a distance in cm to the center of the dormer, "position" a part of the side from 0 to 1;
+    // a position larger than 1 can only be a distance
+    double position;
+    if (dormer.get("offset") instanceof Number) {
+      position = number(dormer, "offset", length / 2);
+    } else if (dormer.get("position") instanceof Number && number(dormer, "position", 0.5) > 1) {
+      position = number(dormer, "position", length / 2);
+      this.notes.add("\"position\":" + Math.round(position) + " of a dormer was taken as a distance in cm, as \"offset\": "
+          + "\"position\" goes from 0 to 1");
+    } else {
+      position = Math.max(0, Math.min(1, number(dormer, "position", 0.5))) * length;
+    }
     if (!(dormer.get("edge") instanceof Number) && (Math.abs(ux) >= Math.abs(uy) ? ux < 0 : uy < 0)) {
       // Along a side given by a cardinal point, places are measured from the west or from the north
       position = length - position;
@@ -445,7 +518,7 @@ final class AssistantRoofModel {
     double frontHeight = this.geometry.getHeight(centerX, centerY, false);
     if (Double.isNaN(frontHeight)) {
       this.notes.add("a dormer was ignored: its place isn't on the roof");
-      return;
+      return null;
     }
     double dormerThickness = Math.min(this.thickness, 8);
     double base = frontHeight + height + dormerThickness;
@@ -458,6 +531,15 @@ final class AssistantRoofModel {
       slope = mainSlope / 3;
     }
     boolean flat = type.equals("flat");
+    if ("match".equals(text(dormer, "ridge")) && !flat && !shed) {
+      // A cross gable: its ridge is as high as the top of the roof
+      double rise = this.geometry.getMaxHeight() - base;
+      if (rise > 1) {
+        slope = Math.max(Math.tan(Math.toRadians(1)), Math.min(Math.tan(Math.toRadians(80)), rise / (width / 2)));
+      } else {
+        this.notes.add("\"ridge\":\"match\" was ignored for a dormer whose walls are as high as the top of the roof");
+      }
+    }
     if (!type.equals("gable") && !type.equals("hip") && !shed && !flat) {
       this.notes.add("the type of a dormer is gable, shed, hip or flat: \"" + type + "\" was built as a gable");
       type = "gable";
@@ -485,7 +567,7 @@ final class AssistantRoofModel {
     }
     if (depth < 20) {
       this.notes.add("a dormer was ignored: the roof is too small behind its place");
-      return;
+      return null;
     }
     double overhang = Math.max(0, Math.min(60, number(dormer, "overhang", 10)));
     double [][] polygon = {
@@ -505,16 +587,48 @@ final class AssistantRoofModel {
         base, dormerThickness, true);
     this.geometry.addPart(part);
     this.dormerCount++;
-    double windowWidth = number(dormer, "window_width", 0);
-    double windowHeight = number(dormer, "window_height", 0);
-    if (windowWidth > 0 && windowHeight > 0) {
-      windowWidth = Math.min(windowWidth, width - 16);
-      windowHeight = Math.min(windowHeight, height - 10);
-      double sill = frontHeight + Math.max(4, (height - windowHeight) / 2);
-      // The window faces the outside of the roof
-      this.windows.add(new float [] {(float)centerX, (float)centerY, (float)Math.atan2(normal [0], -normal [1]),
-          (float)sill, (float)windowWidth, (float)windowHeight, this.geometry.getParts().size() - 1});
+    // Its windows, side by side in its front wall
+    List<double []> sizes = new ArrayList<double []>();
+    List<String> names = new ArrayList<String>();
+    if (dormer.get("windows") instanceof List) {
+      for (Object window : (List<?>)dormer.get("windows")) {
+        if (window instanceof Map && number((Map<?, ?>)window, "width", 0) > 0 && number((Map<?, ?>)window, "height", 0) > 0) {
+          sizes.add(new double [] {number((Map<?, ?>)window, "width", 0), number((Map<?, ?>)window, "height", 0),
+              number((Map<?, ?>)window, "sill", Double.NaN)});
+          Object name = ((Map<?, ?>)window).get("name");
+          names.add(name != null ? name.toString() : null);
+        }
+      }
+    } else if (number(dormer, "window_width", 0) > 0 && number(dormer, "window_height", 0) > 0) {
+      int count = dormer.get("windows") instanceof Number
+          ? Math.max(1, Math.min(6, ((Number)dormer.get("windows")).intValue())) : 1;
+      for (int i = 0; i < count; i++) {
+        sizes.add(new double [] {number(dormer, "window_width", 0), number(dormer, "window_height", 0), Double.NaN});
+        names.add(dormer.get("window") != null ? dormer.get("window").toString() : null);
+      }
     }
+    for (int i = 0; i < sizes.size(); i++) {
+      double bay = width / sizes.size();
+      double windowWidth = Math.min(sizes.get(i) [0], bay - (sizes.size() > 1 ? 10 : 16));
+      double windowHeight = Math.min(sizes.get(i) [1], height - 10);
+      if (windowWidth < 10 || windowHeight < 10) {
+        continue;
+      }
+      double sill = frontHeight + (Double.isNaN(sizes.get(i) [2])
+          ? Math.max(4, (height - windowHeight) / 2)
+          : Math.max(2, Math.min(height - windowHeight - 2, sizes.get(i) [2])));
+      double along = -width / 2 + bay * (i + 0.5);
+      // The window faces the outside of the roof
+      this.windows.add(new float [] {(float)(centerX + ux * along), (float)(centerY + uy * along),
+          (float)Math.atan2(normal [0], -normal [1]),
+          (float)sill, (float)windowWidth, (float)windowHeight, this.geometry.getParts().size() - 1, dormerIndex, i});
+      this.windowNames.add(names.get(i));
+    }
+    return type + ", " + Math.round(width) + " cm wide, front wall " + Math.round(height) + " cm high, on the edge " + (edge + 1)
+        + ", its center " + Math.round(position) + " cm from the start of that edge (point " + (edge + 1) + ") and "
+        + Math.round(setback) + " cm back from it, " + Math.round(depth) + " cm deep, top at "
+        + Math.round(part.getMaxHeight()) + " cm"
+        + (sizes.isEmpty() ? "" : ", " + sizes.size() + (sizes.size() == 1 ? " window" : " windows"));
   }
 
   // ---- 3D model ----
@@ -611,7 +725,8 @@ final class AssistantRoofModel {
     // The walls under gables
     if (flag(spec, "gable_walls", true)) {
       for (int edge = 0; edge < this.points.length; edge++) {
-        if (this.edgeTypes [edge] != AssistantRoofGeometry.GABLE) {
+        if (this.edgeTypes [edge] != AssistantRoofGeometry.GABLE || this.edgeAbuts [edge]) {
+          // Along the wall of a taller part of the building, that wall closes the roof
           continue;
         }
         double [] point = this.points [edge];
@@ -634,10 +749,10 @@ final class AssistantRoofModel {
       }
       List<AssistantRoofGeometry.Cell> dormerCells = part.getOwnCells();
       double [] center = AssistantRoofGeometry.getCenter(part.getPolygon());
-      float [] window = null;
+      List<float []> partWindows = new ArrayList<float []>();
       for (float [] dormerWindow : this.windows) {
         if ((int)dormerWindow [6] == partIndex) {
-          window = dormerWindow;
+          partWindows.add(dormerWindow);
         }
       }
       double [][] polygon = part.getPolygon();
@@ -649,15 +764,19 @@ final class AssistantRoofModel {
         if (normal [0] * (center [0] - point [0]) + normal [1] * (center [1] - point [1]) < 0) {
           normal = new double [] {-normal [0], -normal [1]};
         }
+        // Drawn a hair out of its line, to hide a wall of the house fitted up to the roof in the same plane
+        double [] drawnPoint = {point [0] - normal [0] * 0.4, point [1] - normal [1] * 0.4};
+        double [] drawnNext = {next [0] - normal [0] * 0.4, next [1] - normal [1] * 0.4};
         double x1 = point [0] + normal [0] * 0.02;
         double y1 = point [1] + normal [1] * 0.02;
         double x2 = next [0] + normal [0] * 0.02;
         double y2 = next [1] + normal [1] * 0.02;
         List<double []> bottoms = AssistantRoofGeometry.getProfile(x1, y1, x2, y2, mainCells);
         List<double []> tops = AssistantRoofGeometry.getProfile(x1, y1, x2, y2, dormerCells);
-        // The side with the window is the one it stands in the middle of
-        boolean front = window != null
-            && Math.hypot((point [0] + next [0]) / 2 - window [0], (point [1] + next [1]) / 2 - window [1]) < 1;
+        // The side with the windows is the one they stand in
+        boolean front = !partWindows.isEmpty()
+            && java.awt.geom.Line2D.ptSegDist(point [0], point [1], next [0], next [1],
+                   partWindows.get(0) [0], partWindows.get(0) [1]) < 1;
         Area wall = front ? new Area() : null;
         TreeSet<Double> limits = new TreeSet<Double>();
         for (double [] piece : bottoms) {
@@ -687,24 +806,27 @@ final class AssistantRoofModel {
                       {(float)(previous * length), (float)Math.max(top1, bottom1)}}));
                 }
               } else {
-                addWall(mesh, point, next, previous, limit, bottom1, bottom2, top1, top2, normal, gableMaterial);
+                addWall(mesh, drawnPoint, drawnNext, previous, limit, bottom1, bottom2, top1, top2, normal, gableMaterial);
               }
             }
           }
           previous = limit;
         }
         if (wall != null) {
-          // The wall around its window
-          float middle = (float)(length / 2);
-          wall.subtract(AssistantMeshBuilder.getArea(new float [][] {
-              {middle - window [4] / 2, window [3]}, {middle + window [4] / 2, window [3]},
-              {middle + window [4] / 2, window [3] + window [5]}, {middle - window [4] / 2, window [3] + window [5]}}));
+          // The wall around its windows
+          for (float [] window : partWindows) {
+            float middle = (float)(((window [0] - point [0]) * (next [0] - point [0])
+                + (window [1] - point [1]) * (next [1] - point [1])) / length);
+            wall.subtract(AssistantMeshBuilder.getArea(new float [][] {
+                {middle - window [4] / 2, window [3]}, {middle + window [4] / 2, window [3]},
+                {middle + window [4] / 2, window [3] + window [5]}, {middle - window [4] / 2, window [3] + window [5]}}));
+          }
           for (float [][] trapezoid : AssistantMeshBuilder.getTrapezoids(wall)) {
             float [][] wallPoints = new float [trapezoid.length][];
             for (int i = 0; i < trapezoid.length; i++) {
               double t = trapezoid [i][0] / length;
-              wallPoints [i] = new float [] {(float)(point [0] + (next [0] - point [0]) * t), trapezoid [i][1],
-                                             (float)(point [1] + (next [1] - point [1]) * t)};
+              wallPoints [i] = new float [] {(float)(drawnPoint [0] + (drawnNext [0] - drawnPoint [0]) * t), trapezoid [i][1],
+                                             (float)(drawnPoint [1] + (drawnNext [1] - drawnPoint [1]) * t)};
             }
             mesh.addPolygon(wallPoints, gableMaterial, (float)-normal [0], 0, (float)-normal [1]);
             mesh.addPolygon(wallPoints, gableMaterial, (float)normal [0], 0, (float)normal [1]);

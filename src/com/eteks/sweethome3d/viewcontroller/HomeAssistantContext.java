@@ -218,7 +218,7 @@ public class HomeAssistantContext {
         String roomName = room.getName();
         if (filterLevel != null && !filterLevel.contains(room.getLevel())
             || filterName != null
-                && (roomName == null || roomName.toLowerCase(Locale.ENGLISH).indexOf(filterName) < 0)) {
+                && !AssistantCommandExecutor.matchesName(roomName, filterName)) {
           continue;
         }
         brief.append("    - ").append(HomeItemIds.getId(room)).append(' ')
@@ -316,7 +316,7 @@ public class HomeAssistantContext {
         String pieceName = piece.getName() != null ? piece.getName() : "Unnamed";
         if (filterLevel != null && !filterLevel.contains(piece.getLevel())
             || !(piece.isDoorOrWindow() ? listDoorsAndWindows : listFurniture)
-            || filterName != null && pieceName.toLowerCase(Locale.ENGLISH).indexOf(filterName) < 0) {
+            || filterName != null && !AssistantCommandExecutor.matchesName(pieceName, filterName)) {
           continue;
         }
         if (listed >= limit) {
@@ -373,6 +373,52 @@ public class HomeAssistantContext {
         brief.append("    ... and ").append(notListed).append(" more")
             .append(filtered ? "" : " (list them with a filter: a level, a type or a name)").append('\n');
       }
+    }
+
+    // The lines drawn in the plan: property lines, setbacks, utilities
+    if (!home.getPolylines().isEmpty() && (types == null || types.isEmpty())) {
+      brief.append("- Lines (").append(home.getPolylines().size()).append("):\n");
+      int listed = 0;
+      for (com.eteks.sweethome3d.model.Polyline polyline : home.getPolylines()) {
+        if (filterLevel != null && !filterLevel.contains(polyline.getLevel())) {
+          continue;
+        }
+        if (listed++ == 40) {
+          brief.append("    ... and more (describe_item gives the points of a line)\n");
+          break;
+        }
+        float [][] points = polyline.getPoints();
+        float minX = Float.MAX_VALUE;
+        float minY = Float.MAX_VALUE;
+        float maxX = -Float.MAX_VALUE;
+        float maxY = -Float.MAX_VALUE;
+        for (float [] point : points) {
+          minX = Math.min(minX, point [0]);
+          minY = Math.min(minY, point [1]);
+          maxX = Math.max(maxX, point [0]);
+          maxY = Math.max(maxY, point [1]);
+        }
+        String lineName = polyline.getProperty(AssistantSiteCommands.LINE_NAME_PROPERTY);
+        String kind = polyline.getProperty(AssistantSiteCommands.LINE_KIND_PROPERTY);
+        brief.append("    - ").append(HomeItemIds.getId(polyline))
+            .append(lineName != null ? " \"" + lineName + "\"" : "")
+            .append(kind != null ? " (" + kind + " line)" : "").append(": ").append(points.length).append(" points")
+            .append(polyline.isClosedPath() ? ", closed" : "").append(", x ").append(format.format(minX)).append(" to ")
+            .append(format.format(maxX)).append(", y ").append(format.format(minY)).append(" to ").append(format.format(maxY))
+            .append(" cm");
+        if (polyline.getLevel() != null && levels.size() > 1) {
+          brief.append(" [").append(polyline.getLevel().getName()).append(']');
+        }
+        brief.append('\n');
+      }
+    }
+    HomeGeoreference georeference = HomeGeoreference.get(home);
+    if (georeference != null) {
+      brief.append("- Georeference: the point (").append(format.format(georeference.getX())).append(", ")
+          .append(format.format(georeference.getY())).append(") of the plan is at latitude ")
+          .append(String.format(Locale.US, "%.6f", georeference.getLatitude())).append(", longitude ")
+          .append(String.format(Locale.US, "%.6f", georeference.getLongitude())).append("; the true north is ")
+          .append(format.format(georeference.getRotation())).append(" degrees clockwise from the top of the plan\n");
     }
 
     int openNotes = HomeReviewNotes.getOpenCount(home);
@@ -464,10 +510,25 @@ public class HomeAssistantContext {
         + "  {\"action\":\"add_dormer\",\"roof\":\"F1\",\"side\":\"north|south|east|west\",\"position\":0.5,\"width\":N,\"height\":N,"
         + "\"type\":\"gable|shed|hip|flat\",\"window\":\"<catalog window name>\"}  (a dormer on the slope of a roof built by add_roof, "
         + "which is cut open under it: side = the eave it looks over (or \"edge\":N), position = where along this side from 0 (its west or north end) to 1 "
-        + "(or \"offset\":N cm from that end), height = the one of its front wall, \"setback\":N cm from the eave, optional \"pitch\")\n"
+        + "(or \"offset\":N cm from that end to the CENTER of the dormer; for an \"edge\":N both are measured from the start of that edge), "
+        + "height = the one of its front wall, \"setback\":N cm from the eave, optional \"pitch\". \"windows\":N puts N windows side by side, "
+        + "or \"windows\":[\"<name>\",{\"name\":\"<name>\",\"width\":N,\"height\":N,\"sill\":N}]. \"ridge\":\"match\" raises its ridge to the top of the roof, "
+        + "for a cross gable (with \"setback\":0 its front is in line with the wall). The hole it cuts in the roof ends at its side walls. "
+        + "The windows of the other dormers are kept)\n"
+        + "  {\"action\":\"modify_dormer\",\"roof\":\"F1\",\"index\":1,\"width\":N,\"height\":N,\"offset\":N,\"setback\":N,\"type\":\"gable|shed|hip|flat\","
+        + "\"pitch\":N}  (changes one dormer, numbered from 1 as describe_item lists them, without building the roof again; also "
+        + "\"ridge\", \"side\", \"window\", \"windows\"; its windows move with it)\n"
+        + "  {\"action\":\"remove_dormer\",\"roof\":\"F1\",\"index\":1}  (removes one dormer and its windows; the dormers after it are numbered again)\n"
+        + "  {\"action\":\"modify_roof\",\"roof\":\"F1\",\"eave_height\":N,\"pitch\":N,\"overhang\":N,\"edge\":{\"index\":2,\"type\":\"hip|gable|abut\"}}  "
+        + "(changes a roof built by add_roof without building it again: any of its parameters, or one edge (or a list of edges) by its number, "
+        + "the edge 1 going from point 1 to point 2. \"raise_walls\":true moves the top of the walls under it with its eaves. "
+        + "An \"abut\" edge runs along the wall of a taller part of the building: no overhang, no gable wall. Its dormers are kept)\n"
         + "  {\"action\":\"fit_walls_to_roof\",\"roof\":\"F1\"}  (gives the outside walls under a roof built by add_roof the height "
-        + "of its underside, so gable ends close: a wall under a peak is cut in two walls that slope up to it. "
-        + "\"all\":true for the inside walls too, or \"ids\":[\"W1\"])\n"
+        + "of its underside, so gable ends close: a wall under a peak is cut in two walls that slope up to it. Under a dormer "
+        + "or a cross gable the walls go up to its roof. The walls it adds stay at the level of the wall they continue. "
+        + "\"all\":true for the inside walls too, or \"ids\":[\"W1\"]. Run it again after the roof or its dormers change)\n"
+        + "  {\"action\":\"headroom\",\"ids\":[\"R1\"]}  (the lowest and the highest height of the ceiling of rooms under a roof, "
+        + "and the area at least 213 cm (7 ft) high; without ids, every room under a roof)\n"
         + "  {\"action\":\"add_slab\",\"points\":[[x,y],[x,y],...],\"top\":N,\"thickness\":N,\"color\":\"#RRGGBB\",\"name\":\"<name>\"}  "
         + "(a flat slab of any shape as a piece of furniture, without the side effects of a room: a driveway, a garage floor, "
         + "paving, a lawn, a garden bed. top = height of its top above the floor of the level, which may be negative; "
@@ -504,7 +565,9 @@ public class HomeAssistantContext {
         + "\"yaw\", \"pitch\" and \"roll\" in degrees to turn it around the vertical, its width and its depth. "
         + "Up to 150 parts. \"catalog\" also saves it in that category of the furniture catalog, with \"place\":false "
         + "to save it without adding it to the home; \"tags\":[...] tags it; \"structure\":true for a part of the building or "
-        + "of its site (a chimney, a post, a fence), which check_home doesn't report as furniture out of its room)\n"
+        + "of its site (a chimney, a post, a fence), which check_home doesn't report as furniture out of its room; "
+        + "\"on_terrain\":true measures the heights of the parts from the ground under each of them, a bar along a path following its slopes: "
+        + "a string line, a fence. A part may be up to 200 m long or away)\n"
         + "  {\"action\":\"modify_furniture_parts\",\"id\":\"F1\",\"set\":[{\"index\":1,\"height\":N}],\"add\":[{...}],\"remove\":[3]}  "
         + "(changes the parts of a piece built by create_furniture without building it again: index 1 = its first part; "
         + "or \"parts\":[...] to replace them all. The parts that don't change stay at their place)\n"
@@ -521,7 +584,7 @@ public class HomeAssistantContext {
         + "  {\"action\":\"modify_level\",\"id\":\"L1\",\"new_name\":\"<name>\",\"elevation\":N,\"height\":N,\"floor_thickness\":N,"
         + "\"viewable\":true|false,\"elevation_index\":N}  (renames, moves, resizes or hides a level, designated by its id or "
         + "by \"name\" if no other level has it)\n"
-        + "  {\"action\":\"delete_level\",\"name\":\"<level name or id L#>\"}  (deletes an empty level; one that isn't empty is "
+        + "  {\"action\":\"delete_level\",\"id\":\"L2\"}  (or \"ids\":[\"L2\",\"L3\"], or \"name\"; deletes an empty level; one that isn't empty is "
         + "refused with the list of what is on it, unless \"move_contents_to\":\"<level>\" or \"delete_contents\":true)\n"
         + "  {\"action\":\"merge_levels\",\"from\":\"<level>\",\"into\":\"<level>\"}  (moves everything of a level to an other one, "
         + "furniture keeping its height above the ground, then deletes it)\n"
@@ -548,11 +611,37 @@ public class HomeAssistantContext {
         + "to show the inside, 0 for the outside)\n"
         + "  {\"action\":\"auto_dimensions\"}  (adds the dimension lines giving the size of every room of the selected level, "
         + "or of \"ids\":[\"R1\"]; lines that exist are kept)\n"
-        + "  {\"action\":\"select\",\"names\":[\"<item name>\"]}\n"
+        + "  {\"action\":\"select\",\"where\":{\"bbox\":[x1,y1,x2,y2]}}  (selects items by \"where\", \"ids\" or \"names\" and lists them "
+        + "with their ids: the way to see what is in an area)\n"
+        + "  {\"action\":\"add_polyline\",\"points\":[[x,y],[x,y],...],\"color\":\"#RRGGBB\",\"thickness\":N,\"dash\":\"solid|dashed|dotted|dash_dot\","
+        + "\"closed\":false,\"name\":\"<name>\",\"level\":\"<level>\"}  (a line drawn in the plan, not a piece of furniture: an easement, a utility "
+        + "line, a fence line. It gets an id P#. \"arrows\":\"start|end|both\", \"elevation\":N to show it in 3D at that height, "
+        + "\"geo\":[[lon,lat],...] in place of points in a georeferenced home)\n"
+        + "  {\"action\":\"add_property_line\",\"points\":[[x,y],...],\"label\":\"<text>\"}  (the closed line of a lot, with its area; "
+        + "\"stakes\":true adds stakes and a string in 3D that follow the ground; check_home reports the walls beyond it)\n"
+        + "  {\"action\":\"add_setback\",\"from\":\"P1\",\"distance\":N,\"side\":\"inside|outside\"}  (the dashed line N cm inside a "
+        + "property line, which buildings must keep behind: check_home reports the walls beyond it as errors)\n"
+        + "  {\"action\":\"modify_polyline\",\"id\":\"P1\",\"points\":[[x,y],...],\"color\":\"#RRGGBB\",\"thickness\":N,\"dash\":\"dashed\",\"name\":\"<name>\"}  "
+        + "(lines are deleted with delete, and listed by get_home and where type polylines)\n"
+        + "  {\"action\":\"set_compass\",\"north_direction\":N,\"latitude\":N,\"longitude\":N,\"x\":N,\"y\":N,\"diameter\":N}  (north_direction = "
+        + "degrees clockwise from the top of the plan to the north; the sun of the 3D view and of photos follows it. \"visible\":false hides the rose, "
+        + "\"time_zone\":\"America/New_York\")\n"
+        + "  {\"action\":\"set_georeference\",\"lat\":N,\"lon\":N,\"x\":N,\"y\":N,\"rotation\":N}  (the place on the Earth of the point x,y of the plan, "
+        + "and the direction of the true north in degrees clockwise from the top of the plan; or \"points\":[{\"lat\":N,\"lon\":N,\"x\":N,\"y\":N},{...}] "
+        + "two points known in both. Sets the compass to the true north too)\n"
+        + "  {\"action\":\"import_parcel\",\"geojson\":{...},\"srs\":\"EPSG:2240\"}  (draws the lot lines of a survey as property lines: a GeoJSON "
+        + "Polygon, MultiPolygon, Feature or FeatureCollection, or \"esrijson\" with rings, or \"path\" of such a file. srs = the system of its "
+        + "coordinates: EPSG:4326 longitude/latitude (default), EPSG:3857, UTM zones, EPSG:2240 and 2239 (Georgia, US survey feet), or a PROJ text "
+        + "like \"+proj=tmerc +lat_0=30 +lon_0=-84.1666666667 +k=0.9999 +x_0=700000 +y_0=0 +units=us-ft\" (tmerc, utm, lcc). In a home without "
+        + "georeference, the middle of the parcel goes to \"x\",\"y\" with the north at the top)\n"
+        + "  {\"action\":\"get_coordinates\",\"points\":[[x,y],...],\"srs\":\"EPSG:2240\"}  (the latitude and longitude of points of the plan or "
+        + "of the items given by ids, and their coordinates in srs)\n"
+        + "  {\"action\":\"begin_group\"} ... {\"action\":\"end_group\"}  (everything changed by the calls between them is undone as ONE step; "
+        + "the undo tool ends the group and undoes it)\n"
         + "To MODIFY items that already exist, reference them by the id shown in the project "
-        + "summary (F# furniture, W# walls, R# rooms; an id never changes), by \"target\":\"selection\", by name, or in bulk by "
-        + "\"where\":{\"level\":\"<level>\",\"tag\":\"<tag>\",\"name\":\"<part of a name>\",\"type\":\"furniture|doors_and_windows|"
-        + "lights|stairs|all_furniture|walls|rooms\",\"bbox\":[x1,y1,x2,y2]} (the items matching every criterion given; "
+        + "summary (F# furniture, W# walls, R# rooms, P# lines; an id never changes), by \"target\":\"selection\", by name, or in bulk by "
+        + "\"where\":{\"level\":\"<level>\",\"tag\":\"<tag>\",\"name\":\"<part of a name, or Pine|Oak for either>\",\"type\":\"furniture|doors_and_windows|"
+        + "lights|stairs|all_furniture|walls|rooms|polylines\",\"bbox\":[x1,y1,x2,y2]} (the items matching every criterion given; "
         + "e.g. {\"action\":\"move_to_level\",\"where\":{\"level\":\"Old\"},\"level\":\"Level 1\"}). "
         + "Editing commands (omit a field to leave it unchanged):\n"
         + "  {\"action\":\"move\",\"id\":\"F1\",\"dx\":N,\"dy\":N}  (relative; or \"x\":N,\"y\":N for an absolute position)\n"
@@ -574,21 +663,28 @@ public class HomeAssistantContext {
         + "the one of a piece show it when it rises through them: drawn, as a thin dashed outline, or not at all. Roofs are "
         + "outlined by default. Pieces by \"ids\", \"tag\", \"level\" or \"where\")\n"
         + "  {\"action\":\"describe_item\",\"id\":\"F1\"}  (every property of a piece, a wall, a room or a level L#: level, elevation, "
-        + "heights above the ground, angles, tags, color or texture, model size, plan visibility)\n"
+        + "heights above the ground, angles, tags, color or texture, model size, plan visibility; the edges and the dormers of a roof; "
+        + "the headroom of a room under a roof; the points of a line P#)\n"
         + "  {\"action\":\"modify_room\",\"id\":\"R1\",\"ceiling_visible\":false,\"floor_visible\":true,\"area_visible\":true,"
         + "\"name\":\"<name>\",\"points\":[[x,y],[x,y],[x,y],...]}  (changes existing rooms, designated by \"id\", \"ids\", "
         + "\"target\":\"selection\" or \"room\":\"<room name>\"; fields left out don't change. Hide the ceiling of a room under a sloped roof "
         + "or of a terrace, garden or paved area outdoors, which would otherwise show as a flat slab at the height of the level; "
-        + "\"points\" reshapes one room)\n"
+        + "\"points\" reshapes one room. \"ceiling\":\"follow_roof\" gives a room under a roof built by add_roof a ceiling under its slopes, "
+        + "dormers included, and \"flat_ceiling_at\":N makes it flat from the height N, as under collar ties; \"ceiling\":\"flat\" removes it. "
+        + "The reply gives the headroom)\n"
         + "  {\"action\":\"duplicate\",\"id\":\"F1\",\"dx\":N,\"dy\":N,\"count\":N}  (copies of furniture, each shifted by dx,dy)\n"
         + "  {\"action\":\"set_camera\",\"x\":N,\"y\":N,\"height\":N,\"look_at_x\":N,\"look_at_y\":N,\"mode\":\"visitor|aerial\"}  "
         + "(moves the virtual visitor, also the starting point of the VR preview; or \"view\":\"top|south|north|east|west|"
         + "south_east|south_west|north_east|north_west\" for an aerial view of the whole home or of \"ids\":[\"R1\"] entirely in sight, "
         + "\"view\":\"inside\",\"id\":\"R1\" to stand in a corner of a room or in front of a piece F# or a wall W#, "
         + "or \"point_of_view\":\"<name>\" for a stored one)\n"
-        + "  {\"action\":\"store_point_of_view\",\"name\":\"<name>\"}  (keeps the current camera in the points of view of the 3D view menu)\n"
+        + "  {\"action\":\"store_point_of_view\",\"name\":\"<name>\"}  (keeps the current camera in the points of view of the 3D view menu; "
+        + "with \"camera\":{\"x\":N,\"y\":N,\"height\":N,\"look_at_x\":N,\"look_at_y\":N} or a \"view\" as in set_camera, keeps that one "
+        + "without moving the camera of the user: get_3d_image draws it with \"point_of_view\", and \"compare_with\":\"<photo path>\" sets a photo beside it)\n"
         + "  {\"action\":\"check_home\"}  (reports plan defects: walls that don't meet, duplicates, rooms without door, doors out of walls, "
-        + "furniture under the floor or outside rooms... the report comes back in the next turn)\n"
+        + "furniture under the floor or outside rooms, doors and windows higher than the roof above them, walls beyond a setback or a "
+        + "property line. Each issue is an error, a warning or an info. \"ignore\":[\"F516\"] and \"ignore_tags\":[\"marker\"] leave issues out, "
+        + "\"min_severity\":\"warning|error\" too; \"remember\":true keeps them for the next checks of this home)\n"
         + "  {\"action\":\"fix_home\"}  (repairs the defects marked fixable; \"types\":[\"wall_gap\"] limits it)\n"
         + "  {\"action\":\"set_elevation\",\"id\":\"F1\",\"elevation\":N}  (above the floor of its level; negative = under it)\n"
         + "  {\"action\":\"set_visible\",\"id\":\"F1\",\"visible\":true}\n"

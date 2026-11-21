@@ -293,6 +293,52 @@ final class AssistantRoofGeometry {
     return height;
   }
 
+  /**
+   * Returns the height of the underside of the roof at a point, as seen from the rooms under it:
+   * the one of a dormer between its walls, the one of the roof elsewhere. NaN if the roof doesn't cover the point.
+   */
+  double getCeilingHeight(double x, double y) {
+    double height = Double.NaN;
+    for (Part part : this.parts) {
+      if (part.dormer && !contains(part.polygon, x, y, 1E-4)) {
+        continue;
+      }
+      double partHeight = part.getHeight(x, y) - part.thickness;
+      if (!Double.isNaN(partHeight) && !(partHeight <= height)) {
+        height = partHeight;
+      }
+    }
+    return height;
+  }
+
+  /**
+   * Returns the pieces of the roof seen from under it: the ones of {@link #getCells(boolean) getCells(true)},
+   * a dormer being kept between its walls only, so that no two pieces cover the same point.
+   */
+  List<Cell> getCeilingCells() {
+    List<Cell> ceiling = new ArrayList<Cell>();
+    for (Cell cell : getCells(true)) {
+      if (!cell.part.dormer) {
+        ceiling.add(cell);
+      } else {
+        double [][] polygon = cell.polygon;
+        double [][] walls = cell.part.polygon;
+        for (int i = 0; i < walls.length && polygon.length >= 3; i++) {
+          double [] point = walls [i];
+          double [] next = walls [(i + 1) % walls.length];
+          double length = Math.hypot(next [0] - point [0], next [1] - point [1]);
+          double nx = -(next [1] - point [1]) / length;
+          double ny = (next [0] - point [0]) / length;
+          polygon = clip(polygon, nx, ny, nx * point [0] + ny * point [1]);
+        }
+        if (polygon.length >= 3 && Math.abs(getSignedArea(polygon)) > 0.005) {
+          ceiling.add(new Cell(polygon, cell.plane, cell.part));
+        }
+      }
+    }
+    return ceiling;
+  }
+
   double getMaxHeight() {
     double height = Double.NEGATIVE_INFINITY;
     for (Part part : this.parts) {
@@ -343,8 +389,9 @@ final class AssistantRoofGeometry {
           if (other == part || !bounds.intersects(getBounds(other.footprint))) {
             continue;
           }
-          // Where the other part is above this face
-          double [][] hidden = other.footprint;
+          // Where the other part is above this face. A dormer opens the roof between its walls only:
+          // under the overhang of its own roof, the roof it stands on goes on
+          double [][] hidden = other.dormer && !part.dormer ? other.polygon : other.footprint;
           boolean sloped = false;
           for (int i = 0; i < other.planes.length && hidden.length >= 3; i++) {
             if (other.planes [i] != null) {

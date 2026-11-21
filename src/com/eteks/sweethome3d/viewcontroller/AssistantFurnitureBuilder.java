@@ -45,7 +45,8 @@ final class AssistantFurnitureBuilder {
   private static final int   SPHERE_SLICES = 16;
   private static final int   SPHERE_STACKS = 10;
   private static final float MIN_SIZE = 0.05f;
-  private static final float MAX_SIZE = 2000;
+  /** Largest size of a part and largest distance to the center of the piece: 200 m. */
+  private static final float MAX_SIZE = 20000;
 
   /**
    * Finds the textures the parts of a piece designate.
@@ -98,6 +99,12 @@ final class AssistantFurnitureBuilder {
     }
     notes.addAll(builder.notes);
     if (builder.partCount == 0) {
+      if (!builder.notes.isEmpty()) {
+        // Parts were given, and refused
+        throw new IOException("no part could be built: " + builder.notes.get(builder.notes.size() - 1)
+            + " (sizes go from " + MIN_SIZE + " to " + Math.round(MAX_SIZE) + " cm, and a part stands at most "
+            + Math.round(MAX_SIZE) + " cm from the center of the piece)");
+      }
       throw new IOException("\"parts\" must list at least one part like "
           + "{\"shape\":\"box\",\"x\":0,\"y\":0,\"z\":0,\"width\":100,\"depth\":50,\"height\":4}");
     }
@@ -174,7 +181,7 @@ final class AssistantFurnitureBuilder {
     float y = getNumber(part, "y", 0);
     float z = getNumber(part, "z", 0);
     if (Math.abs(x) > MAX_SIZE || Math.abs(y) > MAX_SIZE || Math.abs(z) > MAX_SIZE) {
-      this.notes.add("a " + shape + " placed out of range was ignored");
+      this.notes.add("a " + shape + " placed more than " + Math.round(MAX_SIZE) + " cm from the center of the piece was ignored");
       return;
     }
     int firstVertex = this.mesh.getVertexCount();
