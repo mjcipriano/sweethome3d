@@ -24,6 +24,9 @@ import java.awt.ComponentOrientation;
 import java.awt.Dimension;
 import java.awt.EventQueue;
 import java.awt.Frame;
+import java.awt.GraphicsConfiguration;
+import java.awt.GraphicsDevice;
+import java.awt.GraphicsEnvironment;
 import java.awt.Image;
 import java.awt.Insets;
 import java.awt.Rectangle;
@@ -54,7 +57,6 @@ import com.eteks.sweethome3d.model.CollectionListener;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomeApplication;
 import com.eteks.sweethome3d.model.UserPreferences;
-import com.eteks.sweethome3d.swing.SwingTools;
 import com.eteks.sweethome3d.tools.OperatingSystem;
 import com.eteks.sweethome3d.viewcontroller.ContentManager;
 import com.eteks.sweethome3d.viewcontroller.HomeController;
@@ -74,6 +76,9 @@ public class HomeFramePane extends JRootPane implements View {
   private static final String FRAME_MAXIMIZED_VISUAL_PROPERTY = "com.eteks.sweethome3d.SweetHome3D.FrameMaximized";
   private static final String SCREEN_WIDTH_VISUAL_PROPERTY    = "com.eteks.sweethome3d.SweetHome3D.ScreenWidth";
   private static final String SCREEN_HEIGHT_VISUAL_PROPERTY   = "com.eteks.sweethome3d.SweetHome3D.ScreenHeight";
+
+  private static final int MINIMUM_FRAME_WIDTH  = 640;
+  private static final int MINIMUM_FRAME_HEIGHT = 400;
 
   private final Home                home;
   private final HomeApplication     application;
@@ -178,8 +183,8 @@ public class HomeFramePane extends JRootPane implements View {
     final ComponentAdapter componentListener = new ComponentAdapter() {
         @Override
         public void componentResized(ComponentEvent ev) {
-          // Store new size only if frame isn't maximized
-          if ((frame.getExtendedState() & JFrame.MAXIMIZED_BOTH) != JFrame.MAXIMIZED_BOTH) {
+          // Store new size only if frame isn't maximized, reduced to an icon or too small to be used
+          if (isNormalFrame(frame)) {
             controller.setHomeProperty(FRAME_WIDTH_VISUAL_PROPERTY, String.valueOf(frame.getWidth()));
             controller.setHomeProperty(FRAME_HEIGHT_VISUAL_PROPERTY, String.valueOf(frame.getHeight()));
           }
@@ -190,8 +195,8 @@ public class HomeFramePane extends JRootPane implements View {
 
         @Override
         public void componentMoved(ComponentEvent ev) {
-          // Store new location only if frame isn't maximized
-          if ((frame.getExtendedState() & JFrame.MAXIMIZED_BOTH) != JFrame.MAXIMIZED_BOTH) {
+          // Store new location only if frame isn't maximized, reduced to an icon or too small to be used
+          if (isNormalFrame(frame)) {
             controller.setHomeProperty(FRAME_X_VISUAL_PROPERTY, String.valueOf(frame.getX()));
             controller.setHomeProperty(FRAME_Y_VISUAL_PROPERTY, String.valueOf(frame.getY()));
           }
@@ -337,13 +342,22 @@ public class HomeFramePane extends JRootPane implements View {
     Number screenHeight = home.getNumericProperty(SCREEN_HEIGHT_VISUAL_PROPERTY);
 
     final Dimension screenSize = getUserScreenSize();
+    final List<Rectangle> screens = getScreensBounds();
+    final Dimension minimumSize = new Dimension(Math.min(MINIMUM_FRAME_WIDTH, screenSize.width),
+        Math.min(MINIMUM_FRAME_HEIGHT, screenSize.height));
+    // Never let the user reduce the frame to a size where nothing can be shown
+    frame.setMinimumSize(minimumSize);
     // If home frame bounds exist and screen resolution didn't reduce
     if (x != null && y != null
         && width != null && height != null
+        && width.intValue() >= minimumSize.width
+        && height.intValue() >= minimumSize.height
         && screenWidth != null && screenHeight != null
         && screenWidth.intValue() <= screenSize.width
         && screenHeight.intValue() <= screenSize.height) {
-      final Rectangle frameBounds = new Rectangle(x.intValue(), y.intValue(), width.intValue(), height.intValue());
+      // Bring back in a screen the bounds which are out of it or larger than it
+      final Rectangle frameBounds = getBoundsFittedInScreens(
+          new Rectangle(x.intValue(), y.intValue(), width.intValue(), height.intValue()), minimumSize, screens);
       if (maximized) {
         if (OperatingSystem.isMacOSX()
             && OperatingSystem.isJavaVersionGreaterOrEqual("1.7")) {
@@ -354,42 +368,59 @@ public class HomeFramePane extends JRootPane implements View {
               screenSize.height + insets.bottom);
           // Set maximized flag to ensure future resizing will remove it
           frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
-        } else if (OperatingSystem.isLinux()) {
-          EventQueue.invokeLater(new Runnable() {
-              public void run() {
-                // Under Linux, maximize frame once it's displayed
-                frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
-              }
-            });
         } else {
-          frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+          // Give its normal bounds to the frame before it's maximized,
+          // to let the system reuse them when the frame leaves the maximized state
+          frame.setBounds(frameBounds);
+          if (OperatingSystem.isLinux()) {
+            EventQueue.invokeLater(new Runnable() {
+                public void run() {
+                  // Under Linux, maximize frame once it's displayed
+                  frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                }
+              });
+          } else {
+            frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+          }
         }
         // Add a listener that will set the normal size when the frame leaves the maximized state
         WindowAdapter windowStateListener = new WindowAdapter() {
             @Override
             public void windowStateChanged(WindowEvent ev) {
-              if ((ev.getOldState() == JFrame.MAXIMIZED_BOTH
-                    || (OperatingSystem.isMacOSX()
-                        && OperatingSystem.isJavaVersionGreaterOrEqual("1.7")
-                        && ev.getOldState() == JFrame.NORMAL))
-                  && ev.getNewState() == JFrame.NORMAL) {
-                if (!SwingTools.isRectangleVisibleAtScreen(frameBounds)) {
-                  frameBounds.setBounds(0, 0, screenSize.width * 4 / 5, screenSize.height * 4 / 5);
-                } else {
-                  if (OperatingSystem.isMacOSXLionOrSuperior()) {
-                    // Set back frame size later once frame reduce animation is finished
-                    new Timer(20, new ActionListener() {
-                        public void actionPerformed(ActionEvent ev) {
-                          if (frame.getHeight() < 40) {
-                            ((Timer)ev.getSource()).stop();
-                            frame.setBounds(frameBounds);
+              if (OperatingSystem.isMacOSX()
+                  && OperatingSystem.isJavaVersionGreaterOrEqual("1.7")) {
+                if ((ev.getOldState() & JFrame.MAXIMIZED_BOTH) == JFrame.MAXIMIZED_BOTH
+                       || ev.getOldState() == JFrame.NORMAL) {
+                  if (ev.getNewState() == JFrame.NORMAL) {
+                    if (OperatingSystem.isMacOSXLionOrSuperior()) {
+                      // Set back frame size later once frame reduce animation is finished
+                      new Timer(20, new ActionListener() {
+                          public void actionPerformed(ActionEvent ev) {
+                            if (frame.getHeight() < 40) {
+                              ((Timer)ev.getSource()).stop();
+                              frame.setBounds(frameBounds);
+                            }
                           }
-                        }
-                      }).start();
-                  } else {
-                    frame.setBounds(frameBounds);
+                        }).start();
+                    } else {
+                      frame.setBounds(frameBounds);
+                    }
+                    frame.removeWindowStateListener(this);
                   }
                 }
+              } else if ((ev.getOldState() & JFrame.MAXIMIZED_BOTH) == JFrame.MAXIMIZED_BOTH
+                         && (ev.getNewState() & (JFrame.MAXIMIZED_BOTH | JFrame.ICONIFIED)) == 0) {
+                EventQueue.invokeLater(new Runnable() {
+                    public void run() {
+                      // Set the normal bounds if the system didn't give a usable size to the frame
+                      if (frame.isDisplayable()
+                          && frame.getExtendedState() == JFrame.NORMAL
+                          && (frame.getWidth() < minimumSize.width
+                              || frame.getHeight() < minimumSize.height)) {
+                        frame.setBounds(frameBounds);
+                      }
+                    }
+                  });
                 frame.removeWindowStateListener(this);
               }
             }
@@ -405,13 +436,24 @@ public class HomeFramePane extends JRootPane implements View {
       } else {
         // Reuse home bounds
         frame.setBounds(frameBounds);
-        frame.setLocationByPlatform(!SwingTools.isRectangleVisibleAtScreen(frameBounds));
       }
     } else {
       frame.setLocationByPlatform(true);
       frame.pack();
-      frame.setSize(Math.min(screenSize.width * 4 / 5, frame.getWidth()),
-              Math.min(screenSize.height * 4 / 5, frame.getHeight()));
+      frame.setSize(Math.max(minimumSize.width, Math.min(screenSize.width * 4 / 5, frame.getWidth())),
+              Math.max(minimumSize.height, Math.min(screenSize.height * 4 / 5, frame.getHeight())));
+      if (maximized) {
+        // Keep the frame maximized, with a normal size the system will reuse when it leaves this state
+        if (OperatingSystem.isLinux()) {
+          EventQueue.invokeLater(new Runnable() {
+              public void run() {
+                frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+              }
+            });
+        } else if (!OperatingSystem.isMacOSX()) {
+          frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+        }
+      }
       if (OperatingSystem.isMacOSX()
           && OperatingSystem.isJavaVersionBetween("1.7", "1.9")) {
         // JFrame#setLocationByPlatform does nothing under Java 7/8
@@ -442,6 +484,66 @@ public class HomeFramePane extends JRootPane implements View {
         frame.setLocation(x.intValue(), y.intValue());
       }
     }
+  }
+
+  /**
+   * Returns <code>true</code> if <code>frame</code> isn't maximized nor reduced to an icon,
+   * and is large enough for its bounds to be worth storing.
+   */
+  private static boolean isNormalFrame(JFrame frame) {
+    Dimension minimumSize = frame.isMinimumSizeSet()
+        ? frame.getMinimumSize()
+        : new Dimension(MINIMUM_FRAME_WIDTH, MINIMUM_FRAME_HEIGHT);
+    return (frame.getExtendedState() & (JFrame.MAXIMIZED_BOTH | JFrame.ICONIFIED)) == 0
+        && frame.getWidth() >= minimumSize.width
+        && frame.getHeight() >= minimumSize.height;
+  }
+
+  /**
+   * Returns the bounds of the screens available to user, without the areas used by the system.
+   */
+  private List<Rectangle> getScreensBounds() {
+    List<Rectangle> screens = new ArrayList<Rectangle>();
+    try {
+      for (GraphicsDevice device : GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices()) {
+        GraphicsConfiguration configuration = device.getDefaultConfiguration();
+        Rectangle bounds = configuration.getBounds();
+        Insets insets = getToolkit().getScreenInsets(configuration);
+        screens.add(new Rectangle(bounds.x + insets.left, bounds.y + insets.top,
+            bounds.width - insets.left - insets.right, bounds.height - insets.top - insets.bottom));
+      }
+    } catch (RuntimeException ex) {
+      // Use default screen
+    }
+    if (screens.isEmpty()) {
+      screens.add(new Rectangle(getUserScreenSize()));
+    }
+    return screens;
+  }
+
+  /**
+   * Returns <code>bounds</code> moved and reduced to be completely shown by the screen among
+   * <code>screens</code> which displays the largest part of them, with a size at least equal
+   * to <code>minimumSize</code> when the screen is large enough.
+   */
+  public static Rectangle getBoundsFittedInScreens(Rectangle bounds, Dimension minimumSize, List<Rectangle> screens) {
+    Rectangle bestScreen = screens.get(0);
+    long bestArea = -1;
+    for (Rectangle screen : screens) {
+      Rectangle intersection = screen.intersection(bounds);
+      long area = intersection.isEmpty()
+          ? 0
+          : (long)intersection.width * intersection.height;
+      if (area > bestArea) {
+        bestArea = area;
+        bestScreen = screen;
+      }
+    }
+    int width = Math.min(bestScreen.width, Math.max(minimumSize.width, bounds.width));
+    int height = Math.min(bestScreen.height, Math.max(minimumSize.height, bounds.height));
+    int x = Math.max(bestScreen.x, Math.min(bounds.x, bestScreen.x + bestScreen.width - width));
+    int y = Math.max(bestScreen.y, Math.min(bounds.y, bestScreen.y + bestScreen.height - height));
+    return new Rectangle(x, y, width, height);
   }
 
   /**

@@ -4827,6 +4827,11 @@ public class HomePane extends JRootPane implements HomeView {
         }
       });
 
+    // Keep the window large enough to be grabbed and resized
+    Dimension minimumSize = new Dimension(200, 150);
+    separateWindow.setMinimumSize(minimumSize);
+    width = Math.max(width, minimumSize.width);
+    height = Math.max(height, minimumSize.height);
     separateWindow.setBounds(x, y, width, height);
     separateWindow.setLocationByPlatform(!isRectanglePartiallyVisible(x, y, width, height));
     separateWindow.setVisible(true);
