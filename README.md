@@ -39,7 +39,7 @@ New here? Read [Getting started](docs/GETTING_STARTED.md).
 
 ### Claude edits your home (MCP server)
 
-**Help > Claude MCP server...** lets Claude Desktop, Claude Code or any other
+**Tools > Claude MCP server...** lets Claude Desktop, Claude Code or any other
 [MCP](https://modelcontextprotocol.io) client on the same computer read the
 home, search the catalog, look at pictures of the plan and the 3D view, and
 change the home with undoable commands. No API key and no account are needed
@@ -71,7 +71,7 @@ and setbacks - all on the real levels of the house.
 
 ### Design assistant in the application
 
-**Help > Design assistant...** is a chat inside Sweet Home 3D that answers
+**Tools > Design assistant...** is a chat inside Sweet Home 3D that answers
 questions about the home and edits it. It works with any OpenAI-compatible
 service (OpenRouter, DeepSeek, a local LM Studio or Ollama) or the Anthropic
 API, with your own key.
@@ -107,7 +107,7 @@ simple parts and furniture libraries.
   walk, jump, climb, fly, open doors: [Game mode](docs/GAME_MODE.md).
 - **Review notes**: pin a note on a wall or a piece of furniture during a
   visit, and let Claude do what it says: [Review notes](docs/REVIEW_NOTES.md).
-- **Tools > Export 3D web page...** writes a folder anyone can open in a
+- **File > Export > Export 3D web page...** writes a folder anyone can open in a
   browser: [Design tools](docs/DESIGN_TOOLS.md#3d-web-page-to-share).
 
 | | |

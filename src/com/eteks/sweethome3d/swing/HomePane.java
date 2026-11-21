@@ -1267,6 +1267,8 @@ public class HomePane extends JRootPane implements HomeView {
     addActionToMenu(ActionType.SAVE, fileMenu);
     addActionToMenu(ActionType.SAVE_AS, fileMenu);
     addActionToMenu(ActionType.SAVE_AND_COMPRESS, fileMenu);
+    // Where the versions and the exports go, once their items are created
+    final int saveItemsEnd = fileMenu.getMenuComponentCount();
     fileMenu.addSeparator();
     addActionToMenu(ActionType.PAGE_SETUP, fileMenu);
     addActionToMenu(ActionType.PRINT_PREVIEW, fileMenu);
@@ -1303,31 +1305,54 @@ public class HomePane extends JRootPane implements HomeView {
     addActionToMenu(ActionType.ADD_HOME_FURNITURE, furnitureMenu);
     addActionToMenu(ActionType.ADD_FURNITURE_TO_GROUP, furnitureMenu);
     addActionToMenu(ActionType.MODIFY_FURNITURE, furnitureMenu);
+    // Replacement of the selected furniture by the piece selected in the catalog
+    furnitureMenu.add(new JMenuItem(new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "replaceFurniture")) {
+        public void actionPerformed(ActionEvent ev) {
+          HomeDesignToolsView.replaceSelectedFurniture(HomePane.this, home, HomePane.this.preferences, controller);
+        }
+      }));
     addActionToMenu(ActionType.GROUP_FURNITURE, furnitureMenu);
     addActionToMenu(ActionType.UNGROUP_FURNITURE, furnitureMenu);
     furnitureMenu.addSeparator();
-    addActionToMenu(ActionType.ALIGN_FURNITURE_ON_TOP, furnitureMenu);
-    addActionToMenu(ActionType.ALIGN_FURNITURE_ON_BOTTOM, furnitureMenu);
-    addActionToMenu(ActionType.ALIGN_FURNITURE_ON_LEFT, furnitureMenu);
-    addActionToMenu(ActionType.ALIGN_FURNITURE_ON_RIGHT, furnitureMenu);
-    addActionToMenu(ActionType.ALIGN_FURNITURE_ON_FRONT_SIDE, furnitureMenu);
-    addActionToMenu(ActionType.ALIGN_FURNITURE_ON_BACK_SIDE, furnitureMenu);
-    addActionToMenu(ActionType.ALIGN_FURNITURE_ON_LEFT_SIDE, furnitureMenu);
-    addActionToMenu(ActionType.ALIGN_FURNITURE_ON_RIGHT_SIDE, furnitureMenu);
-    addActionToMenu(ActionType.ALIGN_FURNITURE_SIDE_BY_SIDE, furnitureMenu);
-    addActionToMenu(ActionType.DISTRIBUTE_FURNITURE_HORIZONTALLY, furnitureMenu);
-    addActionToMenu(ActionType.DISTRIBUTE_FURNITURE_VERTICALLY, furnitureMenu);
-    addActionToMenu(ActionType.RESET_FURNITURE_ELEVATION, furnitureMenu);
+    // What places furniture: in a submenu, as its twelve items hid the rest of the menu
+    JMenu alignMenu = new JMenu("Align and distribute");
+    addActionToMenu(ActionType.ALIGN_FURNITURE_ON_TOP, alignMenu);
+    addActionToMenu(ActionType.ALIGN_FURNITURE_ON_BOTTOM, alignMenu);
+    addActionToMenu(ActionType.ALIGN_FURNITURE_ON_LEFT, alignMenu);
+    addActionToMenu(ActionType.ALIGN_FURNITURE_ON_RIGHT, alignMenu);
+    alignMenu.addSeparator();
+    addActionToMenu(ActionType.ALIGN_FURNITURE_ON_FRONT_SIDE, alignMenu);
+    addActionToMenu(ActionType.ALIGN_FURNITURE_ON_BACK_SIDE, alignMenu);
+    addActionToMenu(ActionType.ALIGN_FURNITURE_ON_LEFT_SIDE, alignMenu);
+    addActionToMenu(ActionType.ALIGN_FURNITURE_ON_RIGHT_SIDE, alignMenu);
+    addActionToMenu(ActionType.ALIGN_FURNITURE_SIDE_BY_SIDE, alignMenu);
+    alignMenu.addSeparator();
+    addActionToMenu(ActionType.DISTRIBUTE_FURNITURE_HORIZONTALLY, alignMenu);
+    addActionToMenu(ActionType.DISTRIBUTE_FURNITURE_VERTICALLY, alignMenu);
+    alignMenu.addSeparator();
+    addActionToMenu(ActionType.RESET_FURNITURE_ELEVATION, alignMenu);
+    furnitureMenu.add(alignMenu);
+    final HomeToolsMenus toolsMenus = new HomeToolsMenus(this, home, preferences, controller);
+    furnitureMenu.add(toolsMenus.createOpenDoorsItem(true));
+    furnitureMenu.add(toolsMenus.createOpenDoorsItem(false));
+    furnitureMenu.add(toolsMenus.createFurnishRoomItem());
     furnitureMenu.addSeparator();
-    addActionToMenu(ActionType.IMPORT_FURNITURE, furnitureMenu);
-    addActionToMenu(ActionType.IMPORT_FURNITURE_LIBRARY, furnitureMenu);
-    addActionToMenu(ActionType.IMPORT_TEXTURE, furnitureMenu);
-    addActionToMenu(ActionType.IMPORT_TEXTURES_LIBRARY, furnitureMenu);
+    JMenu importMenu = new JMenu("Import");
+    addActionToMenu(ActionType.IMPORT_FURNITURE, importMenu);
+    addActionToMenu(ActionType.IMPORT_FURNITURE_LIBRARY, importMenu);
+    addActionToMenu(ActionType.IMPORT_TEXTURE, importMenu);
+    addActionToMenu(ActionType.IMPORT_TEXTURES_LIBRARY, importMenu);
+    furnitureMenu.add(importMenu);
     furnitureMenu.addSeparator();
     furnitureMenu.add(createFurnitureSortMenu(home, preferences));
     furnitureMenu.add(createFurnitureDisplayPropertyMenu(home, preferences));
-    furnitureMenu.addSeparator();
-    addActionToMenu(ActionType.EXPORT_TO_CSV, furnitureMenu);
+    // Everything written in files is in File > Export
+    JMenu exportMenu = new JMenu("Export");
+    addActionToMenu(ActionType.EXPORT_TO_SVG, exportMenu);
+    addActionToMenu(ActionType.EXPORT_TO_CSV, exportMenu);
+    addActionToMenu(ActionType.EXPORT_TO_OBJ, exportMenu);
+    exportMenu.addSeparator();
 
     // Create Plan menu
     JMenu planMenu = new JMenu(this.menuActionMap.get(MenuActionType.PLAN_MENU));
@@ -1345,16 +1370,20 @@ public class HomePane extends JRootPane implements HomeView {
     }
     addActionToMenu(ActionType.FLIP_HORIZONTALLY, planMenu);
     addActionToMenu(ActionType.FLIP_VERTICALLY, planMenu);
+    // What modifies the selected items, in a submenu to keep the menu short
+    JMenu modifyMenu = new JMenu("Modify");
+    addActionToMenu(ActionType.MODIFY_WALL, modifyMenu);
+    addActionToMenu(ActionType.JOIN_WALLS, modifyMenu);
+    addActionToMenu(ActionType.REVERSE_WALL_DIRECTION, modifyMenu);
+    addActionToMenu(ActionType.SPLIT_WALL, modifyMenu);
+    modifyMenu.addSeparator();
+    addActionToMenu(ActionType.MODIFY_ROOM, modifyMenu);
+    addActionToMenu(ActionType.MODIFY_POLYLINE, modifyMenu);
+    addActionToMenu(ActionType.MODIFY_DIMENSION_LINE, modifyMenu);
+    addActionToMenu(ActionType.MODIFY_LABEL, modifyMenu);
+    modifyMenu.add(createTextStyleMenu(home, preferences, false));
+    planMenu.add(modifyMenu);
     addActionToMenu(ActionType.MODIFY_COMPASS, planMenu);
-    addActionToMenu(ActionType.MODIFY_WALL, planMenu);
-    addActionToMenu(ActionType.JOIN_WALLS, planMenu);
-    addActionToMenu(ActionType.REVERSE_WALL_DIRECTION, planMenu);
-    addActionToMenu(ActionType.SPLIT_WALL, planMenu);
-    addActionToMenu(ActionType.MODIFY_ROOM, planMenu);
-    addActionToMenu(ActionType.MODIFY_POLYLINE, planMenu);
-    addActionToMenu(ActionType.MODIFY_DIMENSION_LINE, planMenu);
-    addActionToMenu(ActionType.MODIFY_LABEL, planMenu);
-    planMenu.add(createTextStyleMenu(home, preferences, false));
     planMenu.addSeparator();
     JMenuItem importModifyBackgroundImageMenuItem = createImportModifyBackgroundImageMenuItem(home, false);
     if (importModifyBackgroundImageMenuItem != null) {
@@ -1381,16 +1410,15 @@ public class HomePane extends JRootPane implements HomeView {
           HomeDesignToolsView.showStyleDialog(HomePane.this, home, HomePane.this.preferences, controller);
         }
       }));
-    planMenu.add(new JMenuItem(new AbstractAction(
-        preferences.getLocalizedString(HomePane.class, "homeReport")) {
-        public void actionPerformed(ActionEvent ev) {
-          HomeDesignToolsView.showReportDialog(HomePane.this, home);
-        }
-      }));
-    planMenu.add(new JMenuItem(new AbstractAction(
+    exportMenu.add(new JMenuItem(new AbstractAction(
         preferences.getLocalizedString(HomePane.class, "exportElevation")) {
         public void actionPerformed(ActionEvent ev) {
           HomeDesignToolsView.showElevationDialog(HomePane.this, home);
+        }
+      }));
+    exportMenu.add(toolsMenus.createElevationPictureItem(new HomeToolsMenus.ElevationRenderer() {
+        public byte [] render(String side, boolean dimensions, String [] message) {
+          return createElevationPicture(side, dimensions, message);
         }
       }));
     // Dimension lines of the rooms in one step
@@ -1404,11 +1432,12 @@ public class HomePane extends JRootPane implements HomeView {
           }
         }
       }));
+    planMenu.add(toolsMenus.createGardenMenu());
+    planMenu.add(toolsMenus.createSymbolsMenu());
+    planMenu.add(toolsMenus.createMeasureItem());
     planMenu.addSeparator();
     addActionToMenu(ActionType.ZOOM_IN, planMenu);
     addActionToMenu(ActionType.ZOOM_OUT, planMenu);
-    planMenu.addSeparator();
-    addActionToMenu(ActionType.EXPORT_TO_SVG, planMenu);
 
     // Create 3D Preview menu
     JMenu preview3DMenu = new JMenu(this.menuActionMap.get(MenuActionType.VIEW_3D_MENU));
@@ -1570,6 +1599,7 @@ public class HomePane extends JRootPane implements HomeView {
         }
       });
     preview3DMenu.add(sunMenuItem);
+    preview3DMenu.add(toolsMenus.createSunItem());
     addActionToMenu(ActionType.MODIFY_3D_ATTRIBUTES, preview3DMenu);
     JMenu standardViewsMenu = createStandardViewsMenu();
     preview3DMenu.addSeparator();
@@ -1583,15 +1613,14 @@ public class HomePane extends JRootPane implements HomeView {
     addActionToMenu(ActionType.CREATE_PHOTOS_AT_POINTS_OF_VIEW, preview3DMenu);
     addActionToMenu(ActionType.CREATE_VIDEO, preview3DMenu);
     preview3DMenu.addSeparator();
-    addActionToMenu(ActionType.EXPORT_TO_OBJ, preview3DMenu);
-    preview3DMenu.add(new JMenuItem(new AbstractAction(
+    exportMenu.add(new JMenuItem(new AbstractAction(
         preferences.getLocalizedString(HomePane.class, "exportPanorama")) {
         public void actionPerformed(ActionEvent ev) {
           PanoramaExporter.showExportDialog(HomePane.this, home);
         }
       }));
     // High quality rendering in Blender
-    preview3DMenu.add(new JMenuItem(new AbstractAction(
+    exportMenu.add(new JMenuItem(new AbstractAction(
         preferences.getLocalizedString(HomePane.class, "exportToBlender")) {
         public void actionPerformed(ActionEvent ev) {
           showExportToBlenderDialog();
@@ -1614,6 +1643,8 @@ public class HomePane extends JRootPane implements HomeView {
       };
     JMenuItem renderingInformationMenuItem = new JMenuItem(renderingInformationAction);
     helpMenu.add(renderingInformationMenuItem);
+    // The assistant, the reports and, after them, the plug-ins
+    JMenu toolsMenu = new JMenu("Tools");
     // AI design assistant (multi-provider, configured in its settings)
     Action assistantAction = new AbstractAction(
         preferences.getLocalizedString(HomePane.class, "designAssistant")) {
@@ -1621,14 +1652,14 @@ public class HomePane extends JRootPane implements HomeView {
           showAssistantDialog();
         }
       };
-    helpMenu.add(new JMenuItem(assistantAction));
+    toolsMenu.add(new JMenuItem(assistantAction));
     Action assistantExamplesAction = new AbstractAction(
         preferences.getLocalizedString(HomePane.class, "assistantExamples")) {
         public void actionPerformed(ActionEvent ev) {
           showAssistantExamplesDialog();
         }
       };
-    helpMenu.add(new JMenuItem(assistantExamplesAction));
+    toolsMenu.add(new JMenuItem(assistantExamplesAction));
     // Local MCP server letting Claude read and edit this home
     Action mcpServerAction = new AbstractAction(
         preferences.getLocalizedString(HomePane.class, "mcpServer")) {
@@ -1636,16 +1667,18 @@ public class HomePane extends JRootPane implements HomeView {
           showMCPServerDialog();
         }
       };
-    helpMenu.add(new JMenuItem(mcpServerAction));
-
-    // Replacement of the selected furniture by the piece selected in the catalog
-    furnitureMenu.addSeparator();
-    furnitureMenu.add(new JMenuItem(new AbstractAction(
-        preferences.getLocalizedString(HomePane.class, "replaceFurniture")) {
+    toolsMenu.add(new JMenuItem(mcpServerAction));
+    toolsMenu.addSeparator();
+    toolsMenu.add(toolsMenus.createCheckPlanItem());
+    toolsMenu.add(new JMenuItem(new AbstractAction(
+        preferences.getLocalizedString(HomePane.class, "homeReport")) {
         public void actionPerformed(ActionEvent ev) {
-          HomeDesignToolsView.replaceSelectedFurniture(HomePane.this, home, HomePane.this.preferences, controller);
+          HomeDesignToolsView.showReportDialog(HomePane.this, home);
         }
       }));
+    toolsMenu.add(toolsMenus.createSchedulesMenu());
+    toolsMenu.add(toolsMenus.createFramingEstimateItem());
+
     // Tags of furniture and layers
     furnitureMenu.addSeparator();
     furnitureMenu.add(FurnitureLayersView.createTagsMenu(
@@ -1666,7 +1699,9 @@ public class HomePane extends JRootPane implements HomeView {
         public void actionPerformed(ActionEvent ev) {
           HomeDesignToolsView.showVersionsDialog(HomePane.this, home, controller);
         }
-      }), Math.min(fileMenu.getMenuComponentCount(), 8));
+      }), saveItemsEnd);
+    fileMenu.insertSeparator(saveItemsEnd + 1);
+    fileMenu.insert(exportMenu, saveItemsEnd + 2);
 
     // Add menus to menu bar
     JMenuBar menuBar = new JMenuBar();
@@ -1679,18 +1714,27 @@ public class HomePane extends JRootPane implements HomeView {
     if (controller.getHomeController3D().getView() != null) {
       menuBar.add(preview3DMenu);
     }
+    menuBar.add(toolsMenu);
     menuBar.add(helpMenu);
 
-    // Add plugin actions menu items
+    // Add plugin actions menu items, the ones of a menu after one separator
+    java.util.Set<JMenu> menusWithPluginActions = new java.util.HashSet<JMenu>();
     for (Action pluginAction : this.pluginActions) {
       String pluginMenu = (String)pluginAction.getValue(PluginAction.Property.MENU.name());
       if (pluginMenu != null) {
         boolean pluginActionAdded = false;
         for (int i = 0; i < menuBar.getMenuCount(); i++) {
           JMenu menu = menuBar.getMenu(i);
-          if (pluginMenu.equalsIgnoreCase(menu.getText())) {
+          if ("Export 3D web page...".equals(pluginAction.getValue(Action.NAME))) {
+            // With the other exports
+            exportMenu.add(new ResourceAction.MenuItemAction(pluginAction));
+            pluginActionAdded = true;
+            break;
+          } else if (pluginMenu.equalsIgnoreCase(menu.getText())) {
             // Add menu item to existing menu
-            menu.addSeparator();
+            if (menusWithPluginActions.add(menu)) {
+              menu.addSeparator();
+            }
             menu.add(new ResourceAction.MenuItemAction(pluginAction));
             pluginActionAdded = true;
             break;
@@ -1703,7 +1747,9 @@ public class HomePane extends JRootPane implements HomeView {
             JMenu menu = menuBar.getMenu(i);
             if (menu.getAction() != null
                 && pluginMenu.equalsIgnoreCase((String)menu.getAction().getValue(ResourceAction.UNLOCALIZED_NAME))) {
-              menu.addSeparator();
+              if (menusWithPluginActions.add(menu)) {
+                menu.addSeparator();
+              }
               menu.add(new ResourceAction.MenuItemAction(pluginAction));
               pluginActionAdded = true;
               break;
@@ -5416,6 +5462,33 @@ public class HomePane extends JRootPane implements HomeView {
     return this.mcpHandler;
   }
 
+  /**
+   * Returns the PNG picture of the elevation of a side of the building, drawn as for MCP clients.
+   */
+  @SuppressWarnings("unchecked")
+  private byte [] createElevationPicture(String side, boolean dimensions, String [] message) {
+    try {
+      Map<String, Object> response = (Map<String, Object>)com.eteks.sweethome3d.viewcontroller.JSONParser.parse(
+          getMCPHandler().handle("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":"
+              + "\"get_elevation_image\",\"arguments\":{\"side\":\"" + side + "\",\"width\":1600,\"height\":900,"
+              + "\"dimensions\":" + dimensions + "}}}"));
+      Map<String, Object> result = (Map<String, Object>)response.get("result");
+      byte [] image = null;
+      for (Object content : (List<Object>)result.get("content")) {
+        Map<String, Object> item = (Map<String, Object>)content;
+        if ("image".equals(item.get("type"))) {
+          image = java.util.Base64.getDecoder().decode((String)item.get("data"));
+        } else if (image == null) {
+          message [0] = (String)item.get("text");
+        }
+      }
+      return image;
+    } catch (RuntimeException ex) {
+      message [0] = "The elevation couldn't be drawn: " + ex;
+      return null;
+    }
+  }
+
   /** The panes of the homes displayed, to find the one of a home. */
   private static final Map<Home, HomePane> HOME_PANES =
       java.util.Collections.synchronizedMap(new java.util.WeakHashMap<Home, HomePane>());
@@ -6296,7 +6369,7 @@ public class HomePane extends JRootPane implements HomeView {
         + "Check and repair:\n"
         + "  - Check my home for problems.\n"
         + "  - Fix the walls that don't meet.\n\n"
-        + "Claude can do the same from outside the application: see Help > Claude MCP server.";
+        + "Claude can do the same from outside the application: see Tools > Claude MCP server.";
     JTextArea textArea = new JTextArea(examples);
     textArea.setEditable(false);
     textArea.setOpaque(false);

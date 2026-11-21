@@ -14,7 +14,7 @@ file per step, exactly as they were run to make the pictures of this page.
 ## Before you start
 
 1. Open Sweet Home 3D with a new, empty home.
-2. Choose **Help > Claude MCP server...** and **Start server**
+2. Choose **Tools > Claude MCP server...** and **Start server**
    ([Connecting Claude](MCP_SERVER.md#set-it-up)).
 
 Then either talk to Claude - the requests in *italics* below - or replay the

@@ -985,7 +985,7 @@ it gives rooms and walls a price of their own:
 
 ### What changed in `home_report`
 
-The report (also Plan > Home report and budget...) now deducts doors and windows:
+The report (also Tools > Home report and budget...) now deducts doors and windows:
 
 ```
 - Level "Ground floor": floor 20.0 m2, 4 walls, 18.4 m long, 92.0 m2 of wall surface on both sides, 3.7 m2 of openings, 88.3 m2 net

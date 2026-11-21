@@ -9,10 +9,10 @@ Most are also commands of the design assistant and of the MCP server
 | [Replace furniture in place](#replace-furniture-in-place) | **Furniture > Replace by the piece selected in catalog** |
 | [Room shapes](#room-shapes) | **Plan > Add room from shape...** |
 | [Decoration styles](#decoration-styles) | **Plan > Apply style to rooms...** |
-| [Home report and budget](#home-report) | **Plan > Home report and budget...** |
+| [Home report and budget](#home-report) | **Tools > Home report and budget...** |
 | [Versions of a home](#versions-of-a-home) | **File > Versions...** |
-| [Elevation drawings](#elevation-drawings) | **Plan > Export elevation drawing...** |
-| [3D web page to share](#3d-web-page-to-share) | **Tools > Export 3D web page...** |
+| [Elevation drawings](#elevation-drawings) | **File > Export > Export elevation drawing...** |
+| [3D web page to share](#3d-web-page-to-share) | **File > Export > Export 3D web page...** |
 
 ## Replace furniture in place
 
@@ -61,7 +61,7 @@ The ground floor of the demo house in the Scandinavian style:
 
 ## Home report
 
-**Plan > Home report and budget...** shows the floor areas and
+**Tools > Home report and budget...** shows the floor areas and
 perimeters by room and level, the wall lengths and surfaces, the furniture
 counts and prices, with **Copy** and **Save as text file...**. Roofs, slabs,
 the ground and the other parts built for the house are listed apart from the
@@ -93,7 +93,7 @@ ones you no longer need.
 
 ## Elevation drawings
 
-**Plan > Export elevation drawing...** writes a SVG drawing (1 unit = 1 cm) of
+**File > Export > Export elevation drawing...** writes a SVG drawing (1 unit = 1 cm) of
 the home seen from its front, back, right or left side, with its overall width
 and height and the floors. A **section** distance cuts the home that far
 behind its front and leaves out what stands before the cut, which shows the
@@ -114,7 +114,7 @@ The demo house seen from the south:
 
 ## 3D web page to share
 
-**Tools > Export 3D web page...** writes a folder (`<home>-3d-web`) with the
+**File > Export > Export 3D web page...** writes a folder (`<home>-3d-web`) with the
 same walk-through and game mode as the preview. Browsers refuse to load a 3D
 scene from a page opened from the disk, so the folder comes with its own way
 to be seen, with **no web server to install**:
@@ -157,3 +157,27 @@ its `index.html` contains the picture and opens with a double click.
 - `HomeReport` unit prices (`setUnitPrice`, stored as home properties),
   `HomeVersions`, `ElevationDrawing.createSVG`.
 - `AssistantDesignCommandsTest`.
+
+## Menus for the commands
+
+What the design assistant and Claude do with commands can be done by hand
+from the menus. Each item runs one change that **Edit > Undo** reverts.
+
+| Menu | Item | What it does |
+| --- | --- | --- |
+| **File > Versions...** | Restore in this home | Replaces the levels and the items of the home by the ones of the version. The home as it is now is saved as a version first |
+| **File > Export** | Export elevation picture... | A side of the building drawn square on from the 3D models, with its width and the heights of its levels, as a PNG file |
+| **Furniture** | Open the selected doors and windows... | Turns their leaves by an angle; a negative angle opens the other way. Only models with hinges open |
+| | Close the selected doors and windows | |
+| | Furnish the selected room... | Places catalog furniture for a kind of room, clear of doors, windows and passages. A starting point to arrange by hand |
+| **Plan > Garden** | Fence, Hedge, Path along the selected line... | Draw the line with **Plan > Create polylines**, select it, then choose the item and its sizes. The line may be deleted once used |
+| | Planting bed in the selected line or room... | The same, for a closed line or a room |
+| **Plan > Electrical and plumbing symbols** | Add a symbol... | On the selected wall at a distance from its start, or at the middle of the selected room, to move as a piece of furniture |
+| | Outlets along the walls of the selected rooms... | At a regular distance, leaving doors free |
+| **Plan** | Measure the selection | One piece: the free space on its four sides. Two items: the distance between them. More: the size they take together |
+| **3D view** | Date and time of the sun... | The date and the local time of the sun at the place of the compass, and whether the 3D view is lit from it |
+| **Tools** | Check the plan... | The defects of the plan, with a button that fixes the ones that can be |
+| | Schedules | Doors and windows, rooms, furniture and symbols as tables, each with **Export as CSV...**; and the marks (D1, W2...) written in the plan |
+| | Framing estimate... | Studs, plates and headers of the selected walls or of all of them, for a budget |
+
+The details of each one are in the [command reference](MCP_COMMANDS.md).

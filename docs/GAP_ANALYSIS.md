@@ -21,8 +21,8 @@ Legend: **yes** = available, **new** = added with this analysis, **partly**,
 | Automatic roof | yes | `auto_roof` (assistant) |
 | Stairs generator | yes | `add_stairs`: straight, L, U and spiral |
 | Plan checker (walls that don't meet, doors out of walls...) | yes | `check_home`, `fix_home` |
-| Terrain, garden, landscaping tools | **new**, by commands | `set_terrain`; `add_fence`, `add_hedge`, `add_path`, `add_planting_bed`, `add_trees`. No menu items |
-| 2D elevation and section drawings | yes | Plan > Export elevation drawing... (outlines in SVG); `get_elevation_image` draws an elevation from the 3D models with its dimensions |
+| Terrain, garden, landscaping tools | **new**, by commands | `set_terrain`; `add_fence`, `add_hedge`, `add_path`, `add_planting_bed`, `add_trees`; Plan > Garden builds them along a selected line |
+| 2D elevation and section drawings | yes | File > Export > Export elevation drawing... (outlines in SVG); `get_elevation_image` draws an elevation from the 3D models with its dimensions |
 | Construction documents (framing, schedules, electrical symbols) | **new**, by commands | door, window and room schedules, electrical and plumbing symbols, a framing estimate for a budget. Not structural drawings |
 | Align, distribute, mirror, group, measure | **new** for the assistant | `align`, `distribute`, `mirror`, `group`, `measure` |
 
@@ -51,8 +51,8 @@ Legend: **yes** = available, **new** = added with this analysis, **partly**,
 | Photo-realistic images and videos | yes | built-in renderers, and Blender export |
 | VR walk-through in a headset | yes | Tools > WebXR Preview... |
 | Game-like visit (run, jump, fly, open doors) | yes | Tools > Game mode... (`docs/GAME_MODE.md`) |
-| A link to share a 3D visit | **new** | Tools > Export 3D web page... writes a folder for any static web host |
-| 360 degree panoramas | **new** | 3D view > Export 360° panorama... |
+| A link to share a 3D visit | **new** | File > Export > Export 3D web page... writes a folder for any static web host |
+| 360 degree panoramas | **new** | File > Export > Export 360° panorama... |
 | Automatic hiding of the walls in front of the camera (doll house) | **new** | 3D view > Hide walls in front of the camera |
 | Sun position by date and time in the live view | **new** | 3D view > Sun at the date and time of the camera; `set_sun` |
 
@@ -85,8 +85,8 @@ pictures, restoring versions, prices per room, the sun in the 3D view,
 garden commands). What remains:
 
 1. **Catalog staircases walked exactly** (their steps read from the model).
-2. **Menu items and dialogs** for what only commands do today: garden,
-   symbols, schedules, furnishing a room, restoring a version.
+2. **Drawing tools in the plan** for fences, hedges and symbols, placed with
+   the mouse instead of from a selected line or wall.
 3. **Sliding doors and windows shown open**, and doors opened in the
    walk-through from their hinges.
 4. **A layout engine that designs**: the size of the room and of the pieces

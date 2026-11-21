@@ -24,7 +24,7 @@ the house above step by step.
 
 ## Set it up
 
-1. Open a home and choose **Help > Claude MCP server...**
+1. Open a home and choose **Tools > Claude MCP server...**
 2. Click **Start server**. The dialog shows `Running at http://127.0.0.1:47391/mcp`.
 
    ![The Claude MCP server dialog](images/mcp-server-dialog.png)
@@ -421,10 +421,10 @@ pieces or textures named exactly.
 
 | What happens | What to do |
 | --- | --- |
-| Claude says the server must be started | Choose **Help > Claude MCP server...** and **Start server**, or tick the box that starts it with each home |
+| Claude says the server must be started | Choose **Tools > Claude MCP server...** and **Start server**, or tick the box that starts it with each home |
 | Claude Desktop doesn't list Sweet Home 3D | Quit it completely, from its icon near the clock too, and reopen it. If it still doesn't, click **Connect Claude Desktop** again |
 | It worked, then stopped after an update | The registration holds the path of the application: connect again from the new version |
-| The application folder can't be deleted or replaced | The bridge program launched by Claude (`sweethome3d-mcp`) runs from it: click **Release program folder** in **Help > Claude MCP server...**, or quit Claude, then close Sweet Home 3D |
+| The application folder can't be deleted or replaced | The bridge program launched by Claude (`sweethome3d-mcp`) runs from it: click **Release program folder** in **Tools > Claude MCP server...**, or quit Claude, then close Sweet Home 3D |
 | "No item has the id ..." | The item was deleted. Ask Claude to call `get_home` again |
 | "The tool ... has no argument ..." | Claude knows the tools of an older version of Sweet Home 3D. An argument the server doesn't know is refused with the list of the ones it has, instead of being dropped. Start a new conversation, or restart Claude, so it reads the tools again |
 | A picture takes minutes | It was drawn by the ray tracer: ask for `"renderer":"opengl"`, or give a `timeout` |

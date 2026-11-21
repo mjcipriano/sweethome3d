@@ -930,7 +930,7 @@ public class HomeMCPHandler {
     saveProperties.put("replace", property("boolean", "With copy_to: true to replace a file that exists (needs the permission to save)"));
     tools.add(tool("save_home", "Save the home",
         "Saves the home in its own file, which needs the permission \"Allow saving\" of the user in Sweet Home 3D "
-        + "(Help > Claude MCP server...). With copy_to, writes a copy in a new file instead, which only needs the "
+        + "(Tools > Claude MCP server...). With copy_to, writes a copy in a new file instead, which only needs the "
         + "permission to change things: the home keeps its file and its unsaved state. Prefer save_version for checkpoints.",
         schema(saveProperties), false));
     tools.add(tool("list_homes", "List open homes",
@@ -1118,7 +1118,7 @@ public class HomeMCPHandler {
       return toolResult(describeHomes(), false);
     } else if (!isEditingAllowed()) {
       return toolResult("Editing is disabled: the user didn't allow changes to this home. "
-          + "Ask them to enable it in Sweet Home 3D (Help > Claude MCP server).", true);
+          + "Ask them to enable it in Sweet Home 3D (Tools > Claude MCP server).", true);
     } else if ("apply_commands".equals(name)) {
       return applyCommands(arguments);
     } else if ("update_note".equals(name)) {
@@ -1330,7 +1330,7 @@ public class HomeMCPHandler {
       savedFile = new java.io.File(saveTo);
       if (!isEditingAllowed()) {
         return toolResult("Saving a picture needs the permission to change things: the user didn't allow changes "
-            + "to this home (Help > Claude MCP server). Call get_3d_image without save_to.", true);
+            + "to this home (Tools > Claude MCP server). Call get_3d_image without save_to.", true);
       } else if (!savedFile.isAbsolute() || !saveTo.toLowerCase().endsWith(".png")) {
         return toolResult("\"save_to\" must be the absolute path of a .png file.", true);
       } else if (savedFile.exists() && !bool(arguments, "replace", false)) {
@@ -1962,7 +1962,7 @@ public class HomeMCPHandler {
           return toolResult("The folder " + file.getParent() + " doesn't exist.", true);
         } else if (file.exists() && !(bool(arguments, "replace", false) && isSavingAllowed())) {
           return toolResult(file + " exists. Replacing a file needs \"replace\":true and the permission "
-              + "\"Allow saving\" in Sweet Home 3D (Help > Claude MCP server...); or give another name.", true);
+              + "\"Allow saving\" in Sweet Home 3D (Tools > Claude MCP server...); or give another name.", true);
         } else if (file.getPath().equals(this.home.getName())) {
           return toolResult("That is the file of the home: call save_home without copy_to.", true);
         }
@@ -1971,7 +1971,7 @@ public class HomeMCPHandler {
             + (this.home.isModified() ? " and its unsaved changes" : "") + ". open_home opens the copy.", false);
       } else if (!isSavingAllowed()) {
         return toolResult("Saving the home in its file isn't allowed: the user didn't tick \"Allow saving\" in "
-            + "Sweet Home 3D (Help > Claude MCP server...). save_version keeps a checkpoint without it, and "
+            + "Sweet Home 3D (Tools > Claude MCP server...). save_version keeps a checkpoint without it, and "
             + "save_home with copy_to writes a copy in a new file.", true);
       } else if (this.home.getName() == null) {
         return toolResult("This home has no file yet: the user must save it once (File > Save as...), "

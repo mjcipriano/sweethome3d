@@ -63,7 +63,7 @@ the catalog if there is one, otherwise a label or a small piece built with
   this computer, carry a header that the pages of other web sites can't send,
   and what isn't a list of notes is refused. Other devices of the network can
   read the notes, as they can read the home, but not change them.
-- A home exported as a web page (**Tools > Export 3D web page...**) has no
+- A home exported as a web page (**File > Export > Export 3D web page...**) has no
   application behind it: notes written there stay in that browser, and the
   list offers to copy them as text.
 
