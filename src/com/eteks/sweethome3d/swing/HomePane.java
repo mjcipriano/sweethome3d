@@ -1554,27 +1554,7 @@ public class HomePane extends JRootPane implements HomeView {
       });
     preview3DMenu.add(dollHouseMenuItem);
     addActionToMenu(ActionType.MODIFY_3D_ATTRIBUTES, preview3DMenu);
-    // Standard views of the home
-    JMenu standardViewsMenu = new JMenu(preferences.getLocalizedString(HomePane.class, "standardViews"));
-    String [] viewNames = {"standardViews.top", "standardViews.south", "standardViews.north", "standardViews.east",
-                           "standardViews.west", "standardViews.southEast", "standardViews.southWest",
-                           "standardViews.northEast", "standardViews.northWest"};
-    final float [][] viewAngles = {{(float)Math.PI, (float)Math.PI / 2}, {(float)Math.PI, 0.02f}, {0, 0.02f},
-        {(float)Math.PI / 2, 0.02f}, {(float)Math.PI * 3 / 2, 0.02f},
-        {(float)Math.PI * 3 / 4, (float)Math.PI / 6}, {(float)Math.PI * 5 / 4, (float)Math.PI / 6},
-        {(float)Math.PI / 4, (float)Math.PI / 6}, {(float)Math.PI * 7 / 4, (float)Math.PI / 6}};
-    for (int i = 0; i < viewNames.length; i++) {
-      final float [] angles = viewAngles [i];
-      standardViewsMenu.add(new JMenuItem(new AbstractAction(
-          preferences.getLocalizedString(HomePane.class, viewNames [i])) {
-          public void actionPerformed(ActionEvent ev) {
-            controller.getHomeController3D().viewFromDirection(angles [0], angles [1]);
-          }
-        }));
-      if (i == 0 || i == 4) {
-        standardViewsMenu.addSeparator();
-      }
-    }
+    JMenu standardViewsMenu = createStandardViewsMenu();
     preview3DMenu.addSeparator();
     preview3DMenu.add(standardViewsMenu);
     // Zoom of the 3D view
@@ -2911,6 +2891,78 @@ public class HomePane extends JRootPane implements HomeView {
     addActionToMenu(ActionType.DELETE_RECENT_HOMES, openRecentHomeMenu);
   }
 
+  // The standard views in the order of their menu, with their number: the key that shows
+  // each one in the 3D view, at its place on a numeric keypad laid over the plan
+  private static final String [] STANDARD_VIEW_NAMES = {"top", "south", "north", "east", "west",
+                                                        "southEast", "southWest", "northEast", "northWest"};
+  private static final int []    STANDARD_VIEW_DIRECTIONS = {5, 2, 8, 6, 4, 3, 1, 9, 7};
+
+  /**
+   * Returns the menu of the standard views of the home: from the top, its four sides and its four corners.
+   */
+  private JMenu createStandardViewsMenu() {
+    JMenu standardViewsMenu = new JMenu(this.preferences.getLocalizedString(HomePane.class, "standardViews"));
+    for (int i = 0; i < STANDARD_VIEW_NAMES.length; i++) {
+      final int direction = STANDARD_VIEW_DIRECTIONS [i];
+      standardViewsMenu.add(new JMenuItem(new AbstractAction(
+          this.preferences.getLocalizedString(HomePane.class, "standardViews." + STANDARD_VIEW_NAMES [i])
+          + "   [" + direction + "]") {
+          public void actionPerformed(ActionEvent ev) {
+            controller.getHomeController3D().viewFromStandardDirection(direction, false);
+          }
+        }));
+      if (i == 0 || i == 4) {
+        standardViewsMenu.addSeparator();
+      }
+    }
+    return standardViewsMenu;
+  }
+
+  /**
+   * Returns a button that shows a pad of nine buttons laid out as the plan: the one
+   * at the bottom shows the building from the front, the one at the top left from its
+   * back left corner, the one in the middle from the top.
+   */
+  private JButton createStandardViewsButton() {
+    final JButton button = new JButton(this.preferences.getLocalizedString(HomePane.class, "standardViews.button"));
+    button.setToolTipText(this.preferences.getLocalizedString(HomePane.class, "standardViews.button.tooltip"));
+    button.setFocusable(false);
+    button.setMargin(new Insets(2, 4, 2, 4));
+    final JPopupMenu popup = new JPopupMenu();
+    JPanel pad = new JPanel(new java.awt.GridLayout(3, 3, 2, 2));
+    pad.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+    // The rows of a keypad from the top: 7 8 9, 4 5 6, 1 2 3
+    for (final int direction : new int [] {7, 8, 9, 4, 5, 6, 1, 2, 3}) {
+      String name = null;
+      for (int i = 0; i < STANDARD_VIEW_DIRECTIONS.length; i++) {
+        if (STANDARD_VIEW_DIRECTIONS [i] == direction) {
+          name = STANDARD_VIEW_NAMES [i];
+        }
+      }
+      JButton viewButton = new JButton(this.preferences.getLocalizedString(HomePane.class, "standardViews.short." + name));
+      viewButton.setToolTipText(this.preferences.getLocalizedString(HomePane.class, "standardViews." + name)
+          + " - " + this.preferences.getLocalizedString(HomePane.class, "standardViews.keyTip", direction));
+      viewButton.setFocusable(false);
+      viewButton.setMargin(new Insets(4, 6, 4, 6));
+      viewButton.addActionListener(new ActionListener() {
+          public void actionPerformed(ActionEvent ev) {
+            // Shift click looks from higher
+            controller.getHomeController3D().viewFromStandardDirection(direction,
+                (ev.getModifiers() & ActionEvent.SHIFT_MASK) != 0);
+            popup.setVisible(false);
+          }
+        });
+      pad.add(viewButton);
+    }
+    popup.add(pad);
+    button.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          popup.show(button, 0, button.getHeight());
+        }
+      });
+    return button;
+  }
+
   private JMenuItem createZoom3DMenuItem(String text, final int steps) {
     return new JMenuItem(new AbstractAction(text) {
         public void actionPerformed(ActionEvent ev) {
@@ -3027,6 +3079,7 @@ public class HomePane extends JRootPane implements HomeView {
       toolBar.add(createZoom3DButton("3D +", preferences.getLocalizedString(HomePane.class, "zoomIn3D.tooltip"), 1));
       toolBar.add(createZoom3DButton("3D \u2212", preferences.getLocalizedString(HomePane.class, "zoomOut3D.tooltip"), -1));
       toolBar.add(createZoom3DButton("3D fit", preferences.getLocalizedString(HomePane.class, "zoomToFit3D.tooltip"), 0));
+      toolBar.add(createStandardViewsButton());
       toolBar.add(Box.createRigidArea(new Dimension(2, 2)));
     }
 
@@ -3995,6 +4048,7 @@ public class HomePane extends JRootPane implements HomeView {
       view3DPopup.addSeparator();
       addToggleActionToPopupMenu(ActionType.VIEW_FROM_TOP, true, view3DPopup);
       addToggleActionToPopupMenu(ActionType.VIEW_FROM_OBSERVER, true, view3DPopup);
+      view3DPopup.add(createStandardViewsMenu());
       addActionToPopupMenu(ActionType.MODIFY_OBSERVER, view3DPopup);
       addActionToPopupMenu(ActionType.STORE_POINT_OF_VIEW, view3DPopup);
       JMenu goToPointOfViewMenu = createGoToPointOfViewMenu(home, preferences, controller);

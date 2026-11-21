@@ -58,8 +58,9 @@ before deleting the old folder.
 4. **Plan > Levels > Add level** adds a floor; **Plan > Add room dimensions** writes
    the size of every room.
 5. **Plan > Apply style to rooms...** colors the floors and walls.
-6. **3D view > Standard views** shows the home from each side, and the mouse
-   wheel zooms.
+6. Click in the 3D view and press a key from `1` to `9` to see the house from
+   each side and corner (`2` front, `8` back, `5` top), or use **3D views** in
+   the tool bar; the mouse wheel zooms, `Q` and `E` move sideways.
 7. **File > Save**, then **File > Versions...** to keep named copies as you go.
 
 Or let an AI do it: connect Claude ([MCP server](MCP_SERVER.md)) or open
@@ -82,7 +83,7 @@ edition adds* with the same list (in English).
 | | Home report and budget... | [Design tools](DESIGN_TOOLS.md#home-report) |
 | | Export elevation drawing... | [Design tools](DESIGN_TOOLS.md#elevation-drawings) |
 | | Add room dimensions | [3D view navigation](VIEW_3D_NAVIGATION.md#room-dimensions-in-one-step) |
-| **3D view** | Standard views, Zoom in 3D view, Zoom out 3D view, Show whole home in 3D view | [3D view navigation](VIEW_3D_NAVIGATION.md) |
+| **3D view** | Standard views (keys 1 to 9, **3D views** in the tool bar), Zoom in 3D view, Zoom out 3D view, Show whole home in 3D view | [3D view navigation](VIEW_3D_NAVIGATION.md) |
 | | Hide walls in front of the camera (doll house) | [3D view navigation](VIEW_3D_NAVIGATION.md#doll-house-display) |
 | | Use OpenGL renderer, OpenGL renderer quality | [OpenGL renderer](OPENGL_RENDERER.md) |
 | | Show full detail, Reduce detail of heavy models automatically, Generate model LOD cache | [Performance](PERFORMANCE.md) |

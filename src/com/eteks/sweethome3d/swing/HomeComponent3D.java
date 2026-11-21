@@ -2521,6 +2521,17 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    * Adds AWT mouse listeners to <code>component3D</code> that calls back <code>controller</code> methods.
    */
   private void addMouseListeners(final HomeController3D controller, final Component component3D) {
+    // The controller needs the shape of the view to show a home entirely
+    ComponentAdapter aspectRatioListener = new ComponentAdapter() {
+        @Override
+        public void componentResized(ComponentEvent ev) {
+          if (getWidth() > 0 && getHeight() > 0) {
+            controller.setViewAspectRatio((float)getWidth() / getHeight());
+          }
+        }
+      };
+    addComponentListener(aspectRatioListener);
+    aspectRatioListener.componentResized(null);
     MouseInputAdapter mouseListener = new MouseInputAdapter() {
         private int        xLastMouseMove;
         private int        yLastMouseMove;
@@ -2603,11 +2614,19 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
                       && Boolean.getBoolean("com.eteks.sweethome3d.interpretMiddleButtonAsLeftButtonWithAltKey"))) {
                 // Mouse move along Y axis while alt is down changes camera location
                 float delta = 1.25f * (this.yLastMouseMove - ev.getY());
+                // Mouse move along X axis moves the camera sideways: the home follows the mouse
+                float sidewaysDelta = 0.5f * (this.xLastMouseMove - ev.getX());
                 // Multiply delta by 5 if shift is down
                 if (ev.isShiftDown()) {
                   delta *= 5;
+                  sidewaysDelta *= 5;
                 }
-                controller.moveCamera(delta);
+                if (delta != 0) {
+                  controller.moveCamera(delta);
+                }
+                if (sidewaysDelta != 0) {
+                  controller.moveCameraSideways(sidewaysDelta);
+                }
               } else {
                 final float ANGLE_FACTOR = 0.005f;
                 // Mouse move along X axis changes camera yaw
@@ -2790,6 +2809,13 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     inputMap.put(KeyStroke.getKeyStroke("shift EQUALS"), "ZOOM_CAMERA_FAST_IN");
     inputMap.put(KeyStroke.getKeyStroke("shift SUBTRACT"), "ZOOM_CAMERA_FAST_OUT");
     inputMap.put(KeyStroke.getKeyStroke("shift MINUS"), "ZOOM_CAMERA_FAST_OUT");
+    // The keys 1 to 9 show the building from the direction of their place on a numeric keypad
+    for (int direction = 1; direction <= 9; direction++) {
+      inputMap.put(KeyStroke.getKeyStroke(String.valueOf(direction)), "STANDARD_VIEW_" + direction);
+      inputMap.put(KeyStroke.getKeyStroke("NUMPAD" + direction), "STANDARD_VIEW_" + direction);
+      inputMap.put(KeyStroke.getKeyStroke("shift " + direction), "STANDARD_VIEW_HIGHER_" + direction);
+      inputMap.put(KeyStroke.getKeyStroke("shift NUMPAD" + direction), "STANDARD_VIEW_HIGHER_" + direction);
+    }
     inputMap.put(KeyStroke.getKeyStroke("0"), "ZOOM_CAMERA_TO_FIT");
     inputMap.put(KeyStroke.getKeyStroke("NUMPAD0"), "ZOOM_CAMERA_TO_FIT");
     inputMap.put(KeyStroke.getKeyStroke("UP"), ActionType.MOVE_CAMERA_FORWARD);
@@ -2805,6 +2831,11 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     inputMap.put(KeyStroke.getKeyStroke("alt LEFT"), ActionType.MOVE_CAMERA_LEFT);
     inputMap.put(KeyStroke.getKeyStroke("shift alt RIGHT"), ActionType.MOVE_CAMERA_FAST_RIGHT);
     inputMap.put(KeyStroke.getKeyStroke("alt RIGHT"), ActionType.MOVE_CAMERA_RIGHT);
+    // Q and E move sideways, beside A and D that turn
+    inputMap.put(KeyStroke.getKeyStroke("Q"), ActionType.MOVE_CAMERA_LEFT);
+    inputMap.put(KeyStroke.getKeyStroke("shift Q"), ActionType.MOVE_CAMERA_FAST_LEFT);
+    inputMap.put(KeyStroke.getKeyStroke("E"), ActionType.MOVE_CAMERA_RIGHT);
+    inputMap.put(KeyStroke.getKeyStroke("shift E"), ActionType.MOVE_CAMERA_FAST_RIGHT);
     inputMap.put(KeyStroke.getKeyStroke("shift LEFT"), ActionType.ROTATE_CAMERA_YAW_FAST_LEFT);
     inputMap.put(KeyStroke.getKeyStroke("shift A"), ActionType.ROTATE_CAMERA_YAW_FAST_LEFT);
     inputMap.put(KeyStroke.getKeyStroke("LEFT"), ActionType.ROTATE_CAMERA_YAW_LEFT);
@@ -2984,6 +3015,19 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     actionMap.put("ZOOM_CAMERA_OUT", new ZoomCameraAction(-1));
     actionMap.put("ZOOM_CAMERA_FAST_IN", new ZoomCameraAction(3));
     actionMap.put("ZOOM_CAMERA_FAST_OUT", new ZoomCameraAction(-3));
+    for (int i = 1; i <= 9; i++) {
+      final int direction = i;
+      actionMap.put("STANDARD_VIEW_" + direction, new AbstractAction() {
+          public void actionPerformed(ActionEvent ev) {
+            controller.viewFromStandardDirection(direction, false);
+          }
+        });
+      actionMap.put("STANDARD_VIEW_HIGHER_" + direction, new AbstractAction() {
+          public void actionPerformed(ActionEvent ev) {
+            controller.viewFromStandardDirection(direction, true);
+          }
+        });
+    }
     actionMap.put("ZOOM_CAMERA_TO_FIT", new AbstractAction() {
         public void actionPerformed(ActionEvent ev) {
           controller.zoomCameraToFit();

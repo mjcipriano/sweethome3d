@@ -22,7 +22,7 @@ PARTS="${*:-renders windows web}"
 export DISPLAY="${DISPLAY:-:0}"
 fail() { touch "$SHOTS_WORK/failed"; }
 
-for tool in "$JAVA" javac python3 xwininfo import convert; do
+for tool in "$JAVA" javac python3 xwininfo import convert montage; do
   command -v "$tool" > /dev/null || { echo "Missing command: $tool"; exit 1; }
 done
 [ -f "$ROOT/build/SweetHome3D.jar" ] || { echo "Run make build first"; exit 1; }
@@ -126,7 +126,17 @@ if [[ " $PARTS " == *" windows "* ]]; then
   apply '[{"action":"select_level","name":"Ground floor"},{"action":"set_camera","point_of_view":"Street side"}]'
   sleep 8; shot main-window "* Untitled"
   convert "$SHOTS_OUT/main-window.png" -strip -quality 90 "$IMAGES/main-window.jpg"
-  convert "$SHOTS_OUT/main-window.png" -crop 880x34+2+24 +repage -strip "$IMAGES/toolbar.png"
+  convert "$SHOTS_OUT/main-window.png" -crop 960x34+2+24 +repage -strip "$IMAGES/toolbar.png"
+  # The nine standard views, laid out as their keys on a numeric keypad
+  views=("Corner: back left" "Back (from" "Corner: back right" "Left side" "Top" "Right side" \
+         "Corner: front left" "Front (from" "Corner: front right")
+  tiles=()
+  for index in "${!views[@]}"; do
+    ui item "${views[$index]}"; sleep 3; shot standard-view-$index "* Untitled"
+    convert "$SHOTS_OUT/standard-view-$index.png" -crop 904x370+379+433 +repage -resize 452x185 "$SHOTS_OUT/standard-view-tile-$index.png"
+    tiles+=("$SHOTS_OUT/standard-view-tile-$index.png")
+  done
+  montage "${tiles[@]}" -tile 3x3 -geometry +3+3 -background white -strip -quality 86 "$IMAGES/standard-views.jpg"
   # The doll house display, on the ground floor alone
   apply '[{"action":"set_camera","view":"south_west","ids":["R1","R5"]}]'
   ui item "Display selected level"; sleep 6; shot dollhouse-off "* Untitled"
