@@ -500,6 +500,40 @@ Round 3 of requests from modeling a real house through the MCP server.
 - Not done: lines aren't drawn in the game mode and the WebXR pages (the
   stakes are); a setback isn't shown in 3D.
 
+### Agent control and missing features (2026-11-21, DONE)
+
+- **MCP tools** (31, were 16): `save_version`, `list_versions`,
+  `compare_versions`, `restore_version` (`HomeContents`, one undoable edit
+  posted by `HomeController.restoreHomeVersion`), `save_home` (its own file
+  only with `HomeMCPHandler.setSavingAllowed`, off by default; `copy_to`
+  otherwise), `list_homes`, `open_home`, `new_home`, `switch_home`
+  (`HomePane.serveWithMCP` starts the server of the other window and writes
+  its port, which the bridge reads at each request), `export_home`,
+  `get_history`, `undo` / `redo` with `steps`, `get_changes`
+  (`HomeChangeJournal`, paused during tool calls), `add_note`, `start_visit`,
+  `get_elevation_image` (a far camera with a narrow field of view, and
+  `HomeComponent3D.getClipDistances` keeping depth precision for far
+  cameras).
+- **Commands**: `AssistantArrangeCommands` (group, ungroup, align, distribute,
+  mirror, lock, measure), `AssistantGardenCommands` and
+  `AssistantRoomFurnisher` (fence, hedge, path, planting bed, trees,
+  `furnish_room`, `suggest_layout`), `AssistantScheduleCommands` (schedules,
+  symbols, framing estimate, prices per room and wall), `AssistantSceneCommands`
+  (`set_light`, `set_sun`, `set_environment`, `open_door`, `list_materials`,
+  `set_material`).
+- **3D view**: home property `sunFollowsTime` and its menu item; the first
+  scene light takes the direction of the sun at the time of the camera.
+- **Report**: openings deducted from wall surfaces (`HomeQuantities`), so the
+  paint budget is lower than before for the same prices.
+- Tests: `HomeMCPFileToolsTest`, `AssistantSceneCommandsTest`,
+  `AssistantArrangeCommandsTest`, `AssistantGardenCommandsTest`,
+  `AssistantScheduleCommandsTest`. The file tools, the sun, doors, materials,
+  elevations, the garden and `furnish_room` were tried in the application.
+- Known limits: sliding doors don't open; `furnish_room` uses English catalog
+  names and a fixed list per kind of room; garden pieces aren't rebuilt when
+  the ground changes; symbols don't follow their wall; pieces inside groups
+  aren't in `get_changes`.
+
 ### Backlog / later
 
 - **Native tool/function calling.** Use Anthropic `tool_use` and OpenAI `tools`

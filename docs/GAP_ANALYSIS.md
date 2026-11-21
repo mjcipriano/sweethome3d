@@ -21,9 +21,10 @@ Legend: **yes** = available, **new** = added with this analysis, **partly**,
 | Automatic roof | yes | `auto_roof` (assistant) |
 | Stairs generator | yes | `add_stairs`: straight, L, U and spiral |
 | Plan checker (walls that don't meet, doors out of walls...) | yes | `check_home`, `fix_home` |
-| Terrain, garden, landscaping tools | no | only furniture and a flat ground |
-| 2D elevation and section drawings | **new**, schematic | Plan > Export elevation drawing... (outlines, not model projections) |
-| Construction documents (framing, schedules, electrical symbols) | no | out of scope |
+| Terrain, garden, landscaping tools | **new**, by commands | `set_terrain`; `add_fence`, `add_hedge`, `add_path`, `add_planting_bed`, `add_trees`. No menu items |
+| 2D elevation and section drawings | yes | Plan > Export elevation drawing... (outlines in SVG); `get_elevation_image` draws an elevation from the 3D models with its dimensions |
+| Construction documents (framing, schedules, electrical symbols) | **new**, by commands | door, window and room schedules, electrical and plumbing symbols, a framing estimate for a budget. Not structural drawings |
+| Align, distribute, mirror, group, measure | **new** for the assistant | `align`, `distribute`, `mirror`, `group`, `measure` |
 
 ## Furnishing and decorating
 
@@ -37,7 +38,9 @@ Legend: **yes** = available, **new** = added with this analysis, **partly**,
 | Layers and tags to show or hide groups of items | yes | Furniture > Layers and tags... (7.20) |
 | Furniture from a photo | partly | a picture panel or rug; the assistant picks the closest catalog piece |
 | Brand catalogs of real products with prices and links | no | needs commercial data |
-| AI that furnishes a room by itself | partly | the assistant places catalog furniture on request, without a layout engine |
+| AI that furnishes a room by itself | **new**, simple | `furnish_room`: fixed rules per kind of room, clear of doors, windows and passages. Tidy, not designed |
+| One material of a model recolored | yes | the furniture window; `set_material` for the assistant |
+| Doors and windows shown open | **new** | `open_door`, for models with hinges |
 
 ## Seeing the result
 
@@ -51,7 +54,7 @@ Legend: **yes** = available, **new** = added with this analysis, **partly**,
 | A link to share a 3D visit | **new** | Tools > Export 3D web page... writes a folder for any static web host |
 | 360 degree panoramas | **new** | 3D view > Export 360° panorama... |
 | Automatic hiding of the walls in front of the camera (doll house) | **new** | 3D view > Hide walls in front of the camera |
-| Sun position by date and time in the live view | partly | compass and time are used by the photo renderer |
+| Sun position by date and time in the live view | **new** | 3D view > Sun at the date and time of the camera; `set_sun` |
 
 ## Quantities and cost
 
@@ -59,16 +62,16 @@ Legend: **yes** = available, **new** = added with this analysis, **partly**,
 | --- | --- | --- |
 | Areas, wall lengths and surfaces, furniture list and prices | **new in the UI** | Plan > Home report... (the assistant and MCP already had `home_report`) |
 | Furniture list export (CSV) | yes | |
-| Paint, flooring and baseboard budget from unit prices | **new** | in the Home report window; `set_unit_prices` |
+| Paint, flooring and baseboard budget from unit prices | yes | in the Home report window; `set_unit_prices`, also for one room or one wall; openings are deducted from wall surfaces |
 
 ## Working with others, and with AI
 
 | Feature | Here | Notes |
 | --- | --- | --- |
 | AI design assistant in the program | yes | several providers |
-| Control from an external AI agent | yes | MCP server for Claude |
+| Control from an external AI agent | yes | MCP server for Claude: versions, copies, exports, undo history, changes made by hand |
 | Cloud storage, real-time collaboration, comments | no | files are local; the web page export shares a read-only visit |
-| Versions of a design to compare | **new** | File > Versions... |
+| Versions of a design to compare and restore | yes | File > Versions...; `compare_versions` with a picture, `restore_version` in place |
 | Mobile and tablet apps | no | |
 
 ## What to do next, by value for effort
@@ -77,11 +80,16 @@ The six items first listed here (unit prices, versions, panoramas, spiral and
 walkable stairs, elevation drawings, doll house) were done on 2026-11-16.
 What remains:
 
-1. **Elevations from the 3D models** instead of outlines, and dimensions on
-   them.
-2. **Restore a version in place**, and a visual comparison of two versions.
-3. **Catalog staircases walked exactly** (their steps read from the model).
-4. **Unit prices per room or per wall**, and doors and windows deducted from
-   the wall surfaces.
-5. **Sun position by date and time** in the live 3D view.
-6. **Terrain and garden tools.**
+Items 1, 2, 4, 5 and 6 of that list were done on 2026-11-21 (elevation
+pictures, restoring versions, prices per room, the sun in the 3D view,
+garden commands). What remains:
+
+1. **Catalog staircases walked exactly** (their steps read from the model).
+2. **Menu items and dialogs** for what only commands do today: garden,
+   symbols, schedules, furnishing a room, restoring a version.
+3. **Sliding doors and windows shown open**, and doors opened in the
+   walk-through from their hinges.
+4. **A layout engine that designs**: the size of the room and of the pieces
+   chosen from it, lamps, rugs and what hangs on walls.
+5. **Elevations as vector drawings** from the models, and sections.
+6. **Lines of the plan in the game mode and the web pages.**

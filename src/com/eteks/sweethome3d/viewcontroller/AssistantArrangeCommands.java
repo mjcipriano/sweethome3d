@@ -1083,10 +1083,13 @@ class AssistantArrangeCommands {
       }
     }
     for (HomePieceOfFurniture piece : this.home.getFurniture()) {
-      if (piece.isAtLevel(level)) {
+      String structure = piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY);
+      // The ground is everywhere
+      if (piece.isAtLevel(level) && !"terrain".equals(structure)) {
         boolean inside = piece.containsPoint(point [0], point [1], 0);
         if (inside || piece.containsPoint(point [0], point [1], tolerance)) {
-          found.add((inside ? "on " : "beside ") + describe(piece) + " (from " + format(piece.getElevation()) + " to "
+          // A fence or the stakes of a lot go around the place: only their box is known
+          found.add(("site".equals(structure) ? "within the box around " : inside ? "on " : "beside ") + describe(piece) + " (from " + format(piece.getElevation()) + " to "
               + format(piece.getElevation() + piece.getHeight()) + " cm above the floor" + (piece.isVisible() ? "" : ", hidden") + ")");
         }
       }
