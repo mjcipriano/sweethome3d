@@ -236,7 +236,7 @@ public class WebXRPreviewPlugin extends Plugin {
    * Exports <code>home</code> with its viewer in a new sub folder of
    * <code>parentFolder</code> and returns that folder.
    */
-  File exportWebPage(Home home, File parentFolder) throws Exception {
+  public File exportWebPage(Home home, File parentFolder) throws Exception {
     if (parentFolder == null || !parentFolder.isDirectory()) {
       throw new IOException("Choose an existing folder");
     }

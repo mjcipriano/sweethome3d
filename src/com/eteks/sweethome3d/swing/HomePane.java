@@ -301,6 +301,7 @@ public class HomePane extends JRootPane implements HomeView {
     this.home = home;
     this.preferences = preferences;
     this.controller = controller;
+    HOME_PANES.put(home, this);
     this.home.addFurnitureListener(new CollectionListener<HomePieceOfFurniture>() {
         public void collectionChanged(CollectionEvent<HomePieceOfFurniture> ev) {
           if (ev.getType() == CollectionEvent.Type.ADD) {
@@ -5346,8 +5347,137 @@ public class HomePane extends JRootPane implements HomeView {
             return HomePane.this.exportForBlender(folder).getAbsolutePath();
           }
         });
+      this.mcpHandler.setHomeOperations(new HomeMCPHandler.HomeOperations() {
+          public String export(String format, File target, Map<String, Object> options) throws Exception {
+            return exportForMCP(format, target, options);
+          }
+
+          public String serve(Home otherHome) throws Exception {
+            return serveWithMCP(otherHome);
+          }
+
+          public String startVisit(String mode) throws Exception {
+            return startVisitForMCP(mode);
+          }
+        });
     }
     return this.mcpHandler;
+  }
+
+  /** The panes of the homes displayed, to find the one of a home. */
+  private static final Map<Home, HomePane> HOME_PANES =
+      java.util.Collections.synchronizedMap(new java.util.WeakHashMap<Home, HomePane>());
+
+  /**
+   * Writes the home in a file or a folder for an MCP client.
+   */
+  private String exportForMCP(String format, File target, Map<String, Object> options) throws Exception {
+    if ("pdf".equals(format)) {
+      printToPDF(target.getPath());
+      return "Wrote the pages of the home (as File > Print to PDF) to " + target + ".";
+    } else if ("svg".equals(format)) {
+      exportToSVG(target.getPath());
+      return "Wrote the plan of the selected level to " + target + ".";
+    } else if ("csv".equals(format)) {
+      exportToCSV(target.getPath());
+      return "Wrote the furniture list to " + target + ".";
+    } else if ("obj".equals(format)) {
+      exportToOBJ(target.getPath());
+      return "Wrote the 3D model to " + target + ", with its .mtl file and its textures beside it.";
+    } else if ("panorama".equals(format)) {
+      int width = options.get("width") instanceof Number
+          ? Math.max(1024, Math.min(8192, ((Number)options.get("width")).intValue())) : 4096;
+      String title = this.home.getName() != null
+          ? new File(this.home.getName()).getName().replaceFirst("\\.[^.]*$", "") : "home";
+      File folder = new File(target, title.replaceAll("[^A-Za-z0-9_-]+", "-") + "-panorama");
+      for (int i = 2; folder.exists(); i++) {
+        folder = new File(target, title.replaceAll("[^A-Za-z0-9_-]+", "-") + "-panorama-" + i);
+      }
+      if (!folder.mkdir()) {
+        throw new IOException("Can't create " + folder);
+      }
+      PanoramaExporter.write(PanoramaExporter.render(this.home, width, false), folder, title);
+      return "Wrote the 360 degree picture seen from the place of the virtual visitor, and its page, to " + folder + ".";
+    } else {
+      // The plug-in that exports the page is found by its name, as this package doesn't know it
+      Object plugin = findPlugin("WebXRPreviewPlugin");
+      if (plugin == null) {
+        throw new IOException("The plug-in that exports web pages isn't loaded");
+      }
+      java.lang.reflect.Method method = plugin.getClass().getMethod("exportWebPage", Home.class, File.class);
+      try {
+        File folder = (File)method.invoke(plugin, this.home, target);
+        return "Wrote the 3D web page of the home to " + folder + ": the folder shows the visit in a browser "
+            + "with the launcher it holds, or once put on a web site.";
+      } catch (java.lang.reflect.InvocationTargetException ex) {
+        throw ex.getCause() instanceof Exception ? (Exception)ex.getCause() : ex;
+      }
+    }
+  }
+
+  /**
+   * Returns the plug-in of this home whose class has the given simple name, or <code>null</code>.
+   */
+  private Object findPlugin(String className) {
+    try {
+      Object plugins = this.controller.getClass().getMethod("getPlugins").invoke(this.controller);
+      if (plugins instanceof List) {
+        for (Object plugin : (List<?>)plugins) {
+          if (plugin.getClass().getSimpleName().equals(className)) {
+            return plugin;
+          }
+        }
+      }
+    } catch (Exception ex) {
+      // A controller without plug-ins
+    }
+    return null;
+  }
+
+  /**
+   * Starts the visit of the home in the browser, as the items of the Tools menu do.
+   */
+  private String startVisitForMCP(String mode) throws Exception {
+    Object plugin = findPlugin("WebXRPreviewPlugin");
+    if (plugin == null) {
+      throw new IOException("The plug-in of the visits isn't loaded");
+    }
+    String actionName = "game".equals(mode) ? "Game mode..." : "WebXR Preview...";
+    Object actions = plugin.getClass().getMethod("getActions").invoke(plugin);
+    for (int i = 0; i < java.lang.reflect.Array.getLength(actions); i++) {
+      Object action = java.lang.reflect.Array.get(actions, i);
+      Class<?> actionClass = Class.forName("com.eteks.sweethome3d.plugin.PluginAction");
+      Object name = actionClass.getMethod("getPropertyValue",
+          Class.forName("com.eteks.sweethome3d.plugin.PluginAction$Property")).invoke(action,
+              Enum.valueOf((Class<Enum>)Class.forName("com.eteks.sweethome3d.plugin.PluginAction$Property"), "NAME"));
+      if (actionName.equals(name)) {
+        actionClass.getMethod("execute").invoke(action);
+        return "Started " + ("game".equals(mode) ? "the game mode" : "the walk-through")
+            + ": Sweet Home 3D prepares the visit and opens it in the web browser of the user, which takes some seconds.";
+      }
+    }
+    throw new IOException("This visit isn't available");
+  }
+
+  /**
+   * Makes the MCP server answer for another home open in the application.
+   */
+  private String serveWithMCP(Home otherHome) throws IOException {
+    HomePane otherPane = HOME_PANES.get(otherHome);
+    if (otherPane == null) {
+      throw new IOException("The window of that home isn't displayed yet: try again");
+    }
+    HomeMCPHandler otherHandler = otherPane.getMCPHandler();
+    otherHandler.setEditingAllowed(this.mcpHandler.isEditingAllowed());
+    otherHandler.setSavingAllowed(this.mcpHandler.isSavingAllowed());
+    if (otherPane.mcpServer == null || !otherPane.mcpServer.isRunning()) {
+      otherPane.startMCPServer();
+    } else {
+      // The program launched by the clients follows the port written last
+      HomeMCPServer.writePort(OperatingSystem.getDefaultApplicationFolder(), otherPane.mcpServer.getPort());
+    }
+    return "This connection now reads and edits "
+        + (otherHome.getName() != null ? otherHome.getName() : "the new home") + ", from your next call.";
   }
 
   private void showMCPServerDialog(final HomeMCPHandler mcpHandler) {
@@ -5370,6 +5500,21 @@ public class HomePane extends JRootPane implements HomeView {
     editingCheckBox.addActionListener(new ActionListener() {
         public void actionPerformed(ActionEvent ev) {
           mcpHandler.setEditingAllowed(editingCheckBox.isSelected());
+        }
+      });
+    final JCheckBox savingCheckBox = new JCheckBox("Allow saving this home in its file, and replacing files",
+        mcpHandler.isSavingAllowed());
+    savingCheckBox.setToolTipText("<html>Without it, Claude can only save versions (File > Versions...) and copies in new files:<br>"
+        + "the file of the home is written by you alone.</html>");
+    savingCheckBox.setEnabled(editingCheckBox.isSelected());
+    savingCheckBox.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          mcpHandler.setSavingAllowed(savingCheckBox.isSelected());
+        }
+      });
+    editingCheckBox.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          savingCheckBox.setEnabled(editingCheckBox.isSelected());
         }
       });
     final Runnable updater = new Runnable() {
@@ -5499,6 +5644,7 @@ public class HomePane extends JRootPane implements HomeView {
     northPanel.add(statusLabel, BorderLayout.CENTER);
     JPanel checkBoxesPanel = new JPanel(new java.awt.GridLayout(0, 1));
     checkBoxesPanel.add(editingCheckBox);
+    checkBoxesPanel.add(savingCheckBox);
     checkBoxesPanel.add(autoStartCheckBox);
     checkBoxesPanel.add(new JLabel("Connect Claude once with a button below, or with this command for Claude Code:"));
     northPanel.add(checkBoxesPanel, BorderLayout.SOUTH);
@@ -5758,9 +5904,9 @@ public class HomePane extends JRootPane implements HomeView {
     }
     final Home renderedHome;
     try {
-      renderedHome = this.home.clone();
+      renderedHome = request.getDrawnHome() != null ? request.getDrawnHome().clone() : this.home.clone();
       List<Level> levels = renderedHome.getLevels();
-      if (request.getLevel() != null) {
+      if (request.getLevel() != null && request.getDrawnHome() == null) {
         int levelIndex = this.home.getLevels().indexOf(request.getLevel());
         if (levelIndex >= 0 && levelIndex < levels.size()) {
           renderedHome.setSelectedLevel(levels.get(levelIndex));
