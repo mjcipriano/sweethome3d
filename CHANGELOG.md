@@ -1,5 +1,19 @@
 # Changelog
 
+## [7.28.0](https://github.com/mjcipriano/sweethome3d/compare/v7.27.0...v7.28.0) (2026-11-21)
+
+
+### Features
+
+* agent control (versions, saving, exports, history) and garden, schedules, sun, elevations ([862de32](https://github.com/mjcipriano/sweethome3d/commit/862de32376eb3b2c693897b2d9a955afb266a6a2))
+* elevation pictures from the 3D models with dimensions ([4732944](https://github.com/mjcipriano/sweethome3d/commit/4732944001aec826a9bebcadbcb1866db911ef56))
+* garden commands and automatic room furnishing ([e3415d9](https://github.com/mjcipriano/sweethome3d/commit/e3415d994254fac2ff7458f3502693b3b5467594))
+* group, align, distribute, mirror, lock and measure commands ([b4160a6](https://github.com/mjcipriano/sweethome3d/commit/b4160a61d1e737f2add8e9fdd78dbefd3471ebe9))
+* lights, sun by date and time in the 3D view, doors that open and model materials ([0b54efa](https://github.com/mjcipriano/sweethome3d/commit/0b54efaed07122427ccd32054c96afe70077f96c))
+* MCP tools for versions, saving, homes, exports, history, hand changes and notes ([ab1e8af](https://github.com/mjcipriano/sweethome3d/commit/ab1e8affe3e66a4578ccbce797f4112c2c094355))
+* menu items for the new commands, and a reorganized menu bar ([8fade56](https://github.com/mjcipriano/sweethome3d/commit/8fade56e50572c01baee202c40ad16216f7e8f0f))
+* schedules, symbols, framing estimate, and prices per room with openings deducted ([8fb64ca](https://github.com/mjcipriano/sweethome3d/commit/8fb64ca30c56da011e1b20ddd8781a6e233fb0be))
+
 ## [7.27.0](https://github.com/mjcipriano/sweethome3d/compare/v7.26.0...v7.27.0) (2026-11-21)
 
 
