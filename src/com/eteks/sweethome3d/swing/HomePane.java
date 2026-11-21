@@ -1554,6 +1554,22 @@ public class HomePane extends JRootPane implements HomeView {
         }
       });
     preview3DMenu.add(dollHouseMenuItem);
+    final JCheckBoxMenuItem sunMenuItem = new JCheckBoxMenuItem(
+        preferences.getLocalizedString(HomePane.class, "sunFollowsTime"),
+        "true".equals(home.getProperty(HomeComponent3D.SUN_FOLLOWS_TIME_PROPERTY)));
+    sunMenuItem.setToolTipText("<html>Lights the 3D view from where the sun is at the date and time of the camera<br>"
+        + "(the ones of 3D view > Create photo...), with the compass of the plan.</html>");
+    sunMenuItem.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          home.setProperty(HomeComponent3D.SUN_FOLLOWS_TIME_PROPERTY, sunMenuItem.isSelected() ? "true" : null);
+        }
+      });
+    home.addPropertyChangeListener(HomeComponent3D.SUN_FOLLOWS_TIME_PROPERTY, new PropertyChangeListener() {
+        public void propertyChange(PropertyChangeEvent ev) {
+          sunMenuItem.setSelected("true".equals(home.getProperty(HomeComponent3D.SUN_FOLLOWS_TIME_PROPERTY)));
+        }
+      });
+    preview3DMenu.add(sunMenuItem);
     addActionToMenu(ActionType.MODIFY_3D_ATTRIBUTES, preview3DMenu);
     JMenu standardViewsMenu = createStandardViewsMenu();
     preview3DMenu.addSeparator();
@@ -5342,6 +5358,7 @@ public class HomePane extends JRootPane implements HomeView {
           }
         });
       this.mcpHandler.setModelSizeProvider(new AssistantModelSizeProvider());
+      this.mcpHandler.setModelInspector(new AssistantModelInspector());
       this.mcpHandler.setSceneExporter(new HomeMCPHandler.SceneExporter() {
           public String exportForBlender(File folder) throws Exception {
             return HomePane.this.exportForBlender(folder).getAbsolutePath();

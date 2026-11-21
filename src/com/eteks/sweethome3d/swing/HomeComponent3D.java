@@ -159,6 +159,7 @@ import com.eteks.sweethome3d.j3d.Wall3D;
 import com.eteks.sweethome3d.model.Camera;
 import com.eteks.sweethome3d.model.CollectionEvent;
 import com.eteks.sweethome3d.model.CollectionListener;
+import com.eteks.sweethome3d.model.Compass;
 import com.eteks.sweethome3d.model.DimensionLine;
 import com.eteks.sweethome3d.model.Elevatable;
 import com.eteks.sweethome3d.model.Content;
@@ -244,6 +245,26 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
   private PropertyChangeListener                   groundChangeListener;
   private PropertyChangeListener                   backgroundLightColorListener;
   private PropertyChangeListener                   lightColorListener;
+  private PropertyChangeListener                   sunListener;
+  /** The property of a home whose 3D view is lit by the sun at the date and time of its camera. */
+  public static final String SUN_FOLLOWS_TIME_PROPERTY = "sunFollowsTime";
+
+  /**
+   * Returns the direction of the sun seen from <code>home</code> at the date and time of its camera,
+   * in the frame of the 3D view (y upward), or <code>null</code> if its 3D view isn't lit by the sun.
+   */
+  public static float [] getSunDirection(Home home) {
+    if (!"true".equals(home.getProperty(SUN_FOLLOWS_TIME_PROPERTY))) {
+      return null;
+    }
+    Compass compass = home.getCompass();
+    long time = Camera.convertTimeToTimeZone(home.getCamera().getTime(), compass.getTimeZone());
+    float elevation = compass.getSunElevation(time);
+    float azimuth = (float)(compass.getSunAzimuth(time) + compass.getNorthDirection() - Math.PI / 2f);
+    return new float [] {(float)(Math.cos(azimuth) * Math.cos(elevation)),
+                         (float)Math.sin(elevation),
+                         (float)(Math.sin(azimuth) * Math.cos(elevation))};
+  }
   private PropertyChangeListener                   subpartSizeListener;
   private PropertyChangeListener                   elevationChangeListener;
   private PropertyChangeListener                   wallsAlphaListener;
@@ -1542,6 +1563,13 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     this.home.removePropertyChangeListener(Home.Property.BACKGROUND_IMAGE, this.groundChangeListener);
     homeEnvironment.removePropertyChangeListener(HomeEnvironment.Property.LIGHT_COLOR, this.backgroundLightColorListener);
     homeEnvironment.removePropertyChangeListener(HomeEnvironment.Property.LIGHT_COLOR, this.lightColorListener);
+    if (this.sunListener != null) {
+      this.home.removePropertyChangeListener(SUN_FOLLOWS_TIME_PROPERTY, this.sunListener);
+      this.home.removePropertyChangeListener(Home.Property.CAMERA, this.sunListener);
+      this.home.getCompass().removePropertyChangeListener(this.sunListener);
+      this.home.getTopCamera().removePropertyChangeListener(this.sunListener);
+      this.home.getObserverCamera().removePropertyChangeListener(this.sunListener);
+    }
     homeEnvironment.removePropertyChangeListener(HomeEnvironment.Property.WALLS_ALPHA, this.wallsAlphaListener);
     homeEnvironment.removePropertyChangeListener(HomeEnvironment.Property.DRAWING_MODE, this.drawingModeListener);
     homeEnvironment.removePropertyChangeListener(HomeEnvironment.Property.SUBPART_SIZE_UNDER_LIGHT, this.subpartSizeListener);
@@ -3698,6 +3726,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       // Allow directional lights color and influencing bounds to change
       lights [i].setCapability(DirectionalLight.ALLOW_COLOR_WRITE);
       lights [i].setCapability(DirectionalLight.ALLOW_SCOPE_WRITE);
+      lights [i].setCapability(DirectionalLight.ALLOW_DIRECTION_WRITE);
       // Store default color in user data
       Color3f defaultColor = new Color3f();
       lights [i].getColor(defaultColor);
@@ -3710,7 +3739,53 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
       light.setInfluencingBounds(defaultInfluencingBounds);
     }
 
+    // The first light is the sun at the date and time of the camera, if the home asks for it
+    final Runnable sunUpdater = new Runnable() {
+        public void run() {
+          float [] sun = HomeComponent3D.getSunDirection(home);
+          float [][] directions = {{1.5f, -0.8f, -1}, {-1.5f, -0.8f, -1}, {0, -0.8f, 1}};
+          float [] intensities = {1, 1, 1};
+          if (sun != null) {
+            if (sun [1] > 0.03f) {
+              // By day: the sun, and two weaker lights that keep the sides in shadow readable
+              directions [0] = new float [] {-sun [0], -sun [1], -sun [2]};
+              float height = Math.min(1, sun [1] * 3);
+              intensities = new float [] {0.6f + 0.7f * height, 0.55f, 0.55f};
+            } else {
+              intensities = new float [] {0.3f, 0.3f, 0.3f};
+            }
+          }
+          for (int i = 0; i < 3; i++) {
+            ((DirectionalLight)lights [i]).setDirection(new Vector3f(directions [i][0], directions [i][1], directions [i][2]));
+            lights [i].setUserData(new Color3f(intensities [i], intensities [i], intensities [i]));
+            updateLightColor(lights [i]);
+          }
+        }
+      };
+    if (getSunDirection(this.home) != null) {
+      sunUpdater.run();
+    }
+
     if (listenToHomeUpdates) {
+      this.sunListener = new PropertyChangeListener() {
+          public void propertyChange(PropertyChangeEvent ev) {
+            if (ev.getSource() instanceof Camera
+                && !Camera.Property.TIME.name().equals(ev.getPropertyName())) {
+              return;
+            }
+            if (Home.Property.CAMERA.name().equals(ev.getPropertyName())
+                && getSunDirection(home) == null) {
+              return;
+            }
+            sunUpdater.run();
+          }
+        };
+      this.home.addPropertyChangeListener(SUN_FOLLOWS_TIME_PROPERTY, this.sunListener);
+      this.home.addPropertyChangeListener(Home.Property.CAMERA, this.sunListener);
+      this.home.getCompass().addPropertyChangeListener(this.sunListener);
+      this.home.getTopCamera().addPropertyChangeListener(this.sunListener);
+      this.home.getObserverCamera().addPropertyChangeListener(this.sunListener);
+
       // Add a listener on light color property change to home
       this.lightColorListener = new PropertyChangeListener() {
           public void propertyChange(PropertyChangeEvent ev) {

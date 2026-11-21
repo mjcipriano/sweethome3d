@@ -101,6 +101,52 @@ public class AssistantCommandExecutor {
      */
     float [] getModelSize(com.eteks.sweethome3d.model.Content model) throws java.io.IOException;
   }
+
+  /**
+   * Reads in 3D models what the commands about materials and doors need.
+   */
+  public interface ModelInspector {
+    /**
+     * Returns the names of the materials of <code>model</code>.
+     */
+    List<String> getMaterialNames(com.eteks.sweethome3d.model.Content model) throws java.io.IOException;
+
+    /**
+     * Returns the transformations that turn by <code>angle</code> degrees the leaves of
+     * <code>model</code> which are on hinges, with the bounds of the model before and after.
+     */
+    ModelOpening getOpening(com.eteks.sweethome3d.model.Content model, float [][] modelRotation,
+                            com.eteks.sweethome3d.model.Transformation [] currentTransformations,
+                            float angle) throws java.io.IOException;
+  }
+
+  /**
+   * The leaves of a door or a window turned on their hinges.
+   */
+  public static class ModelOpening {
+    /** The transformations of the model, or <code>null</code> when it is closed. */
+    public com.eteks.sweethome3d.model.Transformation [] transformations;
+    /** Lower x, y, z then upper x, y, z of the model as it is, y upward. */
+    public float [] currentBounds;
+    /** The same once the transformations are applied. */
+    public float [] newBounds;
+    public int      hingeCount;
+    public int      railCount;
+  }
+
+  private ModelInspector modelInspector;
+
+  /**
+   * Sets the object that reads the materials and the hinges of 3D models.
+   */
+  public void setModelInspector(ModelInspector modelInspector) {
+    this.modelInspector = modelInspector;
+  }
+
+  ModelInspector getModelInspector() {
+    return this.modelInspector;
+  }
+
   private boolean groupOpen;
   private long    groupActivityTime;
   private final AssistantStructureCommands structureCommands;

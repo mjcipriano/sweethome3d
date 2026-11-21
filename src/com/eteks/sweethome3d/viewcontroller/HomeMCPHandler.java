@@ -349,6 +349,13 @@ public class HomeMCPHandler {
   }
 
   /**
+   * Sets the object that reads the materials and the hinges of 3D models.
+   */
+  public void setModelInspector(AssistantCommandExecutor.ModelInspector modelInspector) {
+    this.commandExecutor.setModelInspector(modelInspector);
+  }
+
+  /**
    * Sets the object that draws the pictures returned by <code>get_plan_image</code>.
    */
   public void setImageProvider(ImageProvider imageProvider) {
