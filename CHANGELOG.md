@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.28.2](https://github.com/mjcipriano/sweethome3d/compare/v7.28.1...v7.28.2) (2026-11-22)
+
+
+### Bug Fixes
+
+* window shrunk to its title bar buttons when leaving the maximized state ([118f5d2](https://github.com/mjcipriano/sweethome3d/commit/118f5d228c7e96162e3c374e9c12dcf06bd15b97))
+* window shrunk to its title bar buttons when leaving the maximized state ([c051d97](https://github.com/mjcipriano/sweethome3d/commit/c051d9749b6b2ca3389c976277bf98f71ed0bc1e))
+
 ## [7.28.1](https://github.com/mjcipriano/sweethome3d/compare/v7.28.0...v7.28.1) (2026-11-21)
 
 
