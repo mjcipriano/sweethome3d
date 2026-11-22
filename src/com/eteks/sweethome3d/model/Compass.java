@@ -341,75 +341,19 @@ public class Compass extends HomeObject implements Selectable {
   }
 
   /**
-   * Computes the Sun's location in the sky at a given <code>date</code>.
+   * Computes the Sun's location in the sky at a given <code>date</code>, as it's seen
+   * through the atmosphere.
    */
   private void updateSunLocation(long date) {
     if (this.dateCache == null
         || this.dateCache.getTimeInMillis() != date) {
       this.dateCache = new GregorianCalendar(this.timeZone);
       this.dateCache.setTimeInMillis(date);
-
-      int year = this.dateCache.get(Calendar.YEAR);
-      int month = this.dateCache.get(Calendar.MONTH) + 1; // Based on 1 for January
-      int day = this.dateCache.get(Calendar.DAY_OF_MONTH);
-      int hour = this.dateCache.get(Calendar.HOUR_OF_DAY);
-      int minute = this.dateCache.get(Calendar.MINUTE);
-      int second = this.dateCache.get(Calendar.SECOND);
-      int timeZone = this.dateCache.getTimeZone().getRawOffset() / 3600000;
-      int savingTime = this.dateCache.get(Calendar.DST_OFFSET) / 3600000;
-
-      double julianDay = computeJulianDay(year, month, day, hour, minute, second, timeZone, savingTime);
-      double siderealTime = toSiderealTime(julianDay);
-      double angleH = 360. * siderealTime / 23.9344;
-      double angleT = (hour - (timeZone + savingTime) - 12. + minute / 60. + second / 3600.) * 360. / 23.9344;
-      double angle = angleH + angleT;
-
-      // Compute equatorial coordinates
-      double g = 357.529 + 0.98560028 * julianDay;
-      double q = 280.459 + 0.98564736 * julianDay;
-      double l = q + 1.915 * Math.sin(Math.toRadians(g)) + 0.020 * Math.sin(Math.toRadians(2 * g));
-      double e = 23.439 - 0.00000036 * julianDay;
-      double rightAscension = Math.toDegrees(Math.atan(Math.cos(Math.toRadians(e)) * Math.sin(Math.toRadians(l)) / Math.cos(Math.toRadians(l)))) / 15.;
-      if (Math.cos(Math.toRadians(l)) < 0.) {
-        rightAscension += 12.;
-      }
-      if ((Math.cos(Math.toRadians(l)) > 0.) && (Math.sin(Math.toRadians(l)) < 0.)) {
-        rightAscension += 24.;
-      }
-      double declination = Math.asin(Math.sin(Math.toRadians(e)) * Math.sin(Math.toRadians(l)));
-
-      double hourAngle = Math.toRadians(angle - rightAscension * 15. + Math.toDegrees(this.longitude));
-      double elevation = Math.asin(Math.sin(declination) * Math.sin(this.latitude) - Math.cos(declination) * Math.cos(this.latitude) * Math.cos(hourAngle));
-      double azimuth = Math.acos((Math.sin(declination) - Math.sin(this.latitude) * Math.sin(elevation)) / (Math.cos(this.latitude) * Math.cos(elevation)));
-      double sinAzimuth = (Math.cos(declination) * Math.sin(hourAngle)) / Math.cos(elevation);
-      if (sinAzimuth < 0.) {
-        azimuth = Math.PI * 2 - azimuth;
-      }
-
-      this.sunElevationCache = (float)elevation;
-      this.sunAzimuthCache = (float)azimuth;
+      SunPosition sunPosition = SunPosition.getInstance(date,
+          Math.toDegrees(this.latitude), Math.toDegrees(this.longitude));
+      this.sunElevationCache = (float)Math.toRadians(sunPosition.getApparentElevation());
+      this.sunAzimuthCache = (float)Math.toRadians(sunPosition.getAzimuth());
     }
-  }
-
-  private double computeJulianDay(int year, int month, int day, int hour, int minute, int second, int timeZone, int savingTime) {
-    double dayPart = day + hour / 24. + minute / 1440. + second / 86400.;
-    if (month == 1 || month == 2) {
-        year -= 1;
-        month += 12;
-    }
-    int a = year / 100;
-    int b = 2 - a + a / 4;
-
-    double julianDay = (int)(365.25 * (year + 4716.)) + (int)((30.6001 * (month + 1))) + dayPart + b - 1524.5;
-    julianDay -= (timeZone + savingTime) / 24.;
-    julianDay -= 2451545.;
-    return julianDay;
-  }
-
-  private double toSiderealTime(double julianDay) {
-    double centuries = julianDay / 36525.;
-    double siderealTime = (24110.54841 + (8640184.812866 * centuries) + (0.093104 * Math.pow(centuries, 2.)) - (0.0000062 * Math.pow(centuries, 3.))) / 3600.;
-    return ((siderealTime / 24.) - (int)(siderealTime / 24.)) * 24.;
   }
 
   /**

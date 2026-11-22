@@ -176,7 +176,7 @@ from the menus. Each item runs one change that **Edit > Undo** reverts.
 | **Plan > Electrical and plumbing symbols** | Add a symbol... | On the selected wall at a distance from its start, or at the middle of the selected room, to move as a piece of furniture |
 | | Outlets along the walls of the selected rooms... | At a regular distance, leaving doors free |
 | **Plan** | Measure the selection | One piece: the free space on its four sides. Two items: the distance between them. More: the size they take together |
-| **3D view** | Date and time of the sun... | The date and the local time of the sun at the place of the compass, and whether the 3D view is lit from it |
+| **3D view** | Sun and shadows... | The place, the date and the time of the sun with a calendar and sliders, its shadows and the false colors of the light ([Sun at a date and a time](VIEW_3D_NAVIGATION.md#sun-at-a-date-and-a-time)) |
 | **Tools** | Check the plan... | The defects of the plan, with a button that fixes the ones that can be |
 | | Schedules | Doors and windows, rooms, furniture and symbols as tables, each with **Export as CSV...**; and the marks (D1, W2...) written in the plan |
 | | Framing estimate... | Studs, plates and headers of the selected walls or of all of them, for a budget |

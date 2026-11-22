@@ -42,6 +42,7 @@ import com.eteks.sweethome3d.model.HomeMaterial;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.HomeTexture;
 import com.eteks.sweethome3d.model.Selectable;
+import com.eteks.sweethome3d.model.SunPosition;
 import com.eteks.sweethome3d.model.Transformation;
 import com.eteks.sweethome3d.model.UserPreferences;
 
@@ -51,6 +52,7 @@ import com.eteks.sweethome3d.model.UserPreferences;
 class AssistantSceneCommands {
   /** The property of a home whose 3D view is lit by the sun at the date and time of its camera. */
   static final String SUN_FOLLOWS_TIME_PROPERTY = "sunFollowsTime";
+  static final String SUN_FALSE_COLORS_PROPERTY = "sunFalseColorsMaximum";
   /** The angle in degrees the leaves of a door or a window were opened by. */
   static final String OPENING_ANGLE_PROPERTY = "assistantOpeningAngle";
 
@@ -76,7 +78,10 @@ class AssistantSceneCommands {
         + "  {\"action\":\"set_sun\",\"date\":\"2026-06-21\",\"time\":\"17:30\",\"follow\":true}  (the date and the local time of the sun, "
         + "at the latitude, longitude and time zone of the compass (set_compass): the ray tracer always uses them, and with \"follow\":true the "
         + "3D view and the OpenGL pictures are lit and shadowed from where the sun is too. The answer gives its height and its direction, "
-        + "sunrise and sunset. Without date or time, reports them)\n"
+        + "sunrise, solar noon and sunset, the length of shadows and the light on the ground. Without date or time, reports them. "
+        + "\"false_colors\":true replaces the colors of the 3D view and of its pictures by the light the surfaces receive from the sun and the sky "
+        + "by clear weather, from dark blue (0 lux) to red (120000 lux; a number sets another maximum, false gives the colors back): "
+        + "what is in the shadow of a tree or of a building shows at once)\n"
         + "  {\"action\":\"set_environment\",\"sky_color\":\"#RRGGBB\",\"ground_color\":\"#RRGGBB\",\"light_color\":\"#RRGGBB\","
         + "\"walls_transparency\":N,\"all_levels_visible\":true}  (the sky, the flat ground and the light of the 3D view; walls_transparency "
         + "from 0 opaque to 100; \"sky_texture\" and \"ground_texture\" take a texture name, or false to remove it)\n"
@@ -259,30 +264,31 @@ class AssistantSceneCommands {
     Calendar calendar = new GregorianCalendar(TimeZone.getTimeZone("UTC"));
     calendar.setTimeInMillis(cameraTime);
     double [] sun = getSun(cameraTime);
-    // Sunrise and sunset of that day, to the minute
-    Calendar day = (Calendar)calendar.clone();
-    day.set(Calendar.HOUR_OF_DAY, 0);
-    day.set(Calendar.MINUTE, 0);
-    day.set(Calendar.SECOND, 0);
-    day.set(Calendar.MILLISECOND, 0);
+    // Sunrise and sunset of that day
+    TimeZone timeZone = TimeZone.getTimeZone(compass.getTimeZone());
+    double latitude = Math.toDegrees(compass.getLatitude());
+    double longitude = Math.toDegrees(compass.getLongitude());
+    long time = Camera.convertTimeToTimeZone(cameraTime, compass.getTimeZone());
+    long [] instants = SunPosition.getSunriseNoonSunset(time, timeZone, latitude, longitude);
     int sunrise = -1;
     int sunset = -1;
-    boolean up = getSun(day.getTimeInMillis()) [0] > 0;
-    for (int minute = 1; minute < 24 * 60; minute++) {
-      boolean nowUp = getSun(day.getTimeInMillis() + minute * 60000L) [0] > 0;
-      if (nowUp && !up && sunrise < 0) {
-        sunrise = minute;
-      } else if (!nowUp && up) {
-        sunset = minute;
-      }
-      up = nowUp;
+    int noon = 0;
+    Calendar local = new GregorianCalendar(timeZone);
+    if (instants [0] != Long.MIN_VALUE && instants [2] != Long.MIN_VALUE) {
+      local.setTimeInMillis(instants [0] + 30000);
+      sunrise = local.get(Calendar.HOUR_OF_DAY) * 60 + local.get(Calendar.MINUTE);
+      local.setTimeInMillis(instants [2] + 30000);
+      sunset = local.get(Calendar.HOUR_OF_DAY) * 60 + local.get(Calendar.MINUTE);
     }
+    local.setTimeInMillis(instants [1] + 30000);
+    noon = local.get(Calendar.HOUR_OF_DAY) * 60 + local.get(Calendar.MINUTE);
+    SunPosition sunPosition = SunPosition.getInstance(time, latitude, longitude);
     String text = String.format(Locale.US, "%04d-%02d-%02d at %02d:%02d (%s), latitude %.2f, longitude %.2f: ",
         calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
         calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), compass.getTimeZone(),
         Math.toDegrees(compass.getLatitude()), Math.toDegrees(compass.getLongitude()));
     if (sun [0] > 0) {
-      text += String.format(Locale.US, "the sun is %.0f degrees above the horizon, in the %s (azimuth %.0f degrees from the north)",
+      text += String.format(Locale.US, "the sun is %.1f degrees above the horizon, in the %s (azimuth %.1f degrees from the north)",
           sun [0], DIRECTIONS [(int)Math.round(sun [1] / 45) % 8], sun [1]);
       // In the plan, the top is north_direction degrees before the north
       double planAngle = ((sun [1] + Math.toDegrees(compass.getNorthDirection())) % 360 + 360) % 360;
@@ -292,7 +298,17 @@ class AssistantSceneCommands {
       text += "the sun is under the horizon (night)";
     }
     if (sunrise >= 0 && sunset >= 0) {
-      text += String.format(Locale.US, "; sunrise about %02d:%02d, sunset about %02d:%02d (within 10 minutes)", sunrise / 60, sunrise % 60, sunset / 60, sunset % 60);
+      text += String.format(Locale.US, "; sunrise %02d:%02d, solar noon %02d:%02d, sunset %02d:%02d",
+          sunrise / 60, sunrise % 60, noon / 60, noon % 60, sunset / 60, sunset % 60);
+    } else {
+      text += String.format(Locale.US, "; the sun doesn't %s this day, solar noon %02d:%02d",
+          SunPosition.getInstance(instants [1], latitude, longitude).getApparentElevation() > 0 ? "set" : "rise", noon / 60, noon % 60);
+    }
+    if (sun [0] > 0) {
+      text += String.format(Locale.US, "; a shadow is %.2f times as long as what casts it is high; by clear sky the ground receives about %d lux in the sun and %d lux in the shade",
+          sunPosition.getShadowLength(),
+          Math.round((sunPosition.getDirectNormalIlluminance() * Math.sin(Math.toRadians(sun [0])) + sunPosition.getDiffuseHorizontalIlluminance()) / 100) * 100,
+          Math.round(sunPosition.getDiffuseHorizontalIlluminance() / 100) * 100);
     }
     return text;
   }
@@ -302,6 +318,7 @@ class AssistantSceneCommands {
     final long oldTime = this.home.getCamera().getTime();
     final long [] oldTimes = {cameras [0].getTime(), cameras [1].getTime()};
     final String oldFollow = this.home.getProperty(SUN_FOLLOWS_TIME_PROPERTY);
+    final String oldFalseColors = this.home.getProperty(SUN_FALSE_COLORS_PROPERTY);
     Calendar calendar = new GregorianCalendar(TimeZone.getTimeZone("UTC"));
     calendar.setTimeInMillis(oldTime);
     boolean changed = false;
@@ -327,8 +344,26 @@ class AssistantSceneCommands {
       changed = true;
     }
     final long newTime = calendar.getTimeInMillis();
-    final String newFollow = command.has("follow") ? (command.getBoolean("follow", true) ? "true" : null) : oldFollow;
-    boolean followChanged = newFollow == null ? oldFollow != null : !newFollow.equals(oldFollow);
+    // False colors of the light level: true, false or the illuminance of the last color
+    String falseColors = oldFalseColors;
+    if (command.has("false_colors")) {
+      double maximum = command.getDouble("false_colors", Double.NaN);
+      if (!Double.isNaN(maximum)) {
+        if (maximum < 100 || maximum > 200000) {
+          throw new IOException("\"false_colors\" is true, false, or the light in lux shown by the last color, from 100 to 200000");
+        }
+        falseColors = String.valueOf(Math.round(maximum));
+      } else {
+        falseColors = command.getBoolean("false_colors", false) ? "120000" : null;
+      }
+    }
+    final String newFalseColors = falseColors;
+    // False colors show the light of the sun
+    final String newFollow = command.has("follow")
+        ? (command.getBoolean("follow", true) ? "true" : null)
+        : (newFalseColors != null && command.has("false_colors") ? "true" : oldFollow);
+    boolean followChanged = (newFollow == null ? oldFollow != null : !newFollow.equals(oldFollow))
+        || (newFalseColors == null ? oldFalseColors != null : !newFalseColors.equals(oldFalseColors));
     if (!changed && !followChanged) {
       notes.add("Sun: " + describeSun(oldTime) + ". The 3D view is " + (oldFollow != null ? "" : "not ")
           + "lit from the sun (\"follow\":true|false); give \"date\" and \"time\" to change them");
@@ -342,6 +377,7 @@ class AssistantSceneCommands {
             cameras [1].setTime(newTime);
           }
           home.setProperty(SUN_FOLLOWS_TIME_PROPERTY, newFollow);
+          home.setProperty(SUN_FALSE_COLORS_PROPERTY, newFalseColors);
         }
       };
     redo.run();
@@ -350,11 +386,17 @@ class AssistantSceneCommands {
           cameras [0].setTime(oldTimes [0]);
           cameras [1].setTime(oldTimes [1]);
           home.setProperty(SUN_FOLLOWS_TIME_PROPERTY, oldFollow);
+          home.setProperty(SUN_FALSE_COLORS_PROPERTY, oldFalseColors);
         }
       }, redo);
     notes.add("Set the sun: " + describeSun(newTime) + ". "
         + (newFollow != null ? "The 3D view and the OpenGL pictures are lit and shadowed from it"
-            : "The ray tracer uses it; the 3D view keeps its own lights (\"follow\":true lights it from the sun)"));
+            : "The ray tracer uses it; the 3D view keeps its own lights (\"follow\":true lights it from the sun)")
+        + (newFalseColors != null && newFollow != null
+            ? ". The 3D view and its pictures show with false colors the light received by clear sky from the sun and the sky:"
+              + " dark blue 0 lux, light blue, cyan, green, yellow, orange, then red " + newFalseColors + " lux and more"
+              + " (the sky isn't hidden by what is over a surface, so the light under a roof is overestimated outside the sun patches)"
+            : ""));
   }
 
   // ---- Environment ----

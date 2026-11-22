@@ -134,15 +134,17 @@ public class PhotoCreationTest extends ComponentTestFixture {
   }
   
   public void testSunLocation() {
-    // Tests azimuth and elevation values computed in Compass to avoid any regression
+    // Tests azimuth and elevation values computed in Compass to avoid any regression.
+    // These values are the ones of SunPosition, checked in SunPositionTest: the previous formulas
+    // of Compass gave an azimuth up to 1.5 degree away and an elevation 0.15 degree away
     Compass compass = new Compass(0, 0, 2);
     compass.setLatitude((float)Math.toRadians(45));
     compass.setLongitude((float)Math.toRadians(0));
     compass.setTimeZone("Europe/Paris");
     GregorianCalendar calendar = new GregorianCalendar(2010, GregorianCalendar.SEPTEMBER, 1, 14, 30, 10);
     calendar.setTimeZone(TimeZone.getTimeZone(compass.getTimeZone()));
-    assertEquals("Incorrect azimuth", 3.383972f, compass.getSunAzimuth(calendar.getTimeInMillis()), 1E-5f);
-    assertEquals("Incorrect elevation", 0.915943f, compass.getSunElevation(calendar.getTimeInMillis()), 1E-5f);
+    assertEquals("Incorrect azimuth", 3.357062f, compass.getSunAzimuth(calendar.getTimeInMillis()), 1E-4f);
+    assertEquals("Incorrect elevation", 0.918803f, compass.getSunElevation(calendar.getTimeInMillis()), 1E-4f);
     
     compass = new Compass(0, 0, 2);
     compass.setLatitude((float)Math.toRadians(40));
@@ -150,8 +152,8 @@ public class PhotoCreationTest extends ComponentTestFixture {
     compass.setTimeZone("Asia/Tokyo");
     calendar = new GregorianCalendar(2011, GregorianCalendar.JANUARY, 31, 8, 0, 0);
     calendar.setTimeZone(TimeZone.getTimeZone(compass.getTimeZone()));
-    assertEquals("Incorrect azimuth", 2.44565f, compass.getSunAzimuth(calendar.getTimeInMillis()), 1E-5f);
-    assertEquals("Incorrect elevation", 0.38735f, compass.getSunElevation(calendar.getTimeInMillis()), 1E-5f);
+    assertEquals("Incorrect azimuth", 2.448284f, compass.getSunAzimuth(calendar.getTimeInMillis()), 1E-4f);
+    assertEquals("Incorrect elevation", 0.389530f, compass.getSunElevation(calendar.getTimeInMillis()), 1E-4f);
   }
   
   public void testPhotoCreation() throws InterruptedException, ComponentSearchException, NoSuchFieldException, IllegalAccessException, InvocationTargetException, IOException {

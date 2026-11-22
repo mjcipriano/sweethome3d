@@ -148,6 +148,8 @@ public class OpenGLSceneRenderer {
   private static final float SHADOW_KEY_LIGHT_FACTOR = 0.8f;
   private static final float SHADOW_FILL_LIGHT_FACTOR = 0.45f;
   private static final double SHADOW_KEY_LIGHT_ELEVATION = Math.toRadians(58);
+  // Sine of the elevation under which the Sun casts no shadow
+  private static final float  MINIMUM_SUN_HEIGHT = 0.004f;
 
   private static final int MESH_NEW = 0;
   private static final int MESH_PREPARING = 1;
@@ -239,6 +241,7 @@ public class OpenGLSceneRenderer {
   private float []  pointLightEyePositions;
   private boolean   frameShadows;
   private boolean   frameShadowCasters;
+  private LightState frameSunLight;
   private float []  shadowMatrix;
   // Programs and their uniform variables
   private int  sceneProgram;
@@ -618,6 +621,13 @@ public class OpenGLSceneRenderer {
             direction.normalize();
           }
           lightState = new LightState(color, direction);
+          if (light instanceof SunLight) {
+            SunLight sunLight = (SunLight)light;
+            lightState.sun = sunLight.isSun();
+            lightState.directIlluminance = sunLight.getDirectIlluminance();
+            lightState.skyIlluminance = sunLight.getSkyIlluminance();
+            lightState.falseColorsMaximum = sunLight.getFalseColorsMaximum();
+          }
         }
         if (lightState != null) {
           if (light.numScopes() > 0) {
@@ -1184,12 +1194,19 @@ public class OpenGLSceneRenderer {
 
     boolean advanced = isAdvancedRenderingAvailable();
     this.frameShadows = false;
-    this.frameShadowCasters = advanced && this.shadows;
-    if (advanced && this.shadows
+    // The light of the Sun shown with false colors needs the shadows
+    this.frameSunLight = getKeyLight(frame);
+    if (this.frameSunLight != null
+        && (!advanced || this.frameSunLight.falseColorsMaximum <= 0)) {
+      this.frameSunLight = null;
+    }
+    boolean shadows = this.shadows || this.frameSunLight != null;
+    this.frameShadowCasters = advanced && shadows;
+    if (advanced && shadows
         && !(this.imageRendering && this.imageLoading)) {
       this.frameShadows = updateShadowMap(gl, frame);
     }
-    boolean occlusion = advanced && this.ambientOcclusion
+    boolean occlusion = advanced && this.ambientOcclusion && this.frameSunLight == null
         && this.occlusionProgram != 0 && this.compositionProgram != 0;
     int samples = this.framebufferAvailable
         ? Math.min(this.antialiasingSamples, this.maxSamples)
@@ -1287,6 +1304,19 @@ public class OpenGLSceneRenderer {
       }
       gl.glUniform1i(getUniform(gl, "pointLightCount"), 0);
       this.currentPointLights = NO_POINT_LIGHT;
+      LightState sunLight = this.frameSunLight;
+      gl.glUniform1f(getUniform(gl, "falseColorsMaximum"), sunLight != null ? sunLight.falseColorsMaximum : 0);
+      if (sunLight != null) {
+        boolean day = sunLight.sun && sunLight.direction [1] >= MINIMUM_SUN_HEIGHT;
+        gl.glUniform1f(getUniform(gl, "sunIlluminance"), day ? sunLight.directIlluminance : 0);
+        gl.glUniform1f(getUniform(gl, "skyIlluminance"), sunLight.skyIlluminance);
+        gl.glUniform3f(getUniform(gl, "sunDirection"),
+            (float)(view [0] * sunLight.direction [0] + view [1] * sunLight.direction [1] + view [2] * sunLight.direction [2]),
+            (float)(view [4] * sunLight.direction [0] + view [5] * sunLight.direction [1] + view [6] * sunLight.direction [2]),
+            (float)(view [8] * sunLight.direction [0] + view [9] * sunLight.direction [1] + view [10] * sunLight.direction [2]));
+        gl.glUniform3f(getUniform(gl, "upDirection"), (float)view [1], (float)view [5], (float)view [9]);
+        gl.glUniform1i(getUniform(gl, "sunShadows"), this.frameShadows ? 1 : 0);
+      }
       if (this.frameShadows) {
         gl.glActiveTexture(GL.GL_TEXTURE1);
         gl.glBindTexture(GL.GL_TEXTURE_2D, this.shadowTexture);
@@ -1326,8 +1356,15 @@ public class OpenGLSceneRenderer {
       }
       gl.glDisable(GL.GL_DEPTH_TEST);
       gl.glDepthMask(false);
+      if (this.shadersAvailable && this.frameSunLight != null) {
+        // The sky keeps its colors
+        gl.glUniform1f(getUniform(gl, "falseColorsMaximum"), 0);
+      }
       for (Item item : frame.backgroundItems) {
         drawItem(gl, frame, item, backgroundView, true);
+      }
+      if (this.shadersAvailable && this.frameSunLight != null) {
+        gl.glUniform1f(getUniform(gl, "falseColorsMaximum"), this.frameSunLight.falseColorsMaximum);
       }
       gl.glDepthMask(true);
       resetState(gl);
@@ -1552,9 +1589,12 @@ public class OpenGLSceneRenderer {
         } else if (light.scopeBit == 0 || (lightScopeMask & light.scopeBit) != 0) {
           if (keyLight && lightSet.count < MAX_LIGHTS) {
             lightSet.shadowLight = lightSet.count;
-            addLight(lightSet, this.shadowMapLightDirection, light.color, SHADOW_KEY_LIGHT_FACTOR, viewMatrix);
+            addLight(lightSet, this.shadowMapLightDirection, light.color,
+                light.sun ? 1 : SHADOW_KEY_LIGHT_FACTOR, viewMatrix);
           }
-          if (lightSet.count < MAX_LIGHTS) {
+          if (keyLight && light.sun) {
+            // The Sun doesn't light what's in its own shadow
+          } else if (lightSet.count < MAX_LIGHTS) {
             addLight(lightSet, light.direction, light.color,
                 this.frameShadows && !background ? SHADOW_FILL_LIGHT_FACTOR : 1, viewMatrix);
           }
@@ -2344,14 +2384,9 @@ public class OpenGLSceneRenderer {
    * if it changed, and returns <code>true</code> if shadows can be displayed.
    */
   private boolean updateShadowMap(GL2 gl, Frame frame) {
-    LightState keyLight = null;
-    for (LightState light : frame.lights) {
-      if (light.direction != null) {
-        keyLight = light;
-        break;
-      }
-    }
-    if (keyLight == null) {
+    LightState keyLight = getKeyLight(frame);
+    if (keyLight == null
+        || keyLight.sun && keyLight.direction [1] < MINIMUM_SUN_HEIGHT) {
       return false;
     }
     int shadowMapSize = Math.min(this.shadowMapMaxSize, this.maxTextureSize);
@@ -2388,7 +2423,10 @@ public class OpenGLSceneRenderer {
       }
       this.shadowMapValid = false;
     }
-    float [] lightDirection = getShadowLightDirection(keyLight.direction);
+    // The shadows of the Sun come from its exact direction
+    float [] lightDirection = keyLight.sun
+        ? keyLight.direction.clone()
+        : getShadowLightDirection(keyLight.direction);
     if (this.shadowMapValid
         && Arrays.equals(this.shadowMapLightDirection, lightDirection)
         && frame.generation == this.renderedGeneration) {
@@ -2502,6 +2540,18 @@ public class OpenGLSceneRenderer {
     this.shadowMapTime = System.nanoTime();
     this.shadowMapDuration = this.shadowMapTime - shadowMapStart;
     return true;
+  }
+
+  /**
+   * Returns the first directional light of the frame, or <code>null</code> if it has none.
+   */
+  private static LightState getKeyLight(Frame frame) {
+    for (LightState light : frame.lights) {
+      if (light.direction != null) {
+        return light;
+      }
+    }
+    return null;
   }
 
   private boolean isShadowCaster(Item item) {
@@ -2837,6 +2887,21 @@ public class OpenGLSceneRenderer {
       + "  gl_Position = gl_ProjectionMatrix * position;\n"
       + "}\n";
 
+  /**
+   * Returns the function of the fragment shader which returns the false color of a light level.
+   */
+  private static String getFalseColorFunction() {
+    float [][] colors = SunLight.FALSE_COLORS;
+    StringBuilder function = new StringBuilder("vec3 getFalseColor(float value) {\n"
+        + "  float position = clamp(value, 0., 1.) * " + (colors.length - 1) + ".;\n"
+        + "  vec3 color = vec3(" + colors [0][0] + ", " + colors [0][1] + ", " + colors [0][2] + ");\n");
+    for (int i = 1; i < colors.length; i++) {
+      function.append("  color = mix(color, vec3(" + colors [i][0] + ", " + colors [i][1] + ", " + colors [i][2]
+          + "), clamp(position - " + (i - 1) + "., 0., 1.));\n");
+    }
+    return function.append("  return color;\n}\n").toString();
+  }
+
   private static final String SCENE_FRAGMENT_SHADER =
         "#version 120\n"
       + "uniform sampler2D texture0;\n"
@@ -2862,10 +2927,17 @@ public class OpenGLSceneRenderer {
       + "uniform vec3 pointLightAttenuation[" + MAX_POINT_LIGHTS + "];\n"
       + "uniform int shadowLight;\n"
       + "uniform float shadowTexelSize;\n"
+      + "uniform float falseColorsMaximum;\n"
+      + "uniform float sunIlluminance;\n"
+      + "uniform float skyIlluminance;\n"
+      + "uniform vec3 sunDirection;\n"
+      + "uniform vec3 upDirection;\n"
+      + "uniform bool sunShadows;\n"
       + "varying vec3 eyePosition;\n"
       + "varying vec3 eyeNormal;\n"
       + "varying vec4 shadowCoordinates;\n"
       + "varying vec4 vertexColor;\n"
+      + getFalseColorFunction()
       + "float getLitPart(float normalDotLight) {\n"
       + "  vec3 c = shadowCoordinates.xyz / shadowCoordinates.w;\n"
       + "  if (c.x <= 0. || c.x >= 1. || c.y <= 0. || c.y >= 1. || c.z >= 1.) {\n"
@@ -2885,6 +2957,7 @@ public class OpenGLSceneRenderer {
       + "void main() {\n"
       + "  vec4 color;\n"
       + "  vec3 specular = vec3(0.);\n"
+      + "  bool falseColors = lighting && falseColorsMaximum > 0.;\n"
       + "  if (lighting) {\n"
       + "    vec3 normal = normalize(eyeNormal);\n"
       + "    if (twoSided && !gl_FrontFacing) {\n"
@@ -2923,12 +2996,30 @@ public class OpenGLSceneRenderer {
       + "    color = vec4(materialEmissive.rgb + ambientLight * materialAmbient.rgb + diffuse * diffuseColor.rgb, materialDiffuse.a);\n"
       + "    color = clamp(color, 0., 1.);\n"
       + "    specular *= materialSpecular.rgb;\n"
+      + "    if (falseColors) {\n"
+      + "      // Light of the sky, of the ground which reflects a fifth of what it receives, and of the Sun\n"
+      + "      float upward = dot(normal, upDirection);\n"
+      + "      float sunHeight = max(0., dot(upDirection, sunDirection));\n"
+      + "      float illuminance = skyIlluminance * (0.5 + 0.5 * upward)\n"
+      + "          + 0.2 * (sunIlluminance * sunHeight + skyIlluminance) * (0.5 - 0.5 * upward);\n"
+      + "      float normalDotSun = dot(normal, sunDirection);\n"
+      + "      if (normalDotSun > 0. && sunIlluminance > 0.) {\n"
+      + "        illuminance += sunIlluminance * normalDotSun * (sunShadows ? getLitPart(normalDotSun) : 1.);\n"
+      + "      }\n"
+      + "      color = vec4(getFalseColor(illuminance / falseColorsMaximum), materialDiffuse.a);\n"
+      + "      specular = vec3(0.);\n"
+      + "    }\n"
       + "  } else {\n"
       + "    color = vertexColors ? vertexColor : flatColor;\n"
       + "  }\n"
       + "  if (textureMode != 0) {\n"
       + "    vec4 texel = texture2D(texture0, gl_TexCoord[0].st);\n"
-      + "    if (textureMode == 1) {\n"
+      + "    if (falseColors) {\n"
+      + "      // Keep only the shape cut out by the texture\n"
+      + "      if (textureAlpha && textureMode != 3) {\n"
+      + "        color.a = textureMode == 1 ? texel.a : color.a * texel.a;\n"
+      + "      }\n"
+      + "    } else if (textureMode == 1) {\n"
       + "      color.rgb = texel.rgb;\n"
       + "      if (textureAlpha) {\n"
       + "        color.a = texel.a;\n"
@@ -3117,6 +3208,11 @@ public class OpenGLSceneRenderer {
     private final float [] direction;
     private List<Group>    scopes;
     private int            scopeBit;
+    // Set if the light is the Sun
+    private boolean        sun;
+    private float          directIlluminance;
+    private float          skyIlluminance;
+    private float          falseColorsMaximum;
 
     public LightState(Color3f color, Vector3f direction) {
       this.color = new float [] {color.x, color.y, color.z, 1};
