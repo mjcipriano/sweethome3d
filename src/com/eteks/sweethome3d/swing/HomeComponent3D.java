@@ -257,11 +257,20 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
   public static final String SUN_FALSE_COLORS_PROPERTY = "sunFalseColorsMaximum";
 
   /**
+   * The property of a home set to <code>true</code> to draw its 3D view in red where the sun
+   * reaches a surface and in black where it doesn't: the pictures added to count the hours of sun.
+   */
+  public static final String SUN_MASK_PROPERTY = "sunMask";
+
+  /**
    * Returns the illuminance in lux shown by the last false color of the 3D view of <code>home</code>,
-   * or 0 if its 3D view is displayed with its own colors.
+   * 0 if its 3D view is displayed with its own colors, or -1 if it shows where the sun reaches.
    */
   public static float getFalseColorsMaximum(Home home) {
     if (getSunDirection(home) != null) {
+      if ("true".equals(home.getProperty(SUN_MASK_PROPERTY))) {
+        return -1;
+      }
       try {
         String maximum = home.getProperty(SUN_FALSE_COLORS_PROPERTY);
         if (maximum != null) {

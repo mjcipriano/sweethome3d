@@ -508,7 +508,12 @@ Round 3 of requests from modeling a real house through the MCP server.
   `Image3DRequest.setDrawnHome`, `HomePane.createContactSheet` joins them)
   and `sun_study` (`HomeMCPHandler.SunStudyView`, implemented by `HomePane`
   with `SunStudyPanel.showDialog`, `closeDialog`, `play` and
-  `HomeComponent3D.setOpenGLRendererSelected`).
+  `HomeComponent3D.setOpenGLRendererSelected`). `"sweep":"hours"` adds
+  pictures drawn with the home property `sunMask` (the scene shader writes
+  red where the sun reaches, `falseColorsMaximum` -1) in
+  `HomePane.createSunHoursImage`. `HomeGeoreference.describeCompassDifference`
+  and `describeTimeZoneDifference` give the warnings of `set_sun` and of the
+  window; `set_compass` takes `"georeference":true`.
 - **MCP tools** (31, were 16): `save_version`, `list_versions`,
   `compare_versions`, `restore_version` (`HomeContents`, one undoable edit
   posted by `HomeController.restoreHomeVersion`), `save_home` (its own file

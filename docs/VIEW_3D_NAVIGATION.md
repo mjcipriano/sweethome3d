@@ -120,6 +120,42 @@ can also open this window, play its animations, choose the renderer, and get
 one picture of the home at several hours of a day or dates of a year
 ([Sun study](MCP_SERVER.md#sun-study)).
 
+### The place of the home
+
+The sun is computed for the latitude, the longitude, the time zone and the
+north of the **Place** box, which are the ones of the compass of the plan.
+
+- When the home has a GPS position (`set_georeference`, or a parcel imported
+  with `import_parcel`), the compass receives its place and its true north,
+  and the window says so. If they are changed apart later, the window tells
+  how far the sun is computed from the home, and **Use the GPS position of
+  the home** brings them back together.
+- The time zone doesn't come from the coordinates: choose it in the list. A
+  warning shows when it is more than three hours away from the solar time of
+  the longitude, as sunrise and sunset would then be at odd hours.
+- Without a GPS position, the place is the reference city of the time zone of
+  the computer: enter yours.
+
+### Pictures of a day, of a year, and hours of sun
+
+Three buttons at the bottom of the window draw what the camera of the 3D
+view sees, in a picture you can save:
+
+- **The day in pictures...**: six instants from sunrise to sunset of the
+  chosen date;
+- **The year in pictures...**: the equinoxes and the solstices at the chosen
+  time;
+- **Hours of sun...**: each point colored by the time the sun reaches it
+  during the chosen day, from dark blue (never) to red (all day).
+
+![Hours of direct sun on the day of the December solstice](images/sun-hours.jpg)
+
+The hours are counted from pictures of the shadows each 20 minutes, so they
+are right to about 20 minutes, and by clear sky: a tree counts as it is
+modeled, with all its leaves. A surface the sun meets from behind counts as
+shade. Claude gets the same pictures with `get_sun_study_image`
+([Sun study](MCP_SERVER.md#sun-study)).
+
 ### How exact the sun is
 
 The position of the sun comes from the formulas of Jean Meeus

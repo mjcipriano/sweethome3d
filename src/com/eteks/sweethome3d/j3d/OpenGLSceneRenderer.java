@@ -1197,7 +1197,7 @@ public class OpenGLSceneRenderer {
     // The light of the Sun shown with false colors needs the shadows
     this.frameSunLight = getKeyLight(frame);
     if (this.frameSunLight != null
-        && (!advanced || this.frameSunLight.falseColorsMaximum <= 0)) {
+        && (!advanced || this.frameSunLight.falseColorsMaximum == 0)) {
       this.frameSunLight = null;
     }
     boolean shadows = this.shadows || this.frameSunLight != null;
@@ -2957,7 +2957,7 @@ public class OpenGLSceneRenderer {
       + "void main() {\n"
       + "  vec4 color;\n"
       + "  vec3 specular = vec3(0.);\n"
-      + "  bool falseColors = lighting && falseColorsMaximum > 0.;\n"
+      + "  bool falseColors = lighting && falseColorsMaximum != 0.;\n"
       + "  if (lighting) {\n"
       + "    vec3 normal = normalize(eyeNormal);\n"
       + "    if (twoSided && !gl_FrontFacing) {\n"
@@ -3006,7 +3006,15 @@ public class OpenGLSceneRenderer {
       + "      if (normalDotSun > 0. && sunIlluminance > 0.) {\n"
       + "        illuminance += sunIlluminance * normalDotSun * (sunShadows ? getLitPart(normalDotSun) : 1.);\n"
       + "      }\n"
-      + "      color = vec4(getFalseColor(illuminance / falseColorsMaximum), materialDiffuse.a);\n"
+      + "      if (falseColorsMaximum < 0.) {\n"
+      + "        // Red where the Sun reaches the surface, black in the shade\n"
+      + "        float sunLit = normalDotSun > 0. && sunIlluminance > 0.\n"
+      + "            ? smoothstep(0., 0.05, normalDotSun) * (sunShadows ? getLitPart(normalDotSun) : 1.)\n"
+      + "            : 0.;\n"
+      + "        color = vec4(sunLit, 0., 0., materialDiffuse.a);\n"
+      + "      } else {\n"
+      + "        color = vec4(getFalseColor(illuminance / falseColorsMaximum), materialDiffuse.a);\n"
+      + "      }\n"
       + "      specular = vec3(0.);\n"
       + "    }\n"
       + "  } else {\n"

@@ -340,6 +340,17 @@ public class HomeMCPHandler {
      * each with its caption under it, or <code>null</code> if they can't be read.
      */
     byte [] createContactSheet(byte [][] images, String [] captions, int columns);
+
+    /**
+     * Returns a PNG image which shows with false colors, from 0 to <code>maximumHours</code>, how long
+     * the sun reaches each point of a picture. Each of the PNG images <code>masks</code> is red where the sun
+     * reaches a surface at an instant, black where it doesn't and green where the sky shows; the instants
+     * are <code>stepHours</code> apart. <code>shading</code> is the same picture with its usual colors.
+     * The parts of the surfaces which get less than 2 hours, from 2 to 6 hours and more are stored
+     * in <code>shares</code>. Returns <code>null</code> if the images can't be read.
+     */
+    byte [] createSunHoursImage(byte [][] masks, byte [] shading, double stepHours, double maximumHours,
+                                String title, float [] shares);
   }
 
   private volatile SunStudyView sunStudyView;
@@ -360,6 +371,10 @@ public class HomeMCPHandler {
     private String    falseColors;
     private int       columns;
     private String    text;
+    private boolean   hours;
+    private double    stepHours;
+    private double    maximumHours;
+    private String    title;
   }
 
   /**
@@ -908,15 +923,18 @@ public class HomeMCPHandler {
         schema(null), true));
     Map<String, Object> sunImageProperties = new LinkedHashMap<String, Object>();
     sunImageProperties.put("sweep", enumProperty(
-        "day (default): the hours of one day, from sunrise to sunset. year: dates of the year at the same local time",
-        "day", "year"));
+        "day (default): the hours of one day, from sunrise to sunset. year: dates of the year at the same local time. "
+        + "hours: one picture colored by the number of hours the sun reaches each place during the day",
+        "day", "year", "hours"));
     sunImageProperties.put("steps", property("number",
         "Number of pictures: from 2 to 12 for a day (default 6); 2, 3, 4, 6 or 12 for a year (default 4: "
-        + "the equinoxes and the solstices; 12: the 21st of each month)"));
+        + "the equinoxes and the solstices; 12: the 21st of each month). Hours: the instants counted, from 4 to 96 "
+        + "(default: one each 20 minutes)"));
+    sunImageProperties.put("max_hours", property("number", "Hours sweep: the hours shown by the last color (default: the length of the day)"));
     sunImageProperties.put("date", property("string", "The day shown, or the year of a year sweep, as YYYY-MM-DD (default: the date of the sun of the home)"));
     sunImageProperties.put("time", property("string", "Year sweep: the local time shown, as HH:MM (default: the time of the sun of the home)"));
-    sunImageProperties.put("from", property("string", "Day sweep: local time of the first picture, as HH:MM (default: after sunrise)"));
-    sunImageProperties.put("to", property("string", "Day sweep: local time of the last picture, as HH:MM (default: before sunset)"));
+    sunImageProperties.put("from", property("string", "Day and hours sweeps: local time of the first picture, as HH:MM (default: sunrise)"));
+    sunImageProperties.put("to", property("string", "Day and hours sweeps: local time of the last picture, as HH:MM (default: sunset)"));
     Map<String, Object> falseColorsProperty = property("string",
         "true to color the pictures by the light the surfaces receive, a number of lux for the light shown by the last color, "
         + "false for the real colors (default: as the 3D view of the home)");
@@ -929,8 +947,8 @@ public class HomeMCPHandler {
         sunImageProperties.put(propertyName, imageProperty.getValue());
       }
     }
-    sunImageProperties.put("width", property("number", "Width of each picture in pixels, from 160 to 800 (default 400)"));
-    sunImageProperties.put("height", property("number", "Height of each picture in pixels, from 120 to 600 (default 260)"));
+    sunImageProperties.put("width", property("number", "Width of each picture in pixels, from 160 to 800 (default 400); hours: up to 1600 (default 800)"));
+    sunImageProperties.put("height", property("number", "Height of each picture in pixels, from 120 to 600 (default 260); hours: up to 1200 (default 520)"));
     tools.add(tool("get_sun_study_image", "Pictures of the sun through a day or a year",
         "Renders one PNG showing the home in 3D at several hours of a day, or at several dates of a year, each lit and shadowed "
         + "from where the sun is at the latitude, longitude, time zone and north of the compass (set_compass), with its date, "
@@ -938,6 +956,8 @@ public class HomeMCPHandler {
         + "after season. The date and time of the home, and its 3D view, don't change (the set_sun command changes them). "
         + "The view is chosen as in get_3d_image: {\"sweep\":\"day\",\"date\":\"2026-06-21\",\"view\":\"top\"}, "
         + "{\"sweep\":\"year\",\"time\":\"12:00\",\"view\":\"south_east\",\"false_colors\":true}. "
+        + "{\"sweep\":\"hours\",\"date\":\"2026-06-21\",\"view\":\"top\"} returns instead one picture colored by the hours of direct sun "
+        + "each place gets that day, to choose where to plant, sit or put a pool, with the share of the surfaces under 2 hours and over 6. "
         + "The answer lists the height and azimuth of the sun, the length of shadows and the light on the ground of each picture.",
         schema(sunImageProperties), true));
     Map<String, Object> sunStudyProperties = new LinkedHashMap<String, Object>();
@@ -1461,8 +1481,11 @@ public class HomeMCPHandler {
     Map<String, Object> imageArguments = new LinkedHashMap<String, Object>(arguments);
     imageArguments.remove("store_as");
     imageArguments.remove("compare_with");
-    imageArguments.put("width", Integer.valueOf((int)Math.max(160, Math.min(800, number(arguments, "width", 400)))));
-    imageArguments.put("height", Integer.valueOf((int)Math.max(120, Math.min(600, number(arguments, "height", 260)))));
+    // One picture of the hours of sun, or small pictures of instants
+    imageArguments.put("width", Integer.valueOf((int)Math.max(160, sweep.hours
+        ? Math.min(1600, number(arguments, "width", 800)) : Math.min(800, number(arguments, "width", 400)))));
+    imageArguments.put("height", Integer.valueOf((int)Math.max(120, sweep.hours
+        ? Math.min(1200, number(arguments, "height", 520)) : Math.min(600, number(arguments, "height", 260)))));
     return get3DImage(imageArguments, sweep);
   }
 
@@ -1485,8 +1508,8 @@ public class HomeMCPHandler {
    */
   private SunSweep createSunSweep(Map<String, Object> arguments) {
     String mode = string(arguments, "sweep") != null ? string(arguments, "sweep").toLowerCase() : "day";
-    if (!"day".equals(mode) && !"year".equals(mode)) {
-      throw new IllegalArgumentException("\"sweep\" is day or year.");
+    if (!"day".equals(mode) && !"year".equals(mode) && !"hours".equals(mode)) {
+      throw new IllegalArgumentException("\"sweep\" is day, year or hours.");
     }
     java.util.TimeZone utc = java.util.TimeZone.getTimeZone("UTC");
     // As the time of cameras, a calendar in UTC whose fields are the local date and time of the place
@@ -1514,7 +1537,67 @@ public class HomeMCPHandler {
     double longitude = Math.toDegrees(compass.getLongitude());
     SunSweep sweep = new SunSweep();
     String title;
-    if ("day".equals(mode)) {
+    if ("hours".equals(mode)) {
+      // The instants of a day at which the sun is looked for, to count how long it reaches each place
+      long [] instants = com.eteks.sweethome3d.model.SunPosition.getSunriseNoonSunset(
+          Camera.convertTimeToTimeZone(calendar.getTimeInMillis(), compass.getTimeZone()), timeZone, latitude, longitude);
+      String day = String.format(java.util.Locale.US, "%04d-%02d-%02d", calendar.get(java.util.Calendar.YEAR),
+          calendar.get(java.util.Calendar.MONTH) + 1, calendar.get(java.util.Calendar.DAY_OF_MONTH));
+      double start = 0;
+      double end = 24 * 60;
+      String daylightText;
+      if (instants [0] != Long.MIN_VALUE && instants [2] != Long.MIN_VALUE) {
+        java.util.Calendar local = new java.util.GregorianCalendar(timeZone);
+        local.setTimeInMillis(instants [0]);
+        start = local.get(java.util.Calendar.HOUR_OF_DAY) * 60 + local.get(java.util.Calendar.MINUTE) + local.get(java.util.Calendar.SECOND) / 60.;
+        local.setTimeInMillis(instants [2]);
+        end = local.get(java.util.Calendar.HOUR_OF_DAY) * 60 + local.get(java.util.Calendar.MINUTE) + local.get(java.util.Calendar.SECOND) / 60.;
+        if (end <= start) {
+          end = 24 * 60;
+        }
+        daylightText = String.format(java.util.Locale.US, "sunrise at %02d:%02d and sunset at %02d:%02d",
+            (int)Math.round(start) / 60, (int)Math.round(start) % 60, (int)Math.round(end) / 60, (int)Math.round(end) % 60);
+      } else if (com.eteks.sweethome3d.model.SunPosition.getInstance(instants [1], latitude, longitude).getApparentElevation() > 0) {
+        daylightText = "the sun doesn't set";
+      } else {
+        throw new IllegalArgumentException("The sun doesn't rise on " + day + " at this latitude.");
+      }
+      int from = parseMinutes(string(arguments, "from"), "from");
+      int to = parseMinutes(string(arguments, "to"), "to");
+      start = from >= 0 ? Math.max(start, from) : start;
+      end = to >= 0 ? Math.min(end, to) : end;
+      if (end - start < 10) {
+        throw new IllegalArgumentException("The sun isn't up between \"from\" and \"to\" (" + daylightText + ").");
+      }
+      int steps = (int)number(arguments, "steps", Math.max(8, Math.min(48, Math.round((end - start) / 20))));
+      if (steps < 4 || steps > 96) {
+        throw new IllegalArgumentException("\"steps\" goes from 4 to 96 for the hours of sun.");
+      }
+      sweep.times = new long [steps];
+      for (int i = 0; i < steps; i++) {
+        int seconds = (int)Math.round((start + (end - start) * (i + 0.5) / steps) * 60);
+        calendar.set(java.util.Calendar.HOUR_OF_DAY, seconds / 3600);
+        calendar.set(java.util.Calendar.MINUTE, seconds / 60 % 60);
+        calendar.set(java.util.Calendar.SECOND, seconds % 60);
+        sweep.times [i] = calendar.getTimeInMillis();
+      }
+      sweep.hours = true;
+      sweep.stepHours = (end - start) / 60 / steps;
+      sweep.maximumHours = number(arguments, "max_hours", Math.ceil((end - start) / 60));
+      if (sweep.maximumHours < 1 || sweep.maximumHours > 24) {
+        throw new IllegalArgumentException("\"max_hours\" goes from 1 to 24.");
+      }
+      sweep.title = "Hours of direct sun on " + day;
+      sweep.text = String.format(java.util.Locale.US, "Hours of direct sun on %s (%s), latitude %.2f, longitude %.2f, %s: "
+          + "counted between %02d:%02d and %02d:%02d from %d instants %.0f minutes apart, by clear sky. "
+          + "Colors: dark blue 0 h, light blue, cyan, green, yellow, orange, then red %s h and more; the sky keeps its color. "
+          + "A surface the sun meets from behind counts as shade.",
+          day, compass.getTimeZone(), latitude, longitude, daylightText,
+          (int)Math.round(start) / 60, (int)Math.round(start) % 60, (int)Math.round(end) / 60, (int)Math.round(end) % 60,
+          steps, sweep.stepHours * 60,
+          sweep.maximumHours == Math.rint(sweep.maximumHours) ? String.valueOf((int)sweep.maximumHours) : String.valueOf(sweep.maximumHours));
+      return sweep;
+    } else if ("day".equals(mode)) {
       int steps = (int)number(arguments, "steps", 6);
       if (steps < 2 || steps > 12) {
         throw new IllegalArgumentException("\"steps\" goes from 2 to 12 for a day.");
@@ -1647,12 +1730,19 @@ public class HomeMCPHandler {
       }
       drawnHome.setProperty(AssistantSceneCommands.SUN_FOLLOWS_TIME_PROPERTY, "true");
       drawnHome.setProperty(AssistantSceneCommands.SUN_FALSE_COLORS_PROPERTY, sweep.falseColors);
+      if (sweep.hours) {
+        // Red where the sun reaches, black where it doesn't, and a green sky
+        drawnHome.setProperty(AssistantSceneCommands.SUN_MASK_PROPERTY, "true");
+        drawnHome.getEnvironment().setSkyColor(0x00FF00);
+        drawnHome.getEnvironment().setSkyTexture(null);
+      }
       int levelIndex = level != null ? this.home.getLevels().indexOf(level) : -1;
       if (levelIndex >= 0 && levelIndex < drawnHome.getLevels().size()) {
         drawnHome.setSelectedLevel(drawnHome.getLevels().get(levelIndex));
       }
-      Image3DRequest request = new Image3DRequest(width, height, renderer, shadows, ambientOcclusion, highQuality,
-          pose, null, allLevels, 0, timeout);
+      Image3DRequest request = sweep.hours
+          ? new Image3DRequest(width, height, Image3DRequest.OPENGL, true, false, false, pose, null, allLevels, 0, timeout)
+          : new Image3DRequest(width, height, renderer, shadows, ambientOcclusion, highQuality, pose, null, allLevels, 0, timeout);
       request.setDrawnHome(drawnHome);
       Image3D image = provider.get3DImage(request);
       if (image == null || image.getImage() == null) {
@@ -1662,6 +1752,36 @@ public class HomeMCPHandler {
       if (description == null) {
         description = image.getDescription();
       }
+    }
+    if (sweep.hours) {
+      if (description == null || !description.contains("OpenGL renderer")) {
+        return new Image3D(null, null, "The hours of sun need the OpenGL renderer, which can't draw here.");
+      }
+      // The same picture with its usual colors, which gives its relief to the map and its sky
+      Home drawnHome = this.home.clone();
+      drawnHome.setProperty(AssistantSceneCommands.SUN_FOLLOWS_TIME_PROPERTY, null);
+      drawnHome.setProperty(AssistantSceneCommands.SUN_FALSE_COLORS_PROPERTY, null);
+      int levelIndex = level != null ? this.home.getLevels().indexOf(level) : -1;
+      if (levelIndex >= 0 && levelIndex < drawnHome.getLevels().size()) {
+        drawnHome.setSelectedLevel(drawnHome.getLevels().get(levelIndex));
+      }
+      Image3DRequest request = new Image3DRequest(width, height, Image3DRequest.OPENGL, false, true, false,
+          pose, null, allLevels, 0, timeout);
+      request.setDrawnHome(drawnHome);
+      Image3D shading = provider.get3DImage(request);
+      if (shading == null || shading.getImage() == null) {
+        return shading;
+      }
+      float [] shares = new float [3];
+      byte [] map = view != null
+          ? view.createSunHoursImage(images, shading.getImage(), sweep.stepHours, sweep.maximumHours, sweep.title, shares)
+          : null;
+      if (map == null) {
+        return null;
+      }
+      sweep.text += String.format(java.util.Locale.US, " Of the surfaces in the picture, %.0f %% get less than 2 hours of sun, "
+          + "%.0f %% from 2 to 6 hours and %.0f %% more.", shares [0] * 100, shares [1] * 100, shares [2] * 100);
+      return new Image3D(map, null, "Drawn by the OpenGL renderer");
     }
     byte [] sheet = view != null ? view.createContactSheet(images, sweep.captions, sweep.columns) : null;
     return sheet != null ? new Image3D(sheet, null, description) : null;
@@ -1885,7 +2005,7 @@ public class HomeMCPHandler {
       return toolResult("The home can't be rendered in 3D here.", true);
     }
     String description = (image.getDescription() != null ? image.getDescription() + ", " : "")
-        + (sweep != null ? sweep.times.length + " pictures of " : "")
+        + (sweep != null && !sweep.hours ? sweep.times.length + " pictures of " : "")
         + width + " x " + height + " pixels, in " + Math.round((System.currentTimeMillis() - start) / 100.) / 10. + " s. "
         + "Seen from: " + viewDescription + ". "
         + (allLevels ? "All levels." : "Levels above "

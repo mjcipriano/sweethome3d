@@ -419,7 +419,9 @@ property line, as errors.
 - `set_compass`: `north_direction` is the angle in degrees, clockwise, from
   the top of the plan to the north. The sun of the 3D view and of photos
   follows it. Also `latitude`, `longitude`, `time_zone`, `x`, `y`,
-  `diameter`, `"visible":false`.
+  `diameter`, `"visible":false`. `"georeference":true` gives it the latitude,
+  the longitude and the true north of the georeference of the home, when
+  they were changed apart.
 - `set_georeference`: the point `x`,`y` of the plan is at `lat`,`lon`, and
   the true north is `rotation` degrees clockwise from the top of the plan.
   Or `"points":[{"lat","lon","x","y"},{...}]`, two points known both ways. It

@@ -57,6 +57,7 @@ import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JSlider;
 import javax.swing.JSpinner;
@@ -74,6 +75,7 @@ import com.eteks.sweethome3d.model.Camera;
 import com.eteks.sweethome3d.model.Compass;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.SunPosition;
+import com.eteks.sweethome3d.viewcontroller.HomeGeoreference;
 
 /**
  * The window where the user chooses the place, the date and the time of the Sun which lights
@@ -83,6 +85,23 @@ import com.eteks.sweethome3d.model.SunPosition;
  */
 public class SunStudyPanel extends JPanel {
   private static final String   DIALOG_PROPERTY = "com.eteks.sweethome3d.swing.SunStudyPanel.dialog";
+  /**
+   * The client property of the component given to {@link #showDialog(JComponent, Home, HomeComponent3D) showDialog}
+   * which holds the {@link PictureRenderer} drawing the pictures of this panel.
+   */
+  public static final String    PICTURE_RENDERER_PROPERTY = "com.eteks.sweethome3d.swing.SunStudyPanel.pictureRenderer";
+
+  /**
+   * What draws the pictures of the sun through a day or a year, and of the hours of sun.
+   */
+  public interface PictureRenderer {
+    /**
+     * Returns the PNG picture of the given sweep (<code>day</code>, <code>year</code> or <code>hours</code>)
+     * with its description in <code>message [0]</code>, or <code>null</code> with the reason in it.
+     */
+    byte [] render(String sweep, String [] message);
+  }
+
   private static final TimeZone UTC = TimeZone.getTimeZone("UTC");
   private static final int      TIME_STEP = 5;
   private static final int []   FALSE_COLORS_MAXIMUMS = {120000, 60000, 30000, 10000, 2000};
@@ -111,6 +130,10 @@ public class SunStudyPanel extends JPanel {
   private FalseColorsLegend     legend;
   private JLabel                rendererLabel;
   private JButton               rendererButton;
+  private JLabel                placeNoteLabel;
+  private JButton               georeferenceButton;
+  private JButton []            pictureButtons;
+  private PictureRenderer       pictureRenderer;
   private Timer                 timer;
   private PropertyChangeListener homeListener;
 
@@ -126,6 +149,11 @@ public class SunStudyPanel extends JPanel {
       return;
     }
     final SunStudyPanel panel = new SunStudyPanel(home, view3D);
+    Object pictureRenderer = parent.getClientProperty(PICTURE_RENDERER_PROPERTY);
+    if (pictureRenderer instanceof PictureRenderer) {
+      panel.pictureRenderer = (PictureRenderer)pictureRenderer;
+    }
+    panel.refresh();
     Window window = SwingUtilities.getWindowAncestor(parent);
     dialog = new JDialog(window, "Sun and shadows", JDialog.ModalityType.MODELESS);
     dialog.setContentPane(panel);
@@ -272,6 +300,7 @@ public class SunStudyPanel extends JPanel {
     this.home.addPropertyChangeListener(Home.Property.CAMERA, this.homeListener);
     this.home.addPropertyChangeListener(HomeComponent3D.SUN_FOLLOWS_TIME_PROPERTY, this.homeListener);
     this.home.addPropertyChangeListener(HomeComponent3D.SUN_FALSE_COLORS_PROPERTY, this.homeListener);
+    this.home.addPropertyChangeListener(HomeGeoreference.PROPERTY, this.homeListener);
   }
 
   /**
@@ -285,6 +314,74 @@ public class SunStudyPanel extends JPanel {
     this.home.removePropertyChangeListener(Home.Property.CAMERA, this.homeListener);
     this.home.removePropertyChangeListener(HomeComponent3D.SUN_FOLLOWS_TIME_PROPERTY, this.homeListener);
     this.home.removePropertyChangeListener(HomeComponent3D.SUN_FALSE_COLORS_PROPERTY, this.homeListener);
+    this.home.removePropertyChangeListener(HomeGeoreference.PROPERTY, this.homeListener);
+  }
+
+  /**
+   * Draws the picture of the given sweep and shows it, with a button to save it.
+   */
+  private void showPicture(String sweep, String title) {
+    if (this.pictureRenderer == null) {
+      return;
+    }
+    String [] message = {null};
+    byte [] image;
+    Window window = SwingUtilities.getWindowAncestor(this);
+    java.awt.Cursor cursor = window != null ? window.getCursor() : null;
+    if (window != null) {
+      window.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR));
+    }
+    try {
+      image = this.pictureRenderer.render(sweep, message);
+    } finally {
+      if (window != null) {
+        window.setCursor(cursor);
+      }
+    }
+    java.awt.image.BufferedImage picture = null;
+    try {
+      picture = image != null ? javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(image)) : null;
+    } catch (java.io.IOException ex) {
+      // No picture
+    }
+    if (picture == null) {
+      JOptionPane.showMessageDialog(this, message [0] != null ? message [0] : "The picture couldn't be drawn.",
+          title, JOptionPane.WARNING_MESSAGE);
+      return;
+    }
+    // Shown at a size that fits the screen
+    Dimension screenSize = getToolkit().getScreenSize();
+    double scale = Math.min(1, Math.min((screenSize.width - 160.) / picture.getWidth(), (screenSize.height - 260.) / picture.getHeight()));
+    java.awt.Image shownPicture = scale < 1
+        ? picture.getScaledInstance((int)(picture.getWidth() * scale), (int)(picture.getHeight() * scale), java.awt.Image.SCALE_SMOOTH)
+        : picture;
+    String [] options = {"Save as...", "Close"};
+    if (JOptionPane.showOptionDialog(this, new JLabel(new javax.swing.ImageIcon(shownPicture)), title,
+            JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options [1]) == 0) {
+      javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
+      chooser.setDialogTitle(title);
+      java.io.File folder = this.home.getName() != null ? new java.io.File(this.home.getName()).getParentFile() : null;
+      chooser.setSelectedFile(new java.io.File(folder, "sun-" + sweep + ".png"));
+      if (chooser.showSaveDialog(this) == javax.swing.JFileChooser.APPROVE_OPTION) {
+        java.io.File file = chooser.getSelectedFile();
+        if (!file.getName().toLowerCase().endsWith(".png")) {
+          file = new java.io.File(file.getPath() + ".png");
+        }
+        if (!file.exists() || JOptionPane.showConfirmDialog(this, file.getName() + " exists. Replace it?", title,
+                JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
+          try {
+            java.io.OutputStream out = new java.io.FileOutputStream(file);
+            try {
+              out.write(image);
+            } finally {
+              out.close();
+            }
+          } catch (java.io.IOException ex) {
+            JOptionPane.showMessageDialog(this, "Couldn't write " + file + ": " + ex.getMessage());
+          }
+        }
+      }
+    }
   }
 
   // ---- Components ----
@@ -465,6 +562,34 @@ public class SunStudyPanel extends JPanel {
     this.falseColorsCheckBox.addActionListener(falseColorsListener);
     this.falseColorsComboBox.addActionListener(falseColorsListener);
     this.legend = new FalseColorsLegend();
+    // The place of the home when it is known, and the pictures
+    this.placeNoteLabel = new JLabel();
+    this.georeferenceButton = new JButton("Use the GPS position of the home");
+    this.georeferenceButton.setToolTipText("Gives the sun the latitude, the longitude and the north of the georeference of the home");
+    this.georeferenceButton.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          HomeGeoreference georeference = HomeGeoreference.get(home);
+          if (georeference != null) {
+            georeference.applyTo(home.getCompass());
+            home.setModified(true);
+          }
+        }
+      });
+    final String [][] pictures = {
+        {"day", "The day in pictures...", "The day from sunrise to sunset, in six pictures seen from the camera of the 3D view"},
+        {"year", "The year in pictures...", "The equinoxes and the solstices at the chosen time, seen from the camera of the 3D view"},
+        {"hours", "Hours of sun...", "Colors what the camera of the 3D view sees by the hours of direct sun of the chosen day"}};
+    this.pictureButtons = new JButton [pictures.length];
+    for (int i = 0; i < pictures.length; i++) {
+      final String [] picture = pictures [i];
+      this.pictureButtons [i] = new JButton(picture [1]);
+      this.pictureButtons [i].setToolTipText(picture [2]);
+      this.pictureButtons [i].addActionListener(new ActionListener() {
+          public void actionPerformed(ActionEvent ev) {
+            showPicture(picture [0], picture [1].replace("...", ""));
+          }
+        });
+    }
     this.rendererLabel = new JLabel("Shadows and false colors need the OpenGL renderer.");
     this.rendererButton = new JButton("Use the OpenGL renderer");
     this.rendererButton.addActionListener(new ActionListener() {
@@ -530,6 +655,13 @@ public class SunStudyPanel extends JPanel {
         GridBagConstraints.LINE_END, GridBagConstraints.NONE, labelInsets, 0, 0));
     placePanel.add(this.northSpinner, new GridBagConstraints(3, 1, 1, 1, 1, 0,
         GridBagConstraints.LINE_START, GridBagConstraints.HORIZONTAL, new Insets(2, 0, 2, 0), 0, 0));
+    JPanel placeNotePanel = new JPanel(new BorderLayout(8, 0));
+    placeNotePanel.add(this.placeNoteLabel, BorderLayout.CENTER);
+    JPanel georeferenceButtonPanel = new JPanel(new FlowLayout(FlowLayout.TRAILING, 0, 0));
+    georeferenceButtonPanel.add(this.georeferenceButton);
+    placeNotePanel.add(georeferenceButtonPanel, BorderLayout.LINE_END);
+    placePanel.add(placeNotePanel, new GridBagConstraints(0, 2, 4, 1, 1, 0,
+        GridBagConstraints.LINE_START, GridBagConstraints.HORIZONTAL, new Insets(2, 0, 0, 0), 0, 0));
 
     JPanel datePanel = new JPanel(new GridBagLayout());
     datePanel.setBorder(BorderFactory.createTitledBorder("Date"));
@@ -583,6 +715,13 @@ public class SunStudyPanel extends JPanel {
     rendererPanel.add(this.rendererButton);
     displayPanel.add(rendererPanel, new GridBagConstraints(0, 3, 2, 1, 1, 0,
         GridBagConstraints.LINE_START, GridBagConstraints.NONE, new Insets(4, 0, 0, 0), 0, 0));
+    JPanel picturesPanel = new JPanel(new FlowLayout(FlowLayout.LEADING, 0, 0));
+    for (int i = 0; i < this.pictureButtons.length; i++) {
+      picturesPanel.add(this.pictureButtons [i]);
+      picturesPanel.add(Box.createHorizontalStrut(6));
+    }
+    displayPanel.add(picturesPanel, new GridBagConstraints(0, 4, 2, 1, 1, 0,
+        GridBagConstraints.LINE_START, GridBagConstraints.NONE, new Insets(6, 0, 0, 0), 0, 0));
 
     JComponent [] panels = {placePanel, datePanel, timePanel, sunPanel, displayPanel};
     for (int i = 0; i < panels.length; i++) {
@@ -716,6 +855,31 @@ public class SunStudyPanel extends JPanel {
       this.legend.setEnabled(this.falseColorsCheckBox.isSelected() && openGL);
       this.rendererLabel.setVisible(!openGL);
       this.rendererButton.setVisible(!openGL);
+      for (JButton pictureButton : this.pictureButtons) {
+        pictureButton.setEnabled(this.pictureRenderer != null);
+      }
+      // What would make the sun wrong: an other place than the one of the home, or an other time zone
+      String placeDifference = HomeGeoreference.describeCompassDifference(this.home);
+      String timeZoneDifference = HomeGeoreference.describeTimeZoneDifference(compass);
+      String note = "";
+      if (placeDifference != null) {
+        note += placeDifference + ".";
+      } else if (HomeGeoreference.get(this.home) != null) {
+        note += "The place and the north are the GPS position of the home.";
+      }
+      if (timeZoneDifference != null) {
+        note += (note.length() > 0 ? "<br>" : "") + timeZoneDifference + ".";
+      }
+      this.placeNoteLabel.setText(note.length() > 0 ? "<html><div style='width:330px'>" + note + "</div></html>" : "");
+      this.placeNoteLabel.setForeground(placeDifference != null || timeZoneDifference != null
+          ? new Color(190, 95, 0) : javax.swing.UIManager.getColor("Label.disabledForeground"));
+      this.placeNoteLabel.setVisible(note.length() > 0);
+      this.georeferenceButton.setVisible(placeDifference != null);
+      // Room for a note which appears
+      Window window = SwingUtilities.getWindowAncestor(this);
+      if (window != null && window.isDisplayable() && window.getHeight() < window.getPreferredSize().height) {
+        window.setSize(window.getWidth(), window.getPreferredSize().height);
+      }
     } finally {
       this.updating = false;
     }

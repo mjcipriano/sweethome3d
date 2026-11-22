@@ -53,6 +53,7 @@ class AssistantSceneCommands {
   /** The property of a home whose 3D view is lit by the sun at the date and time of its camera. */
   static final String SUN_FOLLOWS_TIME_PROPERTY = "sunFollowsTime";
   static final String SUN_FALSE_COLORS_PROPERTY = "sunFalseColorsMaximum";
+  static final String SUN_MASK_PROPERTY = "sunMask";
   /** The angle in degrees the leaves of a door or a window were opened by. */
   static final String OPENING_ANGLE_PROPERTY = "assistantOpeningAngle";
 
@@ -309,6 +310,15 @@ class AssistantSceneCommands {
           sunPosition.getShadowLength(),
           Math.round((sunPosition.getDirectNormalIlluminance() * Math.sin(Math.toRadians(sun [0])) + sunPosition.getDiffuseHorizontalIlluminance()) / 100) * 100,
           Math.round(sunPosition.getDiffuseHorizontalIlluminance() / 100) * 100);
+    }
+    // What makes the sun wrong without showing
+    String placeDifference = HomeGeoreference.describeCompassDifference(this.home);
+    if (placeDifference != null) {
+      text += ". Warning: " + placeDifference + " (set_compass with \"georeference\":true gives it the place and the north of the home)";
+    }
+    String timeZoneDifference = HomeGeoreference.describeTimeZoneDifference(compass);
+    if (timeZoneDifference != null) {
+      text += ". Warning: " + timeZoneDifference + " (set_compass with \"time_zone\" changes it)";
     }
     return text;
   }

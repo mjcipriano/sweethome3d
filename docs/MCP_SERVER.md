@@ -357,7 +357,7 @@ Claude:
 | --- | --- |
 | Date, time of day | The `set_sun` command: `{"action":"set_sun","date":"2026-06-21","time":"17:30"}` |
 | Light of the 3D view from the sun, false colors | `set_sun` with `"follow":true`, `"false_colors":true`, a number of lux, or `false` |
-| North, latitude, longitude, time zone | The `set_compass` command: `"north_direction"` in degrees clockwise from the top of the plan, `"latitude"`, `"longitude"`, `"time_zone":"America/New_York"` |
+| North, latitude, longitude, time zone | The `set_compass` command: `"north_direction"` in degrees clockwise from the top of the plan, `"latitude"`, `"longitude"`, `"time_zone":"America/New_York"`; `"georeference":true` takes the place and the true north of the GPS position of the home |
 | The window itself | The `sun_study` tool: `{"window":"open"}` or `{"window":"close"}` |
 | Its animations | `sun_study` with `"play":"day"` (sunrise to sunset of the date), `"play":"year"` (the days of the year at the time) or `"play":"stop"` |
 | Renderer and shadows of the 3D view on screen | `sun_study` with `"renderer":"opengl"` or `"java3d"`, and `"shadows":true` or `false` |
@@ -379,15 +379,29 @@ view of the home don't change.
 
 | Argument | Meaning |
 | --- | --- |
-| `sweep` | `day` (default): the hours of one day. `year`: dates of the year at the same time |
-| `steps` | Number of pictures: 2 to 12 for a day (6 by default); 2, 3, 4, 6 or 12 for a year (4 by default: the equinoxes and the solstices; 12: the 21st of each month) |
+| `sweep` | `day` (default): the hours of one day. `year`: dates of the year at the same time. `hours`: one picture colored by the hours of direct sun of the day |
+| `steps` | Number of pictures: 2 to 12 for a day (6 by default); 2, 3, 4, 6 or 12 for a year (4 by default: the equinoxes and the solstices; 12: the 21st of each month). For `hours`, the instants counted, 4 to 96 (one each 20 minutes by default) |
+| `max_hours` | `hours`: the hours shown by the last color (default: the length of the day) |
 | `date` | The day shown, or the year of a year sweep (default: the date of the sun of the home) |
 | `time` | Year sweep: the local time (default: the time of the sun of the home) |
-| `from`, `to` | Day sweep: the first and the last local time. By default the pictures are spread between sunrise and sunset |
+| `from`, `to` | `day` and `hours`: the first and the last local time. By default from sunrise to sunset |
 | `false_colors` | `true`, a maximum in lux, or `false` (default: as the 3D view of the home) |
-| `view`, `target`, `camera`, `point_of_view`, `levels`, `renderer`, `shadows`, `save_to`... | As in `get_3d_image`; `width` and `height` are the ones of each picture (400 x 260 by default, at most 800 x 600) |
+| `view`, `target`, `camera`, `point_of_view`, `levels`, `renderer`, `shadows`, `save_to`... | As in `get_3d_image`; `width` and `height` are the ones of each picture (400 x 260 by default, at most 800 x 600; for `hours` 800 x 520, at most 1600 x 1200) |
 
 ![The afternoon of the equinoxes and the solstices in false colors](images/sun-study-year.jpg)
+
+With `"sweep":"hours"`, the home is drawn at instants spread through the day,
+and each point is colored by the time the sun reaches it, from dark blue (never)
+to red (all day): where to plant, to sit or to put solar panels. The answer
+adds the share of the surfaces in the picture that get less than 2 hours,
+2 to 6 hours and more. It needs the OpenGL renderer, and takes a few seconds
+on a graphics card (20 to 30 s under WSLg).
+
+![Hours of direct sun on the day of the December solstice](images/sun-hours.jpg)
+
+`set_sun` warns when the sun isn't computed for the GPS position of the home
+(the compass was changed after `set_georeference`), and when the time zone is
+more than three hours away from the solar time of the longitude.
 
 ### Elevations
 

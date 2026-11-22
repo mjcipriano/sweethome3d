@@ -482,6 +482,7 @@ public class HomeMCPServerTest {
         + "\"time_zone\":\"Europe/Paris\"},{\"action\":\"set_sun\",\"date\":\"2026-06-21\",\"time\":\"10:00\"}]}");
     final long time = fixture.home.getCamera().getTime();
     final List<HomeMCPHandler.Image3DRequest> requests = new java.util.ArrayList<HomeMCPHandler.Image3DRequest>();
+    final String [] drawnBy = {"Drawn by a test"};
     handler.setImageProvider(new HomeMCPHandler.ImageProvider() {
         public byte [] getPlanImage(int maxSize, com.eteks.sweethome3d.model.Level level, float [] area) {
           return null;
@@ -489,7 +490,7 @@ public class HomeMCPServerTest {
 
         public HomeMCPHandler.Image3D get3DImage(HomeMCPHandler.Image3DRequest request) {
           requests.add(request);
-          return new HomeMCPHandler.Image3D(new byte [] {(byte)requests.size()}, null, "Drawn by a test");
+          return new HomeMCPHandler.Image3D(new byte [] {(byte)requests.size()}, null, drawnBy [0]);
         }
 
         public byte [] getCatalogImage(String name, boolean texture) {
@@ -525,6 +526,15 @@ public class HomeMCPServerTest {
         public byte [] createContactSheet(byte [][] images, String [] captions, int columns) {
           sheetCaptions [0] = captions;
           return new byte [] {(byte)images.length, (byte)columns};
+        }
+
+        public byte [] createSunHoursImage(byte [][] masks, byte [] shading, double stepHours, double maximumHours,
+                                           String title, float [] shares) {
+          shares [0] = 0.25f;
+          shares [1] = 0.5f;
+          shares [2] = 0.25f;
+          sheetCaptions [0] = new String [] {title, String.valueOf(Math.round(stepHours * 60)), String.valueOf(maximumHours)};
+          return new byte [] {(byte)masks.length, shading [0]};
         }
       });
 
@@ -581,6 +591,50 @@ public class HomeMCPServerTest {
     assertEquals(Boolean.TRUE, callTool(handler, "get_sun_study_image", "{\"from\":\"18:00\",\"to\":\"9:00\"}").get("isError"));
     assertEquals(Boolean.TRUE, callTool(handler, "get_sun_study_image", "{\"sweep\":\"month\"}").get("isError"));
     assertEquals(Boolean.TRUE, callTool(handler, "get_sun_study_image", "{\"date\":\"June 21\"}").get("isError"));
+
+    // The hours of sun of a day: pictures of where the sun reaches, each 20 minutes, then the usual picture
+    requests.clear();
+    assertEquals("Not without OpenGL", Boolean.TRUE, callTool(handler, "get_sun_study_image", "{\"sweep\":\"hours\"}").get("isError"));
+    requests.clear();
+    drawnBy [0] = "Drawn by the OpenGL renderer (test)";
+    result = callTool(handler, "get_sun_study_image", "{\"sweep\":\"hours\",\"view\":\"top\"}");
+    assertEquals(Boolean.FALSE, result.get("isError"));
+    image = (Map<String, Object>)((List<Object>)result.get("content")).get(0);
+    assertEquals(java.util.Base64.getEncoder().encodeToString(new byte [] {48, 49}), image.get("data"));
+    text = (String)((Map<String, Object>)((List<Object>)result.get("content")).get(1)).get("text");
+    assertTrue(text, text.startsWith("Drawn by the OpenGL renderer, 800 x 520 pixels")
+        && text.contains("Hours of direct sun on 2026-06-21") && text.contains("from 48 instants 20 minutes apart")
+        && text.contains("red 17 h") && text.contains("25 % get less than 2 hours of sun, 50 % from 2 to 6 hours and 25 % more"));
+    assertEquals(49, requests.size());
+    Home maskHome = requests.get(0).getDrawnHome();
+    assertEquals("true", maskHome.getProperty("sunMask"));
+    assertEquals("true", maskHome.getProperty("sunFollowsTime"));
+    assertEquals(0x00FF00, maskHome.getEnvironment().getSkyColor());
+    assertTrue(requests.get(0).isShadows());
+    assertNull(requests.get(48).getDrawnHome().getProperty("sunMask"));
+    assertNull(requests.get(48).getDrawnHome().getProperty("sunFollowsTime"));
+    assertEquals("[Hours of direct sun on 2026-06-21, 20, 17.0]", java.util.Arrays.toString(sheetCaptions [0]));
+    result = callTool(handler, "get_sun_study_image", "{\"sweep\":\"hours\",\"from\":\"12:00\",\"to\":\"16:00\","
+        + "\"steps\":8,\"max_hours\":4}");
+    assertEquals("[Hours of direct sun on 2026-06-21, 30, 4.0]", java.util.Arrays.toString(sheetCaptions [0]));
+    assertEquals(Boolean.TRUE, callTool(handler, "get_sun_study_image", "{\"sweep\":\"hours\",\"steps\":2}").get("isError"));
+    assertEquals(Boolean.TRUE, callTool(handler, "get_sun_study_image", "{\"sweep\":\"hours\",\"from\":\"23:00\"}").get("isError"));
+    drawnBy [0] = "Drawn by a test";
+
+    // The sun warns when it isn't computed for the place of the home, or with a time zone of elsewhere
+    result = callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"set_georeference\",\"lat\":48.85,\"lon\":2.35,"
+        + "\"x\":0,\"y\":0,\"rotation\":30},{\"action\":\"set_sun\"}]}");
+    assertFalse(text(result), text(result).contains("Warning"));
+    result = callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"set_compass\",\"latitude\":40,\"north_direction\":10},"
+        + "{\"action\":\"set_sun\"}]}");
+    assertTrue(text(result), text(result).contains("Warning: The home is georeferenced at latitude 48.85000, longitude 2.35000, "
+        + "north 30.0 degrees, but the sun is computed for a place 984 km away and a north turned by -20.0 degrees"));
+    result = callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"set_compass\",\"georeference\":true,"
+        + "\"time_zone\":\"Asia/Kolkata\"},{\"action\":\"set_sun\"}]}");
+    assertTrue(text(result), !text(result).contains("georeferenced")
+        && text(result).contains("Warning: The time zone Asia/Kolkata (UTC+5:30) is 5 hours away from the solar time of the longitude 2.35"));
+    assertEquals(30f, (float)Math.toDegrees(fixture.home.getCompass().getNorthDirection()), 1E-3f);
+    callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"set_compass\",\"time_zone\":\"Europe/Paris\"}]}");
 
     // The window, its animations and the renderer of the 3D view
     assertEquals("State of the test.", text(callTool(handler, "sun_study", "{}")));
