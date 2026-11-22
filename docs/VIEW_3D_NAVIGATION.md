@@ -114,7 +114,11 @@ Shadows and false colors need the OpenGL renderer; the window offers to turn
 it on. The choices are stored in the home. The ray tracer of **3D view >
 Create photo...** uses the same date, time and place. The assistant and Claude
 set them with `set_sun`
-([Command reference](MCP_COMMANDS.md#lights-sun-doors-and-materials)).
+([Command reference](MCP_COMMANDS.md#lights-sun-doors-and-materials)), and
+the north and the place with `set_compass`. Through the MCP server, Claude
+can also open this window, play its animations, choose the renderer, and get
+one picture of the home at several hours of a day or dates of a year
+([Sun study](MCP_SERVER.md#sun-study)).
 
 ### How exact the sun is
 

@@ -5445,6 +5445,77 @@ public class HomePane extends JRootPane implements HomeView {
             }
           }
         });
+      this.mcpHandler.setSunStudyView(new HomeMCPHandler.SunStudyView() {
+          private HomeComponent3D getView3D() {
+            Object view3D = controller != null ? controller.getHomeController3D().getView() : null;
+            return view3D instanceof HomeComponent3D ? (HomeComponent3D)view3D : null;
+          }
+
+          public void showWindow(boolean visible) {
+            if (visible) {
+              SunStudyPanel.showDialog(HomePane.this, home, getView3D());
+            } else {
+              SunStudyPanel.closeDialog(HomePane.this);
+            }
+          }
+
+          public void play(String animation) throws IOException {
+            if (animation != null) {
+              // The animation is the one of the window
+              SunStudyPanel.showDialog(HomePane.this, home, getView3D());
+            }
+            SunStudyPanel panel = SunStudyPanel.getDisplayedPanel(HomePane.this);
+            if (panel != null) {
+              panel.play(animation);
+            } else if (animation != null) {
+              throw new IOException("The window of the sun couldn't be shown");
+            }
+          }
+
+          public void setDisplay(Boolean openGL, Boolean shadows) {
+            if (openGL != null) {
+              HomeComponent3D.setOpenGLRendererSelected(openGL.booleanValue());
+            }
+            if (shadows != null) {
+              HomeComponent3D.setOpenGLShadowsSelected(shadows.booleanValue());
+            }
+            HomeComponent3D view3D = getView3D();
+            if (view3D != null) {
+              view3D.updateRenderer();
+            }
+            SunStudyPanel panel = SunStudyPanel.getDisplayedPanel(HomePane.this);
+            if (panel != null) {
+              panel.update();
+            }
+          }
+
+          public String describe() {
+            SunStudyPanel panel = SunStudyPanel.getDisplayedPanel(HomePane.this);
+            String animation = panel != null ? panel.getPlayedAnimation() : null;
+            HomeComponent3D view3D = getView3D();
+            String text = "The window \"Sun and shadows\" is " + (panel != null ? "open" : "closed")
+                + (animation != null ? " and plays the " + animation : panel != null ? ", without animation" : "") + ". ";
+            if (view3D == null) {
+              text += "The 3D view isn't displayed.";
+            } else if (view3D.isOpenGLRendererUsed()) {
+              text += "The 3D view on screen is drawn by the OpenGL renderer, "
+                  + (HomeComponent3D.isOpenGLShadowsSelected() ? "with shadows"
+                      : "without shadows (\"shadows\":true shows them)")
+                  + (home.getProperty(HomeComponent3D.SUN_FOLLOWS_TIME_PROPERTY) != null ? ", lit from the sun"
+                      : ", with its own lights (the set_sun command with \"follow\":true lights it from the sun)")
+                  + (home.getProperty(HomeComponent3D.SUN_FALSE_COLORS_PROPERTY) != null ? ", in false colors." : ".");
+            } else {
+              text += "The 3D view on screen is drawn by Java 3D, which shows no shadow and no false colors"
+                  + (HomeComponent3D.isOpenGLRendererSelected() ? ": the OpenGL renderer is chosen but isn't available here."
+                      : " (\"renderer\":\"opengl\" shows them).");
+            }
+            return text;
+          }
+
+          public byte [] createContactSheet(byte [][] images, String [] captions, int columns) {
+            return HomePane.createContactSheet(images, captions, columns);
+          }
+        });
       this.mcpHandler.setSceneExporter(new HomeMCPHandler.SceneExporter() {
           public String exportForBlender(File folder) throws Exception {
             return HomePane.this.exportForBlender(folder).getAbsolutePath();
@@ -5894,6 +5965,57 @@ public class HomePane extends JRootPane implements HomeView {
     } catch (IOException ex) {
       return null;
     } catch (RuntimeException ex) {
+      return null;
+    }
+  }
+
+  /**
+   * Returns a PNG image showing the given PNG images of the same size in a grid of
+   * <code>columns</code> columns, each with its caption under it, or <code>null</code>
+   * if one of them can't be read.
+   */
+  static byte [] createContactSheet(byte [][] images, String [] captions, int columns) {
+    try {
+      BufferedImage [] pictures = new BufferedImage [images.length];
+      for (int i = 0; i < images.length; i++) {
+        pictures [i] = ImageIO.read(new java.io.ByteArrayInputStream(images [i]));
+        if (pictures [i] == null) {
+          return null;
+        }
+      }
+      if (pictures.length == 0 || columns < 1) {
+        return null;
+      }
+      int width = pictures [0].getWidth();
+      int height = pictures [0].getHeight();
+      int gap = 4;
+      int captionHeight = 22;
+      int rows = (pictures.length + columns - 1) / columns;
+      BufferedImage sheet = new BufferedImage(columns * width + (columns - 1) * gap,
+          rows * (height + captionHeight) + (rows - 1) * gap, BufferedImage.TYPE_INT_RGB);
+      Graphics2D g2D = sheet.createGraphics();
+      g2D.setColor(Color.WHITE);
+      g2D.fillRect(0, 0, sheet.getWidth(), sheet.getHeight());
+      g2D.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+      g2D.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 13));
+      java.awt.FontMetrics metrics = g2D.getFontMetrics();
+      for (int i = 0; i < pictures.length; i++) {
+        int x = i % columns * (width + gap);
+        int y = i / columns * (height + captionHeight + gap);
+        g2D.drawImage(pictures [i], x, y, width, height, null);
+        g2D.setColor(new Color(34, 34, 34));
+        g2D.fillRect(x, y + height, width, captionHeight);
+        g2D.setColor(Color.WHITE);
+        if (captions != null && i < captions.length && captions [i] != null) {
+          g2D.drawString(captions [i], x + Math.max(4, (width - metrics.stringWidth(captions [i])) / 2),
+              y + height + (captionHeight + metrics.getAscent() - metrics.getDescent()) / 2);
+        }
+      }
+      g2D.dispose();
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      ImageIO.write(sheet, "png", out);
+      return out.toByteArray();
+    } catch (IOException ex) {
       return null;
     }
   }

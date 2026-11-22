@@ -152,6 +152,62 @@ public class SunStudyPanel extends JPanel {
     dialog.setVisible(true);
   }
 
+  /**
+   * Returns the panel of the window of the Sun displayed for the home of <code>parent</code>,
+   * or <code>null</code> if it isn't open.
+   */
+  public static SunStudyPanel getDisplayedPanel(JComponent parent) {
+    javax.swing.JRootPane rootPane = SwingUtilities.getRootPane(parent);
+    Object dialog = rootPane != null ? rootPane.getClientProperty(DIALOG_PROPERTY) : null;
+    return dialog instanceof JDialog && ((JDialog)dialog).isDisplayable()
+          && ((JDialog)dialog).getContentPane() instanceof SunStudyPanel
+        ? (SunStudyPanel)((JDialog)dialog).getContentPane()
+        : null;
+  }
+
+  /**
+   * Closes the window of the Sun displayed for the home of <code>parent</code>.
+   */
+  public static void closeDialog(JComponent parent) {
+    SunStudyPanel panel = getDisplayedPanel(parent);
+    Window dialog = panel != null ? SwingUtilities.getWindowAncestor(panel) : null;
+    if (dialog != null) {
+      dialog.dispose();
+    }
+  }
+
+  /**
+   * Plays the <code>day</code> from sunrise to sunset or the days of the <code>year</code>,
+   * or stops the animation if <code>animation</code> is <code>null</code>.
+   */
+  public void play(String animation) {
+    JToggleButton button = "day".equals(animation) ? this.playDayButton
+        : "year".equals(animation) ? this.playYearButton : null;
+    if (button != null) {
+      if (!button.isSelected()) {
+        button.doClick(0);
+      }
+    } else if (this.playDayButton.isSelected()) {
+      this.playDayButton.doClick(0);
+    } else if (this.playYearButton.isSelected()) {
+      this.playYearButton.doClick(0);
+    }
+  }
+
+  /**
+   * Returns <code>day</code> or <code>year</code> if this animation plays, otherwise <code>null</code>.
+   */
+  public String getPlayedAnimation() {
+    return this.playDayButton.isSelected() ? "day" : this.playYearButton.isSelected() ? "year" : null;
+  }
+
+  /**
+   * Updates this panel after a change of the renderer of the 3D view or of its options.
+   */
+  public void update() {
+    refresh();
+  }
+
   public SunStudyPanel(Home home, HomeComponent3D view3D) {
     super(new GridBagLayout());
     this.home = home;

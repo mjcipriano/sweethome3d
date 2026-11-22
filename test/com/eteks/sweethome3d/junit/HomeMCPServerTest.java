@@ -135,7 +135,7 @@ public class HomeMCPServerTest {
 
       response = call(handler, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}");
       List<Object> tools = (List<Object>)((Map<String, Object>)response.get("result")).get("tools");
-      assertEquals(31, tools.size());
+      assertEquals(33, tools.size());
       for (Object tool : tools) {
         Map<String, Object> toolMap = (Map<String, Object>)tool;
         assertNotNull(toolMap.get("name"));
@@ -467,6 +467,148 @@ public class HomeMCPServerTest {
     } finally {
       restoreNo3D(previousNo3D);
     }
+  }
+
+  /**
+   * The pictures of the sun through a day and a year, and the control of its window.
+   */
+  @Test
+  @SuppressWarnings("unchecked")
+  public void testSunStudy() throws Exception {
+    Fixture fixture = new Fixture();
+    HomeMCPHandler handler = fixture.handler;
+    // Paris, the day of the summer solstice at 10:00
+    callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"set_compass\",\"latitude\":48.85,\"longitude\":2.35,"
+        + "\"time_zone\":\"Europe/Paris\"},{\"action\":\"set_sun\",\"date\":\"2026-06-21\",\"time\":\"10:00\"}]}");
+    final long time = fixture.home.getCamera().getTime();
+    final List<HomeMCPHandler.Image3DRequest> requests = new java.util.ArrayList<HomeMCPHandler.Image3DRequest>();
+    handler.setImageProvider(new HomeMCPHandler.ImageProvider() {
+        public byte [] getPlanImage(int maxSize, com.eteks.sweethome3d.model.Level level, float [] area) {
+          return null;
+        }
+
+        public HomeMCPHandler.Image3D get3DImage(HomeMCPHandler.Image3DRequest request) {
+          requests.add(request);
+          return new HomeMCPHandler.Image3D(new byte [] {(byte)requests.size()}, null, "Drawn by a test");
+        }
+
+        public byte [] getCatalogImage(String name, boolean texture) {
+          return null;
+        }
+
+        public String get3DInfo() {
+          return "";
+        }
+      });
+    // Without the application, no picture and no window
+    assertEquals(Boolean.TRUE, callTool(handler, "get_sun_study_image", "{}").get("isError"));
+    assertEquals(Boolean.TRUE, callTool(handler, "sun_study", "{}").get("isError"));
+    final List<String> calls = new java.util.ArrayList<String>();
+    final String [][] sheetCaptions = new String [1][];
+    handler.setSunStudyView(new HomeMCPHandler.SunStudyView() {
+        public void showWindow(boolean visible) {
+          calls.add("window " + visible);
+        }
+
+        public void play(String animation) {
+          calls.add("play " + animation);
+        }
+
+        public void setDisplay(Boolean openGL, Boolean shadows) {
+          calls.add("display " + openGL + " " + shadows);
+        }
+
+        public String describe() {
+          return "State of the test.";
+        }
+
+        public byte [] createContactSheet(byte [][] images, String [] captions, int columns) {
+          sheetCaptions [0] = captions;
+          return new byte [] {(byte)images.length, (byte)columns};
+        }
+      });
+
+    // A day: 6 pictures between sunrise and sunset, of a copy of the home at each time
+    Map<String, Object> result = callTool(handler, "get_sun_study_image", "{\"view\":\"top\"}");
+    assertEquals(Boolean.FALSE, result.get("isError"));
+    Map<String, Object> image = (Map<String, Object>)((List<Object>)result.get("content")).get(0);
+    assertEquals(java.util.Base64.getEncoder().encodeToString(new byte [] {6, 3}), image.get("data"));
+    String text = (String)((Map<String, Object>)((List<Object>)result.get("content")).get(1)).get("text");
+    assertTrue(text, text.startsWith("Drawn by a test, 6 pictures of 400 x 260 pixels")
+        && text.contains("The day 2026-06-21, sunrise at 05:47 and sunset at 21:58")
+        && text.contains("\n6. 2026-06-21 20:35: sun "));
+    assertEquals(6, requests.size());
+    long previousTime = 0;
+    for (HomeMCPHandler.Image3DRequest request : requests) {
+      Home drawnHome = request.getDrawnHome();
+      assertTrue(fixture.home != drawnHome);
+      assertEquals("true", drawnHome.getProperty("sunFollowsTime"));
+      assertNull(drawnHome.getProperty("sunFalseColorsMaximum"));
+      assertTrue(drawnHome.getCamera().getTime() > previousTime);
+      assertEquals(drawnHome.getCamera().getTime(), drawnHome.getTopCamera().getTime());
+      previousTime = drawnHome.getCamera().getTime();
+      assertEquals(400, request.getWidth());
+      assertTrue(request.getPose().isAerial());
+    }
+    assertTrue(sheetCaptions [0][0], sheetCaptions [0][0].startsWith("2026-06-21 07:10   sun "));
+    assertEquals("The sun of the home didn't move", time, fixture.home.getCamera().getTime());
+    assertNull(fixture.home.getProperty("sunFollowsTime"));
+
+    // Given hours include both ends
+    requests.clear();
+    result = callTool(handler, "get_sun_study_image", "{\"from\":\"08:00\",\"to\":\"18:00\",\"steps\":3,"
+        + "\"date\":\"2026-12-21\",\"false_colors\":true,\"width\":2000}");
+    text = (String)((Map<String, Object>)((List<Object>)result.get("content")).get(1)).get("text");
+    assertTrue(text, text.contains("3 pictures of 800 x 260") && text.contains("1. 2026-12-21 08:00: the sun is ")
+        && text.contains("2. 2026-12-21 13:00: sun 17.") && text.contains("3. 2026-12-21 18:00")
+        && text.contains("red 120000 lux"));
+    assertEquals("120000", requests.get(0).getDrawnHome().getProperty("sunFalseColorsMaximum"));
+    assertEquals("2026-12-21 08:00   sun down", sheetCaptions [0][0]);
+
+    // A year: the equinoxes and the solstices at the time of the home, or the 21st of months
+    requests.clear();
+    result = callTool(handler, "get_sun_study_image", "{\"sweep\":\"year\",\"false_colors\":30000}");
+    text = (String)((Map<String, Object>)((List<Object>)result.get("content")).get(1)).get("text");
+    assertTrue(text, text.contains("The year 2026 at 10:00") && text.contains("1. 2026-03-20 10:00")
+        && text.contains("2. 2026-06-21 10:00") && text.contains("3. 2026-09-22 10:00") && text.contains("4. 2026-12-21 10:00")
+        && text.contains("red 30000 lux"));
+    assertEquals(4, requests.size());
+    result = callTool(handler, "get_sun_study_image", "{\"sweep\":\"year\",\"steps\":12,\"time\":\"15:30\"}");
+    text = (String)((Map<String, Object>)((List<Object>)result.get("content")).get(1)).get("text");
+    assertTrue(text, text.contains("1. 2026-01-21 15:30") && text.contains("12. 2026-12-21 15:30"));
+    assertEquals(Boolean.TRUE, callTool(handler, "get_sun_study_image", "{\"sweep\":\"year\",\"steps\":5}").get("isError"));
+    assertEquals(Boolean.TRUE, callTool(handler, "get_sun_study_image", "{\"steps\":20}").get("isError"));
+    assertEquals(Boolean.TRUE, callTool(handler, "get_sun_study_image", "{\"from\":\"18:00\",\"to\":\"9:00\"}").get("isError"));
+    assertEquals(Boolean.TRUE, callTool(handler, "get_sun_study_image", "{\"sweep\":\"month\"}").get("isError"));
+    assertEquals(Boolean.TRUE, callTool(handler, "get_sun_study_image", "{\"date\":\"June 21\"}").get("isError"));
+
+    // The window, its animations and the renderer of the 3D view
+    assertEquals("State of the test.", text(callTool(handler, "sun_study", "{}")));
+    assertTrue(calls.toString(), calls.isEmpty());
+    result = callTool(handler, "sun_study", "{\"window\":\"open\",\"renderer\":\"opengl\",\"shadows\":true}");
+    assertEquals(Boolean.FALSE, result.get("isError"));
+    assertEquals("[display true true, window true]", calls.toString());
+    calls.clear();
+    result = callTool(handler, "sun_study", "{\"play\":\"day\"}");
+    assertTrue(text(result), text(result).startsWith("State of the test. It was switched to the light of the sun")
+        && text(result).contains("changes the time"));
+    assertEquals("[play day]", calls.toString());
+    assertEquals("true", fixture.home.getProperty("sunFollowsTime"));
+    calls.clear();
+    callTool(handler, "sun_study", "{\"play\":\"stop\",\"window\":\"close\",\"renderer\":\"java3d\"}");
+    assertEquals("[display false null, play null, window false]", calls.toString());
+    assertEquals(Boolean.TRUE, callTool(handler, "sun_study", "{\"play\":\"month\"}").get("isError"));
+    assertEquals(Boolean.TRUE, callTool(handler, "sun_study", "{\"window\":\"close\",\"play\":\"year\"}").get("isError"));
+    assertEquals(Boolean.TRUE, callTool(handler, "sun_study", "{\"renderer\":\"vulkan\"}").get("isError"));
+
+    // Without the permission to change things, only the window and the stop
+    handler.setEditingAllowed(false);
+    calls.clear();
+    assertEquals(Boolean.TRUE, callTool(handler, "sun_study", "{\"play\":\"year\"}").get("isError"));
+    assertEquals(Boolean.TRUE, callTool(handler, "sun_study", "{\"shadows\":false}").get("isError"));
+    assertEquals(Boolean.FALSE, callTool(handler, "sun_study", "{\"window\":\"open\",\"play\":\"stop\"}").get("isError"));
+    assertEquals("[window true, play null]", calls.toString());
+    assertEquals(Boolean.FALSE, callTool(handler, "get_sun_study_image", "{\"steps\":2}").get("isError"));
   }
 
   @Test
@@ -848,7 +990,7 @@ public class HomeMCPServerTest {
       Map<String, Object> result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [0])).get("result");
       assertEquals("2025-06-18", result.get("protocolVersion"));
       result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [1])).get("result");
-      assertEquals(31, ((List<Object>)result.get("tools")).size());
+      assertEquals(33, ((List<Object>)result.get("tools")).size());
       result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [2])).get("result");
       assertEquals(Boolean.TRUE, result.get("isError"));
       assertTrue(lines [2], lines [2].contains("Start server"));

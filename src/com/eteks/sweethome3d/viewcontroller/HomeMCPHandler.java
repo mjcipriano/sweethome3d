@@ -309,6 +309,60 @@ public class HomeMCPHandler {
   }
 
   /**
+   * What this handler asks the application to do with the window of the sun
+   * and with the 3D view displayed on screen.
+   */
+  public interface SunStudyView {
+    /**
+     * Shows or closes the window "Sun and shadows" of the home.
+     */
+    void showWindow(boolean visible) throws Exception;
+
+    /**
+     * Plays in that window the <code>day</code> from sunrise to sunset or the days of the
+     * <code>year</code>, or stops the animation if <code>animation</code> is <code>null</code>.
+     */
+    void play(String animation) throws Exception;
+
+    /**
+     * Chooses the renderer of the 3D view on screen and whether it shows shadows.
+     * A <code>null</code> parameter leaves the choice as it is.
+     */
+    void setDisplay(Boolean openGL, Boolean shadows) throws Exception;
+
+    /**
+     * Returns a sentence about the window, its animation and the renderer of the 3D view.
+     */
+    String describe();
+
+    /**
+     * Returns a PNG image showing the given PNG images of the same size in a grid,
+     * each with its caption under it, or <code>null</code> if they can't be read.
+     */
+    byte [] createContactSheet(byte [][] images, String [] captions, int columns);
+  }
+
+  private volatile SunStudyView sunStudyView;
+
+  /**
+   * Sets the object that shows the window of the sun and draws its pictures.
+   */
+  public void setSunStudyView(SunStudyView sunStudyView) {
+    this.sunStudyView = sunStudyView;
+  }
+
+  /**
+   * The instants of the pictures of a sun study.
+   */
+  private static class SunSweep {
+    private long []   times;
+    private String [] captions;
+    private String    falseColors;
+    private int       columns;
+    private String    text;
+  }
+
+  /**
    * Draws lines and texts over a picture.
    */
   public interface ImageAnnotator {
@@ -631,6 +685,8 @@ public class HomeMCPHandler {
         + "so you can look at your work from several sides without moving the camera of the user, "
         + "\"levels\":\"selected\" to see a floor without the roof and the floors above, and renders with OpenGL in a few seconds "
         + "or with the ray tracer, much slower; get_3d_info tells the camera, the stored points of view and the renderers; "
+        + "get_sun_study_image shows the shadows of the sun at several hours of a day or dates of a year in one picture, "
+        + "and sun_study opens the window of the sun of the user, plays its animations and chooses the renderer of the 3D view on screen; "
         + "get_catalog_image shows the icons of catalog pieces and textures to choose between search results; add_stairs joins two levels (straight, L or U shaped, with handrails); move_to_level moves items to another level; set_background_image displays the picture of a floor plan behind the plan to trace it (look at it with get_plan_image); get_report gives areas and quantities; add_picture, import_furniture and import_texture bring pictures, 3D model files and texture images of this computer into the home; export_blender prepares a high quality render. "
         + "When no catalog piece fits what is asked, make one: create_furniture builds a piece from simple parts "
         + "(boxes, cylinders, cones, spheres, each with its size, place and color), which you should then look at with "
@@ -662,7 +718,7 @@ public class HomeMCPHandler {
     return "get_home".equals(name) || "list_catalog".equals(name) || "search_catalog".equals(name)
         || "search_textures".equals(name) || "check_home".equals(name) || "get_report".equals(name) || "get_plan_image".equals(name)
         || "get_3d_image".equals(name) || "get_3d_info".equals(name) || "get_catalog_image".equals(name)
-        || "export_blender".equals(name)
+        || "export_blender".equals(name) || "get_sun_study_image".equals(name) || "sun_study".equals(name)
         || "get_notes".equals(name) || "update_note".equals(name)
         || "apply_commands".equals(name) || "undo".equals(name) || "redo".equals(name)
         || "save_version".equals(name) || "list_versions".equals(name) || "compare_versions".equals(name)
@@ -850,6 +906,57 @@ public class HomeMCPHandler {
         "Returns the camera of the home (place, direction, field of view), the points of view stored in the home, "
         + "the levels, the views get_3d_image accepts, and the renderers available for its pictures with their options.",
         schema(null), true));
+    Map<String, Object> sunImageProperties = new LinkedHashMap<String, Object>();
+    sunImageProperties.put("sweep", enumProperty(
+        "day (default): the hours of one day, from sunrise to sunset. year: dates of the year at the same local time",
+        "day", "year"));
+    sunImageProperties.put("steps", property("number",
+        "Number of pictures: from 2 to 12 for a day (default 6); 2, 3, 4, 6 or 12 for a year (default 4: "
+        + "the equinoxes and the solstices; 12: the 21st of each month)"));
+    sunImageProperties.put("date", property("string", "The day shown, or the year of a year sweep, as YYYY-MM-DD (default: the date of the sun of the home)"));
+    sunImageProperties.put("time", property("string", "Year sweep: the local time shown, as HH:MM (default: the time of the sun of the home)"));
+    sunImageProperties.put("from", property("string", "Day sweep: local time of the first picture, as HH:MM (default: after sunrise)"));
+    sunImageProperties.put("to", property("string", "Day sweep: local time of the last picture, as HH:MM (default: before sunset)"));
+    Map<String, Object> falseColorsProperty = property("string",
+        "true to color the pictures by the light the surfaces receive, a number of lux for the light shown by the last color, "
+        + "false for the real colors (default: as the 3D view of the home)");
+    // A boolean or a number
+    falseColorsProperty.remove("type");
+    sunImageProperties.put("false_colors", falseColorsProperty);
+    for (Map.Entry<String, Object> imageProperty : image3DProperties.entrySet()) {
+      String propertyName = imageProperty.getKey();
+      if (!"store_as".equals(propertyName) && !propertyName.startsWith("compare_")) {
+        sunImageProperties.put(propertyName, imageProperty.getValue());
+      }
+    }
+    sunImageProperties.put("width", property("number", "Width of each picture in pixels, from 160 to 800 (default 400)"));
+    sunImageProperties.put("height", property("number", "Height of each picture in pixels, from 120 to 600 (default 260)"));
+    tools.add(tool("get_sun_study_image", "Pictures of the sun through a day or a year",
+        "Renders one PNG showing the home in 3D at several hours of a day, or at several dates of a year, each lit and shadowed "
+        + "from where the sun is at the latitude, longitude, time zone and north of the compass (set_compass), with its date, "
+        + "time and sun height written under it: where the shadows of trees and buildings fall, hour after hour or season "
+        + "after season. The date and time of the home, and its 3D view, don't change (the set_sun command changes them). "
+        + "The view is chosen as in get_3d_image: {\"sweep\":\"day\",\"date\":\"2026-06-21\",\"view\":\"top\"}, "
+        + "{\"sweep\":\"year\",\"time\":\"12:00\",\"view\":\"south_east\",\"false_colors\":true}. "
+        + "The answer lists the height and azimuth of the sun, the length of shadows and the light on the ground of each picture.",
+        schema(sunImageProperties), true));
+    Map<String, Object> sunStudyProperties = new LinkedHashMap<String, Object>();
+    sunStudyProperties.put("window", enumProperty("open or close the window \"Sun and shadows\" of the user", "open", "close"));
+    sunStudyProperties.put("play", enumProperty(
+        "day: animates the 3D view of the user from sunrise to sunset of the current date; year: day after day of the year "
+        + "at the current time; stop: stops the animation. An animation runs until it is stopped", "day", "year", "stop"));
+    sunStudyProperties.put("renderer", enumProperty(
+        "The renderer of the 3D view on screen: opengl shows shadows and false colors, java3d doesn't. "
+        + "It is a preference of the user kept for all homes", "opengl", "java3d"));
+    sunStudyProperties.put("shadows", property("boolean", "Whether the 3D view on screen shows shadows (OpenGL renderer; a preference of the user)"));
+    tools.add(tool("sun_study", "Window of the sun and 3D view on screen",
+        "Controls what the user sees of the sun on screen: opens or closes the window \"Sun and shadows\" (place, calendar, "
+        + "sliders of the day and of the year, false colors), plays or stops its animations of the day and of the year, and "
+        + "chooses the renderer and the shadows of the 3D view. Without arguments, tells their state. The date, the time, "
+        + "the false colors and the light from the sun are set by the set_sun command, the latitude, longitude, time zone "
+        + "and north by set_compass; the pictures of get_3d_image and get_sun_study_image don't depend on this tool. "
+        + "Only when the user asks to see or to animate the sun in the application.",
+        schema(sunStudyProperties), false));
     Map<String, Object> catalogImageProperties = new LinkedHashMap<String, Object>();
     Map<String, Object> namesProperty = property("array", "Exact names of catalog pieces (or of textures), at most 8");
     namesProperty.put("items", property("string", "A name given by search_catalog, list_catalog or search_textures"));
@@ -1095,6 +1202,10 @@ public class HomeMCPHandler {
       return get3DImage(arguments);
     } else if ("get_3d_info".equals(name)) {
       return toolResult(get3DInfo(), false);
+    } else if ("get_sun_study_image".equals(name)) {
+      return getSunStudyImage(arguments);
+    } else if ("sun_study".equals(name)) {
+      return sunStudy(arguments);
     } else if ("get_catalog_image".equals(name)) {
       return getCatalogImages(arguments);
     } else if ("search_textures".equals(name)) {
@@ -1330,6 +1441,290 @@ public class HomeMCPHandler {
 
   @SuppressWarnings("unchecked")
   private Map<String, Object> get3DImage(Map<String, Object> arguments) {
+    return get3DImage(arguments, null);
+  }
+
+  /**
+   * Returns the picture of the home at the instants of <code>sweep</code>,
+   * seen as the arguments of <code>get_3d_image</code> tell.
+   */
+  private Map<String, Object> getSunStudyImage(Map<String, Object> arguments) {
+    if (this.sunStudyView == null) {
+      return toolResult("The pictures of the sun can't be drawn here.", true);
+    }
+    SunSweep sweep;
+    try {
+      sweep = createSunSweep(arguments);
+    } catch (IllegalArgumentException ex) {
+      return toolResult(ex.getMessage(), true);
+    }
+    Map<String, Object> imageArguments = new LinkedHashMap<String, Object>(arguments);
+    imageArguments.remove("store_as");
+    imageArguments.remove("compare_with");
+    imageArguments.put("width", Integer.valueOf((int)Math.max(160, Math.min(800, number(arguments, "width", 400)))));
+    imageArguments.put("height", Integer.valueOf((int)Math.max(120, Math.min(600, number(arguments, "height", 260)))));
+    return get3DImage(imageArguments, sweep);
+  }
+
+  /**
+   * Returns the minutes of a time written HH:MM, or -1 if <code>time</code> is <code>null</code>.
+   */
+  private static int parseMinutes(String time, String name) {
+    if (time == null) {
+      return -1;
+    }
+    java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(\\d{1,2}):(\\d{2})").matcher(time.trim());
+    if (!matcher.matches() || Integer.parseInt(matcher.group(1)) > 23 || Integer.parseInt(matcher.group(2)) > 59) {
+      throw new IllegalArgumentException("\"" + name + "\" is written HH:MM, from 00:00 to 23:59.");
+    }
+    return Integer.parseInt(matcher.group(1)) * 60 + Integer.parseInt(matcher.group(2));
+  }
+
+  /**
+   * Returns the instants of the pictures a sun study asks for, with their captions.
+   */
+  private SunSweep createSunSweep(Map<String, Object> arguments) {
+    String mode = string(arguments, "sweep") != null ? string(arguments, "sweep").toLowerCase() : "day";
+    if (!"day".equals(mode) && !"year".equals(mode)) {
+      throw new IllegalArgumentException("\"sweep\" is day or year.");
+    }
+    java.util.TimeZone utc = java.util.TimeZone.getTimeZone("UTC");
+    // As the time of cameras, a calendar in UTC whose fields are the local date and time of the place
+    java.util.Calendar calendar = new java.util.GregorianCalendar(utc);
+    calendar.setTimeInMillis(this.home.getCamera().getTime());
+    calendar.set(java.util.Calendar.SECOND, 0);
+    calendar.set(java.util.Calendar.MILLISECOND, 0);
+    String date = string(arguments, "date");
+    if (date != null) {
+      java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(\\d{4})-(\\d{1,2})-(\\d{1,2})").matcher(date.trim());
+      if (!matcher.matches() || Integer.parseInt(matcher.group(2)) < 1 || Integer.parseInt(matcher.group(2)) > 12
+          || Integer.parseInt(matcher.group(3)) < 1 || Integer.parseInt(matcher.group(3)) > 31) {
+        throw new IllegalArgumentException("\"date\" is written YYYY-MM-DD.");
+      }
+      calendar.set(Integer.parseInt(matcher.group(1)), Integer.parseInt(matcher.group(2)) - 1, Integer.parseInt(matcher.group(3)));
+    }
+    int minutes = parseMinutes(string(arguments, "time"), "time");
+    if (minutes >= 0) {
+      calendar.set(java.util.Calendar.HOUR_OF_DAY, minutes / 60);
+      calendar.set(java.util.Calendar.MINUTE, minutes % 60);
+    }
+    com.eteks.sweethome3d.model.Compass compass = this.home.getCompass();
+    java.util.TimeZone timeZone = java.util.TimeZone.getTimeZone(compass.getTimeZone());
+    double latitude = Math.toDegrees(compass.getLatitude());
+    double longitude = Math.toDegrees(compass.getLongitude());
+    SunSweep sweep = new SunSweep();
+    String title;
+    if ("day".equals(mode)) {
+      int steps = (int)number(arguments, "steps", 6);
+      if (steps < 2 || steps > 12) {
+        throw new IllegalArgumentException("\"steps\" goes from 2 to 12 for a day.");
+      }
+      int from = parseMinutes(string(arguments, "from"), "from");
+      int to = parseMinutes(string(arguments, "to"), "to");
+      // Between sunrise and sunset by default, away from both where nothing is lit yet
+      boolean daylight = from < 0 && to < 0;
+      String daylightText = "";
+      if (from < 0 || to < 0) {
+        long [] instants = com.eteks.sweethome3d.model.SunPosition.getSunriseNoonSunset(
+            Camera.convertTimeToTimeZone(calendar.getTimeInMillis(), compass.getTimeZone()), timeZone, latitude, longitude);
+        int sunrise = 0;
+        int sunset = 24 * 60;
+        if (instants [0] != Long.MIN_VALUE && instants [2] != Long.MIN_VALUE) {
+          java.util.Calendar local = new java.util.GregorianCalendar(timeZone);
+          local.setTimeInMillis(instants [0] + 30000);
+          sunrise = local.get(java.util.Calendar.HOUR_OF_DAY) * 60 + local.get(java.util.Calendar.MINUTE);
+          local.setTimeInMillis(instants [2] + 30000);
+          sunset = local.get(java.util.Calendar.HOUR_OF_DAY) * 60 + local.get(java.util.Calendar.MINUTE);
+          daylightText = String.format(java.util.Locale.US, ", sunrise at %02d:%02d and sunset at %02d:%02d",
+              sunrise / 60, sunrise % 60, sunset / 60, sunset % 60);
+        } else {
+          daylightText = ", a day when the sun doesn't cross the horizon";
+        }
+        from = from < 0 ? sunrise : from;
+        to = to < 0 ? sunset : to;
+      }
+      if (to <= from) {
+        throw new IllegalArgumentException("\"to\" must be later than \"from\" (" + String.format(java.util.Locale.US,
+            "%02d:%02d", from / 60, from % 60) + ").");
+      }
+      sweep.times = new long [steps];
+      for (int i = 0; i < steps; i++) {
+        double stepMinutes = daylight
+            ? from + (to - from) * (i + 0.5) / steps
+            : from + (to - from) * (double)i / (steps - 1);
+        int rounded = (int)Math.max(0, Math.min(24 * 60 - 5, Math.round(stepMinutes / 5) * 5));
+        calendar.set(java.util.Calendar.HOUR_OF_DAY, rounded / 60);
+        calendar.set(java.util.Calendar.MINUTE, rounded % 60);
+        sweep.times [i] = calendar.getTimeInMillis();
+      }
+      title = String.format(java.util.Locale.US, "The day %04d-%02d-%02d", calendar.get(java.util.Calendar.YEAR),
+          calendar.get(java.util.Calendar.MONTH) + 1, calendar.get(java.util.Calendar.DAY_OF_MONTH)) + daylightText;
+    } else {
+      int steps = (int)number(arguments, "steps", 4);
+      if (steps < 2 || steps > 12 || 12 % steps != 0) {
+        throw new IllegalArgumentException("\"steps\" is 2, 3, 4, 6 or 12 for a year.");
+      }
+      int [][] seasons = {{2, 20}, {5, 21}, {8, 22}, {11, 21}};
+      sweep.times = new long [steps];
+      for (int i = 0; i < steps; i++) {
+        // The equinoxes and the solstices, or the 21st of months
+        int month = steps == 4 ? seasons [i][0] : (i + 1) * 12 / steps - 1;
+        int day = steps == 4 ? seasons [i][1] : 21;
+        calendar.set(calendar.get(java.util.Calendar.YEAR), month, day);
+        sweep.times [i] = calendar.getTimeInMillis();
+      }
+      title = String.format(java.util.Locale.US, "The year %04d at %02d:%02d", calendar.get(java.util.Calendar.YEAR),
+          calendar.get(java.util.Calendar.HOUR_OF_DAY), calendar.get(java.util.Calendar.MINUTE));
+    }
+    // False colors of the light level: as the home, true, false or the light of the last color
+    sweep.falseColors = this.home.getProperty(AssistantSceneCommands.SUN_FALSE_COLORS_PROPERTY);
+    Object falseColors = arguments.get("false_colors");
+    if (falseColors instanceof Number
+        || falseColors instanceof String && ((String)falseColors).trim().matches("\\d+(\\.\\d+)?")) {
+      double maximum = falseColors instanceof Number
+          ? ((Number)falseColors).doubleValue() : Double.parseDouble(((String)falseColors).trim());
+      if (maximum < 100 || maximum > 200000) {
+        throw new IllegalArgumentException("\"false_colors\" is true, false, or the light in lux shown by the last color, from 100 to 200000.");
+      }
+      sweep.falseColors = String.valueOf(Math.round(maximum));
+    } else if (falseColors != null) {
+      sweep.falseColors = bool(arguments, "false_colors", false) || "true".equalsIgnoreCase(String.valueOf(falseColors))
+          ? "120000" : null;
+    }
+    int count = sweep.times.length;
+    sweep.columns = count <= 4 ? count : count <= 6 ? 3 : 4;
+    sweep.captions = new String [count];
+    String [] directions = {"north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"};
+    String [] shortDirections = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+    StringBuilder text = new StringBuilder(title + String.format(java.util.Locale.US,
+        " (%s), latitude %.2f, longitude %.2f, from left to right then top to bottom:", compass.getTimeZone(), latitude, longitude));
+    for (int i = 0; i < count; i++) {
+      calendar.setTimeInMillis(sweep.times [i]);
+      String when = String.format(java.util.Locale.US, "%04d-%02d-%02d %02d:%02d", calendar.get(java.util.Calendar.YEAR),
+          calendar.get(java.util.Calendar.MONTH) + 1, calendar.get(java.util.Calendar.DAY_OF_MONTH),
+          calendar.get(java.util.Calendar.HOUR_OF_DAY), calendar.get(java.util.Calendar.MINUTE));
+      com.eteks.sweethome3d.model.SunPosition sun = com.eteks.sweethome3d.model.SunPosition.getInstance(
+          Camera.convertTimeToTimeZone(sweep.times [i], compass.getTimeZone()), latitude, longitude);
+      double elevation = sun.getApparentElevation();
+      int direction = (int)Math.round(sun.getAzimuth() / 45) % 8;
+      text.append("\n").append(i + 1).append(". ").append(when).append(": ");
+      if (elevation > 0) {
+        sweep.captions [i] = when + String.format(java.util.Locale.US, "   sun %.0f\u00b0 %s", elevation, shortDirections [direction]);
+        text.append(String.format(java.util.Locale.US, "sun %.1f degrees above the horizon, in the %s (azimuth %.1f), "
+            + "shadows %.2f times as long as the things are high, %d lux on the ground in the sun and %d in the shade",
+            elevation, directions [direction], sun.getAzimuth(), sun.getShadowLength(),
+            Math.round((sun.getDirectNormalIlluminance() * Math.sin(Math.toRadians(elevation))
+                + sun.getDiffuseHorizontalIlluminance()) / 100) * 100,
+            Math.round(sun.getDiffuseHorizontalIlluminance() / 100) * 100));
+      } else {
+        sweep.captions [i] = when + "   sun down";
+        text.append(String.format(java.util.Locale.US, "the sun is %.1f degrees under the horizon", -elevation));
+      }
+    }
+    if (sweep.falseColors != null) {
+      text.append("\nFalse colors of the light received by clear sky from the sun and the sky: dark blue 0 lux, light blue, cyan, "
+          + "green, yellow, orange, then red ").append(sweep.falseColors).append(" lux and more (the sky isn't hidden by what is "
+          + "over a surface, so the light under a roof is overestimated outside the sun patches).");
+    }
+    sweep.text = text.toString();
+    return sweep;
+  }
+
+  /**
+   * Returns the pictures of the home at the instants of <code>sweep</code> in one image.
+   */
+  private Image3D drawSunSweep(ImageProvider provider, SunSweep sweep, int width, int height, String renderer,
+                               boolean shadows, boolean ambientOcclusion, boolean highQuality,
+                               HomeViewpoints.Pose pose, Level level, boolean allLevels, int timeout) {
+    SunStudyView view = this.sunStudyView;
+    byte [][] images = new byte [sweep.times.length][];
+    String description = null;
+    for (int i = 0; i < images.length; i++) {
+      // A copy of the home at that instant: the home of the user keeps its date and its time
+      Home drawnHome = this.home.clone();
+      for (Camera camera : new Camera [] {drawnHome.getTopCamera(), drawnHome.getObserverCamera(), drawnHome.getCamera()}) {
+        camera.setTime(sweep.times [i]);
+      }
+      drawnHome.setProperty(AssistantSceneCommands.SUN_FOLLOWS_TIME_PROPERTY, "true");
+      drawnHome.setProperty(AssistantSceneCommands.SUN_FALSE_COLORS_PROPERTY, sweep.falseColors);
+      int levelIndex = level != null ? this.home.getLevels().indexOf(level) : -1;
+      if (levelIndex >= 0 && levelIndex < drawnHome.getLevels().size()) {
+        drawnHome.setSelectedLevel(drawnHome.getLevels().get(levelIndex));
+      }
+      Image3DRequest request = new Image3DRequest(width, height, renderer, shadows, ambientOcclusion, highQuality,
+          pose, null, allLevels, 0, timeout);
+      request.setDrawnHome(drawnHome);
+      Image3D image = provider.get3DImage(request);
+      if (image == null || image.getImage() == null) {
+        return image;
+      }
+      images [i] = image.getImage();
+      if (description == null) {
+        description = image.getDescription();
+      }
+    }
+    byte [] sheet = view != null ? view.createContactSheet(images, sweep.captions, sweep.columns) : null;
+    return sheet != null ? new Image3D(sheet, null, description) : null;
+  }
+
+  /**
+   * Shows the window of the sun, plays its animations and chooses the renderer of the 3D view.
+   */
+  private Map<String, Object> sunStudy(Map<String, Object> arguments) {
+    SunStudyView view = this.sunStudyView;
+    if (view == null) {
+      return toolResult("The window of the sun can't be shown here.", true);
+    }
+    String window = string(arguments, "window") != null ? string(arguments, "window").toLowerCase() : null;
+    String play = string(arguments, "play") != null ? string(arguments, "play").toLowerCase() : null;
+    String renderer = string(arguments, "renderer") != null ? string(arguments, "renderer").toLowerCase() : null;
+    Boolean shadows = arguments.get("shadows") != null ? Boolean.valueOf(bool(arguments, "shadows", true)) : null;
+    if (window != null && !"open".equals(window) && !"close".equals(window)) {
+      return toolResult("\"window\" is open or close.", true);
+    } else if (play != null && !"day".equals(play) && !"year".equals(play) && !"stop".equals(play)) {
+      return toolResult("\"play\" is day, year or stop.", true);
+    } else if (renderer != null && !"opengl".equals(renderer) && !"java3d".equals(renderer)) {
+      return toolResult("\"renderer\" is opengl or java3d.", true);
+    } else if ("close".equals(window) && play != null && !"stop".equals(play)) {
+      return toolResult("An animation plays in the window: it can't be closed in the same call.", true);
+    }
+    boolean playing = play != null && !"stop".equals(play);
+    if ((playing || renderer != null || shadows != null) && !isEditingAllowed()) {
+      return toolResult("Playing the sun changes the date and the time of the home, and the renderer and the shadows are "
+          + "preferences of the user: these need the permission to change things, which the user didn't give "
+          + "(Tools > Claude MCP server). \"window\" and \"play\":\"stop\" work without it.", true);
+    }
+    try {
+      String note = "";
+      if (renderer != null || shadows != null) {
+        view.setDisplay(renderer != null ? Boolean.valueOf("opengl".equals(renderer)) : null, shadows);
+      }
+      if ("open".equals(window)) {
+        view.showWindow(true);
+      }
+      if (playing) {
+        if (this.home.getProperty(AssistantSceneCommands.SUN_FOLLOWS_TIME_PROPERTY) == null) {
+          // Nothing would move in the 3D view otherwise
+          this.home.setProperty(AssistantSceneCommands.SUN_FOLLOWS_TIME_PROPERTY, "true");
+          this.home.setModified(true);
+          note = " It was switched to the light of the sun for the animation (set_sun with \"follow\":false gives its own lights back).";
+        }
+        view.play(play);
+        note += " The animation changes the " + ("day".equals(play) ? "time" : "date")
+            + " of the sun of the home and runs until {\"play\":\"stop\"} or until the user stops it.";
+      } else if (play != null) {
+        view.play(null);
+      }
+      if ("close".equals(window)) {
+        view.showWindow(false);
+      }
+      return toolResult(view.describe() + note, false);
+    } catch (Exception ex) {
+      return toolResult("Couldn't do it: " + (ex.getMessage() != null ? ex.getMessage() : ex.toString()), true);
+    }
+  }
+
+  private Map<String, Object> get3DImage(Map<String, Object> arguments, SunSweep sweep) {
     ImageProvider provider = this.imageProvider;
     if (provider == null) {
       return toolResult("The home can't be rendered in 3D here.", true);
@@ -1475,10 +1870,14 @@ public class HomeMCPHandler {
     }
 
     long start = System.currentTimeMillis();
-    Image3D image = provider.get3DImage(new Image3DRequest(width, height, renderer,
-        bool(arguments, "shadows", true), bool(arguments, "ambient_occlusion", true), highQuality,
-        pose, level, allLevels, savedFile != null && width > 1000 ? 1000 : 0,
-        (int)Math.max(0, Math.min(3600, number(arguments, "timeout", 0)))));
+    Image3D image = sweep != null
+        ? drawSunSweep(provider, sweep, width, height, renderer,
+            bool(arguments, "shadows", true), bool(arguments, "ambient_occlusion", true), highQuality,
+            pose, level, allLevels, (int)Math.max(0, Math.min(3600, number(arguments, "timeout", 0))))
+        : provider.get3DImage(new Image3DRequest(width, height, renderer,
+            bool(arguments, "shadows", true), bool(arguments, "ambient_occlusion", true), highQuality,
+            pose, level, allLevels, savedFile != null && width > 1000 ? 1000 : 0,
+            (int)Math.max(0, Math.min(3600, number(arguments, "timeout", 0)))));
     if (image != null && image.getImage() == null && image.getDescription() != null) {
       return toolResult(image.getDescription(), true);
     }
@@ -1486,10 +1885,14 @@ public class HomeMCPHandler {
       return toolResult("The home can't be rendered in 3D here.", true);
     }
     String description = (image.getDescription() != null ? image.getDescription() + ", " : "")
+        + (sweep != null ? sweep.times.length + " pictures of " : "")
         + width + " x " + height + " pixels, in " + Math.round((System.currentTimeMillis() - start) / 100.) / 10. + " s. "
         + "Seen from: " + viewDescription + ". "
         + (allLevels ? "All levels." : "Levels above "
             + (selectedLevel != null ? "\"" + selectedLevel.getName() + "\"" : "the selected one") + " left out.");
+    if (sweep != null) {
+      description += "\n" + sweep.text;
+    }
     String storeAs = string(arguments, "store_as");
     if (storeAs != null) {
       // Kept in the points of view of the home, to draw the same view again after changes

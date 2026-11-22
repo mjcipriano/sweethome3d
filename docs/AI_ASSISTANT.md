@@ -502,6 +502,13 @@ Round 3 of requests from modeling a real house through the MCP server.
 
 ### Agent control and missing features (2026-11-21, DONE)
 
+- **MCP tools of the sun** (33 tools): `get_sun_study_image` (a day or a
+  year in one picture: `HomeMCPHandler.createSunSweep` computes the instants,
+  `drawSunSweep` draws a clone of the home at each one through
+  `Image3DRequest.setDrawnHome`, `HomePane.createContactSheet` joins them)
+  and `sun_study` (`HomeMCPHandler.SunStudyView`, implemented by `HomePane`
+  with `SunStudyPanel.showDialog`, `closeDialog`, `play` and
+  `HomeComponent3D.setOpenGLRendererSelected`).
 - **MCP tools** (31, were 16): `save_version`, `list_versions`,
   `compare_versions`, `restore_version` (`HomeContents`, one undoable edit
   posted by `HomeController.restoreHomeVersion`), `save_home` (its own file
