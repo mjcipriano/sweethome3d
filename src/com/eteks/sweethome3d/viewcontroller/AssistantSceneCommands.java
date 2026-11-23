@@ -25,6 +25,7 @@ import java.util.Calendar;
 import java.util.GregorianCalendar;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.TimeZone;
 
 import javax.swing.undo.AbstractUndoableEdit;
@@ -89,7 +90,9 @@ class AssistantSceneCommands {
         + "  {\"action\":\"open_door\",\"ids\":[\"F1\"],\"angle\":90}  (turns the leaves of doors and windows on their hinges, in degrees: "
         + "a negative angle opens the other way, 0 or \"open\":false closes. Only the models made with hinges can open: the answer says which can't)\n"
         + "  {\"action\":\"list_materials\",\"id\":\"F1\"}  (the names of the materials of the 3D model of a piece, with the ones changed)\n"
-        + "  {\"action\":\"set_material\",\"ids\":[\"F1\"],\"material\":\"<name>\",\"color\":\"#RRGGBB\"}  (recolors ONE material of the model "
+        + "  {\"action\":\"set_material\",\"ids\":[\"F1\"],\"material\":\"<name>\",\"color\":\"#RRGGBB\"}  (or several materials at once, on \"ids\" or "
+        + "\"where\", with \"materials\":{\"Frame\":\"#A3A7AB\",\"default\":\"#8E9398\"}, \"default\" being every other material and a value "
+        + "being a color or {\"color\",\"texture\",\"shininess\"}. With \"material\", recolors ONE material of the model "
         + "of a piece and leaves the others: the fabric of a sofa without its legs. \"texture\":\"<texture name>\" instead of color, "
         + "\"shininess\":0-100, \"reset\":true to give back the look of the model; material may be a part of the name)\n";
   }
@@ -641,6 +644,23 @@ class AssistantSceneCommands {
     }
   }
 
+  /**
+   * Returns the parameters that give one material of a piece a color, or what a map says.
+   */
+  private Map<String, Object> getMaterialParameters(HomePieceOfFurniture piece, String material, Object value) {
+    Map<String, Object> parameters = new java.util.LinkedHashMap<String, Object>();
+    parameters.put("ids", java.util.Collections.singletonList(this.executor.getId(piece)));
+    parameters.put("material", material);
+    if (value instanceof Map) {
+      for (Map.Entry<?, ?> entry : ((Map<?, ?>)value).entrySet()) {
+        parameters.put(String.valueOf(entry.getKey()), entry.getValue());
+      }
+    } else {
+      parameters.put("color", value);
+    }
+    return parameters;
+  }
+
   private void listMaterials(AssistantCommand command, List<String> notes) throws IOException {
     List<HomePieceOfFurniture> pieces = getPieces(command);
     if (pieces.isEmpty()) {
@@ -664,6 +684,36 @@ class AssistantSceneCommands {
     }
   }
 
+  /**
+   * Returns the names of the materials of the model of a piece with the colors and the textures
+   * they were given, or <code>null</code> if its model can't be read.
+   */
+  String describeMaterials(HomePieceOfFurniture piece) {
+    if (piece.getModel() == null || this.executor.getModelInspector() == null
+        || piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY) != null) {
+      return null;
+    }
+    try {
+      List<String> names = getMaterialNames(piece);
+      if (names.isEmpty()) {
+        return null;
+      }
+      HomeMaterial [] materials = piece.getModelMaterials();
+      StringBuilder text = new StringBuilder("materials of its model: ");
+      for (int i = 0; i < names.size() && i < 40; i++) {
+        text.append(i > 0 ? ", " : "").append('"').append(names.get(i)).append('"');
+        HomeMaterial material = find(materials, names.get(i));
+        if (material != null) {
+          text.append(material.getTexture() != null ? " (texture " + material.getTexture().getName() + ")"
+              : material.getColor() != null ? String.format(" (#%06X)", material.getColor() & 0xFFFFFF) : " (changed)");
+        }
+      }
+      return text.append(names.size() > 40 ? " and " + (names.size() - 40) + " more" : "").toString();
+    } catch (IOException ex) {
+      return null;
+    }
+  }
+
   private static HomeMaterial find(HomeMaterial [] materials, String name) {
     if (materials != null) {
       for (HomeMaterial material : materials) {
@@ -679,6 +729,41 @@ class AssistantSceneCommands {
     List<HomePieceOfFurniture> pieces = getPieces(command);
     if (pieces.isEmpty()) {
       throw new IOException("give the pieces with \"ids\" or \"where\"");
+    }
+    if (command.getParameters().get("materials") instanceof Map) {
+      // Several materials at once: {"Frame":"#A3A7AB","default":"#8E9398"}
+      Map<?, ?> materials = (Map<?, ?>)command.getParameters().get("materials");
+      for (HomePieceOfFurniture piece : pieces) {
+        List<String> names = getMaterialNames(piece);
+        List<String> given = new ArrayList<String>();
+        for (Map.Entry<?, ?> entry : materials.entrySet()) {
+          String key = String.valueOf(entry.getKey());
+          if (key.equalsIgnoreCase("default")) {
+            continue;
+          }
+          boolean found = false;
+          for (String name : names) {
+            if (name.toLowerCase(Locale.ENGLISH).contains(key.trim().toLowerCase(Locale.ENGLISH))) {
+              given.add(name);
+              found = true;
+            }
+          }
+          if (found) {
+            setMaterial(new AssistantCommand("set_material", getMaterialParameters(piece, key, entry.getValue())), tally, notes);
+          } else {
+            notes.add("The model of " + describe(piece) + " has no material named \"" + key + "\"; its materials: " + names);
+          }
+        }
+        Object defaultValue = materials.get("default") != null ? materials.get("default") : materials.get("Default");
+        if (defaultValue != null) {
+          for (String name : names) {
+            if (!given.contains(name)) {
+              setMaterial(new AssistantCommand("set_material", getMaterialParameters(piece, name, defaultValue)), tally, notes);
+            }
+          }
+        }
+      }
+      return;
     }
     boolean reset = command.getBoolean("reset", false);
     String materialName = command.getString("material");

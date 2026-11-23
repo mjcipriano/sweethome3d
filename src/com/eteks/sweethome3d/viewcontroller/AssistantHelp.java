@@ -34,14 +34,14 @@ public final class AssistantHelp {
   private static final String [][] GROUPS = {
       {"Rooms and walls", "add_rectangular_room add_room_shape add_room add_wall modify_room modify_wall"},
       {"Levels and stairs", "add_level select_level modify_level delete_level merge_levels move_to_level add_stairs"},
-      {"Furniture, doors and windows", "search_catalog add_furniture add_door_or_window replace_furniture duplicate "
+      {"Furniture, doors and windows", "search_catalog add_furniture add_door_or_window modify_furniture replace_furniture duplicate "
           + "create_furniture modify_furniture_parts add_picture import_furniture add_to_catalog export_furniture_library "
           + "import_furniture_library furnish_room suggest_layout"},
       {"Changing items", "move rotate resize set_elevation set_visible rename delete select set_plan_visibility describe_item "
           + "reduce_detail restore_detail group align distribute mirror lock add_tags hide_layer"},
       {"Colors, textures and materials", "set_color set_texture apply_style import_texture list_materials set_material"},
       {"Roofs", "add_roof add_dormer modify_dormer remove_dormer modify_roof fit_walls_to_roof headroom auto_roof"},
-      {"Ground and site", "add_slab set_terrain add_polyline add_property_line add_setback modify_polyline set_compass "
+      {"Ground and site", "add_slab set_terrain set_site_defaults add_polyline add_property_line add_setback modify_polyline set_compass "
           + "set_georeference import_parcel get_coordinates"},
       {"Fences, walls and gates", "add_fence add_gate modify_fence extend_fence join_fences split_fence trim_fence offset_fence "
           + "convert_to_fence fence_report"},
@@ -50,7 +50,7 @@ public final class AssistantHelp {
       {"Lights, sun, doors and camera", "set_light set_sun set_environment open_door set_camera store_point_of_view"},
       {"Checks, reports and schedules", "check_home fix_home home_report set_unit_prices export_elevation measure door_schedule "
           + "window_schedule room_schedule schedule export_schedule add_symbol add_symbols symbol_schedule list_symbols "
-          + "framing_estimate"},
+          + "framing_estimate find_duplicates find_floating"},
       {"Undo groups and help", "begin_group help get_capabilities"}};
 
   /**

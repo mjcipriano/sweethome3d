@@ -934,6 +934,30 @@ class AssistantShapeCommands {
     return null;
   }
 
+  /**
+   * Returns the height of the terrain at its point the closest to a point that it doesn't cover,
+   * and the distance to it, or <code>null</code> if the home has no terrain.
+   */
+  float [] getNearestTerrainHeight(float x, float y) {
+    boolean terrain = false;
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      terrain |= piece.getProperty(TERRAIN_PROPERTY) != null;
+    }
+    if (!terrain) {
+      return null;
+    }
+    for (float radius = 25; radius <= 200000; radius *= 1.25f) {
+      for (int i = 0; i < 24; i++) {
+        double angle = Math.PI * 2 * i / 24;
+        Float height = getTerrainHeight(x + (float)Math.cos(angle) * radius, y + (float)Math.sin(angle) * radius);
+        if (height != null) {
+          return new float [] {height, radius};
+        }
+      }
+    }
+    return null;
+  }
+
   // ---- Roofs ----
 
   private static final String [] ROOF_PARAMETERS = {"points", "eave_height", "overhang", "pitch", "thickness", "type",

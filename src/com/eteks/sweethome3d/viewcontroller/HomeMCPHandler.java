@@ -766,13 +766,17 @@ public class HomeMCPHandler {
         "A short list of the items matching every criterion given, as in apply_commands: "
         + "{\"level\":\"<name or L#>\",\"tag\":\"<tag>\",\"name\":\"<text, or Pine|Oak>\","
         + "\"type\":\"furniture|doors_and_windows|lights|stairs|groups|all_furniture|walls|rooms|polylines\","
-        + "\"bbox\":[x1,y1,x2,y2]} (bbox in cm: what is inside that box). One line per item, up to 500");
+        + "\"bbox\":[x1,y1,x2,y2]} (bbox in cm: what is inside that box). Also \"name_regex\":\"^Pine \\\\d+$\" (a regular expression, "
+        + "whatever the case) and \"created_by\":\"agent|user\" (what commands created, or what was drawn by hand). "
+        + "One line per item, up to 500; \"offset\" and \"limit\" read a longer list in pages");
     homeProperties.put("where", whereProperty);
     Map<String, Object> fieldsProperty = property("array",
         "With or without where: one short line per item with only these fields, among name, position, size, level, "
         + "elevation, angle, tags, type, area, points, color (default: name, position, size, level). The id is always given");
     fieldsProperty.put("items", property("string", "A field"));
     homeProperties.put("fields", fieldsProperty);
+    homeProperties.put("offset", property("number", "With where or fields: skips this number of items, to read a long list in pages"));
+    homeProperties.put("limit", property("number", "With where or fields: the number of items listed (500 at most)"));
     tools.add(tool("get_home", "Describe home",
         "Returns a text description of the home open in Sweet Home 3D: levels, rooms with their "
         + "areas, walls, furniture with positions and sizes, and the current selection. Each "
@@ -1025,6 +1029,9 @@ public class HomeMCPHandler {
         "Instead of commands: the absolute path of a JSON file holding the array of commands (or an object with a "
         + "\"commands\" array), for long lists written by a script; up to "
         + AssistantCommandExecutor.MAX_COMMANDS_PER_FILE + " commands, run as one undoable change"));
+    commandsProperties.put("stop_on_error", property("boolean",
+        "true stops at the first command that fails and tells which ones weren't run. By default a command that fails "
+        + "doesn't stop the ones after it, and the answer names it by its number"));
     tools.add(tool("apply_commands", "Edit home",
         "Edits the home open in Sweet Home 3D by running a list of commands as a single "
         + "undoable change, and returns a summary of what was applied or skipped. "
@@ -1198,7 +1205,9 @@ public class HomeMCPHandler {
         fields.addAll(Arrays.asList(((String)arguments.get("fields")).split("[,\\s]+")));
       }
       this.commandExecutor.snapshotDescribedItems();
-      return toolResult(this.commandExecutor.describeItems(where, fields), false);
+      return toolResult(this.commandExecutor.describeItems(where, fields,
+          arguments.get("offset") instanceof Number ? ((Number)arguments.get("offset")).intValue() : 0,
+          arguments.get("limit") instanceof Number ? ((Number)arguments.get("limit")).intValue() : 500), false);
     } else if ("get_home".equals(name)) {
       String levelName = string(arguments, "level");
       if (levelName != null && findLevel(levelName) == null) {
@@ -2383,7 +2392,9 @@ public class HomeMCPHandler {
       }
     }
     if (this.commandExecutor.isGroupOpen()) {
-      text.append("\nA group of calls is open (begin_group): its changes count as one step once ended.");
+      text.append("\nA group of calls is open (begin_group)"
+          + (this.commandExecutor.getGroupName() != null ? ", named \"" + this.commandExecutor.getGroupName() + "\"" : "")
+          + ": its changes count as one step once ended.");
     }
     text.append(this.home.isModified() ? "\nThe home has changes that aren't saved in its file." : "\nThe home is saved.");
     return text.toString();
@@ -2733,7 +2744,13 @@ public class HomeMCPHandler {
       Map<String, Object> command = (Map<String, Object>)item;
       commands.add(new AssistantCommand(command.get("action").toString(), command));
     }
-    String summary = this.commandExecutor.execute(commands, maxCount);
+    this.commandExecutor.setStopOnError(Boolean.TRUE.equals(arguments.get("stop_on_error")));
+    String summary;
+    try {
+      summary = this.commandExecutor.execute(commands, maxCount);
+    } finally {
+      this.commandExecutor.setStopOnError(false);
+    }
     // An id that designates nothing is an error, even if other commands were applied
     return toolResult(summary != null
         ? summary

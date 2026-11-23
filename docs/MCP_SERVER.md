@@ -130,7 +130,7 @@ check its work with a picture.
 | `export_blender` | Writes the model and a Blender scene script in a folder, for a high quality render |
 | `get_notes` | The review notes pinned to walls, furniture and rooms during a visit ([Review notes](REVIEW_NOTES.md)) |
 | `update_note` | Marks a note done with a reply, or deletes it |
-| `apply_commands` | Runs a list of edit commands as one undoable change and returns a summary with the ids of what was created ([Command reference](MCP_COMMANDS.md)). `"file":"<absolute path>"` runs the commands of a JSON file instead, up to 2000 |
+| `apply_commands` | Runs a list of edit commands as one undoable change and returns a summary with the ids of what was created ([Command reference](MCP_COMMANDS.md)). `"file":"<absolute path>"` runs the commands of a JSON file instead, up to 2000. A command that fails is named by its number and doesn't stop the others, unless `"stop_on_error":true` |
 | `undo` / `redo` | Undoes or redoes the last change, or the last `steps` changes |
 | `get_history` | The changes undo and redo would revert or apply again, yours and Claude's |
 | `get_changes` | What you added, deleted or modified by hand since Claude last asked |

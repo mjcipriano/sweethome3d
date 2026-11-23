@@ -67,6 +67,20 @@ A call is a list of commands, each an object with an `action`:
   `get_home` is needed to find them. A command that fails doesn't stop the
   others.
 
+### What a call answers
+
+`apply_commands` runs every command of a call as one step of undo, and its answer has:
+
+- the totals: what was added, modified and deleted;
+- a line for each command that has something to tell, with the ids of what it built;
+- the ids of everything created.
+
+A command that fails doesn't stop the ones after it. When a call has several commands and one of
+them failed or changed nothing, its messages start with `Command N:` and the answer ends with
+`Results by command: 1-3 ok, 4 add_gate failed, 5 ok, 6 move did nothing`. The argument
+`"stop_on_error":true` of `apply_commands` stops at the first command that fails instead, and
+tells how many commands weren't run.
+
 ## Designating items
 
 Every item has an id: `F12` for furniture, doors and windows, `W3` for walls,
@@ -93,7 +107,9 @@ The criteria of `where`:
 | `"tag"` | The furniture with that tag |
 | `"name"` | The items whose name contains this text; `"Pine\|Oak"` matches either |
 | `"type"` | `furniture`, `doors_and_windows`, `lights`, `stairs`, `groups`, `all_furniture`, `walls`, `rooms` or `polylines`; several may be given |
-| `"bbox":[x1,y1,x2,y2]` | The items inside that box |
+| `"bbox":[x1,y1,x2,y2]` | The items inside that box (`box` is accepted too) |
+| `"name_regex"` | The items whose name matches this regular expression, whatever the case: `"^Pine \\d+$"` |
+| `"created_by"` | `agent` for what commands created, `user` for what was drawn by hand |
 
 ```json
 {"action":"move_to_level","where":{"level":"Old","type":"furniture"},"level":"L2"}
@@ -156,7 +172,8 @@ before the stairs; the answer gives the floor size the stairs take.
 
 | Command | What it does |
 | --- | --- |
-| `add_furniture` | A catalog piece by its **exact** name: `name`, `x`, `y`, `angle`, `width`, `depth`, `elevation` |
+| `add_furniture` | A catalog piece by its **exact** name: `name`, `x`, `y`, `angle`, `width`, `depth`, `height`, `elevation`. Also `color`, `tags`, `level`, `name_override` (the name it shows instead of the catalog name), `"mirrored":true`, and `"on_terrain":true` with `offset`. Without `elevation`, a piece put outdoors where a terrain is stands on it. A key that isn't one of these is reported |
+| `modify_furniture` | Changes furniture in one command: place, angle, size, elevation, color, name, tags, level, visibility. See [below](#one-command-to-change-furniture) |
 | `add_door_or_window` | A catalog door or window: `name`, `x`, `y`, `angle`. Give a point of the center line of the wall and the direction of the wall as the angle |
 | `replace_furniture` | Swaps pieces for another catalog piece at the same place, angle, level and tags: `name`, `"keep_size":true` |
 | `duplicate` | Copies of furniture, each shifted by `dx`,`dy`: `count` |
@@ -172,7 +189,7 @@ and `list_catalog` tools find one, and `get_catalog_image` shows it.
 | `move` | `dx`,`dy` (relative) or `x`,`y` (absolute) |
 | `rotate` | `angle` (absolute) or `by` (added); `pitch` or `roll` tilts a piece, and both at 0 set it upright |
 | `resize` | `width`, `depth`, `height` |
-| `set_elevation` | `elevation` above the floor of the level (negative: under it), or `"on_terrain":true` to put the piece on the ground built by `set_terrain` |
+| `set_elevation` | `elevation` above the floor of the level (negative: under it), or `"on_terrain":true` (with `"offset":N` cm above it) to put the piece on the ground built by `set_terrain` |
 | `set_visible` | `"visible":true\|false` |
 | `rename` | `name` |
 | `delete` | Deletes the items |
@@ -180,6 +197,41 @@ and `list_catalog` tools find one, and `get_catalog_image` shows it.
 | `set_plan_visibility` | How the plans of the levels above a piece show it: `"value":"draw\|outline\|hide"` |
 | `describe_item` | Every property of one item, reported in the answer |
 | `reduce_detail` / `restore_detail` | Shows the reduced model of heavy pieces in the 3D view, or the full one |
+
+### One command to change furniture
+
+```json
+{"action":"modify_furniture","where":{"tag":"patio"},"dx":50,"angle":90,"height":80,
+ "on_terrain":true,"color":"#8E9398","name":"Patio chair","add_tags":["outdoor"]}
+```
+
+`modify_furniture` takes furniture by `id`, `ids` or `where`, and only what changes:
+
+| Keys | What changes |
+| --- | --- |
+| `x`, `y`, or `dx`, `dy` | Its place |
+| `angle`, or `by`; `pitch`, `roll` | Its angle |
+| `width`, `depth`, `height` | Its size |
+| `elevation`, or `on_terrain` with `offset` | Its elevation |
+| `color`, `texture` | Its color or its texture |
+| `name` | Its name |
+| `tags`, `add_tags`, `remove_tags` | Its tags |
+| `level` | Its level |
+| `visible` | Whether it shows |
+
+A key that isn't one of these doesn't stop the command: the answer warns about it and lists the
+keys. `move`, `rotate`, `resize`, `set_elevation`, `set_color`, `rename` and `set_tags` still do
+each one of these changes.
+
+### Leftovers
+
+| Command | What it does |
+| --- | --- |
+| `find_duplicates` | The pieces that repeat another one: same model and size, within `tolerance` cm (5) and at the same angle, on any level. The answer ends with the `delete` command that keeps one of each |
+| `find_floating` | The pieces outdoors whose bottom is more than `tolerance` cm (10) above or under the ground built by `set_terrain`. The answer ends with the `set_elevation` command that puts them on it |
+| `set_site_defaults` | `"on_terrain":false` leaves the pieces added outdoors at the elevation 0 of their level; kept with the home |
+
+Both find commands change nothing, and `where` limits them to some pieces.
 
 ## Colors, textures and styles
 
@@ -996,6 +1048,11 @@ Limits to know:
   when it is closed. Only models made with hinges open - the doors and
   windows of the default catalog do, sliding ones and imported models
   without hinges don't, and the answer names them.
+- `set_material` with `"materials":{"Frame":"#A3A7AB","default":"#8E9398"}` changes several
+  materials of the pieces given by `ids` or `where`: each key is a name or a part of a name,
+  `default` is every other material, and a value is a color or
+  `{"color","texture","shininess"}`. `describe_item` lists the materials of a model with the
+  colors and the textures they were given.
 - `set_material`: `material` is a name given by `list_materials`, or a part
   of one (`"fabric"` matches `fabric_seat` and `fabric_back`). `color`,
   or `texture` (a texture name), and `shininess` from 0 to 100.
@@ -1269,9 +1326,11 @@ perimeter of the rooms, door widths included.
 ## Undo groups
 
 ```json
-{"action":"begin_group"}
+{"action":"begin_group","name":"Back yard fences"}
 {"action":"end_group"}
 ```
+
+With a `name`, the group is listed under that name by `get_history` once it is ended.
 
 One call of `apply_commands` is one step of undo. `begin_group` makes one
 step of every call that follows, until `end_group`: a house built in ten

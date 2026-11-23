@@ -344,6 +344,113 @@ public class AssistantFenceCommandsTest {
   }
 
   @Test
+  public void testFurnitureCommands() {
+    // Every key of add_furniture is read
+    String summary = run("{\"action\":\"add_furniture\",\"name\":\"Table\",\"x\":100,\"y\":200,\"angle\":90,\"width\":150,\"depth\":80,"
+        + "\"height\":70,\"elevation\":10,\"color\":\"#336699\",\"tags\":[\"patio\",\"outdoor\"],\"name_override\":\"Patio table\"}");
+    HomePieceOfFurniture table = getPiece("Patio table");
+    assertNotNull(summary, table);
+    assertFalse(summary, summary.contains("Warning"));
+    assertEquals(150, table.getWidth(), 0.01f);
+    assertEquals(70, table.getHeight(), 0.01f);
+    assertEquals(10, table.getElevation(), 0.01f);
+    assertEquals(0x336699, table.getColor() & 0xFFFFFF);
+    assertEquals(90, Math.toDegrees(table.getAngle()), 0.01);
+    assertTrue(table.getProperty("tags"), table.getProperty("tags").contains("patio") && table.getProperty("tags").contains("outdoor"));
+    String id = HomeItemIds.getId(table);
+    // A key it doesn't read is told with the ones it reads
+    summary = run("{\"action\":\"add_furniture\",\"name\":\"Table\",\"x\":500,\"y\":200,\"heigth\":70}");
+    assertTrue(summary, summary.contains("add_furniture ignored the key [heigth]") && summary.contains("name_override"));
+    // One command for every change
+    summary = run("{\"action\":\"modify_furniture\",\"id\":\"" + id + "\",\"x\":300,\"dy\":50,\"angle\":0,\"width\":120,\"height\":75,"
+        + "\"elevation\":0,\"color\":\"#FF0000\",\"name\":\"Red table\",\"add_tags\":[\"red\"],\"visible\":false}");
+    assertTrue(summary, summary.contains("Modified " + id + ": ") && summary.contains("modified 1 item"));
+    assertEquals(300, table.getX(), 0.01f);
+    assertEquals(250, table.getY(), 0.01f);
+    assertEquals(0, table.getAngle(), 0.001f);
+    assertEquals(120, table.getWidth(), 0.01f);
+    assertEquals(75, table.getHeight(), 0.01f);
+    assertEquals(0, table.getElevation(), 0.01f);
+    assertEquals(0xFF0000, table.getColor() & 0xFFFFFF);
+    assertEquals("Red table", table.getName());
+    assertFalse(table.isVisible());
+    assertTrue(table.getProperty("tags"), table.getProperty("tags").contains("red") && table.getProperty("tags").contains("patio"));
+    // One step of undo
+    this.homeController.undo();
+    assertEquals("Patio table", table.getName());
+    assertEquals(100, table.getX(), 0.01f);
+    assertTrue(table.isVisible());
+    summary = run("{\"action\":\"modify_furniture\",\"id\":\"" + id + "\",\"colour\":\"#FF0000\",\"x\":120}");
+    assertTrue(summary, summary.contains("modify_furniture ignored the key [colour]") && summary.contains("Its keys: [id, ids"));
+    assertEquals(120, table.getX(), 0.01f);
+    summary = run("{\"action\":\"modify_furniture\",\"id\":\"F999\",\"x\":120}");
+    assertTrue(summary, summary.contains("Couldn't run modify_furniture"));
+
+    // What each command of a call did
+    summary = run("{\"action\":\"move\",\"id\":\"" + id + "\",\"dx\":10},{\"action\":\"add_fence\",\"points\":[[0,0]]},"
+        + "{\"action\":\"resize\",\"id\":\"" + id + "\",\"width\":-5},{\"action\":\"move\",\"id\":\"" + id + "\",\"dx\":10}");
+    assertTrue(summary, summary.contains("Command 2: Couldn't run add_fence")
+        && summary.contains("Results by command: 1 ok, 2 add_fence failed, 3 resize did nothing, 4 ok"));
+    assertEquals(140, table.getX(), 0.01f);
+    this.executor.setStopOnError(true);
+    summary = run("{\"action\":\"move\",\"id\":\"" + id + "\",\"dx\":10},{\"action\":\"add_fence\",\"points\":[[0,0]]},"
+        + "{\"action\":\"move\",\"id\":\"" + id + "\",\"dx\":10}");
+    this.executor.setStopOnError(false);
+    assertTrue(summary, summary.contains("Stopped at the command 2") && summary.contains("the 1 commands after it weren't run"));
+    assertEquals(150, table.getX(), 0.01f);
+    // A call where everything works stays short
+    summary = run("{\"action\":\"move\",\"id\":\"" + id + "\",\"dx\":10},{\"action\":\"move\",\"id\":\"" + id + "\",\"dx\":10}");
+    assertFalse(summary, summary.contains("Results by command"));
+
+    // Criteria of where
+    run("{\"action\":\"add_furniture\",\"name\":\"Table\",\"x\":900,\"y\":900,\"name_override\":\"Pine 12\"}");
+    summary = run("{\"action\":\"modify_furniture\",\"where\":{\"name_regex\":\"^pine \\\\d+$\"},\"elevation\":33}");
+    assertEquals(33, getPiece("Pine 12").getElevation(), 0.01f);
+    assertEquals(10, table.getElevation(), 0.01f);
+    summary = run("{\"action\":\"modify_furniture\",\"where\":{\"created_by\":\"user\"},\"elevation\":44}");
+    assertTrue(summary, summary.contains("Couldn't run modify_furniture"));
+    summary = run("{\"action\":\"modify_furniture\",\"where\":{\"created_by\":\"agent\",\"box\":[850,850,950,950]},\"elevation\":44}");
+    assertEquals(44, getPiece("Pine 12").getElevation(), 0.01f);
+    summary = run("{\"action\":\"modify_furniture\",\"where\":{\"colour\":\"red\",\"name\":\"Pine\"},\"elevation\":5}");
+    assertTrue(summary, summary.contains("\"where\" ignored [colour]"));
+    assertTrue(this.executor.describeItems(null, null, 1, 1).contains("From the item 2"));
+
+    // The same piece twice at the same place, on two levels
+    run("{\"action\":\"add_furniture\",\"name\":\"Chair\",\"x\":2000,\"y\":2000}");
+    run("{\"action\":\"add_level\",\"name\":\"Upper\",\"elevation\":300}");
+    run("{\"action\":\"add_furniture\",\"name\":\"Chair\",\"x\":2002,\"y\":2000}");
+    summary = run("{\"action\":\"find_duplicates\"}");
+    assertTrue(summary, summary.contains("1 piece is repeated") && summary.contains("[Upper]") && summary.contains("{\"action\":\"delete\",\"ids\":[\""));
+    summary = run("{\"action\":\"find_duplicates\",\"tolerance\":1}");
+    assertTrue(summary, summary.contains("No piece repeats another one"));
+
+    // On the ground, and off it
+    summary = run("{\"action\":\"find_floating\"}");
+    assertTrue(summary, summary.contains("no terrain"));
+    run("{\"action\":\"set_terrain\",\"points\":[[-1000,-1000,100],[3000,-1000,100],[3000,3000,100],[-1000,3000,100]]}");
+    summary = run("{\"action\":\"add_furniture\",\"name\":\"Chair\",\"x\":1500,\"y\":500,\"name_override\":\"Garden chair\"}");
+    // A piece added outdoors stands on the terrain
+    HomePieceOfFurniture chair = getPiece("Garden chair");
+    float floor = chair.getLevel() != null ? chair.getLevel().getElevation() : 0;
+    assertEquals(100, chair.getElevation() + floor, 0.5f);
+    summary = run("{\"action\":\"find_floating\",\"where\":{\"name\":\"Garden chair\"}}");
+    assertTrue(summary, summary.contains("No piece outdoors"));
+    run("{\"action\":\"set_elevation\",\"id\":\"" + HomeItemIds.getId(chair) + "\",\"on_terrain\":true,\"offset\":40}");
+    assertEquals(140, chair.getElevation() + floor, 0.5f);
+    summary = run("{\"action\":\"find_floating\",\"where\":{\"name\":\"Garden chair\"}}");
+    assertTrue(summary, summary.contains("1 piece outdoors isn't on the ground") && summary.contains("40 cm above the ground")
+        && summary.contains("\"on_terrain\":true}"));
+    // Out of the terrain: the height of its closest edge, and a warning
+    summary = run("{\"action\":\"add_furniture\",\"name\":\"Chair\",\"x\":3400,\"y\":500,\"on_terrain\":true,\"name_override\":\"Far chair\"}");
+    assertTrue(summary, summary.contains("out of the terrain") && summary.contains("closest edge, 100 cm"));
+    assertEquals(100, getPiece("Far chair").getElevation() + floor, 0.5f);
+    // The setting of the home
+    run("{\"action\":\"set_site_defaults\",\"on_terrain\":false}");
+    run("{\"action\":\"add_furniture\",\"name\":\"Chair\",\"x\":1500,\"y\":700,\"name_override\":\"Low chair\"}");
+    assertEquals(0, getPiece("Low chair").getElevation(), 0.5f);
+  }
+
+  @Test
   public void testConvertAndReport() {
     // A row of pieces put one by one
     StringBuilder commands = new StringBuilder();
