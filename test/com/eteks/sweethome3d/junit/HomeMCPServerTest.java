@@ -135,7 +135,7 @@ public class HomeMCPServerTest {
 
       response = call(handler, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}");
       List<Object> tools = (List<Object>)((Map<String, Object>)response.get("result")).get("tools");
-      assertEquals(33, tools.size());
+      assertEquals(35, tools.size());
       for (Object tool : tools) {
         Map<String, Object> toolMap = (Map<String, Object>)tool;
         assertNotNull(toolMap.get("name"));
@@ -472,6 +472,44 @@ public class HomeMCPServerTest {
   /**
    * The pictures of the sun through a day and a year, and the control of its window.
    */
+  @Test
+  public void testHelpAndCapabilities() throws Exception {
+    Fixture fixture = new Fixture();
+    HomeMCPHandler handler = fixture.handler;
+    // Every command by area
+    String help = text(callTool(handler, "help", "{}"));
+    assertTrue(help, help.contains("Fences, walls and gates:") && help.contains("\n  add_fence - ")
+        && help.contains("Rooms and walls:") && help.contains("\n  add_rectangular_room - ") && help.contains("\n  help - "));
+    assertFalse(help, help.contains("Other commands"));
+    // One command, with what is related to it
+    help = text(callTool(handler, "help", "{\"command\":\"add_gate\"}"));
+    assertTrue(help, help.startsWith("add_gate\nSyntax: {\"action\":\"add_gate\"") && help.contains("single_swing")
+        && help.contains("Related (Fences, walls and gates): add_fence") && !help.contains("Rules:"));
+    help = text(callTool(handler, "help", "{\"command\":\"add_fence\"}"));
+    assertTrue(help, help.contains("chain_link (diamond mesh") && help.contains("Gate types:"));
+    help = text(callTool(handler, "help", "{\"command\":\"add_fence\",\"style\":\"wrought_iron\"}"));
+    assertTrue(help, help.startsWith("Style of fence ornamental_steel") && help.contains("finials=spear"));
+    help = text(callTool(handler, "help", "{\"command\":\"restore_detail\"}"));
+    assertTrue(help, help.contains("back to full detail") && !help.contains("Rules:") && !help.contains("MUST be names"));
+    // A command told about in the entry of another one, and one that doesn't exist
+    help = text(callTool(handler, "help", "{\"command\":\"remove_gate\"}"));
+    assertTrue(help, help.contains("has no entry of its own") && help.contains("add_gate"));
+    help = text(callTool(handler, "help", "{\"command\":\"teleport\"}"));
+    assertTrue(help, help.startsWith("No command \"teleport\""));
+    // A word
+    help = text(callTool(handler, "help", "{\"search\":\"lot_line\"}"));
+    assertTrue(help, help.contains("1 command mentions \"lot_line\"") && help.contains("add_fence: "));
+    help = text(callTool(handler, "help", "{\"search\":\"lattice\"}"));
+    assertTrue(help, help.contains("Styles of fence with \"lattice\": lattice_top, lattice_panel"));
+    // The same through apply_commands
+    help = text(callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"help\",\"search\":\"dormer\"}]}"));
+    assertTrue(help, help.contains("add_dormer"));
+    String capabilities = text(callTool(handler, "get_capabilities", "{}"));
+    assertTrue(capabilities, capabilities.contains("Fences: 63 styles") && capabilities.contains("100 commands per call")
+        && capabilities.contains("3000 at most") && capabilities.contains("EPSG:4326"));
+    assertTrue(text(callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"get_capabilities\"}]}")).contains("Fences: 63 styles"));
+  }
+
   @Test
   @SuppressWarnings("unchecked")
   public void testSunStudy() throws Exception {
@@ -1044,7 +1082,7 @@ public class HomeMCPServerTest {
       Map<String, Object> result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [0])).get("result");
       assertEquals("2025-06-18", result.get("protocolVersion"));
       result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [1])).get("result");
-      assertEquals(33, ((List<Object>)result.get("tools")).size());
+      assertEquals(35, ((List<Object>)result.get("tools")).size());
       result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [2])).get("result");
       assertEquals(Boolean.TRUE, result.get("isError"));
       assertTrue(lines [2], lines [2].contains("Start server"));

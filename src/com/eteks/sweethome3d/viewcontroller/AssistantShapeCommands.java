@@ -79,6 +79,10 @@ class AssistantShapeCommands {
   private static final int MAX_TERRAIN_POINTS = 3000;
   private static final int MAX_SLAB_POINTS = 200;
 
+  static int getMaxTerrainPoints() {
+    return MAX_TERRAIN_POINTS;
+  }
+
   private final Home                     home;
   private final UserPreferences          preferences;
   private final HomeController           homeController;
@@ -197,7 +201,7 @@ class AssistantShapeCommands {
   /**
    * Replaces the model, the size and the place of a piece, in an undoable way.
    */
-  private void replaceModel(final HomePieceOfFurniture piece, AssistantGeneratedModel model,
+  void replaceModel(final HomePieceOfFurniture piece, AssistantGeneratedModel model,
                             float x, float y, float elevation, Map<String, String> properties) {
     final Object [] before = getModelState(piece, properties.keySet());
     piece.setModel(model.getModel());

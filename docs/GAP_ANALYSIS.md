@@ -21,7 +21,7 @@ Legend: **yes** = available, **new** = added with this analysis, **partly**,
 | Automatic roof | yes | `auto_roof` (assistant) |
 | Stairs generator | yes | `add_stairs`: straight, L, U and spiral |
 | Plan checker (walls that don't meet, doors out of walls...) | yes | `check_home`, `fix_home` |
-| Terrain, garden, landscaping tools | **new**, by commands | `set_terrain`; `add_fence`, `add_hedge`, `add_path`, `add_planting_bed`, `add_trees`; Plan > Garden builds them along a selected line |
+| Terrain, garden, landscaping tools | **new**, by commands | `set_terrain`; `add_fence` (63 styles of fences, walls and barriers, 14 types of gates, quantities and checks), `add_hedge`, `add_path`, `add_planting_bed`, `add_trees`; Plan > Garden builds them along a selected line |
 | 2D elevation and section drawings | yes | File > Export > Export elevation drawing... (outlines in SVG); `get_elevation_image` draws an elevation from the 3D models with its dimensions |
 | Construction documents (framing, schedules, electrical symbols) | **new**, by commands | door, window and room schedules, electrical and plumbing symbols, a framing estimate for a budget. Not structural drawings |
 | Align, distribute, mirror, group, measure | **new** for the assistant | `align`, `distribute`, `mirror`, `group`, `measure` |

@@ -123,6 +123,8 @@ check its work with a picture.
 | `get_plan_image` | PNG picture of the 2D plan of a level, or of a part of it enlarged |
 | `get_3d_image` | PNG picture of the home in 3D (see [Pictures](#pictures)) |
 | `get_3d_info` | The camera, the stored points of view, the levels, the views and the renderers `get_3d_image` accepts |
+| `help` | Every command of `apply_commands` by area with a line on each; `"command":"add_fence"` gives the syntax of one command and the commands related to it, `"search":"gate"` finds a word |
+| `get_capabilities` | The version, what it has (styles of fences, types of gates, coordinate systems, formats) and its limits |
 | `get_sun_study_image` | One picture of the home at several hours of a day, or at several dates of a year, with the shadows of the sun ([below](#sun-study)) |
 | `sun_study` | Opens or closes your window **Sun and shadows**, plays its animations, and chooses the renderer and the shadows of the 3D view on screen ([below](#sun-study)) |
 | `export_blender` | Writes the model and a Blender scene script in a folder, for a high quality render |

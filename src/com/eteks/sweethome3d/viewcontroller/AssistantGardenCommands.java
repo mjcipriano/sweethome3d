@@ -74,11 +74,7 @@ class AssistantGardenCommands {
    * each one starting with two spaces and ending with a new line.
    */
   static String getReference() {
-    return "  {\"action\":\"add_fence\",\"points\":[[x,y],[x,y],...],\"height\":120,\"style\":\"picket|panel|rail|wire\",\"post_spacing\":240}  "
-        + "(a fence as one piece: posts at the corners and every post_spacing cm, rails, pickets, panels or wires between them, "
-        + "each span following the slope of the ground built by set_terrain. \"closed\":true joins the last point to the first; "
-        + "\"gate\":{\"at\":N,\"width\":N} leaves an opening centered N cm along the fence, between two posts; \"color\", \"name\". "
-        + "The answer gives its length and its count of posts)\n"
+    return AssistantFenceCommands.getReference()
         + "  {\"action\":\"add_hedge\",\"points\":[[x,y],[x,y],...],\"height\":150,\"width\":60}  "
         + "(a hedge with chamfered top edges along the line, mitred at its corners, which follows the ground; \"closed\", \"color\", \"name\")\n"
         + "  {\"action\":\"add_path\",\"points\":[[x,y],[x,y],...],\"width\":100}  "
@@ -110,9 +106,7 @@ class AssistantGardenCommands {
    */
   boolean apply(String action, AssistantCommand command, int [] tally, List<String> notes) {
     try {
-      if ("add_fence".equals(action)) {
-        addFence(command, tally, notes);
-      } else if ("add_hedge".equals(action)) {
+      if ("add_hedge".equals(action)) {
         addHedge(command, tally, notes);
       } else if ("add_path".equals(action) || "add_garden_path".equals(action)) {
         addPath(command, tally, notes);
@@ -585,158 +579,6 @@ class AssistantGardenCommands {
     boolean loop = given.size() >= 4 && Math.hypot(given.get(0) [0] - given.get(given.size() - 1) [0],
         given.get(0) [1] - given.get(given.size() - 1) [1]) <= 0.5;
     return points.length >= 3 && command.getBoolean("closed", loop);
-  }
-
-  // ---- Fences ----
-
-  private void addFence(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
-    float [][] points = getPoints(command, "points", 2, "[[0,0],[600,0],[600,400]]");
-    boolean closed = isClosed(command, "points", points);
-    float height = getSize(command, "height", 120, 20, 400);
-    float spacing = getSize(command, "post_spacing", 240, 30, 1000);
-    String style = command.getString("style") != null ? command.getString("style").trim().toLowerCase(Locale.ENGLISH) : "picket";
-    if (style.startsWith("picket")) {
-      style = "picket";
-    } else if (style.startsWith("panel") || style.equals("solid") || style.equals("privacy")) {
-      style = "panel";
-    } else if (style.startsWith("rail") || style.equals("ranch")) {
-      style = "rail";
-    } else if (style.startsWith("wire") || style.equals("mesh")) {
-      style = "wire";
-    } else {
-      throw new IOException("\"style\" is picket, panel, rail or wire");
-    }
-    Line line = new Line(points, closed);
-    // The opening of the gate
-    double gateStart = Double.NaN;
-    double gateEnd = Double.NaN;
-    Object gate = command.getParameters().get("gate");
-    if (gate instanceof Map) {
-      float at = AssistantFurnitureBuilder.getNumber((Map<?, ?>)gate, "at", Float.NaN);
-      float width = getSize((Map<?, ?>)gate, "width", 100, 30, 1000);
-      if (Float.isNaN(at)) {
-        throw new IOException("\"gate\" must give \"at\": the distance in cm from the first point to the middle of the gate, along the fence");
-      } else if (at - width / 2 < -0.5f || at + width / 2 > line.length + 0.5f) {
-        throw new IOException("the gate goes from " + format(at - width / 2) + " to " + format(at + width / 2)
-            + " cm along a fence " + format(line.length) + " cm long");
-      }
-      gateStart = Math.max(0, at - width / 2);
-      gateEnd = Math.min(line.length, at + width / 2);
-    } else if (gate != null) {
-      throw new IOException("\"gate\" is written {\"at\":N,\"width\":N}");
-    }
-    Level level = this.executor.getShapeCommands().getLevel(command, "add_fence", notes);
-    Ground ground = new Ground(level);
-    AssistantMeshBuilder mesh = new AssistantMeshBuilder();
-    boolean colored = command.getString("color") != null;
-    int color = getColor(command.getString("color"),
-        style.equals("picket") ? 0xF2EFE6 : style.equals("panel") ? 0x9A7B55 : style.equals("rail") ? 0x8B6B47 : 0x6F6B62);
-    AssistantMeshBuilder.Material material = mesh.getMaterial(color);
-    AssistantMeshBuilder.Material wireMaterial = mesh.getMaterial(colored ? color : 0x9AA0A0);
-    float postSize = style.equals("wire") ? 6 : 9;
-
-    // The spans between posts: the sides of the line without the gate, cut in equal parts
-    List<double []> spans = new ArrayList<double []>();
-    Map<String, double []> posts = new LinkedHashMap<String, double []>();
-    for (int side = 0; side < line.getSideCount(); side++) {
-      double start = line.distances [side];
-      double end = line.distances [side + 1];
-      double [][] parts = Double.isNaN(gateStart) || gateEnd <= start || gateStart >= end
-          ? new double [][] {{start, end}}
-          : new double [][] {{start, Math.max(start, gateStart)}, {Math.min(end, gateEnd), end}};
-      for (double [] part : parts) {
-        // A side that the gate takes whole still has a post at each end of the gate
-        int count = part [1] - part [0] < 1 ? 0 : Math.max(1, (int)Math.ceil((part [1] - part [0]) / spacing - 1E-4));
-        if (count == 0 && (Double.isNaN(gateStart) || part [1] < part [0])) {
-          continue;
-        }
-        float [] previous = null;
-        for (int i = 0; i <= count; i++) {
-          double distance = count == 0 ? part [0] : part [0] + (part [1] - part [0]) * i / count;
-          float [] point = getSidePoint(line, side, distance);
-          boolean gatePost = !Double.isNaN(gateStart)
-              && (Math.abs(distance - gateStart) < 1E-3 || Math.abs(distance - gateEnd) < 1E-3);
-          String key = Math.round(point [0] * 10) + ":" + Math.round(point [1] * 10);
-          double [] post = posts.get(key);
-          if (post == null) {
-            posts.put(key, new double [] {point [0], point [1], side, gatePost ? 1 : 0});
-          } else if (gatePost) {
-            post [3] = 1;
-          }
-          if (previous != null) {
-            spans.add(new double [] {previous [0], previous [1], point [0], point [1]});
-          }
-          previous = point;
-        }
-      }
-    }
-    for (double [] post : posts.values()) {
-      float x = (float)post [0];
-      float y = (float)post [1];
-      float height0 = ground.at(x, y);
-      addPost(mesh, x, y, line.getDirection(line.distances [(int)post [2]] + 1E-3), postSize, postSize,
-          height0 - ground.getSink(), height0 + height + (post [3] != 0 ? 16 : 6), material);
-    }
-    // What joins the posts follows the slope from one to the next
-    double picketLength = 0;
-    for (double [] span : spans) {
-      picketLength += Math.hypot(span [2] - span [0], span [3] - span [1]);
-    }
-    float picketPitch = (float)Math.max(12, picketLength / MAX_PICKETS);
-    for (double [] span : spans) {
-      float x1 = (float)span [0];
-      float y1 = (float)span [1];
-      float x2 = (float)span [2];
-      float y2 = (float)span [3];
-      float length = (float)Math.hypot(x2 - x1, y2 - y1);
-      if (length < 0.5f) {
-        continue;
-      }
-      float [] direction = {(x2 - x1) / length, (y2 - y1) / length};
-      float ground1 = ground.at(x1, y1);
-      float ground2 = ground.at(x2, y2);
-      if (style.equals("panel")) {
-        float nx = -direction [1] * 1.25f;
-        float ny = direction [0] * 1.25f;
-        mesh.addSolid(new float [][] {{x1 - nx, ground1 + 5, y1 - ny}, {x1 + nx, ground1 + 5, y1 + ny},
-                                      {x1 + nx, ground1 + height, y1 + ny}, {x1 - nx, ground1 + height, y1 - ny}},
-            new float [] {x2 - x1, ground2 - ground1, y2 - y1}, material);
-      } else {
-        int rails = style.equals("picket") ? 2 : style.equals("wire") ? (height >= 100 ? 5 : 4) : height >= 100 ? 3 : 2;
-        float lowest = style.equals("picket") ? 0.28f : 0.25f;
-        float highest = style.equals("picket") ? 0.78f : style.equals("wire") ? 0.97f : 0.92f;
-        float railWidth = style.equals("wire") ? 0.8f : style.equals("picket") ? 3 : 4;
-        float railHeight = style.equals("wire") ? 0.8f : style.equals("picket") ? 7 : 9;
-        for (int i = 0; i < rails; i++) {
-          float top = height * (lowest + (highest - lowest) * i / (rails - 1));
-          mesh.addBar(new float [] {x1, ground1 + top, y1}, new float [] {x2, ground2 + top, y2}, railWidth, railHeight,
-              style.equals("wire") ? wireMaterial : material);
-        }
-        if (style.equals("picket")) {
-          // The pickets stand on the same side of the rails
-          int count = Math.max(1, Math.round(length / picketPitch));
-          float pitch = length / count;
-          float width = Math.min(7, pitch * 0.6f);
-          for (int i = 0; i < count; i++) {
-            float ratio = (i + 0.5f) / count;
-            float x = x1 + (x2 - x1) * ratio - direction [1] * 2.5f;
-            float y = y1 + (y2 - y1) * ratio + direction [0] * 2.5f;
-            float base = ground1 + (ground2 - ground1) * ratio;
-            addPost(mesh, x, y, direction, width, 2, base + 5, base + height, material);
-          }
-        }
-      }
-    }
-    String name = getName(command, "Fence");
-    HomePieceOfFurniture piece = addPiece(mesh, name, "fence", level, tally);
-    double fenceLength = line.length - (Double.isNaN(gateStart) ? 0 : gateEnd - gateStart);
-    notes.add("Added the fence " + this.executor.getId(piece) + " \"" + name + "\" (" + style + ", " + format(height)
-        + " cm high): " + format(fenceLength / 100) + " m long, " + posts.size() + " posts, " + spans.size()
-        + (spans.size() == 1 ? " span" : " spans") + (closed ? ", closed" : "")
-        + (Double.isNaN(gateStart) ? ""
-            : ", an opening of " + format(gateEnd - gateStart) + " cm for a gate from " + format(gateStart) + " to "
-                + format(gateEnd) + " cm along it, between two taller posts")
-        + ground.describe());
   }
 
   // ---- Hedges ----

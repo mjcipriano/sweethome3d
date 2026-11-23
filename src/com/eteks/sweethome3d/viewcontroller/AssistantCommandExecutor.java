@@ -83,6 +83,7 @@ public class AssistantCommandExecutor {
   private final AssistantSiteCommands      siteCommands;
   private final AssistantArrangeCommands arrangeCommands;
   private final AssistantGardenCommands gardenCommands;
+  private final AssistantFenceCommands  fenceCommands;
   private final AssistantScheduleCommands scheduleCommands;
   private final AssistantSceneCommands sceneCommands;
   private final AssistantLayerCommands    layerCommands;
@@ -168,6 +169,7 @@ public class AssistantCommandExecutor {
     this.siteCommands = new AssistantSiteCommands(home, homeController, this);
     this.arrangeCommands = new AssistantArrangeCommands(home, preferences, homeController, this);
     this.gardenCommands = new AssistantGardenCommands(home, preferences, homeController, this);
+    this.fenceCommands = new AssistantFenceCommands(home, homeController, this);
     this.scheduleCommands = new AssistantScheduleCommands(home, preferences, homeController, this);
     this.sceneCommands = new AssistantSceneCommands(home, preferences, homeController, this);
     this.layerCommands = new AssistantLayerCommands(home, homeController, this);
@@ -264,6 +266,7 @@ public class AssistantCommandExecutor {
     ignoredTags.addAll(rememberedTags);
     List<HomeDiagnostics.Issue> issues = HomeDiagnostics.check(this.home, this.home.getFurniture(),
         new ArrayList<Wall>(this.home.getWalls()), this.home.getRooms());
+    issues.addAll(this.fenceCommands.check());
     int minSeverity = HomeDiagnostics.parseSeverity(options.get("min_severity") != null
         ? options.get("min_severity").toString() : null);
     List<HomeDiagnostics.Issue> kept = HomeDiagnostics.filter(issues, ignoredIds, ignoredTags, 0);
@@ -341,6 +344,14 @@ public class AssistantCommandExecutor {
 
   AssistantBuildingCommands getBuildingCommands() {
     return this.buildingCommands;
+  }
+
+  AssistantGardenCommands getGardenCommands() {
+    return this.gardenCommands;
+  }
+
+  AssistantFenceCommands getFenceCommands() {
+    return this.fenceCommands;
   }
 
   AssistantShapeCommands getShapeCommands() {
@@ -700,6 +711,11 @@ public class AssistantCommandExecutor {
     String action = command.getAction();
     if ("search_catalog".equals(action) || "find_furniture".equals(action)) {
       searchCatalogCommand(command, notes);
+    } else if ("help".equals(action)) {
+      notes.add(AssistantHelp.getHelp(command.getString("command") != null ? command.getString("command") : command.getString("name"),
+          command.getString("search"), command.getString("style")));
+    } else if ("get_capabilities".equals(action)) {
+      notes.add(AssistantHelp.getCapabilities());
     } else if ("add_furniture".equals(action)) {
       addFurniture(command, false, tally, notFound, notes);
     } else if ("add_door_or_window".equals(action) || "add_door".equals(action)
@@ -736,6 +752,7 @@ public class AssistantCommandExecutor {
                && !this.designCommands.apply(action, command, tally, notes)
                && !this.siteCommands.apply(action, command, tally, notes)
                && !this.arrangeCommands.apply(action, command, tally, notes)
+               && !this.fenceCommands.apply(action, command, tally, notes)
                && !this.gardenCommands.apply(action, command, tally, notes)
                && !this.scheduleCommands.apply(action, command, tally, notes)
                && !this.sceneCommands.apply(action, command, tally, notes)) {

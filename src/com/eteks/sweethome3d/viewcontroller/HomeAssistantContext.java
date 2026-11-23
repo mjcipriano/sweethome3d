@@ -467,6 +467,24 @@ public class HomeAssistantContext {
   }
 
   /**
+   * Returns the styles of fences <code>add_fence</code> builds: for each one its name, its family,
+   * what it is, its usual height and the usual distance between its posts in cm.
+   */
+  public static String [][] getFenceStyles() {
+    java.util.List<AssistantFenceBuilder.Style> styles = AssistantFenceBuilder.getStyles();
+    String [][] result = new String [styles.size()][];
+    for (int i = 0; i < result.length; i++) {
+      AssistantFenceBuilder.Style style = styles.get(i);
+      Object height = style.defaults.get("height");
+      Object spacing = style.defaults.get("post_spacing");
+      result [i] = new String [] {style.name, style.family, style.description,
+          height instanceof Number ? String.valueOf(((Number)height).intValue()) : "120",
+          spacing instanceof Number ? String.valueOf(((Number)spacing).intValue()) : "240"};
+    }
+    return result;
+  }
+
+  /**
    * Returns the reference of the edit commands (coordinate system, commands and
    * their rules), shared by the chat protocol and the MCP server.
    */
@@ -643,6 +661,7 @@ public class HomeAssistantContext {
         + AssistantGardenCommands.getReference()
         + AssistantScheduleCommands.getReference()
         + AssistantSceneCommands.getReference()
+        + AssistantHelp.getReference()
         + "To MODIFY items that already exist, reference them by the id shown in the project "
         + "summary (F# furniture, W# walls, R# rooms, P# lines; an id never changes), by \"target\":\"selection\", by name, or in bulk by "
         + "\"where\":{\"level\":\"<level>\",\"tag\":\"<tag>\",\"name\":\"<part of a name, or Pine|Oak for either>\",\"type\":\"furniture|doors_and_windows|"

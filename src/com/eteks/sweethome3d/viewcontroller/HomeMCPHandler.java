@@ -677,6 +677,9 @@ public class HomeMCPHandler {
     result.put("serverInfo", serverInfo);
     result.put("instructions",
         "Tools to read and edit the home open in Sweet Home 3D, an interior design application. "
+        + "The help tool lists every command of apply_commands by area (rooms and walls, levels and stairs, furniture, roofs, "
+        + "ground and site, fences and gates, garden, lights and camera, checks and schedules), gives the full syntax of one "
+        + "and searches a word: use it rather than reading the files of the program. get_capabilities gives the version and the limits. "
         + "Call get_home first: it describes the levels, rooms, walls and furniture with the ids "
         + "(F# furniture, W# walls, R# rooms, L# levels, P# lines) used by apply_commands. An id belongs to its item for good: "
         + "it doesn't change when other items are added or deleted, the reply of a command names the ids of what it added, "
@@ -722,8 +725,10 @@ public class HomeMCPHandler {
         + "export_home writes the home as PDF, SVG, OBJ, CSV, a 3D web page or a panorama, and get_elevation_image draws a side "
         + "of the building square on with its dimensions. Other commands of apply_commands: group, align, distribute, mirror "
         + "and measure (distances, the free space around a piece, what is at a point); set_light, set_sun, set_environment, "
-        + "open_door and set_material (one material of a model); add_fence, add_hedge, add_path, add_planting_bed and add_trees "
-        + "for the garden; furnish_room places the furniture of a kind of room by rules, as a starting point; "
+        + "open_door and set_material (one material of a model); add_hedge, add_path, add_planting_bed and add_trees "
+        + "for the garden; add_fence builds fences, garden walls and barriers in 63 styles with their gates (list_fence_styles), "
+        + "along points, a lot line or between two places, and add_gate, modify_fence, extend_fence, join_fences, split_fence, "
+        + "trim_fence, offset_fence, convert_to_fence and fence_report change and count them; furnish_room places the furniture of a kind of room by rules, as a starting point; "
         + "schedule, add_symbol, add_symbols and framing_estimate list doors, windows and rooms, add electrical and plumbing "
         + "symbols and estimate framing; set_unit_prices also takes a room or a wall.");
     return result;
@@ -733,6 +738,7 @@ public class HomeMCPHandler {
     return "get_home".equals(name) || "list_catalog".equals(name) || "search_catalog".equals(name)
         || "search_textures".equals(name) || "check_home".equals(name) || "get_report".equals(name) || "get_plan_image".equals(name)
         || "get_3d_image".equals(name) || "get_3d_info".equals(name) || "get_catalog_image".equals(name)
+        || "help".equals(name) || "get_capabilities".equals(name)
         || "export_blender".equals(name) || "get_sun_study_image".equals(name) || "sun_study".equals(name)
         || "get_notes".equals(name) || "update_note".equals(name)
         || "apply_commands".equals(name) || "undo".equals(name) || "redo".equals(name)
@@ -920,6 +926,19 @@ public class HomeMCPHandler {
     tools.add(tool("get_3d_info", "3D view and renderers",
         "Returns the camera of the home (place, direction, field of view), the points of view stored in the home, "
         + "the levels, the views get_3d_image accepts, and the renderers available for its pictures with their options.",
+        schema(null), true));
+    Map<String, Object> helpProperties = new LinkedHashMap<String, Object>();
+    helpProperties.put("command", property("string", "The name of a command of apply_commands, like add_fence: its syntax, "
+        + "its parameters and the commands related to it"));
+    helpProperties.put("search", property("string", "A word: the commands and the parameters that mention it"));
+    helpProperties.put("style", property("string", "With \"command\":\"add_fence\": a style of fence, for its options"));
+    tools.add(tool("help", "Help of the commands",
+        "Without argument, lists every command of apply_commands by area with a line on each. \"command\" gives the full syntax "
+        + "of one command, \"search\" finds a word in all of them. Use it instead of guessing a command or a parameter.",
+        schema(helpProperties), true));
+    tools.add(tool("get_capabilities", "Version, features and limits",
+        "Returns the version of Sweet Home 3D, what this version has (styles of fences, types of gates, coordinate systems, "
+        + "formats read and written, what isn't available) and its limits.",
         schema(null), true));
     Map<String, Object> sunImageProperties = new LinkedHashMap<String, Object>();
     sunImageProperties.put("sweep", enumProperty(
@@ -1220,6 +1239,13 @@ public class HomeMCPHandler {
       return searchCatalog(arguments);
     } else if ("get_3d_image".equals(name)) {
       return get3DImage(arguments);
+    } else if ("help".equals(name)) {
+      return toolResult(AssistantHelp.getHelp(arguments.get("command") != null ? arguments.get("command").toString() : null,
+          arguments.get("search") != null ? arguments.get("search").toString() : null,
+          arguments.get("style") != null ? arguments.get("style").toString() : null), false);
+    } else if ("get_capabilities".equals(name)) {
+      return toolResult((this.serverVersion.length() > 0 ? "MCP server version " + this.serverVersion + ". " : "")
+          + AssistantHelp.getCapabilities(), false);
     } else if ("get_3d_info".equals(name)) {
       return toolResult(get3DInfo(), false);
     } else if ("get_sun_study_image".equals(name)) {

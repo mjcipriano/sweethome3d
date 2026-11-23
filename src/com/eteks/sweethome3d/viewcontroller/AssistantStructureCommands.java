@@ -825,6 +825,9 @@ class AssistantStructureCommands {
     }
     text.append(", in the plans of the levels above: ").append(FurniturePlanVisibility.get(piece));
     String roof = this.executor.getShapeCommands().describeRoof(piece);
+    if (roof == null) {
+      roof = this.executor.getFenceCommands().describeFence(piece);
+    }
     if (roof != null) {
       text.append(", ").append(roof);
     }

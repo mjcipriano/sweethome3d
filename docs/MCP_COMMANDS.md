@@ -26,12 +26,14 @@ The text Claude receives is produced by
 - [Labels and dimensions](#labels-and-dimensions)
 - [Arranging and measuring](#arranging-and-measuring)
 - [Garden](#garden)
+- [Fences, walls and gates](#fences-walls-and-gates)
 - [Furnishing a room by itself](#furnishing-a-room-by-itself)
 - [Lights, sun, doors and materials](#lights-sun-doors-and-materials)
 - [Camera](#camera)
 - [Checks, reports and exports](#checks-reports-and-exports)
 - [Schedules, symbols and framing](#schedules-symbols-and-framing)
 - [Undo groups](#undo-groups)
+- [Help](#help)
 
 ## Conventions
 
@@ -617,7 +619,7 @@ A line whose last point repeats the first one is closed, as with `"closed":true`
 
 | Command | What it does |
 | --- | --- |
-| `add_fence` | A fence along `points`: a post at each corner and every `post_spacing` cm (240) at most, the spans between two posts following the slope of the ground. `height` (120), `"style":"picket\|panel\|rail\|wire"` (picket), `color`, `"closed":true`, `name`. `"gate":{"at":N,"width":N}` leaves an opening `width` cm wide (100) centered `at` cm from the first point along the fence, between two taller posts |
+| `add_fence` | A fence, a garden wall or a barrier along `points`, in one of 63 styles, with its gates. See [Fences, walls and gates](#fences-walls-and-gates) |
 | `add_hedge` | A hedge along `points`, mitred at its corners, with chamfered top edges: `height` (150), `width` (60), `color` (a dark green), `closed`, `name` |
 | `add_path` | A paved strip along the center line `points`, mitred at its corners and laid on the ground: `width` (100), `thickness` (4), `color` or `texture` (with `texture_scale`, `texture_angle`), `"edging":true` for a curb on both sides (`edging_color`), `closed`, `name`. `"stepping_stones":{"length":40,"gap":20}` lays separate slabs of `length` x `width` cm instead |
 | `add_planting_bed` | An area of soil over the polygon `points`: `thickness` (6), `color` (dark soil) or `texture`, `"border":{"height":10,"width":5,"color":"#RRGGBB"}` for an edging, `name`. `"plants":{"name":"Plant","spacing":80}` (or `"names":[...]`, or just a list of names) scatters catalog pieces inside it |
@@ -626,7 +628,7 @@ A line whose last point repeats the first one is closed, as with `"closed":true`
 ```json
 {"commands":[
   {"action":"add_fence","points":[[-800,-600],[1800,-600],[1800,1400],[-800,1400]],"closed":true,
-   "style":"picket","height":110,"gate":{"at":1300,"width":120}},
+   "style":"picket","height":110,"openings":[{"at":1300,"width":120,"open_angle":40}]},
   {"action":"add_hedge","points":[[-750,-550],[-750,1350]],"height":180,"width":70},
   {"action":"add_path","points":[[500,-600],[500,-200],[300,0]],"width":120,"texture":"Paving stone","edging":true},
   {"action":"add_planting_bed","points":[[900,900],[1700,900],[1700,1300],[900,1300]],
@@ -638,14 +640,15 @@ A line whose last point repeats the first one is closed, as with `"closed":true`
 The answer of each command gives the id of what it built, its length or its area, and its count of
 posts, of stones or of plants with their ids.
 
-- **Posts of a fence.** Each side of the line is cut in equal spans no longer than `post_spacing`, so
-  a side of 5 m with the default spacing has 3 spans of 167 cm. A corner has one post, shared by its
-  two sides. A gate is an opening only: no leaf is drawn in it.
+- **Posts of a fence.** Each side of the line is cut in equal spans no longer than the distance
+  between posts, so a side of 5 m with a spacing of 240 cm has 3 spans of 167 cm. A corner has one
+  post, shared by its two sides.
 - **On a slope.** Posts are upright and stand a little into the ground; rails, panels and wires go
   straight from a post to the next one, parallel to the ground between them. Hedges, paths and
   planting beds are cut every 50 cm (more on very long lines) and each part takes the height of the
   ground under it, across their width too. They aren't built again when `set_terrain` changes the
-  ground: delete them and run the command again.
+  ground: delete them and run the command again. A fence is the exception: `check_home` tells when
+  the ground changed under it, and `{"action":"modify_fence","id":"F7","rebuild":true}` builds it again.
 - **Plants and trees.** They are ordinary catalog pieces, each put at the height of the ground at
   its place and marked as standing outdoors. Their places come from a grid moved at random, but the
   same points always give the same places. `add_trees` and `scatter` skip the places in a room or
@@ -654,6 +657,241 @@ posts, of stones or of plants with their ids.
   `import_furniture` or a furniture library, and find their names with `search_catalog`.
 
 ![A picket fence with its gate opening, a hedge, stepping stones and a planting bed around the demo house](images/garden.jpg)
+
+## Fences, walls and gates
+
+`add_fence` builds a fence, a garden wall or a barrier as **one piece**: its posts, its rails, what
+fills its spans and its gates. The piece keeps its description, so every command below changes it and
+builds it again, and Edit > Undo takes each change back. It has the tags `garden` and `fence`.
+
+| Command | What it does |
+| --- | --- |
+| `add_fence` | Builds a fence along `points`, `along` a line, or `between` two places |
+| `modify_fence` | Changes any option of a fence, or its `points`; `null` removes an option; `"rebuild":true` builds it again on the ground as it is now |
+| `add_gate`, `modify_gate`, `remove_gate` | Opens a gate in a fence, changes it, or closes the fence again |
+| `extend_fence` | Continues the last side of a fence `to` a point, `"to":"terrain_edge"`, `"to":"model_edge"`, or `by` N cm; `"end":"start"` for its first side |
+| `join_fences` | Makes one fence of fences whose ends meet within `tolerance` cm (30). It keeps the style of the first one, and the corner post is shared |
+| `split_fence` | Cuts a fence in two `at` a distance along it, or `near` a point |
+| `trim_fence` | Keeps the parts inside a `polygon` (points, or the id of a room or of a closed line), or outside it with `"keep":"outside"` |
+| `offset_fence` | Moves a fence sideways by `distance` cm, or adds a copy with `"copy":true` |
+| `convert_to_fence` | Replaces a row of furniture (fence panels put one by one) by one fence through their centers, with their height and their elevation; `"keep":true` keeps the pieces |
+| `fence_report` | Lengths, posts by type, panels, gates, bags of concrete and fasteners, with totals by style and by owner. `measure` with `"fences":true` gives the same |
+| `schedule` with `"type":"gates"` | The gates, how they swing and the room they need |
+| `list_fence_styles` | The styles and the gate types, described |
+
+```json
+{"commands":[
+  {"action":"add_fence","style":"privacy_solid","along":"lot_line","offset":15,
+   "from":[1800,-600],"to":[-800,1400],"height":180,"owner":"1230 Fernwood",
+   "post":{"spacing":240,"cap":"pyramid"},"cap_rail":true},
+  {"action":"add_gate","fence":"F12","near":[500,1400],"width":110,"type":"single_swing",
+   "swing":"out","latch":"lockable"},
+  {"action":"add_fence","style":"pier_and_panel","points":[[-800,-600],[1800,-600]],
+   "infill":{"style":"ornamental_steel","finials":"spear"},
+   "openings":[{"at":1300,"width":360,"type":"drive_arch","operator":"swing_arm"}]}
+]}
+```
+
+![Twelve of the styles of fences, each with a gate](images/fence-styles.jpg)
+
+### Where the fence goes
+
+| Parameter | Meaning |
+| --- | --- |
+| `points` | The points `[x,y]` of its line. `"closed":true` joins the last one to the first |
+| `along` | Instead of points: the id of a line (`P5`), of a room (`R12`), of a wall or of another fence, or `lot_line` for the property line (`lot_line:P5` when there are several), or a list of points |
+| `offset` | With `along`: how far from that line, in cm. Positive is the inside of a closed line, or the left of an open one |
+| `from`, `to` | With `along`: the part of the line to follow. Each is a distance in cm from its first point, or a point `[x,y]` |
+| `skip` | With `along`: parts left open, like a driveway: `[[from,to],...]` |
+| `between` | Instead of points: `[a,b]`, each one a point `[x,y]`, `"W3:start"`, `"W3:end"`, `"R2:1"` (the first corner of a room), `"P5:end"` or `"F7:end"` |
+| `snap` | Moves the points given as `[x,y]` to the end of a wall or to a point of a fence closer than this distance |
+| `level` | Its level (the selected one by default) |
+
+### Styles
+
+`style` is one of the 63 names below; the names in brackets are accepted too. Each style comes with
+its usual height, posts and colors, and every one of them can be changed.
+
+**Wire and mesh**
+
+| Style | What it is | Height | Posts every |
+| --- | --- | --- | --- |
+| `chain_link` (or `chainlink`, `wire`, `mesh`) | Diamond mesh on steel posts, with a top rail | 120 | 300 |
+| `welded_wire` | Rectangular welded grid, alone or in a wood or metal frame | 120 | 240 |
+| `hog_panel` (or `cattle_panel`) | Heavy welded panels between wood posts or T-posts | 127 | 240 |
+| `field_fence` (or `woven_wire`) | Woven farm wire on T-posts or wood posts | 120 | 300 |
+| `deer_fence` | Tall black mesh that deer don't jump, on tall posts | 230 | 450 |
+| `garden_wire_tpost` | Green steel T-posts with a wire mesh, around a vegetable garden | 120 | 240 |
+| `poultry_netting` (or `hexagonal`, `chicken_wire`) | Chicken wire on posts or in a wood frame | 120 | 240 |
+| `electric` | 1 to 6 strands of polywire or tape on thin insulated posts | 110 | 400 |
+| `barbed_wire` | 3 to 5 strands of barbed wire on wood posts or T-posts | 120 | 400 |
+| `high_tensile` | Smooth tight wires with braced corners | 130 | 600 |
+| `cable_rail` | Horizontal stainless cables between wood or metal posts, under a top rail | 100 | 150 |
+| `security_mesh` (or `358_anti_climb`, `anti_climb`) | Very fine welded mesh that can't be climbed, with an optional topping | 240 | 250 |
+
+**Wood**
+
+| Style | What it is | Height | Posts every |
+| --- | --- | --- | --- |
+| `picket` | Pickets with a gap on two rails | 120 | 240 |
+| `privacy_solid` (or `stockade`, `privacy`, `panel`, `solid`) | Vertical boards without gap | 180 | 240 |
+| `board_on_board` | Overlapping vertical boards, the same on both sides | 180 | 240 |
+| `shadowbox` | Boards that alternate on each side of the rails | 180 | 240 |
+| `horizontal_slat` | Modern horizontal boards with a thin gap | 180 | 180 |
+| `louvered` | Angled louvers that hide the view and let the air through | 180 | 180 |
+| `basketweave` | Thin boards woven between the posts | 180 | 180 |
+| `lattice_top` | A privacy fence with a band of lattice on top | 180 | 240 |
+| `lattice_panel` (or `lattice`) | A full lattice, as under a deck or for a screen | 150 | 240 |
+| `split_rail` | Rough split rails mortised into the posts | 110 | 300 |
+| `post_and_rail` (or `ranch_rail`, `rail`, `ranch`) | 2 to 4 planed rails nailed on the posts | 120 | 240 |
+| `post_and_board` | Wide boards on the posts, as around a horse farm | 140 | 240 |
+| `crossbuck` (or `x_rail`) | A cross between the top and the bottom rails | 120 | 240 |
+| `zigzag_rail` (or `worm_fence`) | Rails stacked in a zigzag, without posts | 110 | no posts |
+| `wattle` (or `woven_branch`) | Woven saplings between stakes | 120 | 60 |
+| `bamboo` | Bamboo canes, rolled or in panels | 180 | 240 |
+| `reed` (or `brush`, `heather_screen`) | A rolled natural screen of reed, brush or heather | 180 | 200 |
+| `log_palisade` | Upright logs with pointed tops | 200 | no posts |
+| `snow_fence` | Thin slats held by wires, unrolled for the winter | 120 | 250 |
+
+**Metal and composite**
+
+| Style | What it is | Height | Posts every |
+| --- | --- | --- | --- |
+| `ornamental_steel` (or `wrought_iron`) | Steel pickets with finials between rails | 150 | 240 |
+| `aluminum_ornamental` | Lighter aluminum pickets, with pressed points or a flat top | 140 | 180 |
+| `pool_code` | An ornamental fence that a child can't climb or squeeze through: gaps under 10 cm, 122 cm high at least, a gate that closes by itself | 137 | 180 |
+| `corrugated_metal` | Corrugated sheets in a wood or steel frame | 180 | 240 |
+| `steel_panel` (or `laser_cut`) | Sheets of steel, plain or cut with a pattern | 180 | 180 |
+| `perforated_metal` | Sheets pierced with holes | 150 | 180 |
+| `gabion` | Wire baskets filled with stones | 100 | no posts |
+| `vinyl_privacy` | White PVC boards without gap, with routed posts and caps | 180 | 240 |
+| `vinyl_picket` | White PVC pickets | 120 | 240 |
+| `vinyl_rail` (or `paddock_vinyl_rail`) | White PVC rails slid in the posts | 137 | 240 |
+| `vinyl_semi_privacy` | White PVC boards with a thin gap | 180 | 240 |
+| `composite_privacy` | Composite boards between aluminum posts | 180 | 180 |
+| `composite_slat` | Composite slats with gaps between aluminum posts | 180 | 180 |
+| `glass_panel` | Panes of glass, framed or frameless, around a pool or a deck | 122 | 150 |
+
+**Masonry and solid walls**
+
+| Style | What it is | Height | Posts every |
+| --- | --- | --- | --- |
+| `brick_wall` | A brick wall with a coping, and piers if asked | 180 | no posts |
+| `stone_wall` (or `dry_stack`) | A wall of fieldstone, ashlar or flagstone | 120 | no posts |
+| `stucco_wall` | Blocks covered with stucco, with a cap | 180 | no posts |
+| `cmu_wall` (or `split_face_block`) | A wall of concrete blocks | 180 | no posts |
+| `concrete_panel` (or `precast`) | Precast concrete panels between concrete posts | 180 | 240 |
+| `pier_and_panel` | Masonry piers with another style between them, given by `infill` | 150 | 240 |
+| `retaining_wall` | A wall that holds the ground of its higher side | 15 | no posts |
+
+**Living barriers**
+
+| Style | What it is | Height | Posts every |
+| --- | --- | --- | --- |
+| `hedge` | A hedge, planted by add_hedge along the same line | 150 | 240 |
+| `espalier` | Trees trained flat on wires between posts | 180 | 300 |
+| `living_willow` | Willow rods planted in a diamond pattern, which take root | 150 | no posts |
+
+**Specialty**
+
+| Style | What it is | Height | Posts every |
+| --- | --- | --- | --- |
+| `temporary_construction` | Steel panels on block feet around a work site | 180 | 290 |
+| `silt_fence` | Black fabric on stakes that holds the mud of a work site | 60 | 180 |
+| `orange_safety_mesh` | Orange plastic mesh on T-posts | 120 | 250 |
+| `dog_run_panel` | Modular welded panels in a steel frame | 180 | 150 |
+| `pipe_fence` | Welded steel pipes, as around a corral | 140 | 240 |
+| `guardrail` | The steel rail along a road | 75 | 190 |
+| `ha_ha` | A wall sunk in the ground, which keeps animals out without hiding the view | 120 | no posts |
+| `bollards` | Bollards in a row: steel, concrete or lighted | 90 | 150 |
+
+`hedge` plants a hedge with `add_hedge` along the same line, without posts or gates.
+
+### Options of every style
+
+| Parameter | Meaning |
+| --- | --- |
+| `height` | Its height in cm. `height_profile` gives one height per point instead, for a fence that gets lower or higher along its line |
+| `follow_ground` | `rake` (the default: each span parallel to the slope), `step` (level panels that step down; `max_step` warns about steps higher than it, and `"fill_gaps":"kickboard"` or `"soil"` closes the gap under them) or `level` (a flat top) |
+| `post` | `{"spacing","size","shape","cap","embed_depth","set_in"}`. `shape` is `square`, `round`, `t_post`, `u_channel` or `i_beam`; `cap` is `flat`, `pyramid`, `ball`, `solar_light`, `copper` or `none`; `set_in` is `concrete`, `driven` or `gravel`, and with `embed_depth` gives the bags of concrete of the report. `post_spacing`, `post_size`, `post_shape` and `post_cap` are accepted too |
+| `rails` | `{"count":N}`, or `rail_count` |
+| `color`, `texture` | The color, or a catalog texture with `texture_scale`, of what fills the spans. `post_color`, `rail_color` and `infill_color` color each part |
+| `side` | `left` (the default) or `right`: the finished side, seen when walking from the first point to the last. Gates open to the other side |
+| `kickboard` | The height of a board along the ground |
+| `lighting` | `{"type":"post_cap","spacing":2}` puts a light on every second post; `"type":"strip"` draws a strip under the top rail. They are drawn, and don't light the 3D view |
+| `elevation` | Raises the whole fence above the ground, for one on a deck |
+| `owner`, `ownership_side` | Free texts, like `"1230 Fernwood"`, shown by `fence_report` and `describe_item` |
+| `report` | `false` leaves the fence out of `fence_report` |
+| `name`, `tags` | Its name and more tags |
+
+Options of some styles:
+
+| Styles | Options |
+| --- | --- |
+| `chain_link` | `mesh_size` (5), `gauge`, `"finish":"galvanized\|black_vinyl\|green_vinyl\|brown_vinyl"`, `top_rail`, `bottom_rail` or `tension_wire`, `"privacy_slats":"vertical\|hedge\|winged"` with `slat_color`, `barbed_top` (0 to 3) |
+| `welded_wire`, `hog_panel` and the other meshes | `cell_w`, `cell_h`, `"frame":"none\|wood\|metal"`, `wire` |
+| `security_mesh` | `"topping":"razor_wire\|spikes\|rotating_spike_bar"` |
+| `electric`, `barbed_wire`, `high_tensile`, `cable_rail` | `strands`, or `strand_heights` in cm above the ground |
+| `picket`, `vinyl_picket`, `snow_fence` | `"top":"dog_ear\|pointed\|gothic\|french_gothic\|flat\|rounded"`, `gap`, `picket_width`, `"scallop":"concave\|convex"` |
+| `privacy_solid`, `vinyl_privacy` | `top`, `cap_rail`, `trim_board` |
+| `horizontal_slat`, `louvered`, `composite_slat` | `slat_height`, `gap`, `"frame":"wood\|aluminum\|steel"`, `"orientation":"vertical"` |
+| `lattice_top`, `lattice_panel` | `lattice_height`, `"lattice_pattern":"square\|diagonal"`, `lattice_cell` |
+| `split_rail`, `post_and_rail`, `post_and_board`, `vinyl_rail`, `pipe_fence` | `rail_count`, `rail_height`, `rail_width` |
+| `ornamental_steel`, `aluminum_ornamental`, `pool_code` | `"finials":"spear\|quad_flair\|ball\|fleur_de_lis\|none"`, `rings` or `scrolls`, `puppy_pickets`, `rail_count` (2 to 4), `picket_spacing`, `press_point` or `flat_top` |
+| `steel_panel`, `perforated_metal` | `"pattern":"none\|geometric\|foliage"`, `open_area` (%), `hole_size` |
+| `gabion` | `stone_color`, `basket_size` |
+| `glass_panel` | `"frame":"framed\|frameless"`, `cap_rail` |
+| `brick_wall` | `"bond":"running\|flemish\|english"`, `coping`, `piers_every`, `thickness` |
+| `stone_wall` | `"stone":"fieldstone\|ashlar\|flagstone"`, `thickness` |
+| `pier_and_panel` | `infill`: the style between the piers and its options, like `{"style":"ornamental_steel"}` |
+| `retaining_wall` | `"retains":"left\|right"`: the side of the higher ground (the higher one by default). Its top follows that ground and its `height` is what stands above it. It doesn't change the terrain |
+| `bollards` | `"type":"steel\|concrete\|lighted"` |
+
+A key that the style doesn't read isn't an error: the fence is built, and the answer ends with a
+warning that names the key.
+
+### Gates
+
+A gate is given in `openings` when the fence is built, or added later by `add_gate`. It is placed by
+`at`, the distance in cm from the first point to its middle along the fence, or by `near`, a point
+`[x,y]`. The posts on both sides are taller, and the gates are numbered along the fence in the answer.
+
+| Parameter | Meaning |
+| --- | --- |
+| `width` | Its width in cm (100) |
+| `type` | `single_swing`, `double_swing`, `sliding`, `rolling`, `cantilever`, `bifold`, `vertical_lift`, `arm_barrier`, `pedestrian_turnstile`, `arched_top`, `drive_arch`, `arbor_gate`, `walk_through_kissing_gate`, `cattle_guard`, or `gap` for an opening without gate |
+| `swing` | `in` (the default: away from the finished side), `out` or `both` |
+| `hinge` | `start` or `end`: the side of the hinges |
+| `open_angle` | How far it is drawn open, in degrees. `open`, from 0 to 1, for the gates that slide, fold or lift |
+| `style` | What fills it. By default the style of the fence; a wall has a gate of steel bars, wires a gate of pipes |
+| `arch`, `arch_height` | `convex` or `concave`, for `arched_top` and `drive_arch` |
+| `slide_direction` | `start` or `end`, for the gates that slide |
+| `latch` | `gravity`, `magna_latch_pool`, `drop_rod`, `lockable`, `keypad`, `electric_strike` or `none` |
+| `operator` | `none`, `swing_arm` or `slide_motor` |
+| `self_closing` | `true` for hinges that close it |
+| `height`, `name` | Its height when it differs from the fence, and its name |
+
+![A row of gates: arm barrier, turnstile, arched top, drive arch, arbor gate, kissing gate and cattle guard](images/fence-gates.jpg)
+
+### What `check_home` tells about fences
+
+| Issue | Severity |
+| --- | --- |
+| A fence crosses a wall, or runs inside a room that has walls and a ceiling | error |
+| A fence crosses a slab named driveway, road, street or parking without a gate | warning |
+| A gate hits a wall or a piece of furniture when it swings | warning |
+| A `pool_code` fence is under 122 cm, has gaps of 10 cm or more, or a gate that doesn't close by itself, opens to the pool or has a low latch | warning |
+| A fence stands beyond the property lines, with the distance | warning |
+| The ground changed under the posts of a fence since it was built | warning |
+
+### Limits
+
+- The meshes, the lattices and the pierced sheets are pictures one sees through, drawn on a flat
+  surface: they have no thickness, and from far away their wires fade.
+- `retaining_wall` and `ha_ha` don't cut or fill the terrain.
+- `"pattern":"custom_svg"` isn't read: the panels are plain.
+- The lights of posts are drawn but light nothing.
+- A fence follows the ground from post to post: closer posts follow a rough ground better.
 
 ## Furnishing a room by itself
 
@@ -1039,3 +1277,28 @@ One call of `apply_commands` is one step of undo. `begin_group` makes one
 step of every call that follows, until `end_group`: a house built in ten
 calls is then undone at once. The `undo` tool ends an open group and undoes
 it, and a group left open ends by itself after 10 minutes without a command.
+
+## Help
+
+```json
+{"action":"help"}
+{"action":"help","command":"add_fence"}
+{"action":"help","command":"add_fence","style":"chain_link"}
+{"action":"help","search":"gate"}
+{"action":"get_capabilities"}
+```
+
+`help` reads the same text as this page, inside the program: Claude doesn't need the files of
+the program to find a command.
+
+- Without argument: every command by area, with a line on each.
+- `command`: the syntax of a command, what its parameters do, and the other commands of its area.
+  For `add_fence` it lists the styles too, and with `style` the options of one style and what
+  they are when the command doesn't give them.
+- `search`: the commands whose syntax or description mentions a word, with the words around it,
+  and the styles of fence that have it.
+
+`get_capabilities` gives the version, what this version has and doesn't have, and its limits:
+commands per call, points of a terrain, parts of a piece, sizes of files.
+
+Both change nothing, and both are tools of the MCP server too, usable without the permission to edit.

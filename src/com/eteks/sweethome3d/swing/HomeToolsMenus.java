@@ -289,16 +289,38 @@ public class HomeToolsMenus {
       command.put("closed", Boolean.TRUE);
     }
     if ("add_fence".equals(action)) {
-      JComboBox styleComboBox = new JComboBox(new String [] {"picket", "panel", "rail", "wire"});
-      JTextField heightField = new JTextField("120", 6);
-      JTextField spacingField = new JTextField("240", 6);
-      if (!confirm(title, form("Style", styleComboBox, "Height (cm)", heightField, "Distance between posts (cm)", spacingField,
-          deleteLineCheckBox, new JLabel()))) {
+      final String [][] styles = com.eteks.sweethome3d.viewcontroller.HomeAssistantContext.getFenceStyles();
+      String [] styleNames = new String [styles.length];
+      int picket = 0;
+      for (int i = 0; i < styles.length; i++) {
+        styleNames [i] = styles [i][0];
+        if (styles [i][0].equals("picket")) {
+          picket = i;
+        }
+      }
+      final JComboBox styleComboBox = new JComboBox(styleNames);
+      styleComboBox.setMaximumRowCount(20);
+      final JTextField heightField = new JTextField(styles [picket][3], 6);
+      final JTextField spacingField = new JTextField(styles [picket][4], 6);
+      final JLabel styleLabel = new JLabel(styles [picket][1] + ": " + styles [picket][2]);
+      styleComboBox.setSelectedIndex(picket);
+      // Each style comes with its usual sizes
+      styleComboBox.addActionListener(new java.awt.event.ActionListener() {
+          public void actionPerformed(java.awt.event.ActionEvent ev) {
+            String [] style = styles [Math.max(0, styleComboBox.getSelectedIndex())];
+            heightField.setText(style [3]);
+            spacingField.setText(style [4]);
+            String description = style [1] + ": " + style [2];
+            styleLabel.setText(description.length() > 90 ? description.substring(0, 88) + "..." : description);
+          }
+        });
+      if (!confirm(title, form("Style", styleComboBox, "", styleLabel, "Height (cm)", heightField,
+          "Distance between posts (cm)", spacingField, deleteLineCheckBox, new JLabel()))) {
         return;
       }
       command.put("style", styleComboBox.getSelectedItem());
-      command.put("height", number(heightField, 20, 400));
-      command.put("post_spacing", number(spacingField, 50, 600));
+      command.put("height", number(heightField, 5, 800));
+      command.put("post_spacing", number(spacingField, 20, 1500));
     } else if ("add_hedge".equals(action)) {
       JTextField heightField = new JTextField("150", 6);
       JTextField widthField = new JTextField("60", 6);
