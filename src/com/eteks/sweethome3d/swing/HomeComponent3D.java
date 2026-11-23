@@ -154,6 +154,7 @@ import com.eteks.sweethome3d.j3d.HomePieceOfFurniture3D;
 import com.eteks.sweethome3d.j3d.ModelManager;
 import com.eteks.sweethome3d.j3d.Object3DBranch;
 import com.eteks.sweethome3d.j3d.Object3DBranchFactory;
+import com.eteks.sweethome3d.j3d.SunLight;
 import com.eteks.sweethome3d.j3d.TextureManager;
 import com.eteks.sweethome3d.j3d.Wall3D;
 import com.eteks.sweethome3d.model.Camera;
@@ -176,6 +177,7 @@ import com.eteks.sweethome3d.model.ModelLOD;
 import com.eteks.sweethome3d.model.Polyline;
 import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Selectable;
+import com.eteks.sweethome3d.model.SunPosition;
 import com.eteks.sweethome3d.model.SelectionEvent;
 import com.eteks.sweethome3d.model.SelectionListener;
 import com.eteks.sweethome3d.model.UserPreferences;
@@ -248,6 +250,47 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
   private PropertyChangeListener                   sunListener;
   /** The property of a home whose 3D view is lit by the sun at the date and time of its camera. */
   public static final String SUN_FOLLOWS_TIME_PROPERTY = "sunFollowsTime";
+  /**
+   * The property of a home whose 3D view shows with false colors the light received by clear sky
+   * from the sun and the sky: the illuminance in lux of the last color.
+   */
+  public static final String SUN_FALSE_COLORS_PROPERTY = "sunFalseColorsMaximum";
+
+  /**
+   * The property of a home set to <code>true</code> to draw its 3D view in red where the sun
+   * reaches a surface and in black where it doesn't: the pictures added to count the hours of sun.
+   */
+  public static final String SUN_MASK_PROPERTY = "sunMask";
+
+  /**
+   * Returns the illuminance in lux shown by the last false color of the 3D view of <code>home</code>,
+   * 0 if its 3D view is displayed with its own colors, or -1 if it shows where the sun reaches.
+   */
+  public static float getFalseColorsMaximum(Home home) {
+    if (getSunDirection(home) != null) {
+      if ("true".equals(home.getProperty(SUN_MASK_PROPERTY))) {
+        return -1;
+      }
+      try {
+        String maximum = home.getProperty(SUN_FALSE_COLORS_PROPERTY);
+        if (maximum != null) {
+          return Math.max(0, Float.parseFloat(maximum));
+        }
+      } catch (NumberFormatException ex) {
+        // No false colors
+      }
+    }
+    return 0;
+  }
+
+  /**
+   * Returns the position of the sun in the sky of <code>home</code> at the date and time of its camera.
+   */
+  public static SunPosition getSunPosition(Home home) {
+    Compass compass = home.getCompass();
+    long time = Camera.convertTimeToTimeZone(home.getCamera().getTime(), compass.getTimeZone());
+    return SunPosition.getInstance(time, Math.toDegrees(compass.getLatitude()), Math.toDegrees(compass.getLongitude()));
+  }
 
   /**
    * Returns the direction of the sun seen from <code>home</code> at the date and time of its camera,
@@ -1565,6 +1608,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     homeEnvironment.removePropertyChangeListener(HomeEnvironment.Property.LIGHT_COLOR, this.lightColorListener);
     if (this.sunListener != null) {
       this.home.removePropertyChangeListener(SUN_FOLLOWS_TIME_PROPERTY, this.sunListener);
+      this.home.removePropertyChangeListener(SUN_FALSE_COLORS_PROPERTY, this.sunListener);
       this.home.removePropertyChangeListener(Home.Property.CAMERA, this.sunListener);
       this.home.getCompass().removePropertyChangeListener(this.sunListener);
       this.home.getTopCamera().removePropertyChangeListener(this.sunListener);
@@ -3727,7 +3771,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
    */
   private Light [] createLights(final Node groundNode, boolean listenToHomeUpdates) {
     final Light [] lights = {
-        new DirectionalLight(new Color3f(1, 1, 1), new Vector3f(1.5f, -0.8f, -1)),
+        new SunLight(new Color3f(1, 1, 1), new Vector3f(1.5f, -0.8f, -1)),
         new DirectionalLight(new Color3f(1, 1, 1), new Vector3f(-1.5f, -0.8f, -1)),
         new DirectionalLight(new Color3f(1, 1, 1), new Vector3f(0, -0.8f, 1)),
         new DirectionalLight(new Color3f(0.7f, 0.7f, 0.7f), new Vector3f(0, 1f, 0)),
@@ -3755,12 +3799,27 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
           float [] sun = HomeComponent3D.getSunDirection(home);
           float [][] directions = {{1.5f, -0.8f, -1}, {-1.5f, -0.8f, -1}, {0, -0.8f, 1}};
           float [] intensities = {1, 1, 1};
+          SunLight sunLight = (SunLight)lights [0];
+          sunLight.setSun(sun != null && sun [1] > 0.005f);
+          sunLight.setFalseColorsMaximum(getFalseColorsMaximum(home));
           if (sun != null) {
-            if (sun [1] > 0.03f) {
-              // By day: the sun, and two weaker lights that keep the sides in shadow readable
+            SunPosition sunPosition = getSunPosition(home);
+            sunLight.setIlluminance((float)sunPosition.getDirectNormalIlluminance(),
+                (float)sunPosition.getDiffuseHorizontalIlluminance());
+            if (sun [1] > 0.005f) {
+              // By day: the sun, and two weaker lights from the other sides
+              // which keep what is in the shadow readable, the more as the sun is low
               directions [0] = new float [] {-sun [0], -sun [1], -sun [2]};
+              double horizontalLength = Math.max(1E-4, Math.sqrt(sun [0] * sun [0] + sun [2] * sun [2]));
+              double x = sun [0] / horizontalLength;
+              double z = sun [2] / horizontalLength;
+              double cos = -0.5;
+              double sin = Math.sqrt(3) / 2;
+              directions [1] = new float [] {(float)-(x * cos - z * sin), -1, (float)-(x * sin + z * cos)};
+              directions [2] = new float [] {(float)-(x * cos + z * sin), -1, (float)-(-x * sin + z * cos)};
               float height = Math.min(1, sun [1] * 3);
-              intensities = new float [] {0.6f + 0.7f * height, 0.55f, 0.55f};
+              float fill = 0.9f - 0.35f * height;
+              intensities = new float [] {0.6f + 0.5f * height, fill, fill};
             } else {
               intensities = new float [] {0.3f, 0.3f, 0.3f};
             }
@@ -3769,6 +3828,9 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
             ((DirectionalLight)lights [i]).setDirection(new Vector3f(directions [i][0], directions [i][1], directions [i][2]));
             lights [i].setUserData(new Color3f(intensities [i], intensities [i], intensities [i]));
             updateLightColor(lights [i]);
+          }
+          if (openGLView != null) {
+            openGLView.repaint();
           }
         }
       };
@@ -3791,6 +3853,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
           }
         };
       this.home.addPropertyChangeListener(SUN_FOLLOWS_TIME_PROPERTY, this.sunListener);
+      this.home.addPropertyChangeListener(SUN_FALSE_COLORS_PROPERTY, this.sunListener);
       this.home.addPropertyChangeListener(Home.Property.CAMERA, this.sunListener);
       this.home.getCompass().addPropertyChangeListener(this.sunListener);
       this.home.getTopCamera().addPropertyChangeListener(this.sunListener);

@@ -88,18 +88,113 @@ floor and the roof.
 
 ## Sun at a date and a time
 
-**3D view > Sun at the date and time of the camera** lights and shadows the
-3D view from where the sun is, in place of its fixed lights. **3D view >
-Date and time of the sun...** chooses the date and the local time; the place
-is the latitude, the longitude and the time zone of the compass (**Plan >
-Modify compass...**), and the north of the plan is its north direction. At
-night the view is dimmed. Shadows need the OpenGL renderer with **Shadows**
-ticked in **3D view > OpenGL renderer quality**.
+**3D view > Sun and shadows...** opens a window which stays beside the home
+while you work:
 
-The choice is stored in the home. The ray tracer of **3D view > Create
-photo...** always used the date and the time of the camera; this brings the
-same sun to the live view. The assistant and Claude set it with `set_sun`
-([Command reference](MCP_COMMANDS.md#lights-sun-doors-and-materials)).
+![The window of the sun: place, calendar, sliders of the year and of the day](images/sun-dialog.png)
+
+- **Place**: the latitude, the longitude, the time zone and the north of the
+  plan. They are the ones of the compass (**Plan > Modify compass...**).
+- **Date**: click a day in the calendar, type the date, or use the buttons of
+  the equinoxes and the solstices. The slider goes through the days of the
+  year at the chosen time, and **Play the year** does it by itself: you see
+  the shadow of a tree at 9 h grow from June to December.
+- **Local time**: the slider goes through the hours of the chosen day, and
+  **Play the day** runs from sunrise to sunset.
+- **Sun**: sunrise, solar noon and sunset, the height and the azimuth of the
+  sun, the length of shadows and the light the ground receives by clear sky.
+- **3D view**: **Light the 3D view from the sun** replaces the fixed lights of
+  the 3D view by the sun (also **3D view > Sun at the date and time of the
+  camera**), **Shadows** casts the shadows, and **False colors of the light
+  level** shows how much light each surface receives.
+
+![Shadows in the morning of the March equinox](images/sun-shadows.jpg)
+
+Shadows and false colors need the OpenGL renderer; the window offers to turn
+it on. The choices are stored in the home. The ray tracer of **3D view >
+Create photo...** uses the same date, time and place. The assistant and Claude
+set them with `set_sun`
+([Command reference](MCP_COMMANDS.md#lights-sun-doors-and-materials)), and
+the north and the place with `set_compass`. Through the MCP server, Claude
+can also open this window, play its animations, choose the renderer, and get
+one picture of the home at several hours of a day or dates of a year
+([Sun study](MCP_SERVER.md#sun-study)).
+
+### The place of the home
+
+The sun is computed for the latitude, the longitude, the time zone and the
+north of the **Place** box, which are the ones of the compass of the plan.
+
+- When the home has a GPS position (`set_georeference`, or a parcel imported
+  with `import_parcel`), the compass receives its place and its true north,
+  and the window says so. If they are changed apart later, the window tells
+  how far the sun is computed from the home, and **Use the GPS position of
+  the home** brings them back together.
+- The time zone doesn't come from the coordinates: choose it in the list. A
+  warning shows when it is more than three hours away from the solar time of
+  the longitude, as sunrise and sunset would then be at odd hours.
+- Without a GPS position, the place is the reference city of the time zone of
+  the computer: enter yours.
+
+### Pictures of a day, of a year, and hours of sun
+
+Three buttons at the bottom of the window draw what the camera of the 3D
+view sees, in a picture you can save:
+
+- **The day in pictures...**: six instants from sunrise to sunset of the
+  chosen date;
+- **The year in pictures...**: the equinoxes and the solstices at the chosen
+  time;
+- **Hours of sun...**: each point colored by the time the sun reaches it
+  during the chosen day, from dark blue (never) to red (all day).
+
+![Hours of direct sun on the day of the December solstice](images/sun-hours.jpg)
+
+The hours are counted from pictures of the shadows each 20 minutes, so they
+are right to about 20 minutes, and by clear sky: a tree counts as it is
+modeled, with all its leaves. A surface the sun meets from behind counts as
+shade. Claude gets the same pictures with `get_sun_study_image`
+([Sun study](MCP_SERVER.md#sun-study)).
+
+### How exact the sun is
+
+The position of the sun comes from the formulas of Jean Meeus
+(*Astronomical Algorithms*), the ones of the solar calculator of NOAA, with
+the equation of time, the summer time of the time zone and the refraction of
+the atmosphere:
+
+- the azimuth and the height are within about 0.01 degree between 1900 and
+  2100;
+- sunrise and sunset are within a minute up to 72 degrees of latitude (they
+  are checked against the published times of London, New York and Paris);
+- shadows are cast from this exact direction. Their edge is a few centimeters
+  wide in a large scene, as the graphics card draws them from a picture of
+  4096 pixels.
+
+The formulas this replaces could be 1.5 degree away in azimuth, and ignored
+half hours in time zones such as the one of India.
+
+The result depends on what you enter: check the north of the plan, and that
+the terrain, the neighbors and the trees have their real height.
+
+### False colors of the light level
+
+![The light received in the morning, from dark blue in the shade to orange in the sun](images/sun-false-colors.jpg)
+
+Each surface is colored by the light it receives in lux, from dark blue (0)
+to red (the maximum chosen beside the box, 120 000 lux by default; a lower
+one such as 10 000 lux shows the differences in the shade). The value is the
+one of a clear day (clear sky model of the IES):
+
+- the sun, weakened by the air it crosses, by the angle at which it meets the
+  surface, and stopped by what casts a shadow;
+- the sky, which gives more to what faces upward;
+- the ground, which sends back a fifth of what it receives.
+
+Its limits: there is no cloud, light doesn't bounce from walls, and the sky
+isn't hidden by what is over a surface. So the values are right outside and
+for the patches of sun inside, and too high for the rest of a room or under
+a porch.
 
 ## 360 degree panorama
 

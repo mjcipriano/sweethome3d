@@ -24,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
+import com.eteks.sweethome3d.model.Compass;
 import com.eteks.sweethome3d.model.Home;
 
 /**
@@ -180,6 +181,82 @@ public class HomeGeoreference {
     double rotation = Math.toDegrees(Math.atan2(y2 - y1, x2 - x1) - Math.atan2(point [1] - y1, point [0] - x1));
     rotation = ((rotation % 360) + 540) % 360 - 180;
     return new HomeGeoreference(latitude1, longitude1, x1, y1, rotation);
+  }
+
+  /**
+   * Gives the latitude, the longitude and the true north of this georeference to <code>compass</code>,
+   * which the sun of the home is computed from.
+   */
+  public void applyTo(Compass compass) {
+    compass.setNorthDirection((float)Math.toRadians(((this.rotation % 360) + 360) % 360));
+    compass.setLatitude((float)Math.toRadians(this.latitude));
+    compass.setLongitude((float)Math.toRadians(this.longitude));
+  }
+
+  /**
+   * Returns how far in meters the place of the compass of <code>home</code> is from its georeference,
+   * and by how many degrees their norths differ, or <code>null</code> if the home has no georeference.
+   */
+  public static double [] getCompassDifference(Home home) {
+    HomeGeoreference georeference = get(home);
+    if (georeference == null) {
+      return null;
+    }
+    Compass compass = home.getCompass();
+    double compassLatitude = Math.toDegrees(compass.getLatitude());
+    double compassLongitude = Math.toDegrees(compass.getLongitude());
+    // Great circle distance, right for places far apart too
+    double latitude1 = Math.toRadians(georeference.latitude);
+    double latitude2 = Math.toRadians(compassLatitude);
+    double deltaLongitude = Math.toRadians(compassLongitude - georeference.longitude);
+    double sinLatitude = Math.sin((latitude2 - latitude1) / 2);
+    double sinLongitude = Math.sin(deltaLongitude / 2);
+    double a = sinLatitude * sinLatitude + Math.cos(latitude1) * Math.cos(latitude2) * sinLongitude * sinLongitude;
+    double distance = 2 * 6371008.8 * Math.asin(Math.min(1, Math.sqrt(a)));
+    double north = ((Math.toDegrees(compass.getNorthDirection()) - georeference.rotation) % 360 + 540) % 360 - 180;
+    return new double [] {distance, north};
+  }
+
+  /**
+   * Returns a sentence which tells that the sun of <code>home</code> is computed for another place
+   * or another north than its georeference, or <code>null</code> if they agree or if it has none.
+   */
+  public static String describeCompassDifference(Home home) {
+    double [] difference = getCompassDifference(home);
+    if (difference == null || difference [0] < 100 && Math.abs(difference [1]) < 0.1) {
+      return null;
+    }
+    HomeGeoreference georeference = get(home);
+    String text = String.format(Locale.US, "The home is georeferenced at latitude %.5f, longitude %.5f, north %.1f degrees, but the sun is computed for ",
+        georeference.latitude, georeference.longitude, ((georeference.rotation % 360) + 360) % 360);
+    if (difference [0] >= 100) {
+      text += difference [0] < 10000
+          ? String.format(Locale.US, "a place %.0f m away", difference [0])
+          : String.format(Locale.US, "a place %.0f km away", difference [0] / 1000);
+    }
+    if (Math.abs(difference [1]) >= 0.1) {
+      text += (difference [0] >= 100 ? " and " : "") + String.format(Locale.US, "a north turned by %.1f degrees", difference [1]);
+    }
+    return text;
+  }
+
+  /**
+   * Returns a sentence which tells that the time zone of <code>compass</code> is hours away from
+   * the solar time of its longitude, or <code>null</code> if they agree.
+   */
+  public static String describeTimeZoneDifference(Compass compass) {
+    double offset = java.util.TimeZone.getTimeZone(compass.getTimeZone()).getRawOffset() / 3600000.;
+    double solarOffset = Math.toDegrees(compass.getLongitude()) / 15;
+    double difference = ((offset - solarOffset) % 24 + 36) % 24 - 12;
+    if (Math.abs(difference) <= 3.25) {
+      return null;
+    }
+    String offsetText = offset == Math.rint(offset)
+        ? String.format(Locale.US, "%+d", (int)offset)
+        : String.format(Locale.US, "%+d:%02d", (int)offset, (int)Math.round(Math.abs(offset - (int)offset) * 60));
+    return String.format(Locale.US, "The time zone %s (UTC%s) is %.0f hours away from the solar time of the longitude %.2f "
+        + "(about UTC%+d): sunrise and sunset would be at odd hours", compass.getTimeZone(), offsetText,
+        Math.abs(difference), Math.toDegrees(compass.getLongitude()), Math.round(solarOffset));
   }
 
   /**

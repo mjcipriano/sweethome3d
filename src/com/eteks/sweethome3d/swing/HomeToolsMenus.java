@@ -583,23 +583,10 @@ public class HomeToolsMenus {
   // ---- 3D view ----
 
   public JMenuItem createSunItem() {
-    return item("Date and time of the sun...", new Runnable() {
+    return item("Sun and shadows...", new Runnable() {
         public void run() {
-          java.util.Calendar calendar = new java.util.GregorianCalendar(java.util.TimeZone.getTimeZone("UTC"));
-          calendar.setTimeInMillis(home.getCamera().getTime());
-          JTextField dateField = new JTextField(String.format("%04d-%02d-%02d", calendar.get(java.util.Calendar.YEAR),
-              calendar.get(java.util.Calendar.MONTH) + 1, calendar.get(java.util.Calendar.DAY_OF_MONTH)), 10);
-          JTextField timeField = new JTextField(String.format("%02d:%02d", calendar.get(java.util.Calendar.HOUR_OF_DAY),
-              calendar.get(java.util.Calendar.MINUTE)), 6);
-          JCheckBox followCheckBox = new JCheckBox("Light the 3D view from the sun", true);
-          JPanel panel = new JPanel(new BorderLayout(0, 8));
-          panel.add(form("Date (YYYY-MM-DD)", dateField, "Local time (HH:MM)", timeField, followCheckBox, new JLabel()), BorderLayout.CENTER);
-          panel.add(new JLabel("<html>At the latitude, longitude and time zone of the compass (Plan &gt; Modify compass...).</html>"),
-              BorderLayout.SOUTH);
-          if (confirm("Date and time of the sun", panel)) {
-            showMessage("Sun", runCommands(command("set_sun", "date", dateField.getText().trim(), "time", timeField.getText().trim(),
-                "follow", Boolean.valueOf(followCheckBox.isSelected()))));
-          }
+          Object view3D = controller.getHomeController3D().getView();
+          SunStudyPanel.showDialog(parent, home, view3D instanceof HomeComponent3D ? (HomeComponent3D)view3D : null);
         }
       });
   }

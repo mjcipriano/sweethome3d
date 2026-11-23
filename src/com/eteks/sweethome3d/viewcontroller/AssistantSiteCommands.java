@@ -641,6 +641,14 @@ class AssistantSiteCommands {
     if (!Double.isNaN(latitude) && Math.abs(latitude) > 90 || !Double.isNaN(longitude) && Math.abs(longitude) > 180) {
       throw new IOException("the latitude goes from -90 to 90 degrees and the longitude from -180 to 180");
     }
+    if (command.getBoolean("georeference", false)) {
+      // The place and the true north of the georeference of the home
+      HomeGeoreference georeference = HomeGeoreference.get(this.home);
+      if (georeference == null) {
+        throw new IOException("the home has no georeference: give latitude, longitude and north_direction, or call set_georeference");
+      }
+      georeference.applyTo(compass);
+    }
     if (!Double.isNaN(northDirection)) {
       compass.setNorthDirection((float)Math.toRadians(((northDirection % 360) + 360) % 360));
     }

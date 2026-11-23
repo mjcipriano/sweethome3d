@@ -123,6 +123,8 @@ check its work with a picture.
 | `get_plan_image` | PNG picture of the 2D plan of a level, or of a part of it enlarged |
 | `get_3d_image` | PNG picture of the home in 3D (see [Pictures](#pictures)) |
 | `get_3d_info` | The camera, the stored points of view, the levels, the views and the renderers `get_3d_image` accepts |
+| `get_sun_study_image` | One picture of the home at several hours of a day, or at several dates of a year, with the shadows of the sun ([below](#sun-study)) |
+| `sun_study` | Opens or closes your window **Sun and shadows**, plays its animations, and chooses the renderer and the shadows of the 3D view on screen ([below](#sun-study)) |
 | `export_blender` | Writes the model and a Blender scene script in a folder, for a high quality render |
 | `get_notes` | The review notes pinned to walls, furniture and rooms during a visit ([Review notes](REVIEW_NOTES.md)) |
 | `update_note` | Marks a note done with a reply, or deletes it |
@@ -345,6 +347,62 @@ size, with this heap, only the OpenGL renderer is usable. Under WSLg the same
 home took 1.2 to 5.6 s without shadow, 8 to 35 s with shadows, and 71 s with
 the ray tracer.
 
+### Sun study
+
+Everything the window **3D view > Sun and shadows...** sets
+([guide](VIEW_3D_NAVIGATION.md#sun-at-a-date-and-a-time)) can be set by
+Claude:
+
+| What | How |
+| --- | --- |
+| Date, time of day | The `set_sun` command: `{"action":"set_sun","date":"2026-06-21","time":"17:30"}` |
+| Light of the 3D view from the sun, false colors | `set_sun` with `"follow":true`, `"false_colors":true`, a number of lux, or `false` |
+| North, latitude, longitude, time zone | The `set_compass` command: `"north_direction"` in degrees clockwise from the top of the plan, `"latitude"`, `"longitude"`, `"time_zone":"America/New_York"`; `"georeference":true` takes the place and the true north of the GPS position of the home |
+| The window itself | The `sun_study` tool: `{"window":"open"}` or `{"window":"close"}` |
+| Its animations | `sun_study` with `"play":"day"` (sunrise to sunset of the date), `"play":"year"` (the days of the year at the time) or `"play":"stop"` |
+| Renderer and shadows of the 3D view on screen | `sun_study` with `"renderer":"opengl"` or `"java3d"`, and `"shadows":true` or `false` |
+
+`sun_study` without argument tells whether the window is open, what plays,
+and how the 3D view is drawn. An animation moves the date or the time of the
+home until it is stopped, and needs **Allow changes to this home**, as do the
+renderer and the shadows, which are your preferences for all homes. Opening
+and closing the window, and stopping an animation, don't need it.
+
+Claude doesn't see an animation: to look at the sun through a day or a year
+it calls `get_sun_study_image`, which returns one picture of the home at
+several instants, each with its date, its time and the height of the sun
+under it, and the list of the sun height, its azimuth, the length of shadows
+and the light on the ground at each instant. The date, the time and the 3D
+view of the home don't change.
+
+![Six hours of the day of the June solstice](images/sun-study-day.jpg)
+
+| Argument | Meaning |
+| --- | --- |
+| `sweep` | `day` (default): the hours of one day. `year`: dates of the year at the same time. `hours`: one picture colored by the hours of direct sun of the day |
+| `steps` | Number of pictures: 2 to 12 for a day (6 by default); 2, 3, 4, 6 or 12 for a year (4 by default: the equinoxes and the solstices; 12: the 21st of each month). For `hours`, the instants counted, 4 to 96 (one each 20 minutes by default) |
+| `max_hours` | `hours`: the hours shown by the last color (default: the length of the day) |
+| `date` | The day shown, or the year of a year sweep (default: the date of the sun of the home) |
+| `time` | Year sweep: the local time (default: the time of the sun of the home) |
+| `from`, `to` | `day` and `hours`: the first and the last local time. By default from sunrise to sunset |
+| `false_colors` | `true`, a maximum in lux, or `false` (default: as the 3D view of the home) |
+| `view`, `target`, `camera`, `point_of_view`, `levels`, `renderer`, `shadows`, `save_to`... | As in `get_3d_image`; `width` and `height` are the ones of each picture (400 x 260 by default, at most 800 x 600; for `hours` 800 x 520, at most 1600 x 1200) |
+
+![The afternoon of the equinoxes and the solstices in false colors](images/sun-study-year.jpg)
+
+With `"sweep":"hours"`, the home is drawn at instants spread through the day,
+and each point is colored by the time the sun reaches it, from dark blue (never)
+to red (all day): where to plant, to sit or to put solar panels. The answer
+adds the share of the surfaces in the picture that get less than 2 hours,
+2 to 6 hours and more. It needs the OpenGL renderer, and takes a few seconds
+on a graphics card (20 to 30 s under WSLg).
+
+![Hours of direct sun on the day of the December solstice](images/sun-hours.jpg)
+
+`set_sun` warns when the sun isn't computed for the GPS position of the home
+(the compass was changed after `set_georeference`), and when the time zone is
+more than three hours away from the solar time of the longitude.
+
 ### Elevations
 
 `get_elevation_image` draws one `side` of the building (`south`, `north`,
@@ -415,7 +473,9 @@ pieces or textures named exactly.
   exists, need **Allow saving this home in its file, and replacing files**,
   which is off each time the application starts. The tools can't read other
   files or reach the network. `start_visit` opens your web browser on the
-  visit served by Sweet Home 3D on this computer.
+  visit served by Sweet Home 3D on this computer. `sun_study` opens a window
+of the application and, with **Allow changes to this home**, changes two of
+your preferences: the renderer of the 3D view and its shadows.
 
 ## When something goes wrong
 

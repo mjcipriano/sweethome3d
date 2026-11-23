@@ -1599,6 +1599,11 @@ public class HomePane extends JRootPane implements HomeView {
         }
       });
     preview3DMenu.add(sunMenuItem);
+    putClientProperty(SunStudyPanel.PICTURE_RENDERER_PROPERTY, new SunStudyPanel.PictureRenderer() {
+        public byte [] render(String sweep, String [] message) {
+          return createSunStudyPicture(sweep, message);
+        }
+      });
     preview3DMenu.add(toolsMenus.createSunItem());
     addActionToMenu(ActionType.MODIFY_3D_ATTRIBUTES, preview3DMenu);
     JMenu standardViewsMenu = createStandardViewsMenu();
@@ -5445,6 +5450,82 @@ public class HomePane extends JRootPane implements HomeView {
             }
           }
         });
+      this.mcpHandler.setSunStudyView(new HomeMCPHandler.SunStudyView() {
+          private HomeComponent3D getView3D() {
+            Object view3D = controller != null ? controller.getHomeController3D().getView() : null;
+            return view3D instanceof HomeComponent3D ? (HomeComponent3D)view3D : null;
+          }
+
+          public void showWindow(boolean visible) {
+            if (visible) {
+              SunStudyPanel.showDialog(HomePane.this, home, getView3D());
+            } else {
+              SunStudyPanel.closeDialog(HomePane.this);
+            }
+          }
+
+          public void play(String animation) throws IOException {
+            if (animation != null) {
+              // The animation is the one of the window
+              SunStudyPanel.showDialog(HomePane.this, home, getView3D());
+            }
+            SunStudyPanel panel = SunStudyPanel.getDisplayedPanel(HomePane.this);
+            if (panel != null) {
+              panel.play(animation);
+            } else if (animation != null) {
+              throw new IOException("The window of the sun couldn't be shown");
+            }
+          }
+
+          public void setDisplay(Boolean openGL, Boolean shadows) {
+            if (openGL != null) {
+              HomeComponent3D.setOpenGLRendererSelected(openGL.booleanValue());
+            }
+            if (shadows != null) {
+              HomeComponent3D.setOpenGLShadowsSelected(shadows.booleanValue());
+            }
+            HomeComponent3D view3D = getView3D();
+            if (view3D != null) {
+              view3D.updateRenderer();
+            }
+            SunStudyPanel panel = SunStudyPanel.getDisplayedPanel(HomePane.this);
+            if (panel != null) {
+              panel.update();
+            }
+          }
+
+          public String describe() {
+            SunStudyPanel panel = SunStudyPanel.getDisplayedPanel(HomePane.this);
+            String animation = panel != null ? panel.getPlayedAnimation() : null;
+            HomeComponent3D view3D = getView3D();
+            String text = "The window \"Sun and shadows\" is " + (panel != null ? "open" : "closed")
+                + (animation != null ? " and plays the " + animation : panel != null ? ", without animation" : "") + ". ";
+            if (view3D == null) {
+              text += "The 3D view isn't displayed.";
+            } else if (view3D.isOpenGLRendererUsed()) {
+              text += "The 3D view on screen is drawn by the OpenGL renderer, "
+                  + (HomeComponent3D.isOpenGLShadowsSelected() ? "with shadows"
+                      : "without shadows (\"shadows\":true shows them)")
+                  + (home.getProperty(HomeComponent3D.SUN_FOLLOWS_TIME_PROPERTY) != null ? ", lit from the sun"
+                      : ", with its own lights (the set_sun command with \"follow\":true lights it from the sun)")
+                  + (home.getProperty(HomeComponent3D.SUN_FALSE_COLORS_PROPERTY) != null ? ", in false colors." : ".");
+            } else {
+              text += "The 3D view on screen is drawn by Java 3D, which shows no shadow and no false colors"
+                  + (HomeComponent3D.isOpenGLRendererSelected() ? ": the OpenGL renderer is chosen but isn't available here."
+                      : " (\"renderer\":\"opengl\" shows them).");
+            }
+            return text;
+          }
+
+          public byte [] createContactSheet(byte [][] images, String [] captions, int columns) {
+            return HomePane.createContactSheet(images, captions, columns);
+          }
+
+          public byte [] createSunHoursImage(byte [][] masks, byte [] shading, double stepHours, double maximumHours,
+                                             String title, float [] shares) {
+            return HomePane.createSunHoursImage(masks, shading, stepHours, maximumHours, title, shares);
+          }
+        });
       this.mcpHandler.setSceneExporter(new HomeMCPHandler.SceneExporter() {
           public String exportForBlender(File folder) throws Exception {
             return HomePane.this.exportForBlender(folder).getAbsolutePath();
@@ -5465,6 +5546,34 @@ public class HomePane extends JRootPane implements HomeView {
         });
     }
     return this.mcpHandler;
+  }
+
+  /**
+   * Returns the PNG picture of the sun through a <code>day</code> or a <code>year</code>, or of the
+   * <code>hours</code> of sun of the day, seen from the camera of the home and drawn as for MCP clients.
+   */
+  @SuppressWarnings("unchecked")
+  private byte [] createSunStudyPicture(String sweep, String [] message) {
+    try {
+      Map<String, Object> response = (Map<String, Object>)com.eteks.sweethome3d.viewcontroller.JSONParser.parse(
+          getMCPHandler().handle("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":"
+              + "\"get_sun_study_image\",\"arguments\":{\"sweep\":\"" + sweep + "\","
+              + ("hours".equals(sweep) ? "\"width\":1200,\"height\":750" : "\"width\":560,\"height\":350") + "}}}"));
+      Map<String, Object> result = (Map<String, Object>)response.get("result");
+      byte [] image = null;
+      for (Object content : (List<Object>)result.get("content")) {
+        Map<String, Object> item = (Map<String, Object>)content;
+        if ("image".equals(item.get("type"))) {
+          image = java.util.Base64.getDecoder().decode((String)item.get("data"));
+        } else {
+          message [0] = (String)item.get("text");
+        }
+      }
+      return image;
+    } catch (RuntimeException ex) {
+      message [0] = "The picture couldn't be drawn: " + ex;
+      return null;
+    }
   }
 
   /**
@@ -5894,6 +6003,155 @@ public class HomePane extends JRootPane implements HomeView {
     } catch (IOException ex) {
       return null;
     } catch (RuntimeException ex) {
+      return null;
+    }
+  }
+
+  /**
+   * Returns a PNG image showing the given PNG images of the same size in a grid of
+   * <code>columns</code> columns, each with its caption under it, or <code>null</code>
+   * if one of them can't be read.
+   */
+  static byte [] createContactSheet(byte [][] images, String [] captions, int columns) {
+    try {
+      BufferedImage [] pictures = new BufferedImage [images.length];
+      for (int i = 0; i < images.length; i++) {
+        pictures [i] = ImageIO.read(new java.io.ByteArrayInputStream(images [i]));
+        if (pictures [i] == null) {
+          return null;
+        }
+      }
+      if (pictures.length == 0 || columns < 1) {
+        return null;
+      }
+      int width = pictures [0].getWidth();
+      int height = pictures [0].getHeight();
+      int gap = 4;
+      int captionHeight = 22;
+      int rows = (pictures.length + columns - 1) / columns;
+      BufferedImage sheet = new BufferedImage(columns * width + (columns - 1) * gap,
+          rows * (height + captionHeight) + (rows - 1) * gap, BufferedImage.TYPE_INT_RGB);
+      Graphics2D g2D = sheet.createGraphics();
+      g2D.setColor(Color.WHITE);
+      g2D.fillRect(0, 0, sheet.getWidth(), sheet.getHeight());
+      g2D.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+      g2D.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 13));
+      java.awt.FontMetrics metrics = g2D.getFontMetrics();
+      for (int i = 0; i < pictures.length; i++) {
+        int x = i % columns * (width + gap);
+        int y = i / columns * (height + captionHeight + gap);
+        g2D.drawImage(pictures [i], x, y, width, height, null);
+        g2D.setColor(new Color(34, 34, 34));
+        g2D.fillRect(x, y + height, width, captionHeight);
+        g2D.setColor(Color.WHITE);
+        if (captions != null && i < captions.length && captions [i] != null) {
+          g2D.drawString(captions [i], x + Math.max(4, (width - metrics.stringWidth(captions [i])) / 2),
+              y + height + (captionHeight + metrics.getAscent() - metrics.getDescent()) / 2);
+        }
+      }
+      g2D.dispose();
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      ImageIO.write(sheet, "png", out);
+      return out.toByteArray();
+    } catch (IOException ex) {
+      return null;
+    }
+  }
+
+  /**
+   * Returns a PNG image which shows with false colors how many hours the sun reaches each point,
+   * from the pictures of instants <code>stepHours</code> apart, red where the sun reaches a surface,
+   * black where it doesn't and green where the sky shows.
+   */
+  static byte [] createSunHoursImage(byte [][] masks, byte [] shading, double stepHours, double maximumHours,
+                                     String title, float [] shares) {
+    try {
+      BufferedImage shadingImage = ImageIO.read(new java.io.ByteArrayInputStream(shading));
+      if (shadingImage == null || masks.length == 0) {
+        return null;
+      }
+      int width = shadingImage.getWidth();
+      int height = shadingImage.getHeight();
+      float [] hours = new float [width * height];
+      float [] sky = new float [width * height];
+      int [] row = new int [width];
+      for (byte [] mask : masks) {
+        BufferedImage maskImage = ImageIO.read(new java.io.ByteArrayInputStream(mask));
+        if (maskImage == null || maskImage.getWidth() != width || maskImage.getHeight() != height) {
+          return null;
+        }
+        for (int y = 0; y < height; y++) {
+          maskImage.getRGB(0, y, width, 1, row, 0, width);
+          for (int x = 0; x < width; x++) {
+            hours [y * width + x] += ((row [x] >> 16) & 0xFF) / 255f * (float)stepHours;
+            sky [y * width + x] += ((row [x] >> 8) & 0xFF) / 255f / masks.length;
+          }
+        }
+      }
+      int legendHeight = 46;
+      BufferedImage map = new BufferedImage(width, height + legendHeight, BufferedImage.TYPE_INT_RGB);
+      int [] counts = new int [3];
+      for (int y = 0; y < height; y++) {
+        shadingImage.getRGB(0, y, width, 1, row, 0, width);
+        for (int x = 0; x < width; x++) {
+          int i = y * width + x;
+          int red = (row [x] >> 16) & 0xFF;
+          int green = (row [x] >> 8) & 0xFF;
+          int blue = row [x] & 0xFF;
+          // The color of the hours, with the relief of the usual picture
+          float [] color = com.eteks.sweethome3d.j3d.SunLight.getFalseColor((float)Math.min(1, hours [i] / maximumHours));
+          float relief = 0.45f + 0.55f * Math.min(1, (0.3f * red + 0.59f * green + 0.11f * blue) / 200f);
+          float skyPart = Math.min(1, sky [i]);
+          row [x] = 0xFF000000
+              | Math.round(color [0] * relief * 255 * (1 - skyPart) + red * skyPart) << 16
+              | Math.round(color [1] * relief * 255 * (1 - skyPart) + green * skyPart) << 8
+              | Math.round(color [2] * relief * 255 * (1 - skyPart) + blue * skyPart);
+          if (skyPart < 0.5f) {
+            counts [hours [i] < 2 ? 0 : hours [i] <= 6 ? 1 : 2]++;
+          }
+        }
+        map.setRGB(0, y, width, 1, row, 0, width);
+      }
+      int surface = Math.max(1, counts [0] + counts [1] + counts [2]);
+      if (shares != null && shares.length >= 3) {
+        for (int i = 0; i < 3; i++) {
+          shares [i] = (float)counts [i] / surface;
+        }
+      }
+      // The title and the scale of the colors
+      Graphics2D g2D = map.createGraphics();
+      g2D.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+      g2D.setColor(new Color(34, 34, 34));
+      g2D.fillRect(0, height, width, legendHeight);
+      g2D.setColor(Color.WHITE);
+      g2D.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 13));
+      java.awt.FontMetrics metrics = g2D.getFontMetrics();
+      int titleWidth = title != null ? metrics.stringWidth(title) + 24 : 0;
+      if (title != null) {
+        g2D.drawString(title, 10, height + legendHeight / 2 + metrics.getAscent() / 2 - 1);
+      }
+      g2D.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+      metrics = g2D.getFontMetrics();
+      int barX = Math.min(Math.max(titleWidth, width / 3), Math.max(10, width - 220));
+      int barWidth = width - barX - 30;
+      for (int x = 0; x < barWidth; x++) {
+        float [] color = com.eteks.sweethome3d.j3d.SunLight.getFalseColor(x / (float)Math.max(1, barWidth - 1));
+        g2D.setColor(new Color(color [0], color [1], color [2]));
+        g2D.drawLine(barX + x, height + 8, barX + x, height + 21);
+      }
+      g2D.setColor(Color.WHITE);
+      for (int i = 0; i <= 4; i++) {
+        int x = barX + (barWidth - 1) * i / 4;
+        g2D.drawLine(x, height + 21, x, height + 25);
+        double value = maximumHours * i / 4;
+        String label = (value == Math.rint(value) ? String.valueOf((int)value) : String.format(Locale.US, "%.1f", value)) + " h";
+        g2D.drawString(label, x - metrics.stringWidth(label) / 2, height + 26 + metrics.getAscent());
+      }
+      g2D.dispose();
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      ImageIO.write(map, "png", out);
+      return out.toByteArray();
+    } catch (IOException ex) {
       return null;
     }
   }

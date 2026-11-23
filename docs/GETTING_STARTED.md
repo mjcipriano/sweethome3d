@@ -93,7 +93,7 @@ edition adds* with the same list (in English).
 | | Garden, Electrical and plumbing symbols, Measure the selection | [Menus for the commands](DESIGN_TOOLS.md#menus-for-the-commands) |
 | **3D view** | Standard views (keys 1 to 9, **3D views** in the tool bar), Zoom in 3D view, Zoom out 3D view, Show whole home in 3D view | [3D view navigation](VIEW_3D_NAVIGATION.md) |
 | | Hide walls in front of the camera (doll house) | [3D view navigation](VIEW_3D_NAVIGATION.md#doll-house-display) |
-| | Sun at the date and time of the camera, Date and time of the sun... | [Menus for the commands](DESIGN_TOOLS.md#menus-for-the-commands) |
+| | Sun and shadows... (calendar, sliders of the year and of the day, false colors of the light) | [Sun at a date and a time](VIEW_3D_NAVIGATION.md#sun-at-a-date-and-a-time) |
 | | Use OpenGL renderer, OpenGL renderer quality | [OpenGL renderer](OPENGL_RENDERER.md) |
 | | Show full detail, Reduce detail of heavy models automatically, Generate model LOD cache | [Performance](PERFORMANCE.md) |
 | **Tools** | Design assistant..., What can I ask the assistant? | [Design assistant](AI_ASSISTANT.md) |

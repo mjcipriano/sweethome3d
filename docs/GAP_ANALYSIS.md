@@ -54,7 +54,8 @@ Legend: **yes** = available, **new** = added with this analysis, **partly**,
 | A link to share a 3D visit | **new** | File > Export > Export 3D web page... writes a folder for any static web host |
 | 360 degree panoramas | **new** | File > Export > Export 360° panorama... |
 | Automatic hiding of the walls in front of the camera (doll house) | **new** | 3D view > Hide walls in front of the camera |
-| Sun position by date and time in the live view | **new** | 3D view > Sun at the date and time of the camera; `set_sun` |
+| Sun position by date and time in the live view | **new** | 3D view > Sun and shadows...: calendar, sliders of the year and of the day, exact shadows; `set_sun` |
+| Sun study: light level in false colors | **new** | 3D view > Sun and shadows... > False colors of the light level; `set_sun` with `false_colors` (clear sky, no bounced light) |
 
 ## Quantities and cost
 

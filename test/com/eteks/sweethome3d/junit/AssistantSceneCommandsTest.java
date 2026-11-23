@@ -108,9 +108,9 @@ public class AssistantSceneCommandsTest {
     summary = run("{\"action\":\"set_sun\",\"date\":\"2026-06-21\",\"time\":\"13:50\",\"follow\":true}");
     // Around the solar noon of Paris in summer the sun is high in the south
     assertTrue(summary, summary.contains("in the south (azimuth 1"));
-    assertTrue(summary, summary.contains("65 degrees above the horizon"));
-    assertTrue(summary, summary.contains("sunrise about 05:5"));
-    assertTrue(summary, summary.contains("sunset about 21:4"));
+    assertTrue(summary, summary.contains("64.6 degrees above the horizon"));
+    assertTrue(summary, summary.contains("sunrise 05:47"));
+    assertTrue(summary, summary.contains("sunset 21:58"));
     Calendar calendar = new GregorianCalendar(TimeZone.getTimeZone("UTC"));
     calendar.setTimeInMillis(this.home.getTopCamera().getTime());
     assertEquals(13, calendar.get(Calendar.HOUR_OF_DAY));
@@ -118,6 +118,21 @@ public class AssistantSceneCommandsTest {
     assertEquals(21, calendar.get(Calendar.DAY_OF_MONTH));
     assertEquals(this.home.getTopCamera().getTime(), this.home.getObserverCamera().getTime());
     assertEquals("true", this.home.getProperty("sunFollowsTime"));
+    // False colors of the light level
+    summary = run("{\"action\":\"set_sun\",\"false_colors\":true}");
+    assertTrue(summary, summary.contains("false colors"));
+    assertEquals("120000", this.home.getProperty("sunFalseColorsMaximum"));
+    summary = run("{\"action\":\"set_sun\",\"false_colors\":30000}");
+    assertEquals("30000", this.home.getProperty("sunFalseColorsMaximum"));
+    summary = run("{\"action\":\"set_sun\",\"false_colors\":5}");
+    assertTrue(summary, summary.contains("from 100 to 200000"));
+    summary = run("{\"action\":\"set_sun\",\"false_colors\":false}");
+    assertNull(this.home.getProperty("sunFalseColorsMaximum"));
+    this.homeController.undo();
+    assertEquals("30000", this.home.getProperty("sunFalseColorsMaximum"));
+    this.homeController.undo();
+    this.homeController.undo();
+    assertNull(this.home.getProperty("sunFalseColorsMaximum"));
     summary = run("{\"action\":\"set_sun\",\"time\":\"02:00\"}");
     assertTrue(summary, summary.contains("under the horizon"));
     summary = run("{\"action\":\"set_sun\",\"time\":\"25:00\"}");

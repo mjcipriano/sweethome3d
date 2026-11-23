@@ -419,7 +419,9 @@ property line, as errors.
 - `set_compass`: `north_direction` is the angle in degrees, clockwise, from
   the top of the plan to the north. The sun of the 3D view and of photos
   follows it. Also `latitude`, `longitude`, `time_zone`, `x`, `y`,
-  `diameter`, `"visible":false`.
+  `diameter`, `"visible":false`. `"georeference":true` gives it the latitude,
+  the longitude and the true north of the georeference of the home, when
+  they were changed apart.
 - `set_georeference`: the point `x`,`y` of the plan is at `lat`,`lon`, and
   the true north is `rotation` degrees clockwise from the top of the plan.
   Or `"points":[{"lat","lon","x","y"},{...}]`, two points known both ways. It
@@ -737,9 +739,14 @@ Limits to know:
   tracer always uses them. With `"follow":true` the 3D view and the OpenGL
   pictures are lit and shadowed from where the sun is too, as with
   **3D view > Sun at the date and time of the camera**; at night the view is
-  dimmed. The answer gives the height of the sun, its direction, and sunrise
-  and sunset to within about 10 minutes. Without `date` or `time` it reports
-  them.
+  dimmed. The answer gives the height of the sun and its direction (within
+  0.01 degree), sunrise, solar noon and sunset (within a minute), the length
+  of shadows and the light the ground receives by clear sky. Without `date`
+  or `time` it reports them. `"false_colors":true` replaces the colors of the
+  3D view and of its pictures by the light each surface receives from the sun
+  and the sky, from dark blue (0 lux) to red (120 000 lux); a number sets
+  another maximum and `false` gives the colors back. See
+  [How exact the sun is](VIEW_3D_NAVIGATION.md#how-exact-the-sun-is).
 - `set_environment`: `sky_color`, `ground_color`, `light_color`,
   `walls_transparency` (0 opaque to 100), `all_levels_visible`,
   `sky_texture` and `ground_texture` (a texture name, or `false`). Without
