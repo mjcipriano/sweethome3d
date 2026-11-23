@@ -1,5 +1,15 @@
 # Changelog
 
+## [7.29.0](https://github.com/mjcipriano/sweethome3d/compare/v7.28.2...v7.29.0) (2026-11-23)
+
+
+### Features
+
+* hours of sun map, pictures of the day and of the year, and sun place checked against the GPS position of the home ([a6ff6d0](https://github.com/mjcipriano/sweethome3d/commit/a6ff6d05c03dc802ccf1db7ad436a15ed86694d8))
+* MCP tools for the sun study window, its animations and day or year pictures ([684d2fe](https://github.com/mjcipriano/sweethome3d/commit/684d2fea62c817b59be28ef7ffa94ed6f3ba0520))
+* sun study with exact sun position, calendar and sliders, and false colors of the light level ([864fc64](https://github.com/mjcipriano/sweethome3d/commit/864fc64237e440a8e8ab813f570dff6ed9084b20))
+* sun study with exact sun position, calendar and sliders, and false colors of the light level ([f7eacc3](https://github.com/mjcipriano/sweethome3d/commit/f7eacc3d3af4573b66c34b379d01c2fe412f6980))
+
 ## [7.28.2](https://github.com/mjcipriano/sweethome3d/compare/v7.28.1...v7.28.2) (2026-11-22)
 
 
