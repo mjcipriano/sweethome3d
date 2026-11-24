@@ -60,6 +60,7 @@ class AssistantFenceCommands {
   private final Home                     home;
   private final HomeController           homeController;
   private final AssistantCommandExecutor executor;
+  private String                         adoptionNote;
 
   AssistantFenceCommands(Home home, HomeController homeController, AssistantCommandExecutor executor) {
     this.home = home;
@@ -86,15 +87,20 @@ class AssistantFenceCommands {
         + "\"infill_color\", \"side\":\"left|right\" (the finished side, seen from the first point), \"kickboard\":N, "
         + "\"lighting\":{\"type\":\"post_cap|strip\",\"spacing\":N}, \"owner\", \"ownership_side\", \"report\":false, \"name\", \"tags\", \"level\", "
         + "and \"openings\":[{\"at\":N or \"near\":[x,y],\"width\":N,\"type\":\"single_swing\"},...] for its gates. "
-        + "A key the style doesn't read is reported. The answer gives its length, its posts and its gates)\n"
+        + "A key the style doesn't read is reported on its own line; \"spacing\" is read as \"post_spacing\". "
+        + "The answer gives the length of its line, with the share of its gates, its posts and its gates. Its materials are "
+        + "named after its parts for set_material: posts, caps, rails, pickets, boards, mesh, slats, gate_rails...)\n"
         + "  {\"action\":\"add_gate\",\"fence\":\"F7\",\"near\":[x,y],\"width\":100,\"type\":\"single_swing\"}  "
-        + "(opens a gate in a fence, which stays one piece: \"at\":N cm along it or \"near\":[x,y]. \"type\" is one of "
+        + "(opens a gate in a fence, which stays one piece: \"at\":N cm along it or \"near\":[x,y], a point less than 100 cm "
+        + "from the fence. A gate that slides needs a run of fence as long as itself on the side of \"slide_direction\":\"start|end\", "
+        + "or \"force\":true. \"type\" is one of "
         + join(Arrays.asList(AssistantFenceBuilder.GATE_TYPES)) + "; \"swing\":\"in|out|both\", \"hinge\":\"start|end\", \"open_angle\" "
         + "(or \"open\" from 0 to 1 for a gate that slides or lifts), \"style\" (what fills it, the style of the fence by default), "
         + "\"latch\":\"gravity|magna_latch_pool|drop_rod|lockable|keypad|electric_strike\", \"operator\":\"none|swing_arm|slide_motor\", "
         + "\"self_closing\":true, \"height\", \"name\". modify_gate and remove_gate take \"fence\" and \"gate\":N, its number in the answer)\n"
         + "  {\"action\":\"modify_fence\",\"id\":\"F7\",\"style\":\"shadowbox\",\"height\":180}  "
-        + "(changes any option of a fence, or its \"points\", and builds it again; null removes an option)\n"
+        + "(changes any option of a fence, or its \"points\", and builds it again; null removes an option. A fence of a previous "
+        + "version that isn't straight needs its \"points\")\n"
         + "  {\"action\":\"extend_fence\",\"id\":\"F7\",\"to\":[x,y]}  "
         + "(continues the last side of a fence to a point, or its direction with \"to\":\"terrain_edge\" or \"model_edge\"; "
         + "\"end\":\"start\" extends its first side)\n"
@@ -108,7 +114,7 @@ class AssistantFenceCommands {
         + "(replaces a row of furniture, like fence panels put one by one, by one fence through their centers, with their height; "
         + "\"keep\":true keeps the pieces)\n"
         + "  {\"action\":\"fence_report\"}  "
-        + "(the fences and their quantities: length, posts by type, panels, gates, bags of concrete, fasteners, "
+        + "(the fences and their quantities: length of the line and of its gates, posts by type, panels, gates, bags of concrete, fasteners, "
         + "with totals by style and by owner. \"schedule\" with \"type\":\"gates\" lists the gates, how they swing and the room they need)\n";
   }
 
@@ -124,6 +130,7 @@ class AssistantFenceCommands {
    * Runs <code>command</code> if it's one of the commands of this class and returns <code>true</code> in that case.
    */
   boolean apply(String action, AssistantCommand command, int [] tally, List<String> notes) {
+    this.adoptionNote = null;
     try {
       if ("add_fence".equals(action)) {
         addFence(command, tally, notes);
@@ -154,6 +161,9 @@ class AssistantFenceCommands {
             + "\nGate types: " + join(Arrays.asList(AssistantFenceBuilder.GATE_TYPES)));
       } else {
         return false;
+      }
+      if (this.adoptionNote != null) {
+        notes.add(this.adoptionNote);
       }
     } catch (IOException ex) {
       notes.add("Couldn't run " + action + " (" + ex.getMessage() + ")");
@@ -230,6 +240,11 @@ class AssistantFenceCommands {
       }
       if (item instanceof HomePieceOfFurniture && ((HomePieceOfFurniture)item).getProperty(FENCE_PROPERTY) != null) {
         fence = (HomePieceOfFurniture)item;
+      } else if (item instanceof HomePieceOfFurniture
+                 && "fence".equals(((HomePieceOfFurniture)item).getProperty(AssistantGardenCommands.GARDEN_PROPERTY))) {
+        // A fence of a previous version, which kept no description
+        fence = (HomePieceOfFurniture)item;
+        adoptFence(fence, command);
       } else {
         throw new IOException(item == null ? "no item " + id : id + " isn't a fence built by add_fence"
             + (item instanceof HomePieceOfFurniture ? ": convert_to_fence makes one of a row of pieces" : ""));
@@ -252,6 +267,48 @@ class AssistantFenceCommands {
       throw new IOException("the description of the fence " + this.executor.getId(fence) + " can't be read");
     }
     return fence;
+  }
+
+  /**
+   * Gives a description to a fence built by a version that kept none (7.29 and before), from the points of the command
+   * or from the place of the piece when it is a straight fence along an axis of the plan.
+   */
+  private void adoptFence(HomePieceOfFurniture piece, AssistantCommand command) throws IOException {
+    String id = this.executor.getId(piece);
+    Map<String, Object> spec = new LinkedHashMap<String, Object>();
+    String from;
+    if (command.getParameters().get("points") instanceof List) {
+      spec.put("points", command.getParameters().get("points"));
+      from = "the points of the command";
+    } else if (Math.min(piece.getWidth(), piece.getDepth()) <= 40 && Math.max(piece.getWidth(), piece.getDepth()) >= 60
+               && Math.abs(Math.sin(2 * piece.getAngle())) < 0.01) {
+      boolean alongX = piece.getWidth() >= piece.getDepth() ^ Math.abs(Math.sin(piece.getAngle())) > 0.5;
+      float half = Math.max(piece.getWidth(), piece.getDepth()) / 2 - Math.min(piece.getWidth(), piece.getDepth()) / 2;
+      float [][] points = alongX
+          ? new float [][] {{piece.getX() - half, piece.getY()}, {piece.getX() + half, piece.getY()}}
+          : new float [][] {{piece.getX(), piece.getY() - half}, {piece.getX(), piece.getY() + half}};
+      spec.put("points", toList(points));
+      from = "the place of the piece, a straight line from [" + format(points [0][0]) + "," + format(points [0][1]) + "] to ["
+          + format(points [1][0]) + "," + format(points [1][1]) + "]";
+    } else {
+      throw new IOException("the fence " + id + " was built by a previous version, which didn't keep its line, and it isn't straight "
+          + "along an axis of the plan: {\"action\":\"modify_fence\",\"id\":\"" + id + "\",\"points\":[[x,y],[x,y],...],\"style\":\"picket\"} "
+          + "gives its line and builds it again as a fence of this version");
+    }
+    String name = piece.getName() != null ? piece.getName().toLowerCase(Locale.ENGLISH) : "";
+    spec.put("style", command.getString("style") != null && !"add_gate".equals(command.getAction())
+        && !"modify_gate".equals(command.getAction()) ? command.getString("style") : name.contains("wire") ? "welded_wire"
+            : name.contains("rail") ? "split_rail" : name.contains("panel") ? "privacy" : "picket");
+    if (AssistantFenceBuilder.getStyle(spec.get("style").toString()) == null) {
+      spec.put("style", "picket");
+    }
+    spec.put("height", Double.valueOf(Math.max(5, Math.min(800, Math.round(piece.getHeight() - 6)))));
+    // Checked before the piece is changed
+    AssistantFenceBuilder.build(spec, getSite(piece.getLevel(), null));
+    piece.setProperty(FENCE_PROPERTY, AssistantShapeCommands.toJson(spec));
+    this.adoptionNote = "The fence " + id + " was built by a previous version, which kept no description of it: it is now a "
+        + spec.get("style") + " fence " + format(((Double)spec.get("height")).doubleValue()) + " cm high along " + from
+        + ". Its gates, if it had some, are to add again with add_gate; modify_fence changes its style, its height or its points";
   }
 
   private AssistantFenceBuilder.Site getSite(final Level level, final List<String> notes) {
@@ -280,11 +337,22 @@ class AssistantFenceCommands {
   }
 
   /**
+   * Returns the length of the line of a fence, with the share of its gates when it has some.
+   */
+  private static String describeLength(AssistantFenceBuilder.Result result) {
+    if (result.gateLength < 0.5) {
+      return format(result.length / 100) + " m long";
+    }
+    return format(result.length / 100) + " m of line (" + format((result.length - result.gateLength) / 100) + " m of fence, "
+        + format(result.gateLength / 100) + " m of " + (result.gates.size() == 1 ? "gate" : "gates") + ")";
+  }
+
+  /**
    * Returns the sentence that describes what was built.
    */
   private String describe(HomePieceOfFurniture piece, AssistantFenceBuilder.Result result, Map<String, Object> spec) {
     StringBuilder text = new StringBuilder(this.executor.getId(piece) + " \"" + piece.getName() + "\" (" + result.style.name + ", "
-        + format(result.height) + " cm high): " + format((result.length - result.gateLength) / 100) + " m long");
+        + format(result.height) + " cm high): " + describeLength(result));
     if (result.getPostCount() > 0) {
       text.append(", ").append(result.getPostCount()).append(result.getPostCount() == 1 ? " post" : " posts");
     }
@@ -310,6 +378,9 @@ class AssistantFenceCommands {
     }
     for (String note : result.notes) {
       text.append(". Note: ").append(note);
+    }
+    for (String problem : result.slideProblems) {
+      text.append(". Warning: ").append(problem);
     }
     return text.toString();
   }
@@ -649,14 +720,15 @@ class AssistantFenceCommands {
     List<Map<String, Object>> openings = getOpenings(spec);
     boolean changed = spec.get("gate") != null;
     for (Map<String, Object> opening : openings) {
-      changed |= resolveGatePlace(opening, points, closed);
+      changed |= resolveGatePlace(opening, points, closed, true);
     }
     if (changed) {
       setOpenings(spec, openings);
     }
   }
 
-  private static boolean resolveGatePlace(Map<String, Object> opening, float [][] points, boolean closed) throws IOException {
+  private static boolean resolveGatePlace(Map<String, Object> opening, float [][] points, boolean closed,
+                                          boolean strict) throws IOException {
     Object near = opening.get("near");
     if (near == null) {
       return false;
@@ -664,10 +736,21 @@ class AssistantFenceCommands {
                || !(((List<?>)near).get(1) instanceof Number)) {
       throw new IOException("\"near\" is a point [x,y]: the gate is put at the place of the fence the closest to it");
     }
-    double at = AssistantFenceBuilder.getClosestDistance(points, closed, ((Number)((List<?>)near).get(0)).floatValue(),
-        ((Number)((List<?>)near).get(1)).floatValue());
-    double length = AssistantFenceBuilder.getDistances(points, closed) [closed ? points.length : points.length - 1];
+    float nearX = ((Number)((List<?>)near).get(0)).floatValue();
+    float nearY = ((Number)((List<?>)near).get(1)).floatValue();
+    double at = AssistantFenceBuilder.getClosestDistance(points, closed, nearX, nearY);
+    double [] distances = AssistantFenceBuilder.getDistances(points, closed);
+    double length = distances [closed ? points.length : points.length - 1];
     float width = AssistantFurnitureBuilder.getNumber(opening, "width", 100);
+    // A point far from the fence is a mistake, not a gate at its end
+    float [] closest = AssistantFenceBuilder.getPoint(points, distances, at);
+    double gap = Math.hypot(closest [0] - nearX, closest [1] - nearY);
+    double tolerance = Math.max(100, width / 2);
+    if (strict && gap > tolerance) {
+      throw new IOException("the point \"near\" [" + format(nearX) + "," + format(nearY) + "] is " + format(gap / 100)
+          + " m from the fence, whose closest place is [" + format(closest [0]) + "," + format(closest [1]) + "] at "
+          + format(at) + " cm along it: give a point less than " + format(tolerance) + " cm from the fence, or \"at\":N");
+    }
     // A gate near an end stays in the fence
     at = Math.max(width / 2, Math.min(length - width / 2, at));
     opening.put("at", Double.valueOf(Math.round(at * 10) / 10.));
@@ -697,11 +780,11 @@ class AssistantFenceCommands {
       return;
     }
     Level level = this.executor.getShapeCommands().getLevel(command, "add_fence", notes);
-    HomePieceOfFurniture piece = addPiece(spec, level, command.getString("name"), parameters.get("tags"), tally, notes, parameters,
-        "add_fence");
-    notes.set(notes.size() - 1, "Added the fence " + notes.get(notes.size() - 1));
-    if (piece == null) {
-      return;
+    // The result first, then the warnings on their own lines
+    int index = notes.size();
+    addPiece(spec, level, command.getString("name"), parameters.get("tags"), tally, notes, parameters, "add_fence");
+    if (index < notes.size()) {
+      notes.set(index, "Added the fence " + notes.get(index));
     }
   }
 
@@ -799,9 +882,10 @@ class AssistantFenceCommands {
     boolean closed = AssistantFenceBuilder.isClosed(spec, points);
     List<Map<String, Object>> openings = getOpenings(spec);
     Map<String, Object> gate = new LinkedHashMap<String, Object>(command.getParameters());
-    for (String key : new String [] {"action", "id", "fence", "gate", "index"}) {
+    for (String key : new String [] {"action", "id", "fence", "gate", "index", "force"}) {
       gate.remove(key);
     }
+    List<String> slideProblems = AssistantFenceBuilder.build(spec, getSite(piece.getLevel(), null)).slideProblems;
     List<String> unknown = new ArrayList<String>();
     warnUnknownGateKeys(gate, unknown);
     String done;
@@ -809,7 +893,7 @@ class AssistantFenceCommands {
       if (gate.get("at") == null && gate.get("near") == null) {
         throw new IOException("give the place of the gate: \"at\":N cm along the fence from its first point, or \"near\":[x,y]");
       }
-      resolveGatePlace(gate, points, closed);
+      resolveGatePlace(gate, points, closed, true);
       openings.add(gate);
       done = "Added a gate to the fence ";
     } else {
@@ -829,7 +913,7 @@ class AssistantFenceCommands {
         target = sorted.get((int)Math.round(number) - 1);
       } else if (Double.isNaN(number) && gate.get("near") instanceof List && "remove_gate".equals(action)) {
         Map<String, Object> place = new LinkedHashMap<String, Object>(gate);
-        resolveGatePlace(place, points, closed);
+        resolveGatePlace(place, points, closed, false);
         float at = AssistantFurnitureBuilder.getNumber(place, "at", 0);
         for (Map<String, Object> candidate : sorted) {
           if (target == null || Math.abs(AssistantFurnitureBuilder.getNumber(candidate, "at", 0) - at)
@@ -857,12 +941,20 @@ class AssistantFenceCommands {
             modified.put(entry.getKey(), entry.getValue());
           }
         }
-        resolveGatePlace(modified, points, closed);
+        resolveGatePlace(modified, points, closed, true);
         openings.set(index, modified);
         done = "Modified a gate of the fence ";
       }
     }
     setOpenings(spec, openings);
+    if (!"remove_gate".equals(action) && !command.getBoolean("force", false)) {
+      // A gate that slides needs a run of fence to slide along
+      List<String> problems = new ArrayList<String>(AssistantFenceBuilder.build(spec, getSite(piece.getLevel(), null)).slideProblems);
+      problems.removeAll(slideProblems);
+      if (!problems.isEmpty()) {
+        throw new IOException(problems.get(0) + ". \"force\":true builds it anyway");
+      }
+    }
     AssistantFenceBuilder.Result result = rebuild(piece, spec, tally, notes);
     notes.add(done + describe(piece, result, spec));
     if (!unknown.isEmpty()) {
@@ -1400,6 +1492,37 @@ class AssistantFenceCommands {
   }
 
   /**
+   * Returns <code>true</code> if a piece stands where the leaf of a gate goes through the point (x, y): the trunk of a tree
+   * and not the leaves above the gate, a shrub where its leaves are, and any other piece between the ground and the top of the gate.
+   */
+  private boolean isGateObstacle(HomePieceOfFurniture other, Level level, float x, float y, float gateGround, float gateHeight) {
+    String structure = other.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY);
+    if (!other.isVisible() || other.getLevel() != level || HomeTerrain.isTerrain(other) || "slab".equals(structure)
+        || "roof".equals(structure) || other.getProperty(AssistantGardenCommands.GARDEN_PROPERTY) != null) {
+      return false;
+    }
+    Map<String, Object> plant = AssistantPlantCommands.getSpec(other);
+    if (plant != null) {
+      if (HomeItemTags.getTags(other).contains("removed")) {
+        return false;
+      }
+      float plantX = other.getX();
+      float plantY = other.getY();
+      float crownWidth = AssistantFurnitureBuilder.getNumber(plant, "crown_w", other.getWidth());
+      float crownDepth = AssistantFurnitureBuilder.getNumber(plant, "crown_d", other.getDepth());
+      float crownBase = AssistantFurnitureBuilder.getNumber(plant, "crown_base", 0);
+      float trunk = AssistantFurnitureBuilder.getNumber(plant, "trunk_dbh", 10);
+      // Leaves that start above the gate let it open under them
+      float radius = crownBase >= gateHeight - 20 ? trunk / 2 + 5 : Math.min(crownWidth, crownDepth) / 2 * 0.85f;
+      return Math.hypot(x - plantX, y - plantY) <= radius;
+    }
+    // What lies on the ground or hangs above the gate doesn't stop it
+    float bottom = other.getElevation();
+    float top = bottom + other.getHeight();
+    return bottom < gateGround + gateHeight - 5 && top > gateGround + 12 && other.containsPoint(x, y, 2);
+  }
+
+  /**
    * Returns what is wrong with the fences of the home: one that crosses a building or a driveway, a gate
    * that can't open, a pool fence a child gets through, a fence beyond the lot, posts the ground left.
    */
@@ -1434,6 +1557,12 @@ class AssistantFenceCommands {
         List<Map<String, Object>> openings = getOpenings(spec);
         AssistantFenceBuilder.Result result = AssistantFenceBuilder.build(spec, getSite(piece.getLevel(), null));
         boolean sunk = result.style.name.equals("ha_ha") || result.style.name.equals("retaining_wall");
+        // The fence of a neighbor stands on the lot of the neighbor
+        String owner = spec.get("owner") != null ? spec.get("owner").toString().trim().toLowerCase(Locale.ENGLISH) : "";
+        boolean ownedByOther = owner.length() > 0 && !Arrays.asList("me", "mine", "us", "ours", "self", "owner", "home", "homeowner",
+            "subject", "shared").contains(owner);
+        // A railing stands on a deck or on a structure, not on the ground
+        boolean onStructure = Math.abs(AssistantFurnitureBuilder.getNumber(spec, "elevation", 0)) > 0.5f;
         // Along the fence, out of its gates
         Wall crossedWall = null;
         Room crossedRoom = null;
@@ -1447,7 +1576,7 @@ class AssistantFenceCommands {
             inOpening |= distance >= at - width / 2 && distance <= at + width / 2;
           }
           float [] point = AssistantFenceBuilder.getPoint(points, distances, distance);
-          if (!lots.isEmpty()) {
+          if (!lots.isEmpty() && !ownedByOther) {
             double nearest = Double.MAX_VALUE;
             boolean inside = false;
             for (float [][] lot : lots) {
@@ -1512,7 +1641,7 @@ class AssistantFenceCommands {
         }
         // The posts and the ground
         String built = piece.getProperty(FENCE_GROUND_PROPERTY);
-        if (built != null && built.length() > 0) {
+        if (built != null && built.length() > 0 && !onStructure) {
           String [] heights = built.split(",");
           float worst = 0;
           for (int i = 0; i < heights.length && i < result.postPlaces.size(); i++) {
@@ -1564,6 +1693,9 @@ class AssistantFenceCommands {
           boolean hingeAtEnd = "end".equals(String.valueOf(opening.get("hinge")));
           float leaf = (float)(twoLeaves ? gateLength / 2 : gateLength);
           Selectable obstacle = null;
+          AssistantFenceBuilder.Site site = getSite(piece.getLevel(), null);
+          float gateGround = Math.max(site.getGroundHeight(start [0], start [1]), site.getGroundHeight(end [0], end [1]));
+          float gateHeight = Math.min(200, AssistantFurnitureBuilder.getNumber(opening, "height", result.height));
           for (int leafIndex = 0; leafIndex < (twoLeaves ? 2 : 1) && obstacle == null; leafIndex++) {
             boolean fromEnd = twoLeaves ? leafIndex == 1 : hingeAtEnd;
             float [] hinge = fromEnd ? end : start;
@@ -1581,11 +1713,7 @@ class AssistantFenceCommands {
                   }
                 }
                 for (HomePieceOfFurniture other : this.home.getFurniture()) {
-                  String structure = other.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY);
-                  if (obstacle == null && other != piece && other.isVisible() && other.getLevel() == piece.getLevel()
-                      && !HomeTerrain.isTerrain(other) && !"slab".equals(structure) && !"roof".equals(structure)
-                      && other.getProperty(AssistantGardenCommands.GARDEN_PROPERTY) == null
-                      && other.getElevation() < 150 && other.containsPoint(x, y, 2)) {
+                  if (obstacle == null && other != piece && isGateObstacle(other, piece.getLevel(), x, y, gateGround, gateHeight)) {
                     obstacle = other;
                   }
                 }
@@ -1604,17 +1732,195 @@ class AssistantFenceCommands {
         // A fence that can't be built is reported by its commands
       }
     }
+    checkPoolBarriers(issues);
     return issues;
+  }
+
+  /**
+   * Adds an issue for each pool in the ground that no closed barrier surrounds: fences of the style <code>pool_code</code>
+   * with their gates, and the walls of the home they end at.
+   */
+  private void checkPoolBarriers(List<HomeDiagnostics.Issue> issues) {
+    List<HomePieceOfFurniture> pools = new ArrayList<HomePieceOfFurniture>();
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      if ("pool".equals(piece.getProperty(AssistantGardenCommands.GARDEN_PROPERTY)) && piece.isVisible()) {
+        String outdoor = piece.getProperty(AssistantOutdoorCommands.OUTDOOR_SPEC_PROPERTY);
+        boolean above = false;
+        try {
+          Object parsed = outdoor != null ? JSONParser.parse(outdoor) : null;
+          if (parsed instanceof Map) {
+            Map<?, ?> map = (Map<?, ?>)parsed;
+            above = map.get("type") != null && map.get("type").toString().trim().toLowerCase(Locale.ENGLISH).startsWith("above")
+                || Boolean.TRUE.equals(map.get("above_ground"));
+            // The wall of a pool above the ground is a barrier when it is high enough
+            above &= AssistantFurnitureBuilder.getNumber(map, "height", 130) >= 122;
+          }
+        } catch (IllegalArgumentException ex) {
+          // Checked as a pool in the ground
+        }
+        if (!above && pools.size() < 20) {
+          pools.add(piece);
+        }
+      }
+    }
+    if (pools.isEmpty()) {
+      return;
+    }
+    // The barriers: lines of points 5 cm apart
+    List<float [][]> lines = new ArrayList<float [][]>();
+    List<Level> lineLevels = new ArrayList<Level>();
+    List<float []> ends = new ArrayList<float []>();
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      Map<String, Object> spec = getSpec(piece);
+      if (spec == null || !piece.isVisible()) {
+        continue;
+      }
+      try {
+        AssistantFenceBuilder.Style style = AssistantFenceBuilder.getStyle(String.valueOf(spec.get("style")));
+        if (style == null || !style.name.equals("pool_code")) {
+          continue;
+        }
+        float [][] points = AssistantFenceBuilder.getPoints(spec);
+        boolean closed = AssistantFenceBuilder.isClosed(spec, points);
+        double [] distances = AssistantFenceBuilder.getDistances(points, closed);
+        double length = distances [distances.length - 1];
+        // The fence without its openings left without gate
+        List<double []> gaps = new ArrayList<double []>();
+        for (Map<String, Object> opening : getOpenings(spec)) {
+          String type = opening.get("type") != null ? opening.get("type").toString().toLowerCase(Locale.ENGLISH) : "";
+          if (type.equals("gap") || type.equals("none") || type.equals("opening")) {
+            float at = AssistantFurnitureBuilder.getNumber(opening, "at", 0);
+            float width = AssistantFurnitureBuilder.getNumber(opening, "width", 100);
+            gaps.add(new double [] {at - width / 2, at + width / 2});
+          }
+        }
+        List<float []> run = new ArrayList<float []>();
+        for (double distance = 0; ; distance += 5) {
+          double place = Math.min(distance, length);
+          boolean inGap = false;
+          for (double [] gap : gaps) {
+            inGap |= place > gap [0] && place < gap [1];
+          }
+          if (!inGap) {
+            run.add(AssistantFenceBuilder.getPoint(points, distances, place));
+          }
+          if (distance >= length) {
+            break;
+          }
+        }
+        lines.add(run.toArray(new float [run.size()][]));
+        lineLevels.add(piece.getLevel());
+        if (!closed) {
+          ends.add(points [0]);
+          ends.add(points [points.length - 1]);
+        }
+      } catch (IOException ex) {
+        // Not a barrier
+      }
+    }
+    for (HomePieceOfFurniture pool : pools) {
+      String label = this.executor.getId(pool) + " \"" + pool.getName() + "\"";
+      String advice = ": a fence with \"style\":\"pool_code\" closed around it, or that ends at the walls of the house, "
+          + "with gates that have \"self_closing\":true, keeps children away from the water";
+      List<float [][]> barriers = new ArrayList<float [][]>();
+      for (int i = 0; i < lines.size(); i++) {
+        if (lineLevels.get(i) == pool.getLevel()) {
+          barriers.add(lines.get(i));
+        }
+      }
+      if (barriers.isEmpty()) {
+        issues.add(new HomeDiagnostics.Issue(HomeDiagnostics.Type.POOL_FENCE, "The pool " + label + " has no barrier" + advice, pool, null));
+        continue;
+      }
+      for (Wall wall : this.home.getWalls()) {
+        if (wall.getLevel() == pool.getLevel()) {
+          // The sides of the wall
+          float [][] sides = wall.getPoints();
+          List<float []> outline = new ArrayList<float []>();
+          for (int i = 0; i < sides.length; i++) {
+            float [] point = sides [i];
+            float [] next = sides [(i + 1) % sides.length];
+            int steps = Math.max(1, (int)Math.ceil(Math.hypot(next [0] - point [0], next [1] - point [1]) / 5));
+            for (int step = 0; step < steps; step++) {
+              outline.add(new float [] {point [0] + (next [0] - point [0]) * step / steps, point [1] + (next [1] - point [1]) * step / steps});
+            }
+          }
+          barriers.add(outline.toArray(new float [outline.size()][]));
+        }
+      }
+      float minX = pool.getX();
+      float minY = pool.getY();
+      float maxX = minX;
+      float maxY = minY;
+      for (float [][] barrier : barriers) {
+        for (float [] point : barrier) {
+          minX = Math.min(minX, point [0]);
+          minY = Math.min(minY, point [1]);
+          maxX = Math.max(maxX, point [0]);
+          maxY = Math.max(maxY, point [1]);
+        }
+      }
+      // Water that spreads from the pool on a grid: the pool is enclosed if it doesn't reach the edge
+      float cell = Math.max(20, Math.max(maxX - minX, maxY - minY) / 500);
+      int columns = (int)Math.ceil((maxX - minX) / cell) + 5;
+      int rows = (int)Math.ceil((maxY - minY) / cell) + 5;
+      float originX = minX - 2 * cell;
+      float originY = minY - 2 * cell;
+      boolean [] blocked = new boolean [columns * rows];
+      for (float [][] barrier : barriers) {
+        for (float [] point : barrier) {
+          blocked [(int)((point [1] - originY) / cell) * columns + (int)((point [0] - originX) / cell)] = true;
+        }
+      }
+      // A fence that stops a few cm from a wall is closed
+      for (float [] end : ends) {
+        int column = (int)((end [0] - originX) / cell);
+        int row = (int)((end [1] - originY) / cell);
+        if (column >= 1 && row >= 1 && column < columns - 1 && row < rows - 1) {
+          for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+              blocked [(row + dy) * columns + column + dx] = true;
+            }
+          }
+        }
+      }
+      boolean [] reached = new boolean [columns * rows];
+      java.util.ArrayDeque<Integer> queue = new java.util.ArrayDeque<Integer>();
+      int startCell = (int)((pool.getY() - originY) / cell) * columns + (int)((pool.getX() - originX) / cell);
+      queue.add(Integer.valueOf(startCell));
+      reached [startCell] = true;
+      boolean escaped = false;
+      while (!queue.isEmpty()) {
+        int current = queue.poll().intValue();
+        int column = current % columns;
+        int row = current / columns;
+        if (column == 0 || row == 0 || column == columns - 1 || row == rows - 1) {
+          escaped = true;
+          break;
+        }
+        for (int neighbor : new int [] {current - 1, current + 1, current - columns, current + columns}) {
+          if (!reached [neighbor] && !blocked [neighbor]) {
+            reached [neighbor] = true;
+            queue.add(Integer.valueOf(neighbor));
+          }
+        }
+      }
+      if (escaped) {
+        issues.add(new HomeDiagnostics.Issue(HomeDiagnostics.Type.POOL_FENCE, "The pool " + label
+            + " has no closed barrier: its pool_code fence leaves a way to the water" + advice, pool, null));
+      }
+    }
   }
 
   /**
    * Returns the table of the fences and of what they need, or the one of their gates.
    */
   String report(boolean gatesOnly) {
-    StringBuilder text = new StringBuilder(gatesOnly ? "Gates of the fences." : "Fences and their quantities.");
+    StringBuilder text = new StringBuilder(gatesOnly ? "Gates of the fences."
+        : "Fences and their quantities. The line of a fence includes its gates; posts, panels, concrete and fasteners count the fenced part.");
     Map<String, double []> byStyle = new LinkedHashMap<String, double []>();
     Map<String, double []> byOwner = new LinkedHashMap<String, double []>();
-    double [] totals = new double [6];
+    double [] totals = new double [8];
     int count = 0;
     int gateCount = 0;
     for (HomePieceOfFurniture piece : this.home.getFurniture()) {
@@ -1641,7 +1947,9 @@ class AssistantFenceCommands {
       }
       text.append('\n').append(this.executor.getId(piece)).append(" \"").append(piece.getName()).append("\": ")
           .append(result.style.name).append(", ").append(format(result.height)).append(" cm high, ")
-          .append(format(length)).append(" m (").append(format(length / 0.3048)).append(" ft), ")
+          .append(format(result.length / 100)).append(" m of line (").append(format(result.length / 100 / 0.3048)).append(" ft): ")
+          .append(format(length)).append(" m of fence")
+          .append(result.gateLength >= 0.5 ? ", " + format(result.gateLength / 100) + " m of gates" : "").append(", ")
           .append(result.getPostCount()).append(" posts (").append(result.linePosts).append(" line, ")
           .append(result.terminalPosts).append(" end or corner, ").append(result.gatePosts).append(" gate), ")
           .append(result.spans).append(" panels, ").append(result.gates.size()).append(result.gates.size() == 1 ? " gate" : " gates");
@@ -1658,18 +1966,19 @@ class AssistantFenceCommands {
           text.append(" (").append(spec.get("ownership_side")).append(" side)");
         }
       }
-      double [] values = {length, result.getPostCount(), result.spans, result.gates.size(), result.getConcreteBags(), result.getFasteners()};
+      double [] values = {length, result.getPostCount(), result.spans, result.gates.size(), result.getConcreteBags(), result.getFasteners(),
+          result.length / 100, result.gateLength / 100};
       for (Map<String, double []> sums : Arrays.asList(byStyle, byOwner)) {
         String key = sums == byStyle ? result.style.name : owner != null ? owner : "no owner given";
         double [] sum = sums.get(key);
         if (sum == null) {
-          sums.put(key, sum = new double [6]);
+          sums.put(key, sum = new double [8]);
         }
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < 8; i++) {
           sum [i] += values [i];
         }
       }
-      for (int i = 0; i < 6; i++) {
+      for (int i = 0; i < 8; i++) {
         totals [i] += values [i];
       }
     }
@@ -1685,12 +1994,16 @@ class AssistantFenceCommands {
       text.append(sums == byStyle ? "\nBy style: " : "\nBy owner: ");
       boolean first = true;
       for (Map.Entry<String, double []> entry : sums.entrySet()) {
-        text.append(first ? "" : "; ").append(entry.getKey()).append(' ').append(format(entry.getValue() [0])).append(" m (")
-            .append(format(entry.getValue() [0] / 0.3048)).append(" ft)");
+        text.append(first ? "" : "; ").append(entry.getKey()).append(' ').append(format(entry.getValue() [6])).append(" m of line (")
+            .append(format(entry.getValue() [6] / 0.3048)).append(" ft)");
+        if (entry.getValue() [7] >= 0.005) {
+          text.append(", ").append(format(entry.getValue() [0])).append(" m of fence");
+        }
         first = false;
       }
     }
-    text.append("\nTotal: ").append(format(totals [0])).append(" m (").append(format(totals [0] / 0.3048)).append(" ft), ")
+    text.append("\nTotal: ").append(format(totals [6])).append(" m of line (").append(format(totals [6] / 0.3048)).append(" ft): ")
+        .append(format(totals [0])).append(" m of fence and ").append(format(totals [7])).append(" m of gates, ")
         .append((int)totals [1]).append(" posts, ").append((int)totals [2]).append(" panels, ").append((int)totals [3])
         .append(" gates, ").append((int)totals [4]).append(" bags of concrete, about ").append((int)totals [5]).append(" fasteners");
     return text.toString();

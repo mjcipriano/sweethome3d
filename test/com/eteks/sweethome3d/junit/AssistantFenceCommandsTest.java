@@ -25,6 +25,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -234,7 +237,7 @@ public class AssistantFenceCommandsTest {
     HomePieceOfFurniture lot = getPiece("Lot");
     assertNotNull(summary, lot);
     // 2900 x 2400 cm around, less the 4 m of the driveway
-    assertTrue(summary, summary.contains("closed") && summary.contains("102 m long") && summary.contains("gap 400 cm wide at 1200 cm"));
+    assertTrue(summary, summary.contains("closed") && summary.contains("106 m of line (102 m of fence, 4 m of gate)") && summary.contains("gap 400 cm wide at 1200 cm"));
     assertEquals(500, lot.getX(), 3);
     assertEquals(250, lot.getY(), 3);
     assertEquals(2900, lot.getWidth(), 10);
@@ -269,12 +272,12 @@ public class AssistantFenceCommandsTest {
 
     // Joined at their ends
     summary = run("{\"action\":\"join_fences\",\"ids\":[\"" + idA + "\",\"" + idB + "\"]}");
-    assertTrue(summary, summary.contains("Joined 2 fences") && summary.contains("11 m long"));
+    assertTrue(summary, summary.contains("Joined 2 fences") && summary.contains("12 m of line (11 m of fence, 1 m of gate)"));
     assertEquals(1, getFences().size());
     assertNull(getPiece("B"));
     // Cut in two, each part with what it had
     summary = run("{\"action\":\"split_fence\",\"id\":\"" + idA + "\",\"at\":800}");
-    assertTrue(summary, summary.contains("Cut the fence at 800 cm") && summary.contains("7 m long") && summary.contains("4 m long"));
+    assertTrue(summary, summary.contains("Cut the fence at 800 cm") && summary.contains("7 m of fence") && summary.contains("4 m long"));
     assertEquals(2, getFences().size());
     // Extended straight, then to a point
     summary = run("{\"action\":\"extend_fence\",\"id\":\"" + idA + "\",\"by\":200}");
@@ -330,8 +333,8 @@ public class AssistantFenceCommandsTest {
     run("{\"action\":\"modify_gate\",\"fence\":\"" + id + "\",\"gate\":1,\"swing\":\"out\"}");
     report = run("{\"action\":\"check_home\"}");
     assertFalse(report, report.contains("The gate 1"));
-    // The ground raised after the fence was built
-    run("{\"action\":\"set_terrain\",\"points\":[[-3000,-3000,50],[3000,-3000,50],[3000,3000,50],[-3000,3000,50]]}");
+    // The ground raised after the fence was built, the fences left as they are
+    run("{\"action\":\"set_terrain\",\"points\":[[-3000,-3000,50],[3000,-3000,50],[3000,3000,50],[-3000,3000,50]],\"reseat\":false}");
     report = run("{\"action\":\"check_home\"}");
     assertTrue(report, report.contains("The ground changed under the fence " + id) && report.contains("50 cm under it"));
     run("{\"action\":\"modify_fence\",\"id\":\"" + id + "\",\"rebuild\":true}");
@@ -341,6 +344,182 @@ public class AssistantFenceCommandsTest {
     run("{\"action\":\"add_fence\",\"name\":\"Pool\",\"style\":\"pool_code\",\"points\":[[1200,-500],[1800,-500]],\"height\":100}");
     report = run("{\"action\":\"check_home\"}");
     assertTrue(report, report.contains("The pool fence") && report.contains("122 cm at least"));
+  }
+
+  /**
+   * The answers of the commands: lengths with gates, warnings on their own line, gates that can't slide or are far away.
+   */
+  @Test
+  public void testAnswersAndGatePlaces() {
+    // "spacing" is the spacing of the posts, and a warning follows the result
+    String summary = run("{\"action\":\"add_fence\",\"name\":\"Posts\",\"style\":\"bollards\",\"points\":[[0,-500],[600,-500]],\"spacing\":150}");
+    assertTrue(summary, summary.contains("5 posts") && !summary.contains("ignored"));
+    summary = run("{\"action\":\"add_fence\",\"name\":\"Posts 2\",\"style\":\"bollards\",\"points\":[[0,-800],[600,-800]],\"wrong_key\":1}");
+    assertTrue(summary, summary.contains("Added the fence F") && summary.contains("Warning: add_fence ignored the key [wrong_key]"));
+    assertTrue(summary, summary.indexOf("Added the fence F") < summary.indexOf("Warning: add_fence"));
+    assertFalse(summary, summary.contains("Added the fence Warning"));
+
+    // The line of a fence and what its gates take of it
+    summary = run("{\"action\":\"add_fence\",\"name\":\"Line\",\"points\":[[0,0],[600,0]],\"openings\":["
+        + "{\"at\":150,\"width\":300,\"type\":\"double_swing\"},{\"at\":450,\"width\":100}]}");
+    assertTrue(summary, summary.contains("6 m of line (2 m of fence, 4 m of gates)"));
+    String report = run("{\"action\":\"fence_report\"}");
+    assertTrue(report, report.contains("\"Line\": picket, 120 cm high, 6 m of line (19.69 ft): 2 m of fence, 4 m of gates"));
+    assertTrue(report, report.contains("Total: 18 m of line (59.06 ft): 14 m of fence and 4 m of gates"));
+    summary = run("{\"action\":\"add_fence\",\"name\":\"Plain\",\"points\":[[0,300],[600,300]]}");
+    assertTrue(summary, summary.contains("6 m long"));
+
+    // A gate that slides needs a run of fence
+    String id = HomeItemIds.getId(getPiece("Plain"));
+    summary = run("{\"action\":\"add_gate\",\"fence\":\"" + id + "\",\"at\":300,\"width\":360,\"type\":\"cantilever\"}");
+    assertTrue(summary, summary.contains("Couldn't run add_gate") && summary.contains("needs 504 cm of fence")
+        && summary.contains("120 cm are there"));
+    assertNull(getPiece("Plain").getProperty("assistantFence").contains("cantilever") ? "gate kept" : null);
+    summary = run("{\"action\":\"add_gate\",\"fence\":\"" + id + "\",\"at\":500,\"width\":150,\"type\":\"sliding\"}");
+    assertTrue(summary, summary.contains("Added a gate") && !summary.contains("Warning"));
+    summary = run("{\"action\":\"modify_gate\",\"fence\":\"" + id + "\",\"gate\":1,\"slide_direction\":\"end\"}");
+    assertTrue(summary, summary.contains("Couldn't run modify_gate") && summary.contains("\"slide_direction\":\"start\""));
+    summary = run("{\"action\":\"modify_gate\",\"fence\":\"" + id + "\",\"gate\":1,\"slide_direction\":\"end\",\"force\":true}");
+    assertTrue(summary, summary.contains("Modified a gate") && summary.contains("Warning: the sliding gate"));
+
+    // A point far from the fence isn't a gate at its end
+    id = HomeItemIds.getId(getPiece("Posts 2"));
+    summary = run("{\"action\":\"add_gate\",\"fence\":\"" + id + "\",\"near\":[9000,-800],\"width\":100}");
+    assertTrue(summary, summary.contains("Couldn't run add_gate") && summary.contains("is 84 m from the fence")
+        && !summary.contains("overlap"));
+    summary = run("{\"action\":\"add_gate\",\"fence\":\"" + id + "\",\"near\":[300,-740],\"width\":100}");
+    assertTrue(summary, summary.contains("Added a gate") && summary.contains("at 300 cm"));
+  }
+
+  /**
+   * A fence of the version 7.29, which kept no description, is changed like the others.
+   */
+  @Test
+  public void testFenceOfPreviousVersion() {
+    run("{\"action\":\"add_fence\",\"name\":\"Old\",\"points\":[[100,200],[900,200]],\"height\":110}");
+    run("{\"action\":\"add_fence\",\"name\":\"Old corner\",\"points\":[[0,1000],[500,1000],[500,1500]]}");
+    HomePieceOfFurniture old = getPiece("Old");
+    HomePieceOfFurniture corner = getPiece("Old corner");
+    old.setProperty("assistantFence", null);
+    corner.setProperty("assistantFence", null);
+    String summary = run("{\"action\":\"modify_fence\",\"id\":\"" + HomeItemIds.getId(old) + "\",\"style\":\"shadowbox\",\"height\":180}");
+    assertTrue(summary, summary.contains("Modified the fence") && summary.contains("shadowbox, 180 cm high")
+        && summary.contains("built by a previous version"));
+    assertNotNull(old.getProperty("assistantFence"));
+    assertEquals(800, old.getWidth(), 30);
+    assertEquals(500, old.getX(), 5);
+    assertEquals(200, old.getY(), 5);
+    // A fence with a corner needs its points
+    String id = HomeItemIds.getId(corner);
+    summary = run("{\"action\":\"add_gate\",\"fence\":\"" + id + "\",\"at\":200}");
+    assertTrue(summary, summary.contains("Couldn't run add_gate") && summary.contains("\"points\":[[x,y]"));
+    summary = run("{\"action\":\"modify_fence\",\"id\":\"" + id + "\",\"points\":[[0,1000],[500,1000],[500,1500]]}");
+    assertTrue(summary, summary.contains("Modified the fence") && summary.contains("10 m long"));
+    summary = run("{\"action\":\"add_gate\",\"fence\":\"" + id + "\",\"at\":200}");
+    assertTrue(summary, summary.contains("Added a gate"));
+  }
+
+  /**
+   * The materials of a fence are named after its parts.
+   */
+  @Test
+  public void testMaterialNames() throws IOException {
+    run("{\"action\":\"add_fence\",\"name\":\"Mesh\",\"style\":\"chain_link\",\"points\":[[0,0],[900,0]],\"top_rail\":true,"
+        + "\"privacy_slats\":\"vertical\",\"openings\":[{\"at\":450,\"width\":100}]}");
+    String materials = getMaterials(getPiece("Mesh"));
+    assertTrue(materials, materials.contains(" posts ") && materials.contains(" mesh ") && materials.contains(" rails ")
+        && materials.contains(" slats ") && materials.contains(" caps ") && materials.contains(" gate_rails "));
+    assertFalse(materials, materials.contains("color_") || materials.contains("texture"));
+    run("{\"action\":\"add_fence\",\"name\":\"Wood\",\"style\":\"picket\",\"points\":[[0,300],[900,300]]}");
+    materials = getMaterials(getPiece("Wood"));
+    assertTrue(materials, materials.contains(" posts ") && materials.contains(" pickets ") && materials.contains(" rails "));
+  }
+
+  /**
+   * Returns the names of the materials of the model of a piece, between spaces.
+   */
+  private static String getMaterials(HomePieceOfFurniture piece) throws IOException {
+    InputStream in = piece.getModel().openStream();
+    try {
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      byte [] buffer = new byte [8192];
+      int count;
+      while ((count = in.read(buffer)) != -1) {
+        out.write(buffer, 0, count);
+      }
+      StringBuilder names = new StringBuilder(" ");
+      for (String line : out.toString("ISO-8859-1").split("\n")) {
+        if (line.startsWith("usemtl ")) {
+          names.append(line.substring(7).trim()).append(' ');
+        }
+      }
+      return names.toString();
+    } finally {
+      in.close();
+    }
+  }
+
+  /**
+   * The checks of gates, of fences of neighbors, of railings and of pools.
+   */
+  @Test
+  public void testChecksOfGatesOwnersRailingsAndPools() {
+    run("{\"action\":\"add_property_line\",\"points\":[[-1000,-1000],[2000,-1000],[2000,1500],[-1000,1500]]}");
+    run("{\"action\":\"add_fence\",\"name\":\"East\",\"points\":[[1900,-900],[1900,1400]],"
+        + "\"openings\":[{\"at\":900,\"width\":120}]}");
+    // A tree whose leaves hang over the gate, and a shrub 4 m away
+    run("{\"action\":\"add_tree\",\"species\":\"sweetgum\",\"x\":1500,\"y\":0,\"height\":1500,\"crown_radius\":600,\"crown_base\":300}");
+    run("{\"action\":\"add_shrub\",\"species\":\"mophead_hydrangea\",\"x\":1500,\"y\":-200}");
+    String report = run("{\"action\":\"check_home\"}");
+    assertFalse(report, report.contains("The gate 1"));
+    // A trunk, or a shrub, where the leaf swings
+    run("{\"action\":\"add_shrub\",\"name\":\"Close shrub\",\"species\":\"mophead_hydrangea\",\"x\":1970,\"y\":-40}");
+    report = run("{\"action\":\"check_home\"}");
+    assertTrue(report, report.contains("The gate 1") && report.contains("\"Close shrub\" when it swings in"));
+    String id = HomeItemIds.getId(getPiece("East"));
+    run("{\"action\":\"modify_gate\",\"fence\":\"" + id + "\",\"gate\":1,\"swing\":\"out\"}");
+    report = run("{\"action\":\"check_home\"}");
+    assertFalse(report, report.contains("The gate 1"));
+
+    // The fence of a neighbor stands on the lot of the neighbor
+    run("{\"action\":\"add_fence\",\"name\":\"Theirs\",\"points\":[[2500,-900],[2500,1400]],\"owner\":\"1230 Fernwood\"}");
+    run("{\"action\":\"add_fence\",\"name\":\"Ours\",\"points\":[[2300,-900],[2300,1400]]}");
+    report = run("{\"action\":\"check_home\"}");
+    assertTrue(report, report.contains("\"Ours\" stands up to 300 cm beyond the property line"));
+    assertFalse(report, report.contains("\"Theirs\" stands"));
+
+    // The railing of a deck above a slope stands on the deck
+    run("{\"action\":\"set_terrain\",\"points\":[[-3000,-3000,0],[3000,-3000,0],[3000,3000,400],[-3000,3000,400]]}");
+    String summary = run("{\"action\":\"add_deck\",\"points\":[[-800,-800],[-300,-800],[-300,-300],[-800,-300]],\"height\":60,\"railing\":\"picket\"}");
+    assertTrue(summary, summary.contains("with the railing"));
+    report = run("{\"action\":\"check_home\"}");
+    assertFalse(report, report.contains("railing"));
+  }
+
+  @Test
+  public void testPoolBarriers() {
+    run("{\"action\":\"add_rectangular_room\",\"name\":\"House\",\"x\":0,\"y\":0,\"width\":1000,\"depth\":600}");
+    run("{\"action\":\"add_pool\",\"name\":\"Lap pool\",\"points\":[[200,900],[800,900],[800,1300],[200,1300]]}");
+    run("{\"action\":\"add_pool\",\"name\":\"Tub\",\"x\":3000,\"y\":0,\"type\":\"above_ground\"}");
+    run("{\"action\":\"add_pond\",\"x\":-2000,\"y\":0}");
+    String report = run("{\"action\":\"check_home\"}");
+    assertTrue(report, report.contains("\"Lap pool\" has no barrier"));
+    assertFalse(report, report.contains("\"Tub\"") || report.contains("\"Pond\" has"));
+    // A fence from the house around the pool, with an opening
+    run("{\"action\":\"add_fence\",\"name\":\"Pool fence\",\"style\":\"pool_code\",\"height\":130,"
+        + "\"points\":[[0,610],[0,1600],[1000,1600],[1000,610]],\"openings\":[{\"at\":1500,\"width\":100,\"type\":\"gap\"}]}");
+    report = run("{\"action\":\"check_home\"}");
+    assertTrue(report, report.contains("\"Lap pool\" has no closed barrier"));
+    // A gate closes it
+    String id = HomeItemIds.getId(getPiece("Pool fence"));
+    run("{\"action\":\"modify_gate\",\"fence\":\"" + id + "\",\"gate\":1,\"type\":\"single_swing\",\"swing\":\"out\","
+        + "\"self_closing\":true,\"latch\":\"magna_latch_pool\"}");
+    report = run("{\"action\":\"check_home\"}");
+    assertFalse(report, report.contains("\"Lap pool\" has no"));
+    // A fence that stops short of the house leaves a way
+    run("{\"action\":\"modify_fence\",\"id\":\"" + id + "\",\"points\":[[0,800],[0,1600],[1000,1600],[1000,610]]}");
+    report = run("{\"action\":\"check_home\"}");
+    assertTrue(report, report.contains("\"Lap pool\" has no closed barrier"));
   }
 
   @Test
@@ -415,12 +594,12 @@ public class AssistantFenceCommandsTest {
     assertTrue(summary, summary.contains("\"where\" ignored [colour]"));
     assertTrue(this.executor.describeItems(null, null, 1, 1).contains("From the item 2"));
 
-    // The same piece twice at the same place, on two levels
+    // The same piece twice at the same place
     run("{\"action\":\"add_furniture\",\"name\":\"Chair\",\"x\":2000,\"y\":2000}");
-    run("{\"action\":\"add_level\",\"name\":\"Upper\",\"elevation\":300}");
     run("{\"action\":\"add_furniture\",\"name\":\"Chair\",\"x\":2002,\"y\":2000}");
+    run("{\"action\":\"add_level\",\"name\":\"Upper\",\"elevation\":300}");
     summary = run("{\"action\":\"find_duplicates\"}");
-    assertTrue(summary, summary.contains("1 piece is repeated") && summary.contains("[Upper]") && summary.contains("{\"action\":\"delete\",\"ids\":[\""));
+    assertTrue(summary, summary.contains("1 piece is repeated") && summary.contains("{\"action\":\"delete\",\"ids\":[\""));
     summary = run("{\"action\":\"find_duplicates\",\"tolerance\":1}");
     assertTrue(summary, summary.contains("No piece repeats another one"));
 
@@ -471,11 +650,11 @@ public class AssistantFenceCommandsTest {
     run("{\"action\":\"add_fence\",\"style\":\"privacy\",\"points\":[[0,800],[1220,800]],\"owner\":\"Me\","
         + "\"openings\":[{\"at\":600,\"width\":100}]}");
     summary = run("{\"action\":\"fence_report\"}");
-    assertTrue(summary, summary.contains("By style: chain_link 10 m") && summary.contains("privacy_solid 11.2 m")
-        && summary.contains("By owner: Neighbor 10 m") && summary.contains("Me 11.2 m") && summary.contains("bags of concrete")
-        && summary.contains("Total: 21.2 m") && summary.contains("1 gates"));
+    assertTrue(summary, summary.contains("By style: chain_link 10 m of line") && summary.contains("privacy_solid 12.2 m of line (40.03 ft), 11.2 m of fence")
+        && summary.contains("By owner: Neighbor 10 m of line") && summary.contains("Me 12.2 m of line") && summary.contains("bags of concrete")
+        && summary.contains("Total: 22.2 m of line (72.83 ft): 21.2 m of fence and 1 m of gates") && summary.contains("1 gates"));
     // A fence left out of the report
     run("{\"action\":\"add_fence\",\"points\":[[0,1200],[500,1200]],\"report\":false}");
-    assertTrue(run("{\"action\":\"fence_report\"}").contains("Total: 21.2 m"));
+    assertTrue(run("{\"action\":\"fence_report\"}").contains("Total: 22.2 m of line"));
   }
 }

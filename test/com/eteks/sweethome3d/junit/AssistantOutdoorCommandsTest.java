@@ -22,6 +22,7 @@ package com.eteks.sweethome3d.junit;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -132,7 +133,9 @@ public class AssistantOutdoorCommandsTest {
       assertEquals("site", piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY));
       assertTrue(command [0], piece.getWidth() > 20 && piece.getHeight() > 0.4f);
       // What stands outdoors isn't furniture out of its room
-      assertFalse(run("{\"action\":\"check_home\"}").contains("\"" + command [2] + "\""));
+      // (a pool without a fence is told to have no barrier)
+      assertFalse(run("{\"action\":\"check_home\"}").replaceAll("The pool [^\n]* has no barrier[^\n]*", "")
+          .contains("\"" + command [2] + "\""));
       this.homeController.undo();
       assertNull(command [0], getPiece(command [2]));
     }
@@ -168,6 +171,51 @@ public class AssistantOutdoorCommandsTest {
     // The railing stands on the boards
     assertEquals(80, railing.getElevation(), 6);
     assertTrue(railing.getProperty("assistantFence"), railing.getProperty("assistantFence").contains("\"type\":\"gap\""));
+    // Stairs that hold together: risers, stringers and a pad, out of the deck from its rim to the ground
+    assertTrue(summary, summary.contains("on a run of 28 cm down from its edge 3, with risers, stringers, handrails and a pad at their foot"));
+    HomePieceOfFurniture deck = getPiece("Deck");
+    // 4 treads of 28 cm and a pad of 90 cm beyond the edge at y = 300, and nothing beyond the other sides
+    assertEquals(summary, 300 + 4 * 28 + 90, deck.getY() + deck.getDepth() / 2, 2);
+    assertEquals(summary, 0, deck.getY() - deck.getDepth() / 2, 2);
+    assertEquals(summary, 500, deck.getWidth(), 2);
+    // Without stairs the deck is only its boards
+    summary = run("{\"action\":\"add_deck\",\"points\":[[0,1000],[500,1000],[500,1300],[0,1300]],\"height\":80,\"name\":\"Bare deck\"}");
+    assertEquals(summary, 300, getPiece("Bare deck").getDepth(), 2);
+    assertTrue(getPiece("Bare deck").getModel() != deck.getModel());
+
+    // A shed with its doors: leaves that come out of the wall when they are open
+    summary = run("{\"action\":\"add_shed\",\"x\":-3000,\"y\":0,\"width\":300,\"depth\":200,\"doors\":2,\"name\":\"Closed\"}");
+    assertTrue(summary, summary.contains("2 doors 90 x 190 cm each on its front"));
+    summary = run("{\"action\":\"add_shed\",\"x\":-3000,\"y\":1000,\"width\":300,\"depth\":200,\"doors\":2,\"open\":90,\"name\":\"Open\"}");
+    assertTrue(summary, summary.contains("open at 90 degrees"));
+    // Leaves of 90 cm turned to the front
+    assertTrue(getPiece("Open").getDepth() + " " + getPiece("Closed").getDepth(), getPiece("Open").getDepth() > getPiece("Closed").getDepth() + 70);
+    summary = run("{\"action\":\"add_shed\",\"x\":-3000,\"y\":2000,\"doors\":0,\"name\":\"Blind\"}");
+    assertTrue(summary, summary.contains("0 doors on its front"));
+    summary = run("{\"action\":\"add_shed\",\"x\":-3000,\"y\":3000,\"open\":200}");
+    assertTrue(summary, summary.contains("from 0 to 170 degrees"));
+
+    // Steps between two points given apart
+    run("{\"action\":\"set_terrain\",\"points\":[[-9000,-9000,0],[-5000,-9000,0],[-5000,-5000,200],[-9000,-5000,200]]}");
+    summary = run("{\"action\":\"add_steps_on_slope\",\"from\":[-7000,-8000],\"to\":[-7000,-6000]}");
+    assertTrue(summary, summary.contains("Added") && !summary.contains("Couldn't") && !summary.contains("ignored"));
+    summary = run("{\"action\":\"add_steps_on_slope\",\"from\":[-7000,-8000]}");
+    assertTrue(summary, summary.contains("or \"from\":[x,y] and \"to\":[x,y]"));
+
+    // A pool in the ground cuts the ground flat under it; above the ground, it stands in its wall with a ladder
+    summary = run("{\"action\":\"add_pool\",\"x\":-7000,\"y\":-7000,\"width\":600,\"depth\":300,\"name\":\"Dug pool\"}");
+    assertTrue(summary, summary.contains("The ground was cut flat under it and its coping: added a pad"));
+    HomePieceOfFurniture pool = getPiece("Dug pool");
+    // The ground is flat under it, at the 100 cm it had at the middle of the pool
+    assertEquals(summary, 100, pool.getElevation() + pool.getHeight(), 12);
+    summary = run("{\"action\":\"add_pool\",\"x\":-7000,\"y\":-8300,\"width\":600,\"depth\":300,\"excavate\":false,\"name\":\"On top\"}");
+    assertTrue(summary, summary.contains("The ground was left as it is"));
+    summary = run("{\"action\":\"add_pool\",\"x\":3000,\"y\":-7000,\"diameter\":450,\"above_ground\":true,\"name\":\"Tank\"}");
+    assertTrue(summary, summary.contains("in a wall 130 cm above the ground, with a ladder") && !summary.contains("ignored"));
+    // Its ladder goes over the wall
+    assertTrue(summary, getPiece("Tank").getHeight() > 180);
+    summary = run("{\"action\":\"add_pool\",\"x\":3000,\"y\":-9000,\"type\":\"lagoon\"}");
+    assertTrue(summary, summary.contains("\"type\" is in_ground or above_ground"));
     // A driveway with its apron, and a garden in its fence
     summary = run("{\"action\":\"add_driveway\",\"points\":[[2000,0],[2000,1200]],\"width\":350,\"material\":\"asphalt\",\"apron\":120}");
     assertTrue(summary, summary.contains("12 m long and 350 cm wide, of asphalt") && summary.contains("with the apron"));
@@ -240,9 +288,38 @@ public class AssistantOutdoorCommandsTest {
     run("{\"action\":\"hide_layer\",\"tag\":\"neighbor\"}");
     assertFalse(house.isVisible());
     assertFalse(getPiece("Neighbor house roof").isVisible());
+    // The roof starts on the top of the walls, unless it's given eaves
+    HomePieceOfFurniture houseRoof = getPiece("Neighbor house roof");
+    assertEquals(summary, house.getElevation() + house.getHeight(), houseRoof.getElevation(), 1);
+    assertTrue(summary, summary.contains("on the top of the walls"));
+    summary = run("{\"action\":\"add_context_building\",\"points\":[[5000,3000],[6200,3000],[6200,3900],[5000,3900]],"
+        + "\"name\":\"Eaves\",\"overhang\":40,\"detail\":\"detailed\"}");
+    assertTrue(summary, summary.contains("its eaves 40 cm out hang under the top of the walls"));
+    assertTrue(getPiece("Eaves roof").getElevation() < getPiece("Eaves").getElevation() + getPiece("Eaves").getHeight() - 5);
+
+    // The detail of the home draws again the buildings that exist, at their place and with their id
+    String houseId = HomeItemIds.getId(house);
+    float houseX = house.getX();
+    float houseHeight = house.getHeight();
+    Object houseModel = house.getModel();
+    int count = this.home.getFurniture().size();
     summary = run("{\"action\":\"set_context_detail\",\"detail\":\"massing\"}");
+    assertTrue(summary, summary.contains("1 building of the home was drawn again without roof")
+        && summary.contains("1 given its own \"detail\" kept it"));
+    assertEquals(houseId, HomeItemIds.getId(getPiece("Neighbor house")));
+    assertNotSame(houseModel, house.getModel());
+    assertEquals(houseX, house.getX(), 1);
+    assertEquals(houseHeight, house.getHeight(), 1);
+    assertNull(getPiece("Neighbor house roof"));
+    assertNotNull(getPiece("Eaves roof"));
+    assertEquals(count - 1, this.home.getFurniture().size());
     summary = run("{\"action\":\"add_context_building\",\"x\":8000,\"y\":0,\"width\":1000,\"depth\":800,\"name\":\"Mass\"}");
     assertTrue(summary, summary.contains("(massing)") && summary.contains("under a flat roof"));
+    // Back to more detail: the roofs come back
+    summary = run("{\"action\":\"set_context_detail\",\"detail\":\"textured\"}");
+    assertTrue(summary, summary.contains("2 buildings of the home were drawn again"));
+    assertNotNull(getPiece("Neighbor house roof"));
+    assertNotNull(getPiece("Mass roof"));
     summary = run("{\"action\":\"set_context_detail\",\"detail\":\"fancy\"}");
     assertTrue(summary, summary.contains("massing, textured or detailed"));
   }

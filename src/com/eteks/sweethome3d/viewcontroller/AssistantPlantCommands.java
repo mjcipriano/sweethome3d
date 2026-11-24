@@ -96,20 +96,24 @@ class AssistantPlantCommands {
         + "without one, \"tag\" for all)\n"
         + "  {\"action\":\"update_trees\",\"tag\":\"lidar\",\"trees\":[...]}  "
         + "(compares a new list with the trees that have a tag: a tree of the list with no tree within \"tolerance\" cm (150) is added, "
-        + "a tree of the home that isn't in the list anymore is deleted, or with \"removed_since\":\"2018\" kept as a pale ghost with "
-        + "that mark. The answer counts what was added, removed and kept)\n"
+        + "a tree of the home that isn't in the list anymore is deleted, or with \"mark_removed\":true or \"removed_since\":\"2018\" "
+        + "kept as a pale ghost tagged removed, with that mark or the date of the day. The answer counts what was added, removed and kept)\n"
         + "  {\"action\":\"relabel_trees\",\"where\":{\"tag\":\"lidar\",\"bbox\":[x1,y1,x2,y2]},\"species\":\"white_oak\"}  "
         + "(gives another species to generated trees, at the same place and with the same sizes)\n"
         + "  {\"action\":\"grow_trees\",\"years\":8}  "
-        + "(makes the generated trees older, or younger with a negative number: each one grows at the rate of its species, up to the "
-        + "size it reaches; \"where\" or \"ids\" limits it)\n"
+        + "(makes the generated trees older, or younger with a negative number: each one grows at the rate of its species - 30 to 60 cm a "
+        + "year for a black gum, 60 to 100 for a tulip poplar or a loblolly pine - and slower only near the largest size of the species; "
+        + "the answer gives the average by species; \"where\" or \"ids\" limits it)\n"
         + "  {\"action\":\"set_season\",\"season\":\"autumn\"}  "
         + "(the season of every generated plant of the home, and of the ones added later; or \"date\":\"2026-10-20\", read with the "
         + "hemisphere of the home. \"lod\":\"low|medium|high\" changes their detail the same way)\n"
         + "  {\"action\":\"forest_fill\",\"area\":[[x,y],...],\"species\":{\"loblolly_pine\":3,\"sweetgum\":1},\"density\":4}  "
-        + "(fills a polygon with trees: \"density\" trees per 100 m2, or \"spacing\" in cm; \"species\" is a name, a list, or weights; "
-        + "\"understory\":{\"flowering_dogwood\":1,\"azalea\":2} adds smaller plants between them; heights vary by \"variation\" (0.25); "
-        + "the same \"seed\" gives the same forest. Places in a room or near a building are skipped)\n";
+        + "(fills a polygon with trees: \"density\" is the number of trees per 100 m2 - 4 is a tree every 5 m, 0.5 a tree every 14 m, "
+        + "and 80 m2 at 0.5 get one tree - or \"spacing\" in cm; \"species\" is a name, a list, or weights; "
+        + "\"understory\":{\"flowering_dogwood\":1,\"azalea\":2} adds smaller plants between them, as many as the trees, or "
+        + "\"understory\":{\"species\":[\"azalea\"],\"density\":8} with their own density or \"spacing\"; heights vary by "
+        + "\"variation\" (0.25); the same \"seed\" gives the same forest. Places in a room or near a building are skipped, and the "
+        + "answer gives the number planted beside the number the density expects)\n";
   }
 
   /**
@@ -224,7 +228,9 @@ class AssistantPlantCommands {
       throw new IOException("the crown is 3 to 6000 cm wide: \"crown_radius\", or \"crown_w\" and \"crown_d\"");
     }
     plant.crownBase = Math.max(0, Math.min(plant.height * 0.92f, number(spec, "crown_base", plant.height * species.baseRatio)));
-    plant.trunkDiameter = Math.max(1, Math.min(600, number(spec, "trunk_dbh", plant.height * species.trunkRatio)));
+    // Grasses and groundcovers are a clump of blades without a trunk
+    plant.trunkDiameter = species.form == AssistantPlantBuilder.Form.GRASS ? 0
+        : Math.max(1, Math.min(600, number(spec, "trunk_dbh", plant.height * species.trunkRatio)));
     if (spec.get("trunk_lean") instanceof Map) {
       Map<?, ?> lean = (Map<?, ?>)spec.get("trunk_lean");
       plant.leanAngle = Math.max(0, Math.min(45, number(lean, "angle", 0)));
@@ -403,6 +409,18 @@ class AssistantPlantCommands {
     return piece;
   }
 
+  /**
+   * Creates a plant of a species at a place, with its usual size, without adding it to the home.
+   */
+  HomePieceOfFurniture createPlantAt(String speciesName, float x, float y, Level level) throws IOException {
+    Map<String, Object> spec = new LinkedHashMap<String, Object>();
+    spec.put("species", speciesName);
+    spec.put("x", Double.valueOf(x));
+    spec.put("y", Double.valueOf(y));
+    AssistantPlantBuilder.Species species = AssistantPlantBuilder.getSpecies(speciesName);
+    return createPlant(spec, species != null && species.shrub, level, new ArrayList<String>());
+  }
+
   private HomePieceOfFurniture addPlant(Map<String, Object> spec, boolean shrub, Level level, int [] tally,
                                         List<String> ignored) throws IOException {
     HomePieceOfFurniture piece = createPlant(spec, shrub, level, ignored);
@@ -438,7 +456,8 @@ class AssistantPlantCommands {
     return (species.shrub ? "shrub " : "tree ") + this.executor.getId(piece) + " \"" + piece.getName() + "\" (" + species.name + ", "
         + (species.evergreen ? "evergreen" : "deciduous") + "): " + format(number(spec, "height", 0) / 100) + " m high, crown "
         + format(number(spec, "crown_w", 0) / 100) + " m wide from " + format(number(spec, "crown_base", 0) / 100)
-        + " m up, trunk " + format(number(spec, "trunk_dbh", 0)) + " cm, at (" + format(number(spec, "x", 0)) + ", "
+        + " m up" + (number(spec, "trunk_dbh", 0) > 0 ? ", trunk " + format(number(spec, "trunk_dbh", 0)) + " cm" : "")
+        + ", at (" + format(number(spec, "x", 0)) + ", "
         + format(number(spec, "y", 0)) + "), its foot at " + format(piece.getElevation()) + " cm"
         + (spec.get("removed_since") != null ? ", removed since " + spec.get("removed_since") : "");
   }
@@ -566,9 +585,40 @@ class AssistantPlantCommands {
     if (mix.isEmpty()) {
       mix.add(AssistantPlantBuilder.getSpecies("generic_deciduous"));
     }
-    List<AssistantPlantBuilder.Species> understory = getMix(command.getParameters().get("understory"), "understory");
+    // The plants under the trees: species with weights, or {"species":...,"density":N} with their own density
+    Object understoryValue = command.getParameters().get("understory");
+    double understoryDensity = Double.NaN;
+    double understorySpacing = Double.NaN;
+    if (understoryValue instanceof Map && (((Map<?, ?>)understoryValue).containsKey("species")
+        || ((Map<?, ?>)understoryValue).containsKey("density") || ((Map<?, ?>)understoryValue).containsKey("spacing"))) {
+      Map<?, ?> map = (Map<?, ?>)understoryValue;
+      understoryDensity = number(map, "density", Float.NaN);
+      understorySpacing = number(map, "spacing", Float.NaN);
+      understoryValue = map.get("species");
+      if (understoryValue == null) {
+        throw new IOException("\"understory\" gives its species: {\"species\":[\"flowering_dogwood\",\"azalea\"],\"density\":N}, "
+            + "or the weights {\"flowering_dogwood\":1,\"azalea\":2}");
+      }
+      for (Object key : map.keySet()) {
+        if (!Arrays.asList("species", "density", "spacing").contains(String.valueOf(key))) {
+          notes.add("forest_fill ignored the key \"" + key + "\" of \"understory\": it reads species, density and spacing");
+        }
+      }
+    } else if (understoryValue != null && !(understoryValue instanceof Map) && !(understoryValue instanceof List)
+               && !(understoryValue instanceof String)) {
+      throw new IOException("\"understory\" is a species, a list of species, weights {\"azalea\":2}, or "
+          + "{\"species\":[...],\"density\":N}");
+    }
+    List<AssistantPlantBuilder.Species> understory = getMix(understoryValue, "understory");
     double density = command.getDouble("density", Double.NaN);
+    if (!Double.isNaN(density) && !(density >= 0.01 && density <= 1000)) {
+      throw new IOException("\"density\" goes from 0.01 to 1000 trees per 100 m2");
+    }
+    boolean byDensity = !Double.isNaN(density) && !command.has("spacing");
     double spacing = command.getDouble("spacing", !Double.isNaN(density) && density > 0 ? Math.sqrt(1000000 / density) : 500);
+    if (byDensity) {
+      spacing = Math.max(30, Math.min(10000, spacing));
+    }
     if (!(spacing >= 30 && spacing <= 10000)) {
       throw new IOException("\"spacing\" goes from 30 to 10000 cm (or \"density\" from 0.01 to 1000 trees per 100 m2)");
     }
@@ -579,21 +629,25 @@ class AssistantPlantCommands {
     float [][] polygon = area.toArray(new float [area.size()][]);
     // Places on a grid moved at random
     List<float []> places = new ArrayList<float []>();
+    double surface = area.size() >= 3 ? AssistantRoomFurnisher.getSurface(AssistantMeshBuilder.getArea(polygon)) / 10000 : 0;
+    int expected = -1;
     if (area.size() >= 3) {
-      float [] bounds = {Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
-      for (float [] point : polygon) {
-        bounds [0] = Math.min(bounds [0], point [0]);
-        bounds [1] = Math.min(bounds [1], point [1]);
-        bounds [2] = Math.max(bounds [2], point [0]);
-        bounds [3] = Math.max(bounds [3], point [1]);
+      if (!(surface > 0)) {
+        throw new IOException("the points of \"area\" enclose no area");
       }
-      for (float y = bounds [1] + (float)spacing / 2; y < bounds [3]; y += spacing) {
-        for (float x = bounds [0] + (float)spacing / 2; x < bounds [2]; x += spacing) {
-          float px = x + (random.nextFloat() - 0.5f) * (float)spacing * 0.8f;
-          float py = y + (random.nextFloat() - 0.5f) * (float)spacing * 0.8f;
-          if (AssistantRoomFurnisher.contains(polygon, px, py)) {
-            places.add(new float [] {px, py});
-          }
+      places = getGridPlaces(polygon, spacing, random);
+      if (byDensity) {
+        // The number of trees the density gives for that area, one at least, on a grid tightened until it has room for them
+        expected = (int)Math.max(1, Math.round(surface / 100 * density));
+        double step = spacing;
+        for (int attempt = 0; attempt < 12 && places.size() < expected && step > 30; attempt++) {
+          step = Math.max(30, step * 0.85);
+          places = getGridPlaces(polygon, step, random);
+        }
+        if (places.size() > expected) {
+          List<float []> chosen = new ArrayList<float []>(places);
+          Collections.shuffle(chosen, random);
+          places.retainAll(chosen.subList(0, expected));
         }
       }
     } else {
@@ -624,14 +678,53 @@ class AssistantPlantCommands {
       AssistantPlantBuilder.Species species = mix.get(random.nextInt(mix.size()));
       pieces.add(createScattered(command, species, place, random, variation, level, ignored, counts));
     }
+    int trees = pieces.size();
+    int understoryExpected = -1;
     if (!understory.isEmpty()) {
-      // Smaller plants between the trees
-      for (float [] place : kept) {
-        float px = place [0] + (float)spacing * (0.3f + 0.3f * random.nextFloat()) * (random.nextBoolean() ? 1 : -1);
-        float py = place [1] + (float)spacing * (0.3f + 0.3f * random.nextFloat()) * (random.nextBoolean() ? 1 : -1);
-        if ((area.size() < 3 || AssistantRoomFurnisher.contains(polygon, px, py)) && !isNearBuilding(px, py, margin)
-            && pieces.size() < MAX_PLANTS) {
-          pieces.add(createScattered(command, understory.get(random.nextInt(understory.size())), new float [] {px, py}, random,
+      List<float []> under = new ArrayList<float []>();
+      if (area.size() >= 3) {
+        // Smaller plants on their own grid, as many as the trees unless they have their density or their spacing
+        double step = !Double.isNaN(understorySpacing) ? Math.max(30, Math.min(10000, understorySpacing))
+            : !Double.isNaN(understoryDensity) && understoryDensity > 0 ? Math.max(30, Math.min(10000, Math.sqrt(1000000 / understoryDensity)))
+            : spacing;
+        understoryExpected = !Double.isNaN(understorySpacing) ? -1
+            : !Double.isNaN(understoryDensity) && understoryDensity > 0 ? (int)Math.max(1, Math.round(surface / 100 * understoryDensity))
+            : Math.max(1, places.size());
+        for (int attempt = 0; attempt < 14; attempt++) {
+          under = getGridPlaces(polygon, step, random);
+          // Not in a building nor in the trunk of a tree
+          for (int i = under.size() - 1; i >= 0; i--) {
+            boolean taken = isNearBuilding(under.get(i) [0], under.get(i) [1], margin);
+            for (int j = 0; j < kept.size() && !taken; j++) {
+              taken = Math.hypot(kept.get(j) [0] - under.get(i) [0], kept.get(j) [1] - under.get(i) [1]) < Math.min(60, step / 3);
+            }
+            if (taken) {
+              under.remove(i);
+            }
+          }
+          if (understoryExpected < 0 || under.size() >= understoryExpected || step <= 30) {
+            break;
+          }
+          step = Math.max(30, step * 0.85);
+        }
+        if (understoryExpected >= 0 && under.size() > understoryExpected) {
+          List<float []> chosen = new ArrayList<float []>(under);
+          Collections.shuffle(chosen, random);
+          under.retainAll(chosen.subList(0, understoryExpected));
+        }
+      } else {
+        // Between the trees of the line
+        for (float [] place : kept) {
+          float px = place [0] + (float)spacing * (0.3f + 0.3f * random.nextFloat()) * (random.nextBoolean() ? 1 : -1);
+          float py = place [1] + (float)spacing * (0.3f + 0.3f * random.nextFloat()) * (random.nextBoolean() ? 1 : -1);
+          if (!isNearBuilding(px, py, margin)) {
+            under.add(new float [] {px, py});
+          }
+        }
+      }
+      for (float [] place : under) {
+        if (pieces.size() < MAX_PLANTS) {
+          pieces.add(createScattered(command, understory.get(random.nextInt(understory.size())), place, random,
               variation, level, ignored, counts));
         }
       }
@@ -641,12 +734,48 @@ class AssistantPlantCommands {
     }
     add(pieces, level);
     tally [0] += pieces.size();
+    int under = pieces.size() - trees;
     notes.add("Planted " + pieces.size() + (pieces.size() == 1 ? " plant" : " plants") + " on the ground: " + describeCounts(counts)
-        + describeIds(pieces) + (skipped > 0 ? ". " + skipped + " places in a room or closer than " + format(margin)
+        + describeIds(pieces)
+        + (area.size() >= 3 ? ". " + trees + (trees == 1 ? " tree" : " trees")
+            + (expected >= 0 ? " for " + expected + " expected (" + format(density) + " per 100 m2 over " + format(surface) + " m2)"
+                : " every " + format(spacing) + " cm over " + format(surface) + " m2")
+            + (!understory.isEmpty() ? ", and " + under + (under == 1 ? " plant" : " plants") + " of the understory"
+                + (understoryExpected >= 0 ? " for " + understoryExpected + " expected" : "") : "") : "")
+        + (skipped > 0 ? ". " + skipped + " places in a room or closer than " + format(margin)
             + " cm to a building were skipped" : ""));
     ignored.removeAll(Arrays.asList("area", "along", "density", "spacing", "understory", "variation", "min_distance_from_buildings",
         "count", "jitter", "rotate"));
     warnIgnored(action, ignored, notes);
+  }
+
+  /**
+   * Returns the points of a grid moved at random that are in a polygon.
+   */
+  private static List<float []> getGridPlaces(float [][] polygon, double spacing, Random random) {
+    List<float []> places = new ArrayList<float []>();
+    float [] bounds = {Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
+    for (float [] point : polygon) {
+      bounds [0] = Math.min(bounds [0], point [0]);
+      bounds [1] = Math.min(bounds [1], point [1]);
+      bounds [2] = Math.max(bounds [2], point [0]);
+      bounds [3] = Math.max(bounds [3], point [1]);
+    }
+    // Centered in the bounds, to give a place to an area smaller than the spacing
+    int columns = Math.max(1, (int)Math.round((bounds [2] - bounds [0]) / spacing));
+    int rows = Math.max(1, (int)Math.round((bounds [3] - bounds [1]) / spacing));
+    float stepX = (bounds [2] - bounds [0]) / columns;
+    float stepY = (bounds [3] - bounds [1]) / rows;
+    for (int row = 0; row < rows; row++) {
+      for (int column = 0; column < columns; column++) {
+        float px = bounds [0] + (column + 0.5f) * stepX + (random.nextFloat() - 0.5f) * stepX * 0.8f;
+        float py = bounds [1] + (row + 0.5f) * stepY + (random.nextFloat() - 0.5f) * stepY * 0.8f;
+        if (AssistantRoomFurnisher.contains(polygon, px, py)) {
+          places.add(new float [] {px, py});
+        }
+      }
+    }
+    return places;
   }
 
   private HomePieceOfFurniture createScattered(AssistantCommand command, AssistantPlantBuilder.Species species, float [] place,
@@ -929,6 +1058,8 @@ class AssistantPlantCommands {
     }
     float grown = 0;
     int changed = 0;
+    // The growth and the count of each species
+    Map<String, float []> bySpecies = new TreeMap<String, float []>();
     for (HomePieceOfFurniture piece : plants) {
       Map<String, Object> spec = getSpec(piece);
       AssistantPlantBuilder.Species species = AssistantPlantBuilder.getSpecies(String.valueOf(spec.get("species")));
@@ -936,12 +1067,11 @@ class AssistantPlantCommands {
         continue;
       }
       float height = number(spec, "height", species.height);
-      // A tree grows slower as it gets close to the size of its species
+      // A tree grows at the rate of its species, and slower only once it gets close to its mature size
       float limit = species.height * 1.5f;
       float newHeight = height;
       for (int year = 0; year < Math.abs(Math.round(years)); year++) {
-        newHeight += years > 0 ? species.growth * Math.max(0.05f, 1 - newHeight / limit)
-            : -species.growth * Math.max(0.05f, 1 - newHeight / limit);
+        newHeight += (years > 0 ? 1 : -1) * species.growth * getGrowthFactor(newHeight / limit);
       }
       newHeight = Math.max(species.shrub ? 15 : 60, Math.min(limit, newHeight));
       if (Math.abs(newHeight - height) < 1) {
@@ -955,11 +1085,33 @@ class AssistantPlantCommands {
       rebuild(piece, spec, false);
       grown += newHeight - height;
       changed++;
+      float [] sum = bySpecies.get(species.name);
+      if (sum == null) {
+        sum = new float [2];
+        bySpecies.put(species.name, sum);
+      }
+      sum [0] += newHeight - height;
+      sum [1]++;
+    }
+    StringBuilder averages = new StringBuilder();
+    for (Map.Entry<String, float []> entry : bySpecies.entrySet()) {
+      averages.append(averages.length() == 0 ? ". By species: " : ", ").append(entry.getKey()).append(' ')
+          .append(entry.getValue() [0] > 0 ? "+" : "").append(format(entry.getValue() [0] / entry.getValue() [1] / 100)).append(" m (")
+          .append((int)entry.getValue() [1]).append(')');
     }
     tally [4] += changed;
     notes.add((years > 0 ? "Grew " : "Made younger ") + changed + (changed == 1 ? " plant" : " plants") + " by " + format(Math.abs(years))
         + " years: " + (changed > 0 ? format(Math.abs(grown) / changed / 100) + " m " + (years > 0 ? "higher" : "lower") + " on average" : "none changed")
-        + (changed < plants.size() ? " (" + (plants.size() - changed) + " at the size of their species, or removed, didn't change)" : ""));
+        + (changed < plants.size() ? " (" + (plants.size() - changed) + " at the size of their species, or removed, didn't change)" : "")
+        + averages);
+  }
+
+  /**
+   * Returns the share of the growth rate of its species a tree keeps at a height, given as a share of
+   * the largest size of the species: all of it up to three quarters of that size, then less and less.
+   */
+  static float getGrowthFactor(float share) {
+    return share <= 0.75f ? 1 : Math.max(0.05f, 1 - (share - 0.75f) / 0.25f * 0.95f);
   }
 
   private void setSeason(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
@@ -1040,6 +1192,10 @@ class AssistantPlantCommands {
     tag = HomeItemTags.cleanTag(tag);
     float tolerance = (float)command.getDouble("tolerance", 150);
     String removedSince = command.getString("removed_since");
+    if ((removedSince == null || removedSince.trim().length() == 0) && command.getBoolean("mark_removed", false)) {
+      // Kept as ghosts, marked with the day they were found missing
+      removedSince = new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date());
+    }
     Level level = getLevel(command, "update_trees", notes);
     List<HomePieceOfFurniture> existing = new ArrayList<HomePieceOfFurniture>();
     for (HomePieceOfFurniture piece : this.home.getFurniture()) {

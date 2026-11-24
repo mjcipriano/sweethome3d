@@ -787,6 +787,12 @@ public class HomePieceOfFurniture extends HomeObject implements PieceOfFurniture
         this.depth = depth;
         this.shapeCache = null;
         firePropertyChange(Property.DEPTH.name(), oldDepth, depth);
+        if (!isHorizontallyRotated() && this.depthInPlan != depth) {
+          // A piece that isn't rotated around a horizontal axis has the same size in the plan
+          float oldDepthInPlan = this.depthInPlan;
+          this.depthInPlan = depth;
+          firePropertyChange(Property.DEPTH_IN_PLAN.name(), oldDepthInPlan, depth);
+        }
       }
     } else {
       throw new IllegalStateException("Piece isn't resizable");
@@ -833,6 +839,12 @@ public class HomePieceOfFurniture extends HomeObject implements PieceOfFurniture
         float oldHeight = this.height;
         this.height = height;
         firePropertyChange(Property.HEIGHT.name(), oldHeight, height);
+        if (!isHorizontallyRotated() && this.heightInPlan != height) {
+          // A piece that isn't rotated around a horizontal axis has the same height in the plan
+          float oldHeightInPlan = this.heightInPlan;
+          this.heightInPlan = height;
+          firePropertyChange(Property.HEIGHT_IN_PLAN.name(), oldHeightInPlan, height);
+        }
       }
     } else {
       throw new IllegalStateException("Piece isn't resizable");
@@ -879,6 +891,12 @@ public class HomePieceOfFurniture extends HomeObject implements PieceOfFurniture
         this.width = width;
         this.shapeCache = null;
         firePropertyChange(Property.WIDTH.name(), oldWidth, width);
+        if (!isHorizontallyRotated() && this.widthInPlan != width) {
+          // A piece that isn't rotated around a horizontal axis has the same size in the plan
+          float oldWidthInPlan = this.widthInPlan;
+          this.widthInPlan = width;
+          firePropertyChange(Property.WIDTH_IN_PLAN.name(), oldWidthInPlan, width);
+        }
       }
     } else {
       throw new IllegalStateException("Piece isn't resizable");

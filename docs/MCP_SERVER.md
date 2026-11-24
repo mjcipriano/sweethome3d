@@ -121,7 +121,7 @@ check its work with a picture.
 | `check_home` | Report of plan defects (unjoined walls, duplicates, rooms without door, doors out of walls or above the roof, walls beyond a setback...) with ids, each an error, a warning or an info. Options `min_severity`, `ignore`, `ignore_tags`, `remember`, `forget` ([details](MCP_COMMANDS.md#checks-reports-and-exports)) |
 | `get_report` | Floor areas and perimeters by room, wall lengths and surfaces, furniture counts and prices |
 | `get_plan_image` | PNG picture of the 2D plan of a level, or of a part of it enlarged `layers` draws over one picture the ground colored by its `slope`, its `contours`, the crowns of the `trees` with their species and the `fences` colored by style; `legend`, `scale_bar` and `north_arrow` add them, and `annotate` draws marks that aren't kept in the home |
-| `get_3d_image` | PNG picture of the home in 3D (see [Pictures](#pictures)) `exclude_tags`, `include_tags` and `hide_ids` leave items out of one picture (`"exclude_tags":["tree","shrub"]` shows a house past its trees), `"xray":true` draws the generated trees pale and seen through, `season` draws them in another season, `cutaway` leaves out what stands above a height, and `camera` also takes a place and angles `{"x","y","z","yaw","pitch","fov"}`. None of them changes the home `date` and `time` light one picture by the sun of that moment, and `"photo":"PH1"` draws it from where a photo was taken, beside the photo |
+| `get_3d_image` | PNG picture of the home in 3D (see [Pictures](#pictures)) `exclude_tags`, `include_tags` and `hide_ids` leave items out of one picture (`"exclude_tags":["tree","shrub"]` shows a house past its trees), `"xray":true` draws the generated trees pale and seen through, `season` draws them in another season, `cutaway` leaves out what stands above a height, and `camera` also takes a place and angles `{"x","y","z","yaw","pitch","fov"}`. With `view` and `target`, the trees and the furniture the camera stands in or that are on its line to the target are left out and listed; `"occluders":"keep"` draws them. None of them changes the home `date` and `time` light one picture by the sun of that moment, and `"photo":"PH1"` draws it from where a photo was taken, beside the photo |
 | `get_3d_info` | The camera, the stored points of view, the levels, the views and the renderers `get_3d_image` accepts |
 | `help` | Every command of `apply_commands` by area with a line on each; `"command":"add_fence"` gives the syntax of one command and the commands related to it, `"search":"gate"` finds a word |
 | `get_capabilities` | The version, what it has (styles of fences, types of gates, coordinate systems, formats) and its limits |
@@ -165,7 +165,7 @@ morning?"* - *"Go back to the version before the new roof."*
 
 | Tool | What it does |
 | --- | --- |
-| `save_version` | Saves a copy of the home with a `label` in the folder of versions beside its file, the one of **File > Versions...**. The home and its file don't change |
+| `save_version` | Saves a copy of the home with a `label` (or `name`) in the folder of versions beside its file, the one of **File > Versions...**. The home and its file don't change |
 | `list_versions` | The versions, the most recent first, numbered from 1 |
 | `compare_versions` | From a `version` (its number or a part of its label) to the home now, or to another version (`with`): counts and areas, then the items added, removed, moved, resized or renamed, with their ids. `"picture":true` adds both states side by side It ends with what changed on the site: trees added, removed or changed, fences, and the earth moved |
 | `restore_version` | Replaces the levels and the items of the home by the ones of a version, as **one change that undo reverts**. The state before it is saved as a version first (`"keep_current":false` skips that). The file of the home isn't written |
@@ -197,7 +197,7 @@ with a note that says so.
 | `pdf` | The pages of **File > Print to PDF**: plan, furniture list, 3D view |
 | `svg` | The plan of the selected level |
 | `obj` | The 3D model, with its `.mtl` file and its textures beside it |
-| `csv` | The furniture list |
+| `csv` | The furniture list for a program: the `id`, `name`, `level`, `x`, `y`, `elevation`, `angle`, `width`, `depth`, `height`, `visible` and `tags` of each piece, lengths in cm and angles in degrees, the unit in the header (`x_cm`, `angle_deg`). `"units"` gives `m`, `mm`, `in` or `ft`; `"columns":[...]` chooses the columns, with `catalog_id`, `description`, `movable`, `door_or_window` and `created_by` too. The **Export to CSV format** menu item of the window writes the columns and the unit of its furniture list instead |
 | `web_page` | A new folder with the 3D visit for a browser, in the folder `path` |
 | `panorama` | A new folder with a 360 degree picture from the place of the virtual visitor and its page, in the folder `path` (`width` from 1024 to 8192) |
 

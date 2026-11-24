@@ -227,6 +227,70 @@ public class AssistantPlantCommandsTest {
   }
 
   @Test
+  public void testGrassesGrowthAndGhosts() {
+    // A grass is a clump without a trunk
+    String summary = run("{\"action\":\"add_shrub\",\"species\":\"muhly_grass\",\"x\":0,\"y\":0}");
+    assertFalse(summary, summary.contains("trunk"));
+    assertTrue(getPiece("Pink muhly grass").getProperty("assistantPlant"),
+        getPiece("Pink muhly grass").getProperty("assistantPlant").contains("\"trunk_dbh\":0"));
+    summary = run("{\"action\":\"add_shrub\",\"species\":\"boxwood\",\"x\":300,\"y\":0}");
+    assertTrue(summary, summary.contains("trunk"));
+
+    // Trees grow at the rate of their species: 30 to 60 cm a year for a black gum of 17 m
+    run("{\"action\":\"add_tree\",\"species\":\"black_gum\",\"x\":2000,\"y\":0,\"tag\":\"young\"}");
+    run("{\"action\":\"add_tree\",\"species\":\"tulip_poplar\",\"x\":4000,\"y\":0,\"height\":1000,\"tag\":\"young\"}");
+    HomePieceOfFurniture gum = getPiece("Black gum");
+    HomePieceOfFurniture poplar = getPiece("Tulip poplar");
+    float gumHeight = gum.getHeight();
+    float poplarHeight = poplar.getHeight();
+    summary = run("{\"action\":\"grow_trees\",\"years\":8,\"where\":{\"tag\":\"young\"}}");
+    assertTrue(summary, summary.contains("By species: black_gum +") && summary.contains("tulip_poplar +6 m (1)"));
+    assertTrue(summary + " " + (gum.getHeight() - gumHeight), gum.getHeight() - gumHeight >= 240 && gum.getHeight() - gumHeight <= 480);
+    assertEquals(summary, 600, poplar.getHeight() - poplarHeight, 30);
+    // Slower near the largest size of the species, which it doesn't pass
+    summary = run("{\"action\":\"grow_trees\",\"years\":100,\"where\":{\"tag\":\"young\"}}");
+    assertEquals(summary, 1700 * 1.5f, gum.getHeight(), 60);
+
+    // A tree missing from a new list is kept as a ghost with mark_removed
+    run("{\"action\":\"add_trees\",\"tag\":\"survey\",\"trees\":[{\"x\":7000,\"y\":0,\"species\":\"red_maple\"},"
+        + "{\"x\":8000,\"y\":0,\"species\":\"white_oak\"}]}");
+    int count = getPlants().size();
+    summary = run("{\"action\":\"update_trees\",\"tag\":\"survey\",\"mark_removed\":true,\"trees\":[{\"x\":7000,\"y\":0}]}");
+    assertTrue(summary, summary.contains("1 not in the list anymore, kept as ghosts removed since 2") && !summary.contains("deleted"));
+    assertEquals(count, getPlants().size());
+    HomePieceOfFurniture oak = getPiece("White oak");
+    assertTrue(oak.getProperty("tags"), oak.getProperty("tags").contains("removed"));
+    assertTrue(oak.getProperty("assistantPlant"), oak.getProperty("assistantPlant").contains("\"removed_since\":\"2"));
+  }
+
+  @Test
+  public void testForestDensityAndUnderstory() {
+    // 0.5 tree per 100 m2 over 80 m2: one tree, said with the number expected
+    String summary = run("{\"action\":\"forest_fill\",\"area\":[[0,0],[1000,0],[1000,800],[0,800]],\"species\":\"red_maple\",\"density\":0.5}");
+    assertTrue(summary, summary.contains("1 tree for 1 expected (0.5 per 100 m2 over 80 m2)"));
+    assertEquals(1, getPlants().size());
+    // 4 per 100 m2 over 900 m2: 36 trees, and an understory with its own density
+    summary = run("{\"action\":\"forest_fill\",\"area\":[[5000,0],[8000,0],[8000,3000],[5000,3000]],\"species\":\"loblolly_pine\","
+        + "\"density\":4,\"understory\":{\"species\":[\"azalea\",\"flowering_dogwood\"],\"density\":8}}");
+    assertTrue(summary, summary.contains("36 trees for 36 expected (4 per 100 m2 over 900 m2), and 72 plants of the understory for 72 expected"));
+    assertFalse(summary, summary.contains("ignored"));
+    assertEquals(1 + 36 + 72, getPlants().size());
+    int azaleas = 0;
+    for (HomePieceOfFurniture plant : getPlants()) {
+      azaleas += plant.getProperty("tags").contains("azalea") ? 1 : 0;
+    }
+    assertTrue(summary, azaleas > 10);
+    // Weights give as many plants under the trees as trees
+    summary = run("{\"action\":\"forest_fill\",\"area\":[[10000,0],[12000,0],[12000,2000],[10000,2000]],\"species\":\"red_maple\","
+        + "\"density\":1,\"understory\":{\"azalea\":2,\"boxwood\":1}}");
+    assertTrue(summary, summary.contains("4 trees for 4 expected") && summary.contains("4 plants of the understory for 4 expected"));
+    // What it can't read is said
+    summary = run("{\"action\":\"forest_fill\",\"area\":[[10000,5000],[12000,5000],[12000,7000],[10000,7000]],\"species\":\"red_maple\","
+        + "\"understory\":{\"density\":2}}");
+    assertTrue(summary, summary.contains("Couldn't run forest_fill") && summary.contains("\"understory\" gives its species"));
+  }
+
+  @Test
   public void testImportForestAndReplace() {
     String summary = run("{\"action\":\"import_trees\",\"units\":\"m\",\"tag\":\"survey\","
         + "\"csv\":\"x,y,height,crown_radius,species\\n100,200,12,3,red_maple\\n900,200,20,4,Unknown tree\\n1700,200,8,2,\"}");

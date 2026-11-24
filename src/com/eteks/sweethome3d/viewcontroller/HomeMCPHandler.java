@@ -957,6 +957,9 @@ public class HomeMCPHandler {
         + "tags; the ground, roofs, slabs, fences and walls stay");
     includeProperty.put("items", property("string", "A tag"));
     image3DProperties.put("include_tags", includeProperty);
+    image3DProperties.put("occluders", enumProperty("With \"view\" and \"target\", the trees and the furniture the camera "
+        + "stands in or that are on its line to the target are left out of the picture and listed (hide, the default); "
+        + "keep draws them", "hide", "keep"));
     Map<String, Object> hideProperty = property("array", "Leaves out of this picture the items with these ids (F#, W#, R#)");
     hideProperty.put("items", property("string", "An id"));
     image3DProperties.put("hide_ids", hideProperty);
@@ -1147,7 +1150,9 @@ public class HomeMCPHandler {
         + "this tool, with their ids. Other answers end with a note when there are such changes.",
         schema(null), true));
     Map<String, Object> versionProperties = new LinkedHashMap<String, Object>();
-    versionProperties.put("label", property("string", "A few words that describe this state of the home, e.g. \"before moving the kitchen\""));
+    versionProperties.put("label", property("string", "A few words that describe this state of the home, e.g. \"before moving the kitchen\" "
+        + "(\"name\" is read as the label too)"));
+    versionProperties.put("name", property("string", "The label, under another name"));
     tools.add(tool("save_version", "Save a version",
         "Saves a copy of the home as a named version in the folder of versions beside its file "
         + "(File > Versions... in Sweet Home 3D). The home and its file don't change. Do it before a large "
@@ -1198,11 +1203,18 @@ public class HomeMCPHandler {
         schema(switchProperties, "home"), false));
     Map<String, Object> exportProperties = new LinkedHashMap<String, Object>();
     exportProperties.put("format", enumProperty("pdf: the printed pages (plan, furniture list, 3D view); svg: the plan as a drawing; "
-        + "obj: the 3D model with its materials; csv: the furniture list; web_page: a folder with the 3D visit for a browser; "
+        + "obj: the 3D model with its materials; csv: the furniture list with the id, the level, the place, the elevation, "
+        + "the angle and the size of each piece, in cm unless \"units\" is given; web_page: a folder with the 3D visit for a browser; "
         + "panorama: a 360 degree picture from the place of the virtual visitor, with its page",
         "pdf", "svg", "obj", "glb", "csv", "web_page", "panorama"));
     exportProperties.put("path", property("string", "Absolute path of the file to write (pdf, svg, obj, csv), or of an existing folder that will receive a new folder (web_page, panorama)"));
     exportProperties.put("replace", property("boolean", "true to replace a file that exists"));
+    Map<String, Object> columnsProperty = property("array", "csv: the columns to write, among " + HomeFurnitureCsvWriter.COLUMNS
+        + " (default: " + HomeFurnitureCsvWriter.DEFAULT_COLUMNS + ")");
+    columnsProperty.put("items", property("string", "A column"));
+    exportProperties.put("columns", columnsProperty);
+    exportProperties.put("units", property("string", "csv: the unit of the lengths, cm (default), m, mm, in or ft; "
+        + "the header tells it, as in x_cm"));
     exportProperties.put("width", property("number", "panorama: width of the picture in pixels (default 4096, from 1024 to 8192)"));
     tools.add(tool("export_home", "Export the home",
         "Writes the home in another format. Pictures are made by get_3d_image and get_plan_image (save_to), "
@@ -1519,6 +1531,62 @@ public class HomeMCPHandler {
           .append(level.getName()).append('"');
     }
     return names.length() > 0 ? names.toString() : "none, this home has a single floor";
+  }
+
+  /**
+   * Returns the pieces that hide the targets from a point of view: the ones the camera is in, and the
+   * ones on the line from the camera to the targets. The ground, the structures and the targets aren't returned.
+   */
+  private List<HomePieceOfFurniture> getOccluders(HomeViewpoints.Pose pose, List<Selectable> targets) {
+    List<HomePieceOfFurniture> occluders = new ArrayList<HomePieceOfFurniture>();
+    // The center of the targets and their size
+    float minX = Float.MAX_VALUE;
+    float minY = Float.MAX_VALUE;
+    float maxX = -Float.MAX_VALUE;
+    float maxY = -Float.MAX_VALUE;
+    for (Selectable target : targets) {
+      for (float [] point : target.getPoints()) {
+        minX = Math.min(minX, point [0]);
+        minY = Math.min(minY, point [1]);
+        maxX = Math.max(maxX, point [0]);
+        maxY = Math.max(maxY, point [1]);
+      }
+    }
+    if (minX > maxX) {
+      return occluders;
+    }
+    float centerX = (minX + maxX) / 2;
+    float centerY = (minY + maxY) / 2;
+    double radius = Math.hypot(maxX - minX, maxY - minY) / 2;
+    double distance = Math.hypot(centerX - pose.getX(), centerY - pose.getY());
+    // The line of sight stops where the targets start
+    double sightLength = Math.max(0, distance - radius);
+    double directionX = distance > 1 ? (centerX - pose.getX()) / distance : 0;
+    double directionY = distance > 1 ? (centerY - pose.getY()) / distance : 0;
+    double slope = Math.tan(pose.getPitch());
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      if (!piece.isVisible() || targets.contains(piece) || HomeTerrain.isTerrain(piece)
+          || piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY) != null
+          || piece.getProperty("assistantFence") != null
+          || piece.getProperty("assistantOutdoor") != null && piece.getProperty("assistantOutdoor").startsWith("{")) {
+        continue;
+      }
+      float bottom = piece.getElevation() + (piece.getLevel() != null ? piece.getLevel().getElevation() : 0);
+      float top = bottom + piece.getHeight();
+      double pieceRadius = Math.max(piece.getWidth(), piece.getDepth()) / 2 + 30;
+      // Where the line of sight passes the closest to the piece
+      double along = (piece.getX() - pose.getX()) * directionX + (piece.getY() - pose.getY()) * directionY;
+      along = Math.max(0, Math.min(sightLength, along));
+      double sightX = pose.getX() + directionX * along;
+      double sightY = pose.getY() + directionY * along;
+      double sightZ = pose.getZ() - slope * along;
+      if (Math.hypot(piece.getX() - sightX, piece.getY() - sightY) <= pieceRadius
+          && sightZ >= bottom - 30 && sightZ <= top + 30
+          && Math.hypot(piece.getX() - centerX, piece.getY() - centerY) > radius) {
+        occluders.add(piece);
+      }
+    }
+    return occluders;
   }
 
   /**
@@ -2344,6 +2412,7 @@ public class HomeMCPHandler {
     HomeViewpoints.Pose pose = null;
     String viewDescription;
     String photoPath = null;
+    List<HomePieceOfFurniture> occludingPieces = new ArrayList<HomePieceOfFurniture>();
     if (string(arguments, "photo") != null) {
       // From where a photo was taken, beside it
       Map<String, Object> photo = AssistantPhotoCommands.getPhoto(this.home, string(arguments, "photo"));
@@ -2355,9 +2424,24 @@ public class HomeMCPHandler {
       float photoX = AssistantFurnitureBuilder.getNumber(photo, "x", 0);
       float photoY = AssistantFurnitureBuilder.getNumber(photo, "y", 0);
       float ground = this.commandExecutor.getShapeCommands().getStandingHeight(photoX, photoY);
+      // The shape and the field of view of the photo seen upright
+      float [] photoShape = AssistantPhotoCommands.getShape(photo);
+      if (photoShape [0] > 0 && arguments.get("width") == null) {
+        if (arguments.get("height") == null && photoShape [0] < 1) {
+          height = Math.min(maxHeight, 800);
+        }
+        width = Math.round(height * photoShape [0]);
+        if (width > maxWidth) {
+          width = maxWidth;
+          height = Math.max(120, Math.round(width / photoShape [0]));
+        } else if (width < 160) {
+          width = 160;
+          height = Math.min(maxHeight, Math.round(width / photoShape [0]));
+        }
+      }
       pose = new HomeViewpoints.Pose(photoX, photoY, ground + 160,
           (float)Math.toRadians(AssistantFurnitureBuilder.getNumber(photo, "heading", 0) + 180), 0,
-          (float)Math.toRadians(AssistantFurnitureBuilder.getNumber(photo, "fov", 65)), false);
+          (float)Math.toRadians(photoShape [1]), false);
       viewDescription = "photo " + photo.get("id") + ", " + pose.describe();
       photoPath = String.valueOf(photo.get("path"));
     } else if (arguments.get("camera") instanceof Map && ((Map<String, Object>)arguments.get("camera")).get("yaw") != null) {
@@ -2435,6 +2519,13 @@ public class HomeMCPHandler {
         level = getLevel(targets.get(0));
       }
       viewDescription = "view " + view.toLowerCase() + (target != null ? " of " + target : "") + ", " + pose.describe();
+      String occluders = string(arguments, "occluders");
+      if (occluders != null && !"hide".equalsIgnoreCase(occluders) && !"keep".equalsIgnoreCase(occluders)) {
+        return toolResult("\"occluders\" is hide (the default with a target) or keep.", true);
+      }
+      if (!targets.isEmpty() && pose.isAerial() && !"keep".equalsIgnoreCase(occluders)) {
+        occludingPieces = getOccluders(pose, targets);
+      }
     } else {
       if (target != null) {
         return toolResult("\"target\" needs a \"view\" (top, south_east, inside...) to look at it.", true);
@@ -2450,7 +2541,8 @@ public class HomeMCPHandler {
     // What the picture leaves out or shows another way, in a copy of the home
     Home drawnHome = null;
     String hiddenDescription = "";
-    if (sweep == null && (arguments.get("exclude_tags") != null || arguments.get("include_tags") != null
+    if (sweep == null && (!occludingPieces.isEmpty()
+                          || arguments.get("exclude_tags") != null || arguments.get("include_tags") != null
                           || arguments.get("hide_ids") != null || arguments.get("xray") != null
                           || arguments.get("season") != null || arguments.get("cutaway") != null
                           || arguments.get("date") != null || arguments.get("time") != null)) {
@@ -2513,7 +2605,7 @@ public class HomeMCPHandler {
           continue;
         }
         boolean structure = piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY) != null;
-        boolean hide = hiddenIds.contains(HomeItemIds.getId(piece));
+        boolean hide = hiddenIds.contains(HomeItemIds.getId(piece)) || occludingPieces.contains(piece);
         for (String tag : excludedTags) {
           hide |= HomeItemTags.hasTag(piece, tag);
         }
@@ -2562,6 +2654,15 @@ public class HomeMCPHandler {
           + (changed > 0 ? ", " + changed + " generated plants drawn " + (xray ? "pale and seen through" : "in " + season) : "")
           + (xray && changed == 0 ? " (no generated plant to see through: catalog trees are left out with exclude_tags)" : "")
           + (!Double.isNaN(cutaway) ? "; the walls aren't cut by \"cutaway\"" : "") + "." + sunText;
+      if (!occludingPieces.isEmpty()) {
+        StringBuilder ids = new StringBuilder();
+        for (int i = 0; i < occludingPieces.size() && i < 12; i++) {
+          ids.append(i > 0 ? ", " : "").append(HomeItemIds.getId(occludingPieces.get(i)));
+        }
+        hiddenDescription += " " + occludingPieces.size() + (occludingPieces.size() == 1 ? " piece" : " pieces")
+            + " between the camera and the target " + (occludingPieces.size() == 1 ? "is" : "are") + " among them (" + ids
+            + (occludingPieces.size() > 12 ? "..." : "") + "): \"occluders\":\"keep\" draws them.";
+      }
     }
     long start = System.currentTimeMillis();
     Image3DRequest imageRequest = sweep != null ? null : new Image3DRequest(width, height, renderer,
@@ -2650,8 +2751,8 @@ public class HomeMCPHandler {
         return toolResult(compareWith + " isn't a PNG or JPEG image that can be read.", true);
       }
       description += overlay
-          ? " The photo " + photo.getName() + " is drawn over the picture, stretched to its size."
-          : " Left: the home. Right: the photo " + photo.getName() + ".";
+          ? " The photo " + photo.getName() + " is drawn over the picture, turned upright and stretched to its size."
+          : " Left: the home. Right: the photo " + photo.getName() + ", turned upright as its camera held it.";
     }
     if (savedFile != null) {
       try {
@@ -3047,7 +3148,13 @@ public class HomeMCPHandler {
   private Map<String, Object> callFileTool(String name, Map<String, Object> arguments) throws Exception {
     HomeOperations operations = this.homeOperations;
     if ("save_version".equals(name)) {
-      java.io.File version = this.homeController.saveHomeVersion(string(arguments, "label"));
+      String label = string(arguments, "label");
+      for (String alias : new String [] {"name", "title", "description", "message"}) {
+        if (label == null || label.trim().length() == 0) {
+          label = string(arguments, alias);
+        }
+      }
+      java.io.File version = this.homeController.saveHomeVersion(label);
       return toolResult("Saved the version \"" + HomeVersions.getLabel(version) + "\" (" + version.getPath()
           + "). The home and its file didn't change. compare_versions and restore_version use it.", false);
     } else if ("restore_version".equals(name)) {
@@ -3147,6 +3254,15 @@ public class HomeMCPHandler {
           return toolResult("The folder " + target.getParent() + " doesn't exist.", true);
         } else if (target.exists() && !bool(arguments, "replace", false)) {
           return toolResult(target + " exists: give \"replace\":true to replace it, or another name.", true);
+        }
+      }
+      if ("csv".equals(format)) {
+        // A table with ids, places and a unit of its own, whatever the furniture list of the window shows
+        try {
+          return toolResult(HomeFurnitureCsvWriter.write(this.home, target,
+              arguments.get("columns") instanceof List ? (List<?>)arguments.get("columns") : null, string(arguments, "units")), false);
+        } catch (java.io.IOException ex) {
+          return toolResult("The furniture list couldn't be written: " + ex.getMessage(), true);
         }
       }
       if ("glb".equals(format)) {

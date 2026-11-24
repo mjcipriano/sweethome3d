@@ -82,16 +82,17 @@ class AssistantGardenCommands {
         + "(a paved strip along a center line, mitred at its corners and laid on the ground: \"thickness\" (4), \"color\" or \"texture\" "
         + "with texture_scale, \"edging\":true for a curb on both sides, \"closed\", \"name\". "
         + "\"stepping_stones\":{\"length\":40,\"gap\":20} lays separate slabs instead)\n"
-        + "  {\"action\":\"add_planting_bed\",\"points\":[[x,y],[x,y],[x,y],...],\"plants\":{\"name\":\"<catalog name>\",\"spacing\":80}}  "
+        + "  {\"action\":\"add_planting_bed\",\"points\":[[x,y],[x,y],[x,y],...],\"plants\":{\"names\":[\"azalea\"],\"spacing\":80}}  "
         + "(an area of soil laid on the ground: \"color\" or \"texture\", \"thickness\" (6), \"border\":{\"height\":10,\"color\":\"#RRGGBB\"} "
-        + "for an edging. \"plants\" scatters catalog pieces inside on a jittered grid, the same at each call for the same points: "
-        + "{\"name\" or \"names\":[...],\"spacing\":N}, or a list of names. add_groundcover is the same command: \"material\" is pine_straw, "
+        + "for an edging. \"plants\" scatters plants inside on a jittered grid, the same at each call for the same points: "
+        + "{\"name\" or \"names\":[...],\"spacing\":N}, or a list of names. A name is a species of list_species, which gives "
+        + "generated plants, or else the exact name of a piece of the catalog: a name that is neither is refused with the close ones. add_groundcover is the same command: \"material\" is pine_straw, "
         + "hardwood_mulch, rubber_mulch, gravel, river_rock, lawn, fescue, bermuda, zoysia, centipede, st_augustine, leaf_litter, moss, "
         + "ivy, vinca or pachysandra, and \"edging\":\"steel|brick|stone|liriope\" borders it)\n"
-        + "  {\"action\":\"add_trees\",\"area\":[[x,y],[x,y],[x,y],...],\"names\":[\"<catalog name>\"],\"spacing\":300}  "
-        + "(or \"scatter\": catalog pieces put on the ground in an area, or along a line with \"along\":[[x,y],...]; \"spacing\" or \"count\"; "
+        + "  {\"action\":\"add_trees\",\"area\":[[x,y],[x,y],[x,y],...],\"names\":[\"red_maple\"],\"spacing\":300}  "
+        + "(or \"scatter\": generated plants of the species of list_species, or pieces with exactly that name in the catalog, put on the ground in an area, or along a line with \"along\":[[x,y],...]; \"spacing\" or \"count\"; "
         + "the places closer than \"min_distance_from_buildings\" (150) to a room or a wall are skipped; \"jitter\":N cm, "
-        + "\"rotate\":false to keep them all at the same angle. The default catalog has no tree: search_catalog or import_furniture first)\n"
+        + "\"rotate\":false to keep them all at the same angle. forest_fill mixes species with a density)\n"
         + "  {\"action\":\"furnish_room\",\"room\":\"R1\",\"type\":\"bedroom|living_room|dining_room|kitchen|office|bathroom|kids_room|entry\"}  "
         + "(furnishes a room with catalog pieces placed by rules: against the free parts of the walls, their back to the wall, "
         + "out of the zones doors need to open, tall pieces away from windows, nothing overlapping and a passage of 60 cm kept "
@@ -690,6 +691,33 @@ class AssistantGardenCommands {
     if (area.isEmpty()) {
       throw new IOException("the points enclose no area");
     }
+    // Its plants, known before the bed is added
+    Object plants = command.getParameters().get("plants");
+    List<String> plantNames = new ArrayList<String>();
+    float spacing = 80;
+    if (plants instanceof Map) {
+      Map<?, ?> map = (Map<?, ?>)plants;
+      for (String key : new String [] {"names", "name", "species"}) {
+        if (map.get(key) instanceof List) {
+          for (Object plantName : (List<?>)map.get(key)) {
+            plantNames.add(String.valueOf(plantName));
+          }
+        } else if (map.get(key) != null) {
+          plantNames.add(map.get(key).toString());
+        }
+      }
+      spacing = getSize(map, "spacing", 80, 10, 2000);
+    } else if (plants instanceof List) {
+      for (Object plantName : (List<?>)plants) {
+        plantNames.add(String.valueOf(plantName));
+      }
+    } else if (plants != null) {
+      plantNames.add(plants.toString());
+    }
+    if (plants != null && plantNames.isEmpty()) {
+      throw new IOException("give \"plants\":{\"names\":[\"azalea\"],\"spacing\":N} with species of list_species or exact names of the catalog");
+    }
+    List<Object> plantChoices = findPlants(plantNames);
     Level level = this.executor.getShapeCommands().getLevel(command, "add_planting_bed", notes);
     Ground ground = new Ground(level);
     AssistantMeshBuilder mesh = new AssistantMeshBuilder();
@@ -806,36 +834,13 @@ class AssistantGardenCommands {
         + format(AssistantRoomFurnisher.getSurface(area) / 10000) + " m2" + borderDescription);
 
     // Its plants
-    Object plants = command.getParameters().get("plants");
     if (plants != null) {
-      List<String> names = new ArrayList<String>();
-      float spacing = 80;
-      if (plants instanceof Map) {
-        Map<?, ?> map = (Map<?, ?>)plants;
-        if (map.get("names") instanceof List) {
-          for (Object plantName : (List<?>)map.get("names")) {
-            names.add(String.valueOf(plantName));
-          }
-        } else if (map.get("name") != null) {
-          names.add(map.get("name").toString());
-        }
-        spacing = getSize(map, "spacing", 80, 10, 2000);
-      } else if (plants instanceof List) {
-        for (Object plantName : (List<?>)plants) {
-          names.add(String.valueOf(plantName));
-        }
-      } else {
-        names.add(plants.toString());
-      }
-      List<CatalogPieceOfFurniture> catalogPieces = findCatalogPieces(names, notes);
-      if (catalogPieces.isEmpty()) {
-        note.append(". No plant was added: give \"plants\":{\"name\":\"<catalog name>\",\"spacing\":N} with a name of the catalog");
-      } else {
+      {
         Random random = new Random(getSeed(points));
         List<float []> places = getJitteredGrid(points, spacing, spacing * 0.25f, Math.min(spacing / 3, 20), random);
         int ignored = Math.max(0, places.size() - MAX_SCATTERED);
         List<HomePieceOfFurniture> furniture = createScatteredFurniture(
-            places.subList(0, places.size() - ignored), catalogPieces, random, true, level, ground, thickness / 2);
+            places.subList(0, places.size() - ignored), plantChoices, random, true, level, ground, thickness / 2);
         addFurniture(furniture, level);
         tally [0] += furniture.size();
         note.append(", ").append(furniture.size()).append(furniture.size() == 1 ? " plant" : " plants")
@@ -857,39 +862,79 @@ class AssistantGardenCommands {
   // ---- Trees and other scattered pieces ----
 
   /**
-   * Returns the pieces of the catalog with the given names, after noting the names that match none.
+   * Returns the plants with the given names: the species of the generated plants first, otherwise the
+   * pieces of the catalog that have exactly that name. A name is never matched to a piece that only looks like it.
+   * @return {@link AssistantPlantBuilder.Species} and {@link CatalogPieceOfFurniture} instances
    */
-  private List<CatalogPieceOfFurniture> findCatalogPieces(List<String> names, List<String> notes) {
-    List<CatalogPieceOfFurniture> pieces = new ArrayList<CatalogPieceOfFurniture>();
+  private List<Object> findPlants(List<String> names) throws IOException {
+    List<Object> plants = new ArrayList<Object>();
     for (String name : names) {
-      CatalogPieceOfFurniture piece = name.trim().length() > 0 ? this.executor.findCatalogPiece(name, false) : null;
-      if (piece != null && !piece.isDoorOrWindow()) {
-        pieces.add(piece);
-      } else {
-        StringBuilder note = new StringBuilder("No catalog piece is named \"" + name + "\"");
-        List<AssistantCommandExecutor.CatalogMatch> matches = this.executor.searchCatalog("plant tree flowers shrub bush", false, 5);
-        if (!matches.isEmpty()) {
-          note.append("; plants of the catalog: ");
-          for (int i = 0; i < matches.size(); i++) {
-            note.append(i > 0 ? ", " : "").append('"').append(matches.get(i).piece.getName()).append('"');
-          }
-        }
-        notes.add(note.append(". import_furniture adds the model of a tree to the home, and a furniture library adds some to the catalog").toString());
+      String trimmed = name.trim();
+      AssistantPlantBuilder.Species species = AssistantPlantBuilder.getSpecies(trimmed);
+      if (species != null) {
+        plants.add(species);
+        continue;
       }
+      CatalogPieceOfFurniture exact = null;
+      List<AssistantCommandExecutor.CatalogMatch> matches = trimmed.length() > 0
+          ? this.executor.searchCatalog(trimmed, false, 30)
+          : new ArrayList<AssistantCommandExecutor.CatalogMatch>();
+      for (AssistantCommandExecutor.CatalogMatch match : matches) {
+        if (match.piece.getName() != null && match.piece.getName().trim().equalsIgnoreCase(trimmed) && !match.piece.isDoorOrWindow()) {
+          exact = match.piece;
+          break;
+        }
+      }
+      if (exact != null) {
+        plants.add(exact);
+        continue;
+      }
+      StringBuilder message = new StringBuilder("\"" + name + "\" is neither a species nor the exact name of a piece of the catalog");
+      List<String> suggestions = new ArrayList<String>();
+      String key = trimmed.toLowerCase(Locale.ENGLISH).replace(' ', '_').replace('-', '_');
+      for (AssistantPlantBuilder.Species candidate : AssistantPlantBuilder.getAllSpecies()) {
+        if (key.length() >= 3 && suggestions.size() < 5
+            && (candidate.name.contains(key) || candidate.commonName.toLowerCase(Locale.ENGLISH).replace(' ', '_').contains(key))) {
+          suggestions.add("species " + candidate.name);
+        }
+      }
+      for (AssistantCommandExecutor.CatalogMatch match : matches) {
+        if (suggestions.size() < 8 && match.piece.getName() != null && match.piece.getName().trim().length() > 2
+            && !match.piece.isDoorOrWindow()) {
+          suggestions.add("catalog \"" + match.piece.getName() + "\"");
+        }
+      }
+      if (!suggestions.isEmpty()) {
+        message.append(". Close ones: ").append(suggestions.toString().replace("[", "").replace("]", ""));
+      }
+      throw new IOException(message.append(". {\"action\":\"list_species\"} gives the species of the generated plants and "
+          + "{\"action\":\"search_catalog\",\"query\":\"plant\"} the plants of the catalog").toString());
     }
-    return pieces;
+    return plants;
   }
 
   /**
    * Returns pieces of the catalog standing on the ground at the given places, outdoors.
    */
-  private List<HomePieceOfFurniture> createScatteredFurniture(List<float []> places, List<CatalogPieceOfFurniture> catalogPieces,
+  private List<HomePieceOfFurniture> createScatteredFurniture(List<float []> places, List<Object> catalogPieces,
                                                               Random random, boolean rotate, Level level, Ground ground,
-                                                              float elevation) {
+                                                              float elevation) throws IOException {
     List<HomePieceOfFurniture> furniture = new ArrayList<HomePieceOfFurniture>();
     for (float [] place : places) {
-      CatalogPieceOfFurniture catalogPiece = catalogPieces.get(catalogPieces.size() == 1 ? 0 : random.nextInt(catalogPieces.size()));
+      Object choice = catalogPieces.get(catalogPieces.size() == 1 ? 0 : random.nextInt(catalogPieces.size()));
       float angle = random.nextFloat() * 2 * (float)Math.PI;
+      if (choice instanceof AssistantPlantBuilder.Species) {
+        // A generated plant of that species
+        HomePieceOfFurniture plant = this.executor.getPlantCommands().createPlantAt(
+            ((AssistantPlantBuilder.Species)choice).name, place [0], place [1], level);
+        plant.setElevation(ground.at(place [0], place [1]) + elevation);
+        List<String> tags = new ArrayList<String>(HomeItemTags.parseTags(plant.getProperty(HomeItemTags.TAGS_PROPERTY)));
+        tags.add("garden");
+        plant.setProperty(HomeItemTags.TAGS_PROPERTY, HomeItemTags.formatTags(tags));
+        furniture.add(plant);
+        continue;
+      }
+      CatalogPieceOfFurniture catalogPiece = (CatalogPieceOfFurniture)choice;
       HomePieceOfFurniture piece = this.homeController.getFurnitureController().createHomePieceOfFurniture(catalogPiece);
       piece.setX(place [0]);
       piece.setY(place [1]);
@@ -927,7 +972,7 @@ class AssistantGardenCommands {
     boolean along = command.has("along");
     String areaParameter = command.has("area") ? "area" : "points";
     if (names.isEmpty() || !along && !command.has(areaParameter)) {
-      throw new IOException("give \"names\":[\"<catalog name>\",...] and \"area\":[[x,y],[x,y],[x,y],...] or \"along\":[[x,y],[x,y],...], "
+      throw new IOException("give \"names\":[\"<species or exact catalog name>\",...] and \"area\":[[x,y],[x,y],[x,y],...] or \"along\":[[x,y],[x,y],...], "
           + "with \"spacing\":N or \"count\":N");
     }
     float [][] points = along ? getPoints(command, "along", 2, "[[0,0],[1000,0]]")
@@ -938,10 +983,7 @@ class AssistantGardenCommands {
       throw new IOException("\"spacing\" goes from 10 to 10000 cm and \"count\" from 1 to " + MAX_SCATTERED);
     }
     float minDistance = getSize(command, "min_distance_from_buildings", 150, 0, 5000);
-    List<CatalogPieceOfFurniture> catalogPieces = findCatalogPieces(names, notes);
-    if (catalogPieces.isEmpty()) {
-      throw new IOException("none of the names is in the catalog: {\"action\":\"search_catalog\",\"query\":\"tree\"} lists what matches");
-    }
+    List<Object> catalogPieces = findPlants(names);
     Level level = this.executor.getShapeCommands().getLevel(command, action, notes);
     Ground ground = new Ground(level);
     Random random = new Random(getSeed(points));

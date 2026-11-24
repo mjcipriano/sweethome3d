@@ -48,6 +48,7 @@ import com.eteks.sweethome3d.tools.URLContent;
 import com.eteks.sweethome3d.viewcontroller.AssistantCommandExecutor;
 import com.eteks.sweethome3d.viewcontroller.HomeController;
 import com.eteks.sweethome3d.viewcontroller.HomeMCPHandler;
+import com.eteks.sweethome3d.viewcontroller.HomeViewpoints;
 import com.eteks.sweethome3d.viewcontroller.JSONParser;
 
 /**
@@ -561,6 +562,26 @@ public class HomeMCPServerTest {
     assertTrue(text, text.contains("x 100, y 200, height 160 cm, yaw 90 degrees, pitch 10 degrees"));
     text = lastText(callTool(handler, "get_3d_image", "{\"camera\":{\"x\":100,\"y\":200,\"yaw\":90,\"pitch\":120}}"));
     assertTrue(text, text.contains("pitch from -90 to 90"));
+
+    // A view of a target leaves out the tree on the line from the camera to it
+    String tableId = com.eteks.sweethome3d.viewcontroller.HomeItemIds.getId(fixture.home.getFurniture().get(table));
+    int count = requests.size();
+    text = lastText(callTool(handler, "get_3d_image", "{\"view\":\"south_west\",\"target\":\"" + tableId + "\",\"occluders\":\"keep\"}"));
+    assertFalse(text, text.contains("between the camera"));
+    HomeViewpoints.Pose pose = requests.get(count).getPose();
+    com.eteks.sweethome3d.model.HomePieceOfFurniture tablePiece = fixture.home.getFurniture().get(table);
+    float middleX = (pose.getX() + tablePiece.getX()) / 2;
+    float middleY = (pose.getY() + tablePiece.getY()) / 2;
+    callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":" + middleX
+        + ",\"y\":" + middleY + ",\"height\":3000,\"canopy_diameter\":600}]}");
+    text = lastText(callTool(handler, "get_3d_image", "{\"view\":\"south_west\",\"target\":\"" + tableId + "\"}"));
+    assertTrue(text, text.contains("between the camera and the target") && text.contains(com.eteks.sweethome3d.viewcontroller.HomeItemIds.getId(fixture.home.getFurniture().get(fixture.home.getFurniture().size() - 1))) && text.contains("\"occluders\":\"keep\""));
+    com.eteks.sweethome3d.model.Home drawnHome = requests.get(requests.size() - 1).getDrawnHome();
+    assertNotNull(drawnHome);
+    assertFalse(drawnHome.getFurniture().get(drawnHome.getFurniture().size() - 1).isVisible());
+    text = lastText(callTool(handler, "get_3d_image", "{\"view\":\"south_west\",\"target\":\"" + tableId + "\",\"occluders\":\"keep\"}"));
+    assertFalse(text, text.contains("between the camera"));
+    assertNull(requests.get(requests.size() - 1).getDrawnHome());
   }
 
   @Test

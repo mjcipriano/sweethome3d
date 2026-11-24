@@ -10,7 +10,11 @@
  */
 package com.eteks.sweethome3d.viewcontroller;
 
+import java.awt.geom.Area;
+import java.awt.geom.GeneralPath;
+import java.awt.geom.PathIterator;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -531,6 +535,7 @@ public class AssistantCommandExecutor {
       int applied = 0;
       List<String> results = new ArrayList<String>();
       boolean anyIssue = false;
+      Object lastCreated = null;
       for (AssistantCommand command : commands) {
         if (++applied > maxCommandCount) {
           notes.add("Stopped after " + maxCommandCount
@@ -543,12 +548,18 @@ public class AssistantCommandExecutor {
         int warningCount = this.turnWarnings.size();
         int unresolvedCount = this.turnUnresolvedIds.size();
         int [] tallyBefore = tally.clone();
+        int [] countsBefore = getItemCounts();
+        replaceLastIds(command, lastCreated);
         try {
           applyCommand(command, tally, notFound, notes);
         } catch (RuntimeException ex) {
           // One failing command mustn't abort the turn or leave the compound edit open
           notes.add("Couldn't apply " + command.getAction() + " ("
               + (ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName()) + ")");
+        }
+        Object created = getLastCreated(countsBefore);
+        if (created != null) {
+          lastCreated = created;
         }
         // What this command did, for the list of results
         boolean failed = notFound.size() > notFoundCount || this.turnUnresolvedIds.size() > unresolvedCount;
@@ -1388,6 +1399,81 @@ public class AssistantCommandExecutor {
     return targets;
   }
 
+  /** The parameters where <code>last</code> stands for the item the commands before created. */
+  private static final List<String> LAST_ID_KEYS = Arrays.asList("id", "ids", "fence", "fences", "item", "items", "target", "targets",
+      "piece", "pieces", "of", "on", "around", "along", "follow", "relative_to", "attach_to", "room", "wall", "line", "tree", "trees",
+      "structure", "deck", "parent");
+
+  private int [] getItemCounts() {
+    return new int [] {this.home.getFurniture().size(), this.home.getWalls().size(), this.home.getRooms().size(),
+        this.home.getPolylines().size(), this.home.getDimensionLines().size(), this.home.getLabels().size()};
+  }
+
+  /**
+   * Returns the last item a command added to the home, or <code>null</code> if it added none.
+   */
+  private Object getLastCreated(int [] countsBefore) {
+    List<?> [] lists = {this.home.getFurniture(), new ArrayList<Wall>(this.home.getWalls()), this.home.getRooms(),
+        new ArrayList<Polyline>(this.home.getPolylines()), new ArrayList<Object>(this.home.getDimensionLines()),
+        new ArrayList<Object>(this.home.getLabels())};
+    for (int i = 0; i < lists.length; i++) {
+      if (lists [i].size() > countsBefore [i]) {
+        return lists [i].get(lists [i].size() - 1);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Replaces <code>"last"</code> and <code>"$last"</code> in the parameters of a command that name items
+   * by the id of the last item created by the commands before it in the batch.
+   */
+  @SuppressWarnings("unchecked")
+  private void replaceLastIds(AssistantCommand command, Object lastCreated) {
+    try {
+      for (Map.Entry<String, Object> entry : command.getParameters().entrySet()) {
+        boolean idKey = LAST_ID_KEYS.contains(entry.getKey());
+        Object value = entry.getValue();
+        if (value instanceof String) {
+          String id = getLastId((String)value, idKey, lastCreated);
+          if (id != null) {
+            entry.setValue(id);
+          }
+        } else if (value instanceof List) {
+          List<Object> list = (List<Object>)value;
+          for (int i = 0; i < list.size(); i++) {
+            String id = list.get(i) instanceof String ? getLastId((String)list.get(i), idKey, lastCreated) : null;
+            if (id != null) {
+              list.set(i, id);
+            }
+          }
+        }
+      }
+    } catch (UnsupportedOperationException ex) {
+      // Parameters that can't be changed keep their value
+    }
+  }
+
+  private String getLastId(String value, boolean idKey, Object lastCreated) {
+    String text = value.trim();
+    String part = "";
+    int colon = text.indexOf(':');
+    if (colon > 0) {
+      // As in "last:end", a point of the last fence
+      part = text.substring(colon);
+      text = text.substring(0, colon).trim();
+    }
+    if (!text.equals("$last") && !(idKey && text.equalsIgnoreCase("last"))) {
+      return null;
+    } else if (lastCreated == null) {
+      this.turnWarnings.add("\"" + value + "\" names the last item created by the commands before in the same batch, and none created one");
+      return null;
+    }
+    HomeItemIds.ensureIds(this.home);
+    String id = getId(lastCreated);
+    return id != null ? id + part : null;
+  }
+
   /**
    * Resolves a single <code>F#</code>/<code>W#</code>/<code>R#</code> id to the item
    * at that 1-based index in the home's furniture, walls or rooms, or <code>null</code>.
@@ -1920,6 +2006,7 @@ public class AssistantCommandExecutor {
           HomePieceOfFurniture other = same.get(j);
           double turn = Math.abs(Math.toDegrees(piece.getAngle() - other.getAngle())) % 360;
           if (!listed.contains(other) && Math.hypot(piece.getX() - other.getX(), piece.getY() - other.getY()) <= tolerance
+              && Math.abs(getBottom(piece) - getBottom(other)) <= tolerance
               && Math.min(turn, 360 - turn) <= 1) {
             duplicates.add(other);
           }
@@ -1934,8 +2021,8 @@ public class AssistantCommandExecutor {
               HomePieceOfFurniture other = duplicates.get(k);
               text.append(k > 0 ? ", " : "").append(getId(other))
                   .append(other.getLevel() != null && other.getLevel() != piece.getLevel() ? " [" + other.getLevel().getName() + "]" : "")
-                  .append(Math.abs(other.getElevation() - piece.getElevation()) > 1
-                      ? " (elevation " + Math.round(other.getElevation()) + ")" : "");
+                  .append(Math.abs(getBottom(other) - getBottom(piece)) > 1
+                      ? " (" + Math.round(getBottom(other) - getBottom(piece)) + " cm higher)" : "");
             }
           }
           for (HomePieceOfFurniture other : duplicates) {
@@ -1946,12 +2033,54 @@ public class AssistantCommandExecutor {
     }
     if (groups == 0) {
       notes.add("No piece repeats another one: same model, same size, within " + AssistantStructureCommands.format((float)tolerance)
-          + " cm and at the same angle");
+          + " cm in the plan and in height, and at the same angle");
     } else {
       notes.add(groups + (groups == 1 ? " piece is" : " pieces are") + " repeated at the same place (" + extraIds.size()
           + " extra pieces):" + text + (groups > 40 ? "\n... and " + (groups - 40) + " more" : "")
           + "\nTo keep one of each: {\"action\":\"delete\",\"ids\":" + (extraIds.size() <= 200 ? extraIds.toString() : "[...]") + "}");
     }
+  }
+
+  /**
+   * Returns the height of the bottom of a piece above the ground of the home.
+   */
+  private static float getBottom(HomePieceOfFurniture piece) {
+    return piece.getElevation() + (piece.getLevel() != null ? piece.getLevel().getElevation() : 0);
+  }
+
+  /**
+   * Returns the area within the outline of the walls of the home: their outer contours, at any level.
+   */
+  private Area getBuildingArea() {
+    Area walls = new Area();
+    for (Wall wall : this.home.getWalls()) {
+      float [][] points = wall.getPoints();
+      GeneralPath path = new GeneralPath();
+      path.moveTo(points [0][0], points [0][1]);
+      for (int i = 1; i < points.length; i++) {
+        path.lineTo(points [i][0], points [i][1]);
+      }
+      path.closePath();
+      walls.add(new Area(path));
+    }
+    // The outer contours of the walls, filled
+    Area building = new Area();
+    GeneralPath contour = null;
+    float [] point = new float [6];
+    for (PathIterator it = walls.getPathIterator(null, 2); !it.isDone(); it.next()) {
+      int type = it.currentSegment(point);
+      if (type == PathIterator.SEG_MOVETO) {
+        contour = new GeneralPath();
+        contour.moveTo(point [0], point [1]);
+      } else if (type == PathIterator.SEG_LINETO) {
+        contour.lineTo(point [0], point [1]);
+      } else if (type == PathIterator.SEG_CLOSE && contour != null) {
+        contour.closePath();
+        building.add(new Area(contour));
+        contour = null;
+      }
+    }
+    return building;
   }
 
   /**
@@ -1980,6 +2109,8 @@ public class AssistantCommandExecutor {
     StringBuilder text = new StringBuilder();
     List<String> ids = new ArrayList<String>();
     int outside = 0;
+    // A piece within the outline of the walls is indoors, even over a void with no room
+    Area building = getBuildingArea();
     for (HomePieceOfFurniture piece : pieces) {
       if (piece.getProperty(STRUCTURE_PROPERTY) != null || HomeTerrain.isTerrain(piece) || piece.isDoorOrWindow()
           || !piece.isVisible()) {
@@ -1989,7 +2120,7 @@ public class AssistantCommandExecutor {
       for (Room room : this.home.getRooms()) {
         indoors |= room.containsPoint(piece.getX(), piece.getY(), 0);
       }
-      if (indoors) {
+      if (indoors || building.contains(piece.getX(), piece.getY())) {
         continue;
       }
       Float ground = this.shapeCommands.getTerrainHeight(piece.getX(), piece.getY());

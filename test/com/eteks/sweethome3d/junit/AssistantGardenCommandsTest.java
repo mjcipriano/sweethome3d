@@ -22,6 +22,7 @@ package com.eteks.sweethome3d.junit;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.awt.geom.Area;
@@ -45,6 +46,7 @@ import com.eteks.sweethome3d.viewcontroller.AssistantCommandParser;
 import com.eteks.sweethome3d.viewcontroller.HomeAssistantContext;
 import com.eteks.sweethome3d.viewcontroller.HomeController;
 import com.eteks.sweethome3d.viewcontroller.HomeItemIds;
+import com.eteks.sweethome3d.viewcontroller.HomeItemTags;
 
 /**
  * Tests the commands that build the garden (fences, hedges, paths, planting beds, scattered plants)
@@ -212,7 +214,7 @@ public class AssistantGardenCommandsTest {
     // A gate in the middle of 10 m: two runs of 450 cm, each one cut in 2 spans
     summary = run("{\"action\":\"add_fence\",\"name\":\"Front fence\",\"points\":[[0,0],[1000,0]],\"style\":\"rail\","
         + "\"gate\":{\"at\":500,\"width\":100}}");
-    assertTrue(summary, summary.contains("6 posts") && summary.contains("4 spans") && summary.contains("9 m long")
+    assertTrue(summary, summary.contains("6 posts") && summary.contains("4 spans") && summary.contains("10 m of line (9 m of fence, 1 m of gate)")
         && summary.contains("single_swing 100 cm wide at 500 cm"));
     // The posts of the gate are 10 cm taller
     assertEquals(138, getPiece("Front fence").getHeight(), 0.5f);
@@ -354,8 +356,24 @@ public class AssistantGardenCommandsTest {
 
     // A name that isn't in the catalog
     summary = run("{\"action\":\"add_planting_bed\",\"name\":\"Empty bed\",\"points\":[[0,2000],[400,2000],[400,2200]],\"plants\":[\"Zzyzx\"]}");
-    assertTrue(summary, summary.contains("No catalog piece is named \"Zzyzx\"") && summary.contains("No plant was added"));
-    assertNotNull(getPiece("Empty bed"));
+    assertTrue(summary, summary.contains("\"Zzyzx\" is neither a species nor the exact name") && summary.contains("Couldn't run"));
+    assertNull(getPiece("Empty bed"));
+
+    // A species gives generated plants, never the piece of the catalog that looks like its name (the letter "A" for azalea)
+    int count = this.home.getFurniture().size();
+    summary = run("{\"action\":\"add_planting_bed\",\"name\":\"Azaleas\",\"points\":[[0,3000],[600,3000],[600,3400],[0,3400]],"
+        + "\"material\":\"pine_straw\",\"plants\":{\"names\":[\"azalea\"],\"spacing\":100}}");
+    assertTrue(summary, summary.contains("24 plants (24 \"Evergreen azalea\")"));
+    assertEquals(summary, count + 25, this.home.getFurniture().size());
+    for (HomePieceOfFurniture piece : getPieces("Evergreen azalea")) {
+      assertNotNull(piece.getProperty("assistantPlant"));
+      assertTrue(piece.getProperty(HomeItemTags.TAGS_PROPERTY), piece.getProperty(HomeItemTags.TAGS_PROPERTY).contains("garden")
+          && piece.getProperty(HomeItemTags.TAGS_PROPERTY).contains("azalea"));
+    }
+    // A part of a catalog name isn't enough
+    summary = run("{\"action\":\"add_planting_bed\",\"name\":\"Partial\",\"points\":[[0,4000],[400,4000],[400,4200]],\"plants\":[\"Pla\"]}");
+    assertTrue(summary, summary.contains("Couldn't run") && summary.contains("\"Pla\" is neither"));
+    assertNull(getPiece("Partial"));
   }
 
   @Test
@@ -412,7 +430,7 @@ public class AssistantGardenCommandsTest {
     assertEquals(summary, 7, getPieces("Plant").size());
 
     summary = run("{\"action\":\"add_trees\",\"area\":[[0,0],[1000,0],[1000,1000]],\"names\":[\"Zzyzx\"]}");
-    assertTrue(summary, summary.contains("No catalog piece is named \"Zzyzx\"") && summary.contains("Couldn't run add_trees"));
+    assertTrue(summary, summary.contains("\"Zzyzx\" is neither a species") && summary.contains("Couldn't run add_trees"));
     summary = run("{\"action\":\"add_trees\",\"names\":[\"Plant\"]}");
     assertTrue(summary, summary.contains("Couldn't run add_trees") && summary.contains("\"area\""));
   }

@@ -162,7 +162,7 @@ public class HomeMCPFileToolsTest {
     assertTrue(summary, summary.contains("renamed from \"Study\""));
     assertTrue(isError("compare_versions", "{\"version\":\"no such\"}"));
 
-    summary = text("restore_version", "{\"version\":1}");
+    summary = text("restore_version", "{\"version\":\"one room\"}");
     assertTrue(summary, summary.contains("Restored the version"));
     assertEquals(4, this.home.getWalls().size());
     assertEquals(1, this.home.getRooms().size());
@@ -190,6 +190,10 @@ public class HomeMCPFileToolsTest {
     }
     text("redo", "{}");
     assertEquals(4, this.home.getWalls().size());
+    // "name" is read as the label
+    summary = text("save_version", "{\"name\":\"with a kitchen\"}");
+    assertTrue(summary, summary.contains("with a kitchen"));
+    assertTrue(text("list_versions", "{}"), text("list_versions", "{}").contains("with a kitchen"));
   }
 
   @Test

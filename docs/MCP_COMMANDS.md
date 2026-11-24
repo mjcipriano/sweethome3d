@@ -95,6 +95,11 @@ Every item has an id: `F12` for furniture, doors and windows, `W3` for walls,
 items are added or deleted, and it isn't given again after its item is
 deleted. `get_home` lists the ids.
 
+In a call with several commands, `"last"` stands for the last item created by the commands
+before it: `{"action":"add_fence",...},{"action":"add_gate","fence":"last",...}`. It is read
+in the fields that name items (`id`, `ids`, `fence`, `target`, `item`, `on`, `around`...), and
+`"$last"` in any field, also before a part as in `"$last:end"`.
+
 A command that changes items takes one of:
 
 | Field | Designates |
@@ -233,8 +238,8 @@ each one of these changes.
 
 | Command | What it does |
 | --- | --- |
-| `find_duplicates` | The pieces that repeat another one: same model and size, within `tolerance` cm (5) and at the same angle, on any level. The answer ends with the `delete` command that keeps one of each |
-| `find_floating` | The pieces outdoors whose bottom is more than `tolerance` cm (10) above or under the ground built by `set_terrain`. The answer ends with the `set_elevation` command that puts them on it |
+| `find_duplicates` | The pieces that repeat another one: same model and size, within `tolerance` cm (5) in the plan and in height above the ground, and at the same angle: two windows one above the other aren't duplicates. The answer ends with the `delete` command that keeps one of each |
+| `find_floating` | The pieces outdoors whose bottom is more than `tolerance` cm (10) above or under the ground built by `set_terrain`; what stands in a room or within the outline of the walls is indoors and left alone. The answer ends with the `set_elevation` command that puts them on it |
 | `set_site_defaults` | `"on_terrain":false` leaves the pieces added outdoors at the elevation 0 of their level; kept with the home |
 | `optimize_models` | Shows the reduced version of every 3D model of `min_kb` KB (500) or more in the 3D view, and tells the ones that have none yet |
 
@@ -436,7 +441,8 @@ a file, shape it, and measure it. The ground takes up to 100 000 points.
 | `set_terrain` with `raster` or `file` | The ground from a grid of heights, a GeoTIFF, an Esri ASCII grid, x y z lines or a LAS point cloud |
 | `add_terrain_patch` | Refines a part of the ground with finer points, the rest staying as it is |
 | `trees_from_lidar` | Finds the treetops of a LAS point cloud and plants a tree at each one |
-| `shift_terrain` | Moves the whole ground up or down: `offset`, or `pin` |
+| `shift_terrain` | Moves the whole ground up by `offset` cm (down if negative), or puts it at a height at a place with `pin` |
+| `reseat_all` | Puts the plants and the pieces back on the ground, and builds the fences again on it |
 | `add_pad` | A flat or sloped pad cut or filled under a polygon, the ground joining it around |
 | `flatten_area` | A pad at the mean height of the ground in a polygon |
 | `smooth_area` | Softens the bumps of the ground in a polygon |
@@ -480,25 +486,61 @@ a file, shape it, and measure it. The ground takes up to 100 000 points.
 - `datum_offset_cm` is added to every height. `"pin":{"x","y","height"}` moves the ground up or
   down for it to be at that height at that place, like the bottom of a doorstep.
 - Compressed LAZ point clouds aren't read: `laszip -i in.laz -o out.las` writes a LAS file.
+- **The edge of scattered points.** Points that don't fill a rectangle have a ragged edge, and the
+  triangles that join them would close it with long thin slivers, whose slopes don't exist.
+  `"max_edge":N` leaves out the triangles of the edge that have a side along it longer than N cm,
+  one after the other from the outside: the triangles inside the ground are kept whatever their
+  size, so the ground under a house without ground points stays. `"max_edge":"auto"` takes 5 times
+  the usual distance between the points, and it is the default for the points of a `.xyz` or
+  `.las` file; `"max_edge":0` keeps every triangle. The answer tells how many were left out.
+  `"clip":[[x,y],...]` keeps only the ground inside an outline, as the one of the lot with a
+  margin. Both are kept with the ground: grading it doesn't bring the slivers back.
+- `"resample_cm":N` grids the points before they are joined: the mean height of the points of
+  each square of N cm, at its center.
+- **A ground that replaces another one** keeps the `areas` of the old one - the finishes of the
+  lawn, the street, the driveway - unless `areas` is given, `[]` for none. This is true of
+  `set_terrain` in all its forms and of `fetch_elevation`.
 - `add_terrain_patch` takes `points`, a `raster` or a `file` the same way: they replace the points
   of the ground inside the box around them. It isn't counted as earth moved.
 - `trees_from_lidar` reads a `.las` `file` placed the same way. A treetop is what stands more than
   `min_height` cm (300) above the ground and is the highest within `window_m` meters (3). Each one
   becomes a generated tree with its height and the radius of its crown, a conifer when its crown
-  is narrow, with the `tag` `lidar` for `update_trees` and `relabel_trees`. Buildings count as
-  trees when the cloud doesn't class them.
+  is narrow, with the `tag` `lidar` for `update_trees` and `relabel_trees`.
+  - A classified cloud gives its trees by its vegetation points only (classes 3 to 5). With a
+    ground class and no vegetation class, the unclassified points are taken, poles and cars among
+    them; without any class, the lowest points are the ground and a building counts as trees.
+  - The tops over the building points of the cloud (class 6, and the cells around them for the
+    edge of a roof) are left out, as the ones over the rooms of the house, its roofs and the
+    neighbor buildings of the home.
+  - A lower top under the crown of a higher tree is merged with it, so a wide crown isn't cut
+    into several trees. The crown of a tree stops where the canopy falls under half its height or
+    rises again towards the next tree.
+  - The trees stand on the ground, and the answer tells how many tops were left out or merged.
 
 ### Grading
 
 Each grading command builds the ground again with its finishes, as one step of undo, and tells the
-earth it moved. What stands on the ground keeps its height: `check_home` reports the fences to
-build again, and `find_floating` the pieces to put back on it.
+earth it moved.
+
+**What stands on the ground follows it.** After a grading command, and after a `set_terrain` or a
+`fetch_elevation` that replaces the ground, the generated plants, the pieces put on the terrain
+(`on_terrain`), the outdoor structures and the neighbor buildings go up or down by what the ground
+changed under them, keeping the offset they had above it, and the fences whose ground changed are
+built again. The answer tells how many. A structure built for a slope - a deck, a path - is moved
+by the change at its center and named in the answer when the ground didn't change the same way
+under all of it. What stands on the floor of a room, or out of the ground, isn't moved.
+
+- `"reseat":false` on any of these commands leaves everything at its height.
+- `{"action":"reseat_all"}` puts things back later, without the ground as it was: the generated
+  plants at their `offset`, the pieces put on the terrain on it, and every fence built again. The
+  structures that aren't at the height of the ground at their center, as a pool that is dug, are
+  listed and keep their height.
 
 | Command | Parameters |
 | --- | --- |
 | `add_pad` | `points` of the polygon, `height` in cm (the mean of the ground there by default), `"slope":{"percent":2,"dir":180}` for a pad that drains (`dir` is the downhill direction: 0 up the plan, 90 its right), `blend_distance` (200) over which the ground joins it, `"blend_curve":"linear\|smoothstep"` |
 | `flatten_area` | `points`, `blend_distance` |
-| `smooth_area` | `points`, `radius` (300), `strength` from 0 to 1 |
+| `smooth_area` | `points`, `radius` (300), `strength` from 0 to 1. Only heights change: the part of the polygon out of the ground adds nothing to it |
 | `add_berm` | `points` of the line, `height` (60), `width` (300) |
 | `add_swale` | `points`, `depth` (30), `width` (200) |
 | `grade_path` | `points` of the center line, `width` (300); the ground goes straight from the height of a point to the next one, or through `"heights":[one per point]`; `cross_slope` in % towards the right of the direction walked, `crown` in cm, `"ditch":{"depth":30,"width":100}`, `blend_distance` (150). It shapes the ground only: `add_path` or `add_slab` lays the surface |
@@ -522,14 +564,31 @@ build again, and `find_floating` the pieces to put back on it.
 ### Site report and export
 
 - `site_report` gives the area of the lot (its property lines), what is built or paved with its
-  share of the lot, the lawn left, the planting beds, the generated trees by species with the
-  share of the lot under their crowns, the fences by style and by owner, the earth cut and filled
-  and the slopes. Slabs and paths are counted by the rectangle around them, and crowns that
-  overlap are counted twice.
+  share of the lot, the lawn left, the planting beds, the generated trees by species, the fences
+  by style and by owner, the earth cut and filled and the slopes.
+  - **Driveways, patios and paths** are the slabs, the paths, the rooms outdoors and the `areas`
+    of the ground that their name, their texture or a tag tells: a room named Driveway, an area
+    `{"name":"Street"}` or `{"surface":"patio"}`, an asphalt texture. Names with drive, road,
+    street, parking or asphalt count as driveways; patio, terrace, deck, porch or pool as patios;
+    walk or path as paths; concrete, paver, stone, brick or gravel as other paved places; lawn,
+    grass, mulch or garden aren't paved. With a lot, only their part on the lot is counted, and a
+    place under two of them is counted once in the total. Slabs and paths are counted by the
+    rectangle around them.
+  - **Crowns** are given in all, crowns that overlap counted twice, then over the lot only, each
+    place counted once, with the count of trees that stand on the lot.
+  - The lots of the neighbors aren't the lot: only the property lines are.
 - `export_site` writes `path`, a `.geojson` file, with the lot lines and the other lines, the
   fences (style, height, owner, length, gates), the generated trees and shrubs (species, height,
-  crown radius, trunk diameter, tags), the rooms, the slabs, the roofs and the garden pieces. It
-  needs the georeference of the home, and `"replace":true` to overwrite a file.
+  crown radius, trunk diameter, tags), the rooms outdoors, the slabs, the roofs and the garden
+  pieces. It needs the georeference of the home, and `"replace":true` to overwrite a file.
+  - A lot line has a `role`: `subject` for a property line, `neighbor` for the lot of a neighbor
+    and for a line drawn by `add_polyline` whose `name` tells a neighbor, a parcel, a lot line, a
+    property or a boundary.
+  - The rooms of the house are left out, and the answer tells how many:
+    `"interior_rooms":true` adds them with the kind `room_interior`. A room is outdoors when its
+    name is the one of a driveway, a patio, a deck, a porch, a path, a lawn, a yard, a garden or a
+    pool, when it has the tag `site` or `outdoor`, or when walls run along less than half of its
+    outline; the tag `interior` keeps a room in the house.
 
 ### Limits
 
@@ -578,7 +637,9 @@ of a room.
   (`inside` by default). The answer gives the area left to build on.
 
 `check_home` reports the walls that stand beyond a setback line or a
-property line, as errors.
+property line, as errors, with the id and the name of that line. When several
+closed property lines are drawn, only the lot the walls stand in is used, and
+the neighbor lots that `import_parcels` draws (kind `neighbor_lot`) never are.
 
 ![A lot line shown in the 3D view by its stakes and its string](images/site-lines.jpg)
 
@@ -802,8 +863,8 @@ A line whose last point repeats the first one is closed, as with `"closed":true`
 | `add_fence` | A fence, a garden wall or a barrier along `points`, in one of 63 styles, with its gates. See [Fences, walls and gates](#fences-walls-and-gates) |
 | `add_hedge` | A hedge along `points`, mitred at its corners, with chamfered top edges: `height` (150), `width` (60), `color` (a dark green), `closed`, `name`. `"species":"boxwood"` gives it the leaves of a species, and `"pruned_shape":"natural\|box\|rounded"` its shape |
 | `add_path` | A paved strip along the center line `points`, mitred at its corners and laid on the ground: `width` (100), `thickness` (4), `color` or `texture` (with `texture_scale`, `texture_angle`), `"edging":true` for a curb on both sides (`edging_color`), `closed`, `name`. `"stepping_stones":{"length":40,"gap":20}` lays separate slabs of `length` x `width` cm instead |
-| `add_planting_bed` | An area of soil over the polygon `points`: `thickness` (6), `color` (dark soil) or `texture`, `"border":{"height":10,"width":5,"color":"#RRGGBB"}` for an edging, `name`. `"plants":{"name":"Plant","spacing":80}` (or `"names":[...]`, or just a list of names) scatters catalog pieces inside it. `add_groundcover` is the same command: `material` is `pine_straw`, `hardwood_mulch`, `rubber_mulch`, `gravel`, `river_rock`, `lawn`, `fescue`, `bermuda`, `zoysia`, `centipede`, `st_augustine`, `leaf_litter`, `moss`, `ivy`, `vinca` or `pachysandra`, and `"edging":"steel\|brick\|stone\|liriope"` borders it |
-| `add_trees` / `scatter` | Catalog pieces put on the ground: `"names":[...]` (or `name`), in the polygon `"area":[[x,y],...]` or along the line `"along":[[x,y],...]`, every `spacing` cm (300) or `count` of them. `"min_distance_from_buildings"` (150), `"jitter":N` cm, `"rotate":false` |
+| `add_planting_bed` | An area of soil over the polygon `points`: `thickness` (6), `color` (dark soil) or `texture`, `"border":{"height":10,"width":5,"color":"#RRGGBB"}` for an edging, `name`. `"plants":{"names":["azalea"],"spacing":80}` (or `name`, or just a list of names) scatters plants inside it: a name is a species of `list_species`, which gives generated plants, or else the exact name of a catalog piece like `Plant`. `add_groundcover` is the same command: `material` is `pine_straw`, `hardwood_mulch`, `rubber_mulch`, `gravel`, `river_rock`, `lawn`, `fescue`, `bermuda`, `zoysia`, `centipede`, `st_augustine`, `leaf_litter`, `moss`, `ivy`, `vinca` or `pachysandra`, and `"edging":"steel\|brick\|stone\|liriope"` borders it |
+| `add_trees` / `scatter` | Plants put on the ground: `"names":[...]` (or `name`), species of `list_species` or exact names of catalog pieces, in the polygon `"area":[[x,y],...]` or along the line `"along":[[x,y],...]`, every `spacing` cm (300) or `count` of them. `"min_distance_from_buildings"` (150), `"jitter":N` cm, `"rotate":false` |
 
 ```json
 {"commands":[
@@ -829,12 +890,15 @@ posts, of stones or of plants with their ids.
   ground under it, across their width too. They aren't built again when `set_terrain` changes the
   ground: delete them and run the command again. A fence is the exception: `check_home` tells when
   the ground changed under it, and `{"action":"modify_fence","id":"F7","rebuild":true}` builds it again.
-- **Plants and trees.** They are ordinary catalog pieces, each put at the height of the ground at
-  its place and marked as standing outdoors. Their places come from a grid moved at random, but the
+- **Plants and trees.** A name of `names` is first read as a species of `list_species` (`azalea`,
+  `red_maple`): the plants are then the generated ones of [Trees and plants](#trees-and-plants).
+  Otherwise it must be the exact name of a catalog piece, whatever its case: a name that is neither
+  is refused with the close species and catalog names, and never matched to a piece that only looks
+  like it. Each plant is put at the height of the ground at its place and marked as standing outdoors. Their places come from a grid moved at random, but the
   same points always give the same places. `add_trees` and `scatter` skip the places in a room or
   closer than `min_distance_from_buildings` to a room or a wall of any level, and place 400 pieces at
-  most at a time. The default catalog has no tree, only `Plant` and `Flowers`: add trees with
-  `import_furniture` or a furniture library, and find their names with `search_catalog`.
+  most at a time. The default catalog has no tree, only `Plant` and `Flowers`: use the species, or
+  add trees with `import_furniture` or a furniture library and find their names with `search_catalog`.
 
 ![A picket fence with its gate opening, a hedge, stepping stones and a planting bed around the demo house](images/garden.jpg)
 
@@ -855,7 +919,7 @@ builds it again, and Edit > Undo takes each change back. It has the tags `garden
 | `trim_fence` | Keeps the parts inside a `polygon` (points, or the id of a room or of a closed line), or outside it with `"keep":"outside"` |
 | `offset_fence` | Moves a fence sideways by `distance` cm, or adds a copy with `"copy":true` |
 | `convert_to_fence` | Replaces a row of furniture (fence panels put one by one) by one fence through their centers, with their height and their elevation; `"keep":true` keeps the pieces |
-| `fence_report` | Lengths, posts by type, panels, gates, bags of concrete and fasteners, with totals by style and by owner. `measure` with `"fences":true` gives the same |
+| `fence_report` | The length of each line with the share of its gates (`6 m of line: 2 m of fence, 4 m of gates`), posts by type, panels, gates, bags of concrete and fasteners, with totals by style and by owner. Posts, panels, concrete and fasteners count the fenced part. `measure` with `"fences":true` gives the same |
 | `schedule` with `"type":"gates"` | The gates, how they swing and the room they need |
 | `list_fence_styles` | The styles and the gate types, described |
 
@@ -1027,14 +1091,36 @@ Options of some styles:
 | `retaining_wall` | `"retains":"left\|right"`: the side of the higher ground (the higher one by default). Its top follows that ground and its `height` is what stands above it. It doesn't change the terrain |
 | `bollards` | `"type":"steel\|concrete\|lighted"` |
 
-A key that the style doesn't read isn't an error: the fence is built, and the answer ends with a
-warning that names the key.
+A key that the style doesn't read isn't an error: the fence is built, and a warning on its own line,
+after the line of the result, names the key. `spacing` is read as `post_spacing` when the fence gives
+neither `post_spacing` nor `"post":{"spacing"}`.
+
+The answer gives the length of the line of the fence. When it has gates, it gives the share of the
+gates too: `6 m of line (2 m of fence, 4 m of gates)`.
+
+The materials of a fence are named after its parts, so `list_materials` shows them and `set_material`
+changes one: `posts`, `caps`, `rails`, then `pickets`, `boards`, `bars`, `wires`, `mesh`, `slats`,
+`lattice`, `panels`, `glass`, `wall`, `coping`, `stones`, `screen` or `infill` for what fills the
+spans, and `gate_posts`, `gate_rails`, `gate_pickets`..., `gate_hardware`, `gate_operator` for the
+gates. The parts of the style between the piers of `pier_and_panel` start with `panel_`. A name ends
+with `_2` when two parts of the same kind look different.
+
+A fence built by the version 7.29 or before kept no description. The first command that names it
+gives it one: a straight fence along an axis of the plan gets its line from the place of the piece,
+and any other one needs `modify_fence` with its `points`. Its gates are to add again with `add_gate`.
 
 ### Gates
 
 A gate is given in `openings` when the fence is built, or added later by `add_gate`. It is placed by
 `at`, the distance in cm from the first point to its middle along the fence, or by `near`, a point
 `[x,y]`. The posts on both sides are taller, and the gates are numbered along the fence in the answer.
+`near` is a point of the fence or close to it: a point farther than half the width of the gate, and
+than 100 cm, is refused with its distance to the fence.
+
+A `sliding`, `rolling` or `cantilever` gate slides along the fence, on the side of `slide_direction`:
+it needs a run of fence as long as itself there, and 40 % more for the tail of a `cantilever` gate.
+`add_gate` and `modify_gate` refuse a gate that lacks this run and tell how much is free on each side;
+`"force":true` builds it anyway, and the answer then keeps a warning.
 
 | Parameter | Meaning |
 | --- | --- |
@@ -1059,10 +1145,11 @@ A gate is given in `openings` when the fence is built, or added later by `add_ga
 | --- | --- |
 | A fence crosses a wall, or runs inside a room that has walls and a ceiling | error |
 | A fence crosses a slab named driveway, road, street or parking without a gate | warning |
-| A gate hits a wall or a piece of furniture when it swings | warning |
+| A gate hits a wall, the trunk of a tree, a shrub or a piece of furniture when it swings. Only what stands between the ground and the top of the gate, where the leaf goes, counts: the leaves of a tree above the gate don't | warning |
 | A `pool_code` fence is under 122 cm, has gaps of 10 cm or more, or a gate that doesn't close by itself, opens to the pool or has a low latch | warning |
-| A fence stands beyond the property lines, with the distance | warning |
-| The ground changed under the posts of a fence since it was built | warning |
+| A pool built by `add_pool` in the ground has no closed barrier: no `pool_code` fence, or one that leaves a way to the water. The fence may be closed around the pool or end at the walls of the house; an opening of the type `gap` is a way in. A pool above the ground with a wall of 122 cm or more, and a pond, aren't checked | warning |
+| A fence stands beyond the property lines, with the distance. A fence with an `owner` isn't checked, unless the owner is `me`, `us`, `owner`, `home` or `shared`: the fence of a neighbor stands on the lot of the neighbor. The lot lines of neighbors drawn by `import_parcels` aren't used | warning |
+| The ground changed under the posts of a fence since it was built. A fence with an `elevation`, like the railing of a deck, stands on a structure and isn't checked | warning |
 
 ### Limits
 
@@ -1079,7 +1166,8 @@ A gate is given in `openings` when the fence is built, or added later by `add_ga
 `add_tree` and `add_shrub` build a plant from its **species**: a trunk, branches and masses of
 leaves with the silhouette of the species, light enough to plant hundreds of them. A plant stands on
 the ground built by `set_terrain`, keeps its description, and has the tags `tree` or `shrub` and
-the name of its species. The catalog pieces placed by `add_trees` with `names` still work as before.
+the name of its species. `add_trees` and `add_planting_bed` with `names` plant the same generated
+plants when a name is a species, and catalog pieces when it is the exact name of one.
 
 | Command | What it does |
 | --- | --- |
@@ -1121,7 +1209,7 @@ Sizes are in cm. What isn't given is the usual size of the species, in proportio
 | `height` | Its height |
 | `crown_radius`, or `crown_w` and `crown_d` | The width of its crown |
 | `crown_base` | The height under its crown |
-| `trunk_dbh` | The diameter of its trunk |
+| `trunk_dbh` | The diameter of its trunk. Grasses and groundcover plants (muhly grass, liriope, mondo grass...) are a clump without a trunk |
 | `trunk_lean` | `{"angle":N,"dir":N}`: degrees from upright, towards a direction of the plan (0 is up the plan, 90 its right) |
 | `multi_trunk` | The number of its trunks |
 | `season` | `spring`, `summer`, `autumn` or `winter`. By default the season of the home |
@@ -1164,9 +1252,14 @@ United States. `list_species` gives them all.
 - `update_trees` takes a `tag` and a new list (`trees`, `csv`, `geojson` or `path`). A tree of the
   list with no tree of the home within `tolerance` cm (150) is added; a tree that is much higher
   in the list takes its new sizes; a tree of the home that isn't in the list is deleted, or with
-  `"removed_since":"2018"` kept as a pale ghost with the tag `removed`.
+  `"mark_removed":true` or `"removed_since":"2018"` kept as a pale ghost with the tag `removed`
+  and that mark (the date of the day for `mark_removed`).
 - `forest_fill` plants `density` trees per 100 m2, or one every `spacing` cm, on a grid moved at
-  random. `species` and `understory` are a name, a list, or weights like `{"loblolly_pine":3,"sweetgum":1}`.
+  random. A density of 4 is a tree every 5 m, 0.5 a tree every 14 m: 80 m2 at 0.5 get one tree.
+  The answer gives the number planted beside the number the density expects for the area.
+  `species` and `understory` are a name, a list, or weights like `{"loblolly_pine":3,"sweetgum":1}`.
+  The understory has its own grid, with as many plants as trees, or its own density or spacing:
+  `"understory":{"species":["azalea","flowering_dogwood"],"density":8}`.
   Heights vary by `variation` (0.25). The same `seed` gives the same forest. Places in a room, or
   closer than `min_distance_from_buildings` (150) to one, are skipped. 3000 plants at most per call.
 
@@ -1177,8 +1270,10 @@ United States. `list_species` gives them all.
   green in spring, and the ones that bloom carry their flowers in spring or in summer. The season is
   kept with the home for the plants added later. `"lod":"low"` changes their detail the same way.
 - `grow_trees` adds `years` (negative: takes them away): each tree grows at the rate of its
-  species, slower as it gets close to the size the species reaches, and its crown and its trunk
-  follow. `where` or `ids` limits it.
+  species - about 35 cm a year for a black gum, 75 for a tulip poplar or a loblolly pine - and
+  slower only once it passes three quarters of the largest size of the species, which it doesn't
+  pass. Its crown and its trunk follow. The answer gives the average growth by species. `where` or
+  `ids` limits it.
 
 ### Limits
 
@@ -1207,7 +1302,7 @@ they are. All have the tag `site`, and a key that a command doesn't read is repo
 | `add_firepit`, `add_outdoor_kitchen` | A ring of stone with a seat wall; a counter with a grill |
 | `add_driveway`, `add_sidewalk`, `add_curb` | A strip laid on the ground along a center line, or a polygon |
 | `add_retaining_wall` | A step cut in the ground along a line, and the wall that holds it |
-| `add_steps_on_slope` | Steps from a point to another one, as many as the ground asks for |
+| `add_steps_on_slope` | Steps between two points (`points`, or `from` and `to`), as many as the ground asks for |
 | `add_drainage` | A downspout extension, a French drain, a catch basin, a dry creek bed or a culvert |
 | `add_utility` | An AC condenser, a generator, a meter, a propane tank, septic and well markers, a utility pole, a transformer box, a mailbox, a street light, a street sign or a fire hydrant |
 | `add_raised_bed`, `add_garden_enclosure` | A frame filled with soil; rows of them inside a fence with a gate |
@@ -1235,14 +1330,24 @@ Details:
   `decking` is `wood` or `composite`, `skirting` is `lattice`, `horizontal_slat`, `solid` or
   `none`. `railing` is a style of fence or `{"style","height",...}`: it is built as a fence around
   the deck, open at the stairs, and has its own id. `stairs` is `{"edge","width","at"}`, the edge 1
-  going from the first point to the second one and `at` from 0 to 1 along it. `benches` lists edges.
+  going from the first point to the second one and `at` from 0 to 1 along it. The stairs are treads
+  on closed risers between two stringers, the first riser against the rim of the deck, down to a pad
+  on the ground: `run` is the depth of a tread (28), and `"handrails":true|false` adds a rail on each
+  side (by default when the deck has a railing). `benches` lists edges.
 - **`add_patio`**: `pattern` is `running_bond`, `herringbone`, `basket`, `random_ashlar`,
   `flagstone` or `concrete`. It is laid level on the highest ground under it; the answer tells when
   the ground falls under it.
 - **`add_shed`**: its doors are on its front, the side of the positive y at the angle 0. `doors`
-  is 0, 1 or 2; `window`, `roof_color` and `trim_color` are optional.
+  is 0, 1 or 2: each one is a leaf of `door_color` (darker than the walls by default) with its
+  rails, hinges and handle, in a frame of `trim_color`. `"open":90` (or `true`) shows them open by
+  that angle. `window` and `roof_color` are optional.
 - **`add_pool`**: `points`, or `x`, `y` with `width` and `depth`, or `diameter` for a round one.
-  `type` is `in_ground` or `above_ground`. The ground isn't dug under it: `add_pad` lowers it.
+  `type` is `in_ground` or `above_ground` (or `"above_ground":true`). In the ground, the ground
+  of the home is cut flat under the pool, its coping and its paving, as `add_pad` does: at the mean
+  height of the ground there or at `elevation`, joined to the ground around over `blend_distance`
+  (150), and the answer gives the volumes cut and filled. `"excavate":false` leaves the ground as it
+  is, as does a home without a ground of `set_terrain`. Above the ground, the pool stands in a wall
+  `height` (130) cm high with a ladder over its first side.
 - **`add_driveway`**: `material` is `concrete`, `asphalt`, `gravel` or `pavers`. `apron` widens it
   at its last point, where it meets the street. `"grade":true` shapes the ground under it first.
   `polygon` builds any shape as a slab.
@@ -1250,8 +1355,8 @@ Details:
   its first point) goes down by `height`, level over `terrace_width` (300), then comes back to what
   it was. The wall is a fence of the style `retaining_wall`, with `stone` and `color`. Without a
   terrain the wall is built alone.
-- **`add_steps_on_slope`**: the count of steps comes from the climb of the ground between the two
-  points, each one `rise` cm high at most (17). `material` is `stone`, `wood` or `concrete`.
+- **`add_steps_on_slope`**: `"points":[[x,y],[x,y]]`, or `"from":[x,y]` and `"to":[x,y]`. The count
+  of steps comes from the climb of the ground between the two points, each one `rise` cm high at most (17). `material` is `stone`, `wood` or `concrete`.
 - **`add_utility`**: a mailbox has `"style":"post|brick|cluster"`. The wires of a utility pole and
   the text of a street sign aren't drawn.
 
@@ -1261,7 +1366,7 @@ Details:
 | --- | --- |
 | `add_context_building` | A neighbor's house as a simple mass with a roof |
 | `add_context_vehicle`, `add_context_person` | A car, an SUV, a pickup or a van, and a standing figure, for the scale |
-| `set_context_detail` | How much is drawn for the buildings added afterwards: `massing`, `textured` or `detailed` |
+| `set_context_detail` | How much is drawn for the buildings of the home, the ones that exist and the ones added later: `massing`, `textured` or `detailed` |
 
 ```json
 {"action":"add_context_building","points":[[3000,-800],[4300,-800],[4300,200],[3000,200]],
@@ -1271,9 +1376,13 @@ Details:
 
 - Its walls are `stories` x 280 cm high, or `height`, from the lowest ground under it. `roof` is
   `hip`, `gable`, `shed` or `flat` with a `pitch`; `siding` is `siding`, `brick` or `stucco` with a
-  `color`, and `roof_color` colors the roof. The roof is the one `add_roof` builds, as a second piece.
+  `color`, and `roof_color` colors the roof. The roof is the one `add_roof` builds, as a second piece:
+  its bottom is on the top of the walls, unless `"overhang":N` gives it eaves, which hang lower
+  than the top of the walls as eaves do.
 - `massing` draws plain walls under a flat roof, `textured` (the default) siding or bricks under
-  a roof, `detailed` adds a window every 3 m on each floor.
+  a roof, `detailed` adds a window every 3 m on each floor. `set_context_detail` draws again the
+  buildings that exist, with the same ids, takes away their roofs for `massing` and gives them back
+  otherwise. A building given its own `detail` keeps it, unless `"all":true`.
 - Buildings, cars and figures have the tags `neighbor` or `context`:
   `{"action":"hide_layer","tag":"neighbor"}` hides every neighbor at once, and `get_3d_image` with
   `"exclude_tags":["neighbor"]` leaves them out of one picture. `owner` is kept with the building.
@@ -1288,9 +1397,9 @@ home (`set_georeference`). Four of them can also ask a web service, when the use
 | Command | What it does |
 | --- | --- |
 | `import_geojson`, `import_kml`, `import_shapefile`, `import_dxf` | Draws the points, the lines and the polygons of a file, each kind as the rules say |
-| `import_buildings` | The polygons of a file as neighbor buildings |
+| `import_buildings` | The polygons of a file as neighbor buildings, at the height their attributes give |
 | `import_roads` | The lines of a file as roads with their names |
-| `import_parcels` | The polygons of a file, or of a county parcel service, as property lines with labels |
+| `import_parcels` | The polygons of a file, or of a county parcel service: the lot of the home as its property line, the others as neighbor lots |
 | `import_osm` | OpenStreetMap data from a file, or from the Overpass service around the home |
 | `fetch_elevation` | The terrain from the heights of the USGS 3DEP service |
 | `set_basemap` | An aerial picture or a map behind the plan |
@@ -1322,32 +1431,55 @@ home (`set_georeference`). Four of them can also ask a web service, when the use
   `srs` is placed by `x`, `y`, the place in the plan of its origin, and `units` (`m`, `ft`, `cm`,
   `mm`, `in`), its north up the plan.
 - **Rules.** Each rule chooses features by `"geometry":"point|line|polygon"` and / or
-  `"where":{"<attribute>":"<value>"}` (`"*"` for any value; the layer of a DXF is the attribute
-  `layer`), and tells what they become with `as`. The first rule that fits is used, and with rules
-  the features that none chooses are left out.
+  `"where":{"<attribute>":"<value>"}` (`"if"` is the same key; `"*"` for any value; the layer of a
+  DXF is the attribute `layer`), and tells what they become with `as`. The first rule that fits is
+  used, and with rules the features that none chooses are left out.
 
 | A feature | `as` |
 | --- | --- |
 | polygon | `property_line`, `polyline`, `room`, `slab`, `patio`, `planting_bed`, `building`, `pond`, `pool`, `deck`, `driveway`, `fence`, `hedge` |
-| line | `polyline`, `fence`, `hedge`, `path`, `driveway`, `sidewalk`, `curb` |
+| line | `polyline`, `fence`, `hedge`, `path`, `road`, `driveway`, `sidewalk`, `curb` |
 | point | `tree`, `shrub`, `label`, `utility`, `furniture` |
 | any | `skip` |
 
 - The other keys of a rule are the ones of the command that builds it: `style` for a fence,
-  `roof` for a building, `type` for a utility. `name_from`, `height_from`, `width_from`,
-  `species_from` and `tag_from` name the attributes to read; heights and widths read from
-  attributes are in meters unless `"attribute_units":"ft"` or `"cm"`.
+  `roof` for a building, `type` for a utility. `<key>_from`, or `<key>_attribute`, names the
+  attribute that gives a key: `name_from`, `height_from`, `width_from`, `species_from`, `tag_from`,
+  `style_attribute` for the style of a fence (a style of `list_fence_styles` or a `fence_type` of
+  OpenStreetMap), and so on. Heights and widths read from attributes are in meters unless
+  `"attribute_units":"ft"` or `"cm"`. A key that the command built doesn't read comes back as a
+  warning.
+- `"buffer_m":N` or `"area":[[x,y],...]` keeps what is within that distance of the walls of the
+  home, or in that area: lines are cut at its edge, the other features are kept when their middle
+  is in it. The answer gives the area and how many features were outside.
 - Without rule a polygon and a line are drawn as lines of the plan and a named point as a label.
 - What is built has the tag `imported`. 3000 features at most are drawn by a call, and a feature
   more than 10 km from the plan is refused: the georeference, `srs` or `units` is then wrong.
-- **`import_parcels`** labels each lot with its owner, its address or its parcel id
-  (`"label_from":["OWNER","SITUS"]` names the attributes) and its acres. With
-  `"subject":{"<attribute>":"<value>"}` that lot is the property line of the home and the others
-  are drawn as grey dashed lines.
-- **`import_osm`** draws buildings with their levels and their roof shape, roads at the width of
-  their class with their names, footways, trees, fences with their `fence_type`, hedges, walls,
-  water and swimming pools. `only` limits it to `buildings`, `roads`, `paths`, `trees`, `fences`
-  or `water`.
+- **`import_buildings`** reads the height of each building from the attribute that
+  `height_attribute` (or `height_from`) names, or from an attribute named `height`, in
+  `"height_units":"m|cm|ft"`; without units a value over 100 is taken in centimeters and another
+  one in meters. Without height it uses the levels (`levels_attribute`, or an attribute named
+  `levels`, `stories`, `num_floors`...) at 280 cm each, then the `height` of the command. The
+  answer tells how many buildings took each one. A building whose middle is in a neighbor building
+  that exists, or that covers the walls of the home, is left out unless `"keep_existing":true`.
+- **`import_roads`** and the roads of `import_osm` are drawn as roads tagged `road`, in pieces of
+  `max_segment_m` meters at most (40) that each lie on the ground, with one label for their name.
+- **`import_parcels`** draws the parcel that contains the home as its property line. The others
+  are **neighbor lots**: gray dash-dot lines of the kind `neighbor_lot`, which the checks of walls
+  and of fences never take for the lot of the home. Each lot is named and labelled with its parcel
+  number and its address when its attributes have them (`PIN`, `PARCEL_NO`, `SITUS`...), plus its
+  owner with `"label_owner":true`, and with its acres; `"label_from":["PIN","SITUS"]` names the
+  attributes itself, and the answer lists the attributes when none was recognised.
+  `"subject":{"<attribute>":"<value>"}` names the lot of the home when no parcel contains its
+  walls. A parcel isn't drawn over a property line that already surrounds the home, nor a neighbor
+  lot over itself.
+- **`import_osm`** draws buildings with their levels and their roof shape, roads at their `width`,
+  their `lanes` or the width of their class, footways, trees, fences with their `fence_type`,
+  hedges, walls, water and swimming pools. `only` (or `layers`) limits it to `buildings`, `roads`,
+  `paths`, `trees`, `fences` or `water`. Asked from the service, it keeps only what is in the area:
+  a street that goes on for 600 m is cut at the edge.
+- `check_home` verifies the walls against the lot they stand in, and names it. When a home has
+  several closed property lines, the others aren't used.
 
 ### Web services
 
@@ -1358,12 +1490,21 @@ command then sends the corners of the area it asks for to one service, and nothi
 | --- | --- | --- |
 | `fetch_elevation` | USGS 3DEP (`elevation.nationalmap.gov`) | The heights around the home every `resolution_cm` (300), 12 000 at most, then the terrain as `set_terrain` builds it, with `pin`, `datum_offset_cm` and `max_points`. The United States only. Heights are above the sea: the lowest one is taken for the height 0 unless `pin` says otherwise |
 | `import_osm` without `path` | Overpass (`overpass-api.de`) | What OpenStreetMap has within `buffer_m` meters (150) of the home |
-| `import_parcels` with `url` | The ArcGIS REST layer given | The lots within `buffer_m` meters of the home |
-| `set_basemap` | Esri World Imagery, USGS imagery, OpenStreetMap, or `xyz:<template>` | The tiles around the home at `zoom` (19), turned to the plan and shown as its background image |
+| `import_parcels` with `url` | The ArcGIS REST layer given | The lots that touch the area `buffer_m` meters around the home |
+| `set_basemap` | `esri_world_imagery`, `usgs_naip` (`imagery.nationalmap.gov`), `usgs_imagery` (`basemap.nationalmap.gov`), `osm`, or `xyz:<template>` | The tiles around the home at `zoom` (19), turned to the plan and shown as its background image |
 
-`buffer_m` is measured around the walls, the rooms and the property lines of the home;
-`"area":[[x,y],...]` gives another zone. `set_basemap` replaces the background image of the
-level, and `remove_background_image` takes it away.
+- **Around the home** means around its walls, whatever was imported or drawn farther away: a
+  street or a neighbor lot 300 m long doesn't widen it. A home without wall uses its property
+  line, then the point of its georeference. `"area":[[x,y],...]` gives another zone.
+- `fetch_elevation` never changes a `resolution_cm` that was asked: an area that needs more than
+  12 000 heights at that resolution is refused, with the resolution that covers it. Without
+  `resolution_cm`, a large area is covered more coarsely and the answer says so.
+- `set_basemap` replaces the background image of the level, and `remove_background_image` takes
+  it away. The picture is 990 m and 4096 pixels across at most: a larger area is reduced to the
+  990 m around its middle and a zoom too fine is lowered, which the answer tells. `usgs_naip` is
+  the aerial picture of the United States from the image service of the USGS; `usgs_imagery` is
+  the tiles of The National Map, which stop at the zoom 16. An `xyz:` template has `{z}`, `{x}`
+  and `{y}`, or `{bbox}` for the box of each tile in Web Mercator meters.
 
 ### Limits
 
@@ -1405,11 +1546,19 @@ find the place of what two photos show.
   without direction has a mark without cone. `heading` is in degrees clockwise from the top of
   the plan, and the field of view comes from the focal length for a 35 mm film when it is written.
 - `get_3d_image` with `"photo":"PH1"` draws the home from where the photo was taken, looking the
-  same way, beside the photo; `compare_mode` and `compare_opacity` lay it over instead.
-- **`refine_photo_pose`**: `u` is where a thing is across the photo, 0 at its left edge and 1 at
-  its right edge; `plan` is its place. Two matches correct the direction, three or more the place
-  too. The answer tells how many degrees the matches are off: more than 3 means a wrong match or a
-  wrong field of view.
+  same way, beside the photo; `compare_mode` and `compare_opacity` lay it over instead. The photo
+  is turned upright as its camera held it (the orientation it wrote), and without `width` the
+  picture takes the shape of the photo: upright for a photo taken upright, with the field of view
+  of the short side of its lens across it.
+- **`refine_photo_pose`**: `u` is where a thing is across the photo seen upright, 0 at its left
+  edge and 1 at its right edge; `plan` is its place. Two matches correct the direction, three or
+  more the place too. The answer tells how many degrees the matches are off: more than 3 means a
+  wrong match or a wrong field of view.
+- The place the GPS recorded counts in that correction as much as its accuracy: the one the photo
+  wrote, 8 m without it, or `"gps_accuracy_m":N`. Places in a building are left aside. A result
+  farther from the recorded place than this accuracy, or with a match behind the camera, **isn't
+  applied**: the answer gives the distance and asks to check the matches. `"force":true` applies
+  it anyway, and `"keep_place":true` corrects only the direction.
 - **`locate_from_photos`**: one ray by photo, towards the same thing. The answer gives the point
   and the angle at which the lines cross: under 15 degrees the place is uncertain by meters.
 - The place a phone records is often 3 to 10 m off, and its compass a few degrees. Heights aren't

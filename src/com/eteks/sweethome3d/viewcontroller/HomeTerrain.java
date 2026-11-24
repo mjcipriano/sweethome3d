@@ -49,14 +49,52 @@ public class HomeTerrain {
     List<float [][]> triangles = new ArrayList<float [][]>();
     for (HomePieceOfFurniture piece : home.getFurniture()) {
       if (piece.isVisible() && isTerrain(piece)) {
-        triangles.addAll(getTriangles(piece.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY)));
+        triangles.addAll(getTriangles(piece));
       }
     }
     return triangles;
   }
 
   /**
-   * Returns the triangles described by the property of a ground.
+   * Returns the triangles of a ground, without the ones its long edges or its outline trim.
+   */
+  public static List<float [][]> getTriangles(HomePieceOfFurniture piece) {
+    return getTriangles(piece.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY),
+        piece.getProperty(AssistantShapeCommands.TERRAIN_TRIM_PROPERTY));
+  }
+
+  /**
+   * Returns the triangles described by the properties of a ground: its points, and what trims its edge.
+   */
+  static List<float [][]> getTriangles(String spec, String trim) {
+    return getTriangles(spec, trim, null);
+  }
+
+  /**
+   * Returns the triangles of a ground once trimmed: the given ones, or the ones of its points.
+   */
+  static List<float [][]> getTriangles(String spec, String trim, List<float [][]> triangles) {
+    if (triangles == null) {
+      triangles = getTriangles(spec);
+    }
+    if (trim != null) {
+      try {
+        Object parsed = JSONParser.parse(trim);
+        if (parsed instanceof java.util.Map) {
+          java.util.Map<?, ?> map = (java.util.Map<?, ?>)parsed;
+          List<float []> clip = AssistantFurnitureBuilder.getPoints(map, "clip", 2);
+          triangles = AssistantShapeCommands.trimTriangles(triangles, AssistantFurnitureBuilder.getNumber(map, "max_edge", 0),
+              clip.size() >= 3 ? clip.toArray(new float [clip.size()][]) : null);
+        }
+      } catch (RuntimeException ex) {
+        // Not trimmed
+      }
+    }
+    return triangles;
+  }
+
+  /**
+   * Returns the triangles described by the points of a ground.
    */
   static List<float [][]> getTriangles(String spec) {
     List<float []> points = new ArrayList<float []>();
