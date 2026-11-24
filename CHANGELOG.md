@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.32.1](https://github.com/mjcipriano/sweethome3d/compare/v7.32.0...v7.32.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* generated trees with clusters of real size, open crowns and limbs that show ([0060f4f](https://github.com/mjcipriano/sweethome3d/commit/0060f4f3d2af5fe4a8591ed6bd740340ce47628d))
+* generated trees with clusters of real size, open crowns, limbs that show and colors that keep their hue ([ed2bb66](https://github.com/mjcipriano/sweethome3d/commit/ed2bb666d6b549612c5508a27a13c23e638d0479))
+
 ## [7.32.0](https://github.com/mjcipriano/sweethome3d/compare/v7.31.0...v7.32.0) (2026-11-24)
 
 
