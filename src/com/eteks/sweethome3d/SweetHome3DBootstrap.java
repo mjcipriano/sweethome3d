@@ -61,7 +61,6 @@ public class SweetHome3DBootstrap {
         "freehep-vectorgraphics-svg-2.1.1c.jar",
         "sunflow-0.07.3i.jar",
         "flatlaf-3.5.4.jar", // Modern Swing look and feel
-        "jmf.jar",
         "jnlp.jar"}));
     String yafarayPluginsFolder = null;
     List<String> yafarayWindowsDlls = new ArrayList<String>();
@@ -248,9 +247,6 @@ public class SweetHome3DBootstrap {
         "jogamp",
         "javax.media.opengl",
         "javax.media.nativewindow",
-        "com.sun.media",
-        "com.ibm.media",
-        "jmpapps.util",
         "org.sunflow",
         "org.apache.batik",
         "com.formdev.flatlaf",
