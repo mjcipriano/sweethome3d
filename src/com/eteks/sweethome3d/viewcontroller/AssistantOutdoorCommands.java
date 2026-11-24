@@ -46,6 +46,8 @@ class AssistantOutdoorCommands {
   static final String OUTDOOR_SPEC_PROPERTY = "assistantOutdoor";
   /** The property of a home that keeps the detail of the buildings around it. */
   static final String CONTEXT_DETAIL_PROPERTY = "assistantContextDetail";
+  /** The id of the building a roof of the context covers. */
+  static final String CONTEXT_ROOF_OF_PROPERTY = "assistantContextRoofOf";
 
   private static final List<String> COMMON_KEYS = Arrays.asList("action", "x", "y", "angle", "name", "tags", "level", "color",
       "width", "depth", "height", "offset", "owner");
@@ -74,7 +76,8 @@ class AssistantOutdoorCommands {
         + "highest side, on posts and beams. \"decking\":\"wood|composite\" with \"direction\" in degrees and \"color\", "
         + "\"skirting\":\"lattice|horizontal_slat|solid|none\", \"railing\":\"<a style of fence>\" (or {\"style\",\"height\"...}, "
         + "built as a fence around it, open at the stairs), \"stairs\":{\"edge\":N,\"width\":120,\"at\":0.5} down to the ground "
-        + "from the edge N (1 = from the first point to the second one), \"benches\":[N,...] along edges)\n"
+        + "from the edge N (1 = from the first point to the second one): treads on closed risers and two stringers, the first riser "
+        + "against the rim of the deck, a pad at their foot, \"run\":N cm (28) for each tread and \"handrails\":true|false (true with a railing), \"benches\":[N,...] along edges)\n"
         + "  {\"action\":\"add_patio\",\"points\":[[x,y],...],\"pattern\":\"running_bond|herringbone|basket|random_ashlar|flagstone|concrete\"}  "
         + "(or add_pavers: a paved surface laid on the ground, with \"color\", \"thickness\" (6), "
         + "\"border\":{\"width\":20,\"color\":\"#RRGGBB\"})\n"
@@ -83,13 +86,17 @@ class AssistantOutdoorCommands {
         + "\"arch\":true; add_gazebo has \"sides\":6|8, a floor, a railing and a pointed roof; add_carport posts and a roof "
         + "\"roof\":\"flat|gable\")\n"
         + "  {\"action\":\"add_shed\"," + place + ",\"width\":300,\"depth\":240,\"height\":210,\"roof\":\"gable|lean_to|gambrel\"}  "
-        + "(walls, a roof and \"doors\":1|2 on its front; \"window\":true, \"color\", \"roof_color\", \"trim_color\"; "
+        + "(walls, a roof and \"doors\":1|2 on its front: leaves with their rails, hinges and handles in a frame, of \"door_color\", "
+        + "\"open\":N degrees or true to show them open; \"window\":true, \"color\", \"roof_color\", \"trim_color\"; "
         + "add_greenhouse is the same shape in glass on a frame)\n"
         + "  {\"action\":\"add_playset\"," + place + "}  (a fort with a roof, a slide and a beam of swings: \"swings\":N, \"slide\":false; "
         + "add_trampoline has \"diameter\" and \"net\":true)\n"
         + "  {\"action\":\"add_pool\",\"points\":[[x,y],...],\"type\":\"in_ground|above_ground\"}  "
         + "(or " + place + ",\"width\":N,\"depth\":N, or \"diameter\":N for a round one: water, a coping, and \"deck_width\":N of "
-        + "paving around it. The ground isn't dug: add_pad lowers it. add_pond is water with an edge of stones; "
+        + "paving around it. In the ground, the ground of the home is cut flat under the pool and its paving as add_pad does, at its "
+        + "mean height or at \"elevation\":N, joined to the ground around over \"blend_distance\" (150): \"excavate\":false leaves "
+        + "it as it is. \"type\":\"above_ground\" or \"above_ground\":true stands a wall \"height\" (130) cm high on the ground, "
+        + "with a ladder over its first side. add_pond is water with an edge of stones; "
         + "add_firepit has \"diameter\" and \"seat_wall\":true; add_outdoor_kitchen \"width\", \"grill\":true)\n"
         + "  {\"action\":\"add_driveway\",\"points\":[[x,y],[x,y],...],\"width\":350,\"material\":\"concrete|asphalt|gravel|pavers\"}  "
         + "(a driveway along a center line and laid on the ground, wider at its last point with \"apron\":N cm; \"polygon\":[...] "
@@ -99,7 +106,8 @@ class AssistantOutdoorCommands {
         + "(cuts the ground into a step along a line - the ground of the low side goes down by \"height\" over "
         + "\"terrace_width\" (300) cm - and builds the wall that holds it, in a style of masonry: \"style\":\"retaining_wall\", "
         + "\"stone\", \"color\")\n"
-        + "  {\"action\":\"add_steps_on_slope\",\"points\":[[x,y],[x,y]],\"width\":120}  (steps from a point to another one, as many "
+        + "  {\"action\":\"add_steps_on_slope\",\"points\":[[x,y],[x,y]],\"width\":120}  (steps between the two points of \"points\", "
+        + "or \"from\":[x,y] and \"to\":[x,y], as many "
         + "as the ground between them asks for, each \"rise\" 15 to 18 cm high; \"material\":\"stone|wood|concrete\")\n"
         + "  {\"action\":\"add_drainage\",\"type\":\"" + join(DRAINAGE) + "\",\"points\":[[x,y],[x,y]]}  "
         + "(what carries the water away, along a line or at \"x\",\"y\" for a catch basin)\n"
@@ -113,9 +121,11 @@ class AssistantOutdoorCommands {
         + "from it to what it names)\n"
         + "  {\"action\":\"add_context_building\",\"points\":[[x,y],...],\"stories\":2,\"roof\":\"hip|gable|flat\"}  "
         + "(a neighbor's house as a simple mass on the ground: walls of \"stories\" x 280 cm (or \"height\"), a roof with "
-        + "\"pitch\", \"siding\":\"siding|brick|stucco\" with \"color\" and \"roof_color\", \"garage_doors\":[{\"edge\":N,\"at\":0.5,"
+        + "\"pitch\" that starts on the top of the walls, or with \"overhang\":N cm eaves that hang lower, \"siding\":\"siding|brick|stucco\" with \"color\" and \"roof_color\", \"garage_doors\":[{\"edge\":N,\"at\":0.5,"
         + "\"width\":480}], \"owner\". It has the tag neighbor: hide_layer with that tag hides every neighbor at once. "
-        + "set_context_detail \"detail\":\"massing|textured|detailed\" chooses how much is drawn for the home)\n"
+        + "set_context_detail \"detail\":\"massing|textured|detailed\" chooses how much is drawn for the home: the buildings that exist "
+        + "are drawn again, without their roof as masses, and the ones added later follow; a building given its own \"detail\" keeps "
+        + "it unless \"all\":true)\n"
         + "  {\"action\":\"add_context_vehicle\"," + place + ",\"type\":\"car|suv|pickup|van\"}  (a car for the scale, with \"color\"; "
         + "add_context_person a standing figure, \"height\":170)\n";
   }
@@ -181,7 +191,7 @@ class AssistantOutdoorCommands {
           throw new IOException("\"detail\" is massing, textured or detailed");
         }
         this.home.setProperty(CONTEXT_DETAIL_PROPERTY, detail);
-        notes.add("The buildings added by add_context_building are now drawn as \"" + detail + "\"; the ones that exist keep their look");
+        setContextDetail(detail, command, tally, notes);
       } else {
         return false;
       }
@@ -561,18 +571,61 @@ class AssistantOutdoorCommands {
       float startX = a [0] + dx * middle;
       float startY = a [1] + dy * middle;
       float drop = top - ground(startX + nx * 100, startY + ny * 100, level);
+      if (drop < 2) {
+        drop = 2;
+      }
       int steps = Math.max(1, (int)Math.ceil(drop / 18));
       float rise = drop / steps;
-      for (int step = 1; step < steps; step++) {
+      float run = Math.max(20, Math.min(40, AssistantFurnitureBuilder.getNumber(map, "run", 28)));
+      float bottom = top - drop;
+      // The stairs in their own frame: across their width, away from the deck, up
+      float [] origin = {startX, startY};
+      float [] across = {dx, dy};
+      float [] away = {nx, ny};
+      float half = stairWidth / 2;
+      float stairLength = run * (steps - 1);
+      // Closed risers, the first one against the rim of the deck, and treads that touch each other
+      for (int step = 1; step <= steps; step++) {
         float stepTop = top - rise * step;
-        float out = 28 * (step - 1);
-        float [][] section = {{startX - dx * stairWidth / 2 + nx * out, stepTop - 4, startY - dy * stairWidth / 2 + ny * out},
-                              {startX + dx * stairWidth / 2 + nx * out, stepTop - 4, startY + dy * stairWidth / 2 + ny * out},
-                              {startX + dx * stairWidth / 2 + nx * out, stepTop, startY + dy * stairWidth / 2 + ny * out},
-                              {startX - dx * stairWidth / 2 + nx * out, stepTop, startY - dy * stairWidth / 2 + ny * out}};
-        mesh.addSolid(section, new float [] {nx * 28, 0, ny * 28}, boards);
+        float out = run * (step - 1);
+        addStairSolid(mesh, origin, across, away, new float [][] {{-half + 4, out, step == steps ? bottom - 5 : stepTop - 4},
+            {half - 4, out, step == steps ? bottom - 5 : stepTop - 4}, {half - 4, out, stepTop + rise - (step == 1 ? 0 : 4)},
+            {-half + 4, out, stepTop + rise - (step == 1 ? 0 : 4)}}, new float [] {0, 2, 0}, frame);
+        if (step < steps) {
+          // 2 cm of nosing over the riser under it
+          addStairSolid(mesh, origin, across, away, new float [][] {{-half, out, stepTop - 4}, {half, out, stepTop - 4},
+              {half, out, stepTop}, {-half, out, stepTop}}, new float [] {0, run + 2, 0}, boards);
+        }
       }
-      stairsText = ", " + steps + " steps of " + format(rise) + " cm down from its edge " + (edge + 1);
+      if (steps > 1) {
+        // A stringer on each side, from the rim to the ground
+        for (float side : new float [] {-half, half - 4}) {
+          addStairSolid(mesh, origin, across, away, new float [][] {{side, 0, top - rise - 4}, {side, stairLength + 2, bottom - 4},
+              {side, stairLength + 2, bottom - 4 - 26}, {side, 0, top - rise - 4 - 26}}, new float [] {4, 0, 0}, frame);
+        }
+      }
+      // A pad on the ground at their foot
+      AssistantMeshBuilder.Material pad = mesh.getMaterial(0xB4B0A8);
+      addStairSolid(mesh, origin, across, away, new float [][] {{-half - 10, stairLength, bottom - 6}, {half + 10, stairLength, bottom - 6},
+          {half + 10, stairLength, bottom + 1}, {-half - 10, stairLength, bottom + 1}}, new float [] {0, 90, 0}, pad);
+      Object railingValue = command.getParameters().get("railing");
+      boolean railed = railingValue != null && !"none".equals(railingValue.toString()) && !Boolean.FALSE.equals(railingValue);
+      Object handrails = map.get("handrails");
+      boolean withHandrails = handrails != null ? !Boolean.FALSE.equals(handrails) && !"none".equals(handrails.toString()) : railed && steps > 2;
+      if (withHandrails && steps > 1) {
+        // A rail on each side at 90 cm above the nosings, on a post at each end
+        for (float side : new float [] {-half, half - 4}) {
+          addStairSolid(mesh, origin, across, away, new float [][] {{side, 0, top - rise}, {side, 4, top - rise},
+              {side, 4, top - rise + 94}, {side, 0, top - rise + 94}}, new float [] {4, 0, 0}, frame);
+          addStairSolid(mesh, origin, across, away, new float [][] {{side, stairLength - 2, bottom - 4}, {side, stairLength + 2, bottom - 4},
+              {side, stairLength + 2, bottom + rise + 94}, {side, stairLength - 2, bottom + rise + 94}}, new float [] {4, 0, 0}, frame);
+          addStairSolid(mesh, origin, across, away, new float [][] {{side, 0, top - rise + 90}, {side, stairLength + 2, bottom + rise + 90},
+              {side, stairLength + 2, bottom + rise + 95}, {side, 0, top - rise + 95}}, new float [] {4, 0, 0}, frame);
+        }
+      }
+      stairsText = ", " + steps + (steps == 1 ? " step of " : " steps of ") + format(rise) + " cm on a run of " + format(run)
+          + " cm down from its edge " + (edge + 1) + ", with risers, stringers" + (withHandrails && steps > 1 ? ", handrails" : "")
+          + " and a pad at their foot";
       stairGap = new float [] {edge, middle, stairWidth};
     }
     // Benches along edges
@@ -648,6 +701,21 @@ class AssistantOutdoorCommands {
         + (highest - lowest > 5 ? ", " + format(top - lowest) + " cm above the lowest" : "") + "), on " + posts + " posts"
         + stairsText + railingText);
     warnUnknown(command, notes, "points", "polygon", "decking", "direction", "skirting", "railing", "stairs", "benches");
+  }
+
+  /**
+   * Adds a part of stairs: the solid swept by a section, with points and a move given as
+   * {across the stairs, away from the deck, up} from the middle of their top.
+   */
+  private static void addStairSolid(AssistantMeshBuilder mesh, float [] origin, float [] across, float [] away,
+                                    float [][] section, float [] move, AssistantMeshBuilder.Material material) {
+    float [][] points = new float [section.length][];
+    for (int i = 0; i < section.length; i++) {
+      points [i] = new float [] {origin [0] + across [0] * section [i][0] + away [0] * section [i][1], section [i][2],
+          origin [1] + across [1] * section [i][0] + away [1] * section [i][1]};
+    }
+    mesh.addSolid(points, new float [] {across [0] * move [0] + away [0] * move [1], move [2], across [1] * move [0] + away [1] * move [1]},
+        material);
   }
 
   private void addPatio(String action, AssistantCommand command, int [] tally, List<String> notes) throws IOException {
@@ -859,12 +927,45 @@ class AssistantOutdoorCommands {
     int doors = Math.max(0, Math.min(2, Math.round((float)command.getDouble("doors", width > 280 ? 2 : 1))));
     float doorWidth = Math.min(90, width * 0.35f);
     float doorHeight = Math.min(190, height - 10);
-    AssistantMeshBuilder.Material door = greenhouse ? trim : build.color(shade(color, 0.8f));
-    for (int i = 0; i < doors; i++) {
-      float x = doors == 1 ? 0 : (i == 0 ? -doorWidth / 2 - 1 : doorWidth / 2 + 1);
-      build.box(x - doorWidth / 2, depth / 2, x + doorWidth / 2, depth / 2 + 3, 5, doorHeight, door);
-      build.box(x - doorWidth / 2 - 5, depth / 2, x - doorWidth / 2, depth / 2 + 4, 0, doorHeight + 5, trim);
-      build.box(x + doorWidth / 2, depth / 2, x + doorWidth / 2 + 5, depth / 2 + 4, 0, doorHeight + 5, trim);
+    // Leaves of another color than the walls, each with its rails, its hinges and its handle, in a frame of trim
+    int doorColor = color(command, "door_color", greenhouse ? color : shade(color, 0.55f));
+    AssistantMeshBuilder.Material door = greenhouse ? build.mesh.getMaterial(doorColor, 0.3f) : build.color(doorColor);
+    AssistantMeshBuilder.Material hardware = build.color(0x26262A);
+    Object openValue = command.getParameters().get("open");
+    float open = Boolean.TRUE.equals(openValue) ? 90 : openValue instanceof Number ? ((Number)openValue).floatValue() : 0;
+    if (open < 0 || open > 170) {
+      throw new IOException("\"open\" is the angle of the open doors, from 0 to 170 degrees, or true for 90");
+    }
+    float opening = doors * doorWidth;
+    if (doors > 0) {
+      float front = depth / 2;
+      build.box(-opening / 2 - 6, front, -opening / 2, front + 4, 0, doorHeight + 6, trim);
+      build.box(opening / 2, front, opening / 2 + 6, front + 4, 0, doorHeight + 6, trim);
+      build.box(-opening / 2 - 6, front, opening / 2 + 6, front + 4, doorHeight, doorHeight + 6, trim);
+      if (open > 0) {
+        // What is seen inside
+        build.box(-opening / 2, front, opening / 2, front + 0.6f, 3, doorHeight, build.color(0x2A2622));
+      }
+      for (int i = 0; i < doors; i++) {
+        // The hinges of the first leaf at the left of the doorway, the ones of the second at its right
+        float side = i == 0 ? 1 : -1;
+        float [] hinge = {-side * opening / 2, front + 0.6f};
+        double radians = Math.toRadians(open);
+        float [] along = {side * (float)Math.cos(radians), (float)Math.sin(radians)};
+        float [] out = {-side * (float)Math.sin(radians), (float)Math.cos(radians)};
+        addLeafPart(build, hinge, along, out, 0.5f, doorWidth - 0.5f, 3, doorHeight, 0, 3, door);
+        if (!greenhouse) {
+          addLeafPart(build, hinge, along, out, 10, doorWidth - 0.5f, doorHeight / 2 - 4, doorHeight / 2 + 4, 3, 4.2f, trim);
+        }
+        addLeafPart(build, hinge, along, out, 0.5f, doorWidth - 0.5f, doorHeight - 9, doorHeight, 3, 4.2f, trim);
+        addLeafPart(build, hinge, along, out, 0.5f, doorWidth - 0.5f, 3, 12, 3, 4.2f, trim);
+        addLeafPart(build, hinge, along, out, 0.5f, 8, 12, doorHeight - 9, 3, 4.2f, trim);
+        addLeafPart(build, hinge, along, out, doorWidth - 8, doorWidth - 0.5f, 12, doorHeight - 9, 3, 4.2f, trim);
+        for (float hingeHeight : new float [] {28, doorHeight - 32}) {
+          addLeafPart(build, hinge, along, out, 0, 16, hingeHeight, hingeHeight + 5, 4.2f, 5, hardware);
+        }
+        addLeafPart(build, hinge, along, out, doorWidth - 6.5f, doorWidth - 3.5f, 92, 110, 4.2f, 8, hardware);
+      }
     }
     if (command.getBoolean("window", false) && !greenhouse) {
       build.box(width / 2, -30, width / 2 + 3, 30, height * 0.5f, height * 0.5f + 60, build.color(0x9CB7C4));
@@ -875,9 +976,24 @@ class AssistantOutdoorCommands {
         name.toLowerCase(Locale.ENGLISH));
     notes.add("Added the " + name.toLowerCase(Locale.ENGLISH) + " " + this.executor.getId(piece) + " \"" + piece.getName() + "\": "
         + format(width) + " x " + format(depth) + " cm, walls " + format(height) + " cm high under a " + roof.replace('_', ' ')
-        + " roof " + format(height + rise) + " cm high, " + doors + (doors == 1 ? " door" : " doors") + " on its front (the side "
-        + "of the positive y at the angle 0)");
-    warnUnknown(command, notes, "roof", "doors", "window", "roof_color", "trim_color");
+        + " roof " + format(height + rise) + " cm high, " + doors + (doors == 1 ? " door" : " doors")
+        + (doors > 0 ? " " + format(doorWidth) + " x " + format(doorHeight) + " cm" + (doors == 2 ? " each" : "")
+            + (open > 0 ? ", open at " + format(open) + " degrees," : "") : "")
+        + " on its front (the side of the positive y at the angle 0)");
+    warnUnknown(command, notes, "roof", "doors", "window", "roof_color", "trim_color", "door_color", "open");
+  }
+
+  /**
+   * Adds a part of the leaf of a door that turns on its hinges: a box from <code>start</code> to <code>end</code>
+   * along the leaf, and from <code>near</code> to <code>far</code> in front of it.
+   */
+  private static void addLeafPart(Build build, float [] hinge, float [] along, float [] out, float start, float end,
+                                  float low, float high, float near, float far, AssistantMeshBuilder.Material material) {
+    float x = hinge [0] + along [0] * start;
+    float z = hinge [1] + along [1] * start;
+    float [][] section = {{x + out [0] * near, low, z + out [1] * near}, {x + out [0] * far, low, z + out [1] * far},
+                          {x + out [0] * far, high, z + out [1] * far}, {x + out [0] * near, high, z + out [1] * near}};
+    build.mesh.addSolid(section, new float [] {along [0] * (end - start), 0, along [1] * (end - start)}, material);
   }
 
   // ---- Play and water ----
@@ -955,8 +1071,38 @@ class AssistantOutdoorCommands {
     boolean pond = "add_pond".equals(action);
     float [][] polygon = getPolygon(command, pond ? 300 : 800, pond ? 200 : 400);
     Level level = this.executor.getShapeCommands().getLevel(command, action, notes);
-    String type = command.getString("type") != null ? command.getString("type").trim().toLowerCase(Locale.ENGLISH) : "in_ground";
-    boolean above = type.startsWith("above");
+    String type = command.getString("type") != null ? command.getString("type").trim().toLowerCase(Locale.ENGLISH).replace(' ', '_').replace('-', '_')
+        : command.getBoolean("above_ground", false) ? "above_ground" : "in_ground";
+    if (!type.equals("in_ground") && !type.equals("inground") && !type.equals("above_ground") && !type.equals("aboveground") && !pond) {
+      throw new IOException("\"type\" is in_ground or above_ground");
+    }
+    boolean above = type.startsWith("above") && !pond;
+    float outside = getArea(polygon) > 0 ? 1 : -1;
+    float coping = pond ? 25 : above ? 8 : 30;
+    float deckWidth = pond ? 0 : (float)Math.max(0, Math.min(1000, command.getDouble("deck_width", 0)));
+    // The ground of a pool in the ground is cut flat under it and its paving, when the home has a ground to cut
+    String excavation = "";
+    boolean terrain = false;
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      terrain |= HomeTerrain.isTerrain(piece);
+    }
+    if (!pond && !above && terrain && command.getBoolean("excavate", true)) {
+      Map<String, Object> pad = new LinkedHashMap<String, Object>();
+      pad.put("points", toList(AssistantFenceCommands.offsetLine(polygon, true, (coping + deckWidth) * outside)));
+      if (command.has("elevation")) {
+        pad.put("height", Double.valueOf(command.getDouble("elevation", 0)));
+      }
+      pad.put("blend_distance", Double.valueOf(command.getDouble("blend_distance", 150)));
+      List<String> padNotes = new ArrayList<String>();
+      this.executor.applySubCommand(new AssistantCommand("add_pad", pad), tally, padNotes);
+      for (String note : padNotes) {
+        if (note.startsWith("Couldn't")) {
+          excavation = ". The ground wasn't cut under it: " + note;
+        } else if (note.startsWith("Added a pad")) {
+          excavation = ". The ground was cut flat under it and its coping: " + note.substring(0, 1).toLowerCase(Locale.ENGLISH) + note.substring(1);
+        }
+      }
+    }
     float base = -Float.MAX_VALUE;
     float lowest = Float.MAX_VALUE;
     for (float [] point : polygon) {
@@ -969,8 +1115,6 @@ class AssistantOutdoorCommands {
     if (area.isEmpty()) {
       throw new IOException("the points enclose no area");
     }
-    float outside = getArea(polygon) > 0 ? 1 : -1;
-    float coping = pond ? 25 : above ? 8 : 30;
     float [][] outer = AssistantFenceCommands.offsetLine(polygon, true, coping * outside);
     Area ring = AssistantMeshBuilder.getArea(outer);
     Area whole = new Area(ring);
@@ -981,7 +1125,37 @@ class AssistantOutdoorCommands {
     // Water a little under its edge
     mesh.addPrism(area, lowest - 5, new float [] {base + wall + (pond ? 2 : 4) - (above ? 12 : 0), 0, 0}, water, edge);
     mesh.addPrism(ring, lowest - 5, new float [] {base + wall + (pond ? 9 : 10), 0, 0}, edge, edge);
-    float deckWidth = pond ? 0 : (float)Math.max(0, Math.min(1000, command.getDouble("deck_width", 0)));
+    if (above) {
+      // A ladder over its wall, at the middle of its first side
+      float [] a = polygon [0];
+      float [] b = polygon [1];
+      double sideLength = Math.hypot(b [0] - a [0], b [1] - a [1]);
+      float [] across = {(float)((b [0] - a [0]) / sideLength), (float)((b [1] - a [1]) / sideLength)};
+      float [] away = {across [1] * outside, -across [0] * outside};
+      float [] origin = {(a [0] + b [0]) / 2, (a [1] + b [1]) / 2};
+      AssistantMeshBuilder.Material metal = mesh.getMaterial(0xC8CCD0);
+      float ladderTop = base + wall + 10;
+      for (float side : new float [] {-25, 21}) {
+        // A rail outside, one inside, and their handhold over the wall
+        addStairSolid(mesh, origin, across, away, new float [][] {{side, coping + 30, lowest - 5}, {side, coping + 34, lowest - 5},
+            {side, coping + 14, ladderTop + 60}, {side, coping + 10, ladderTop + 60}}, new float [] {4, 0, 0}, metal);
+        addStairSolid(mesh, origin, across, away, new float [][] {{side, -34, base + 20}, {side, -30, base + 20},
+            {side, -10, ladderTop + 60}, {side, -14, ladderTop + 60}}, new float [] {4, 0, 0}, metal);
+        addStairSolid(mesh, origin, across, away, new float [][] {{side, -14, ladderTop + 56}, {side, coping + 14, ladderTop + 56},
+            {side, coping + 14, ladderTop + 60}, {side, -14, ladderTop + 60}}, new float [] {4, 0, 0}, metal);
+      }
+      int rungs = Math.max(2, Math.round(wall / 28));
+      for (int i = 1; i <= rungs; i++) {
+        float share = (float)i / (rungs + 1);
+        float rung = base + (ladderTop - base) * share;
+        float out = coping + 32 - 20 * (rung - (lowest - 5)) / (ladderTop + 60 - (lowest - 5));
+        addStairSolid(mesh, origin, across, away, new float [][] {{-21, out - 5, rung - 3}, {-21, out + 5, rung - 3},
+            {-21, out + 5, rung}, {-21, out - 5, rung}}, new float [] {42, 0, 0}, metal);
+      }
+      // A step over the wall
+      addStairSolid(mesh, origin, across, away, new float [][] {{-21, -12, ladderTop}, {-21, coping + 12, ladderTop},
+          {-21, coping + 12, ladderTop + 3}, {-21, -12, ladderTop + 3}}, new float [] {42, 0, 0}, metal);
+    }
     if (deckWidth > 0 && !above) {
       float [][] deck = AssistantFenceCommands.offsetLine(polygon, true, (coping + deckWidth) * outside);
       Area deckArea = AssistantMeshBuilder.getArea(deck);
@@ -993,10 +1167,14 @@ class AssistantOutdoorCommands {
     HomePieceOfFurniture piece = addFixed(mesh, command, name, name.toLowerCase(Locale.ENGLISH), tally, notes, "site",
         name.toLowerCase(Locale.ENGLISH));
     notes.add("Added the " + name.toLowerCase(Locale.ENGLISH) + " " + this.executor.getId(piece) + " \"" + piece.getName() + "\": "
-        + format(Math.abs(getArea(polygon)) / 10000) + " m2 of water" + (above ? ", " + format(wall) + " cm above the ground" : "")
+        + format(Math.abs(getArea(polygon)) / 10000) + " m2 of water" + (above ? ", in a wall " + format(wall) + " cm above the ground, with a ladder over its first side" : "")
         + (deckWidth > 0 ? ", with " + format(deckWidth) + " cm of paving around it" : "")
-        + (pond || above ? "" : ". The ground isn't dug under it. A fence with \"style\":\"pool_code\" around it is checked by check_home"));
-    warnUnknown(command, notes, "points", "polygon", "type", "diameter", "deck_width", "coping_color");
+        + (pond || above ? "" : excavation.length() > 0 ? excavation
+            : terrain ? ". The ground was left as it is (\"excavate\":false)"
+            : ". The home has no ground to cut under it: set_terrain builds one")
+        + (pond || above ? "" : ". A fence with \"style\":\"pool_code\" around it is checked by check_home"));
+    warnUnknown(command, notes, "points", "polygon", "type", "above_ground", "diameter", "deck_width", "coping_color", "excavate",
+        "elevation", "blend_distance");
   }
 
   private void addFirepit(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
@@ -1158,9 +1336,23 @@ class AssistantOutdoorCommands {
   }
 
   private void addSteps(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
-    List<float []> points = command.getPoints("points");
+    List<float []> points = new ArrayList<float []>(command.getPoints("points"));
+    if (points.isEmpty() && command.has("from") && command.has("to")) {
+      // The two ends given apart
+      for (String key : new String [] {"from", "to"}) {
+        Object end = command.getParameters().get(key);
+        if (end instanceof List && ((List<?>)end).size() >= 2 && ((List<?>)end).get(0) instanceof Number
+            && ((List<?>)end).get(1) instanceof Number) {
+          points.add(new float [] {((Number)((List<?>)end).get(0)).floatValue(), ((Number)((List<?>)end).get(1)).floatValue()});
+        } else if (end instanceof Map && ((Map<?, ?>)end).get("x") instanceof Number && ((Map<?, ?>)end).get("y") instanceof Number) {
+          points.add(new float [] {((Number)((Map<?, ?>)end).get("x")).floatValue(), ((Number)((Map<?, ?>)end).get("y")).floatValue()});
+        } else {
+          throw new IOException("\"" + key + "\" is a point [x,y]");
+        }
+      }
+    }
     if (points.size() != 2) {
-      throw new IOException("give the two ends of the steps: \"points\":[[x,y],[x,y]]");
+      throw new IOException("give the two ends of the steps: \"points\":[[x,y],[x,y]], or \"from\":[x,y] and \"to\":[x,y]");
     }
     Level level = this.executor.getShapeCommands().getLevel(command, "add_steps_on_slope", notes);
     float width = number(command, "width", 120, 40, 1000);
@@ -1207,7 +1399,7 @@ class AssistantOutdoorCommands {
     notes.add("Added the steps " + this.executor.getId(piece) + ": " + steps + " steps of " + format(rise) + " cm, each "
         + format(run) + " cm deep, climbing " + format(climb) + " cm over " + format(length / 100) + " m"
         + (run < 26 ? ". They are steep: longer steps need the two points farther apart" : ""));
-    warnUnknown(command, notes, "points", "rise", "material");
+    warnUnknown(command, notes, "points", "from", "to", "rise", "material");
   }
 
   // ---- Drainage, utilities and beds ----
@@ -1444,13 +1636,26 @@ class AssistantOutdoorCommands {
 
   // ---- Context ----
 
-  private void addContextBuilding(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
-    float [][] polygon = getPolygon(command, 1200, 900);
-    Level level = this.executor.getShapeCommands().getLevel(command, "add_context_building", notes);
+  /**
+   * Returns the detail a building is drawn with: its own, or the one of the home.
+   */
+  private String getContextDetail(AssistantCommand command) throws IOException {
+    String detail = command.getString("detail") != null ? command.getString("detail").trim().toLowerCase(Locale.ENGLISH)
+        : this.home.getProperty(CONTEXT_DETAIL_PROPERTY) != null ? this.home.getProperty(CONTEXT_DETAIL_PROPERTY) : "textured";
+    if (!Arrays.asList("massing", "textured", "detailed").contains(detail)) {
+      throw new IOException("\"detail\" is massing, textured or detailed");
+    }
+    return detail;
+  }
+
+  /**
+   * Returns the walls of a building of the context drawn with a detail, and stores in <code>sizes</code>
+   * the height of its walls, the height of their top and the number of its garage doors.
+   */
+  private AssistantMeshBuilder buildContextBuilding(AssistantCommand command, float [][] polygon, Level level, String detail,
+                                                    float [] sizes) throws IOException {
     float stories = number(command, "stories", 1, 0.5f, 60);
     float height = number(command, "height", stories * 280 + 30, 100, 20000);
-    String detail = command.getString("detail") != null ? command.getString("detail").toLowerCase(Locale.ENGLISH)
-        : this.home.getProperty(CONTEXT_DETAIL_PROPERTY) != null ? this.home.getProperty(CONTEXT_DETAIL_PROPERTY) : "textured";
     String siding = command.getString("siding") != null ? command.getString("siding").trim().toLowerCase(Locale.ENGLISH) : "siding";
     int color = color(command, "color", siding.startsWith("brick") ? 0x9C4A35 : siding.startsWith("stucco") ? 0xE0D5C0 : 0xD8D2C4);
     String roof = command.getString("roof") != null ? command.getString("roof").trim().toLowerCase(Locale.ENGLISH) : "hip";
@@ -1511,34 +1716,155 @@ class AssistantOutdoorCommands {
         garageDoors++;
       }
     }
-    HomePieceOfFurniture building = addFixed(mesh, command, "Neighbor house", "context_building", tally, notes, "site", "neighbor",
-        "context");
+    sizes [0] = height;
+    sizes [1] = top;
+    sizes [2] = garageDoors;
+    return mesh;
+  }
+
+  /**
+   * Adds the roof of a building of the context and returns the words that tell it.
+   */
+  private String addContextRoof(AssistantCommand command, HomePieceOfFurniture building, float [][] polygon, float top, String roof,
+                                String detail, int [] tally, List<String> notes) throws IOException {
     String roofText = ", under a flat roof";
     if (!roof.equals("flat") && !detail.equals("massing")) {
-      // The roof that add_roof builds over the same polygon
+      // The roof that add_roof builds over the same polygon, its lowest side on the top of the walls unless it's given an overhang
       Map<String, Object> roofSpec = new LinkedHashMap<String, Object>();
+      double pitch = command.getDouble("pitch", 25);
+      double overhang = Math.max(0, command.getDouble("overhang", 0));
       roofSpec.put("points", toList(polygon));
-      roofSpec.put("eave_height", Double.valueOf(top - (level != null ? 0 : 0)));
+      roofSpec.put("eave_height", Double.valueOf(top));
       roofSpec.put("type", roof);
-      roofSpec.put("pitch", Double.valueOf(command.getDouble("pitch", 25)));
-      roofSpec.put("overhang", Double.valueOf(command.getDouble("overhang", 30)));
+      roofSpec.put("pitch", Double.valueOf(pitch));
+      roofSpec.put("overhang", Double.valueOf(overhang));
       roofSpec.put("color", command.getString("roof_color") != null ? command.getString("roof_color") : "#4E4A46");
       roofSpec.put("gable_walls", Boolean.TRUE);
-      roofSpec.put("gable_color", String.format("#%06X", color));
+      roofSpec.put("gable_color", String.format("#%06X", getContextColor(command)));
       if (command.getString("level") != null) {
         roofSpec.put("level", command.getString("level"));
+      } else if (building.getLevel() != null && building.getLevel().getName() != null) {
+        roofSpec.put("level", building.getLevel().getName());
       }
       try {
         HomePieceOfFurniture roofPiece = run("add_roof", roofSpec, tally, notes);
         if (roofPiece != null) {
           roofPiece.setName(building.getName() + " roof");
           roofPiece.setProperty(HomeItemTags.TAGS_PROPERTY, HomeItemTags.formatTags(getTags(command, "site", "neighbor", "context")));
-          roofText = ", under the " + roof + " roof " + this.executor.getId(roofPiece);
+          roofPiece.setProperty(CONTEXT_ROOF_OF_PROPERTY, this.executor.getId(building));
+          roofText = ", under the " + roof + " roof " + this.executor.getId(roofPiece) + ", its bottom at " + format(roofPiece.getElevation())
+              + " cm" + (overhang > 0 ? " (its eaves " + format(overhang) + " cm out hang under the top of the walls at " + format(top) + " cm)"
+                  : " on the top of the walls");
         }
       } catch (IOException ex) {
         roofText = ", under a flat roof (a " + roof + " roof couldn't be built over this shape: " + ex.getMessage() + ")";
       }
     }
+    return roofText;
+  }
+
+  private static int getContextColor(AssistantCommand command) throws IOException {
+    String siding = command.getString("siding") != null ? command.getString("siding").trim().toLowerCase(Locale.ENGLISH) : "siding";
+    return color(command, "color", siding.startsWith("brick") ? 0x9C4A35 : siding.startsWith("stucco") ? 0xE0D5C0 : 0xD8D2C4);
+  }
+
+  /**
+   * Returns the roof of a building of the context, or <code>null</code> if it has none.
+   */
+  private HomePieceOfFurniture getContextRoof(HomePieceOfFurniture building) {
+    String id = this.executor.getId(building);
+    HomePieceOfFurniture named = null;
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      if (id.equals(piece.getProperty(CONTEXT_ROOF_OF_PROPERTY))) {
+        return piece;
+      } else if (piece.getProperty(CONTEXT_ROOF_OF_PROPERTY) == null && (building.getName() + " roof").equals(piece.getName())
+                 && piece.getLevel() == building.getLevel()
+                 && Math.abs(piece.getX() - building.getX()) < 100 && Math.abs(piece.getY() - building.getY()) < 100) {
+        // A roof built before roofs knew their building
+        named = piece;
+      }
+    }
+    return named;
+  }
+
+  /**
+   * Draws again with a detail the buildings of the context that have none of their own.
+   */
+  @SuppressWarnings("unchecked")
+  private void setContextDetail(String detail, AssistantCommand command, int [] tally, List<String> notes) throws IOException {
+    boolean all = command.getBoolean("all", false);
+    int rebuilt = 0;
+    int kept = 0;
+    List<String> failures = new ArrayList<String>();
+    for (HomePieceOfFurniture building : new ArrayList<HomePieceOfFurniture>(this.home.getFurniture())) {
+      if (!"context_building".equals(building.getProperty(AssistantGardenCommands.GARDEN_PROPERTY))
+          || building.getProperty(OUTDOOR_SPEC_PROPERTY) == null) {
+        continue;
+      }
+      Map<String, Object> spec;
+      try {
+        Object parsed = JSONParser.parse(building.getProperty(OUTDOOR_SPEC_PROPERTY));
+        if (!(parsed instanceof Map)) {
+          continue;
+        }
+        spec = new LinkedHashMap<String, Object>((Map<String, Object>)parsed);
+      } catch (IllegalArgumentException ex) {
+        continue;
+      }
+      if (spec.get("detail") != null && !all) {
+        // It was given its own
+        kept++;
+        continue;
+      }
+      spec.remove("detail");
+      try {
+        AssistantCommand buildingCommand = new AssistantCommand("add_context_building", spec);
+        float [][] polygon = getPolygon(buildingCommand, 1200, 900);
+        float [] sizes = new float [3];
+        AssistantMeshBuilder mesh = buildContextBuilding(buildingCommand, polygon, building.getLevel(), detail, sizes);
+        AssistantGeneratedModel model = mesh.store("context_building");
+        float [] bounds = model.getBounds();
+        Map<String, String> properties = new LinkedHashMap<String, String>();
+        properties.put(OUTDOOR_SPEC_PROPERTY, AssistantShapeCommands.toJson(spec));
+        this.executor.beginTurnUpdate();
+        this.executor.getShapeCommands().replaceModel(building, model, (bounds [0] + bounds [3]) / 2, (bounds [2] + bounds [5]) / 2,
+            bounds [1], properties);
+        // Its roof: none on a mass, one otherwise
+        String roof = buildingCommand.getString("roof") != null ? buildingCommand.getString("roof").trim().toLowerCase(Locale.ENGLISH) : "hip";
+        HomePieceOfFurniture roofPiece = getContextRoof(building);
+        if (detail.equals("massing") && roofPiece != null) {
+          this.homeController.getPlanController().deleteItems(Collections.singletonList(roofPiece));
+          tally [5]++;
+        } else if (!detail.equals("massing") && roofPiece == null && !roof.equals("flat")) {
+          addContextRoof(buildingCommand, building, polygon, sizes [1], roof, detail, tally, new ArrayList<String>());
+        }
+        tally [4]++;
+        rebuilt++;
+      } catch (IOException ex) {
+        failures.add(this.executor.getId(building) + ": " + ex.getMessage());
+      }
+    }
+    notes.add("The buildings of add_context_building are now drawn as \"" + detail + "\": " + rebuilt
+        + (rebuilt == 1 ? " building of the home was drawn again" : " buildings of the home were drawn again")
+        + (detail.equals("massing") && rebuilt > 0 ? " without roof" : "")
+        + (kept > 0 ? ", " + kept + " given " + (kept == 1 ? "its" : "their") + " own \"detail\" kept it (\"all\":true changes them too)" : "")
+        + ", and the ones added later will be too"
+        + (failures.isEmpty() ? "" : ". Not drawn again: " + failures));
+  }
+
+  private void addContextBuilding(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
+    float [][] polygon = getPolygon(command, 1200, 900);
+    Level level = this.executor.getShapeCommands().getLevel(command, "add_context_building", notes);
+    String detail = getContextDetail(command);
+    String roof = command.getString("roof") != null ? command.getString("roof").trim().toLowerCase(Locale.ENGLISH) : "hip";
+    float [] sizes = new float [3];
+    AssistantMeshBuilder mesh = buildContextBuilding(command, polygon, level, detail, sizes);
+    float height = sizes [0];
+    float top = sizes [1];
+    int garageDoors = (int)sizes [2];
+    HomePieceOfFurniture building = addFixed(mesh, command, "Neighbor house", "context_building", tally, notes, "site", "neighbor",
+        "context");
+    String roofText = addContextRoof(command, building, polygon, top, roof, detail, tally, notes);
     if (command.getString("owner") != null) {
       building.setProperty("owner", command.getString("owner"));
     }
