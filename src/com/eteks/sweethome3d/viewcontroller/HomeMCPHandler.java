@@ -2417,9 +2417,24 @@ public class HomeMCPHandler {
       float photoX = AssistantFurnitureBuilder.getNumber(photo, "x", 0);
       float photoY = AssistantFurnitureBuilder.getNumber(photo, "y", 0);
       float ground = this.commandExecutor.getShapeCommands().getStandingHeight(photoX, photoY);
+      // The shape and the field of view of the photo seen upright
+      float [] photoShape = AssistantPhotoCommands.getShape(photo);
+      if (photoShape [0] > 0 && arguments.get("width") == null) {
+        if (arguments.get("height") == null && photoShape [0] < 1) {
+          height = Math.min(maxHeight, 800);
+        }
+        width = Math.round(height * photoShape [0]);
+        if (width > maxWidth) {
+          width = maxWidth;
+          height = Math.max(120, Math.round(width / photoShape [0]));
+        } else if (width < 160) {
+          width = 160;
+          height = Math.min(maxHeight, Math.round(width / photoShape [0]));
+        }
+      }
       pose = new HomeViewpoints.Pose(photoX, photoY, ground + 160,
           (float)Math.toRadians(AssistantFurnitureBuilder.getNumber(photo, "heading", 0) + 180), 0,
-          (float)Math.toRadians(AssistantFurnitureBuilder.getNumber(photo, "fov", 65)), false);
+          (float)Math.toRadians(photoShape [1]), false);
       viewDescription = "photo " + photo.get("id") + ", " + pose.describe();
       photoPath = String.valueOf(photo.get("path"));
     } else if (arguments.get("camera") instanceof Map && ((Map<String, Object>)arguments.get("camera")).get("yaw") != null) {
@@ -2729,8 +2744,8 @@ public class HomeMCPHandler {
         return toolResult(compareWith + " isn't a PNG or JPEG image that can be read.", true);
       }
       description += overlay
-          ? " The photo " + photo.getName() + " is drawn over the picture, stretched to its size."
-          : " Left: the home. Right: the photo " + photo.getName() + ".";
+          ? " The photo " + photo.getName() + " is drawn over the picture, turned upright and stretched to its size."
+          : " Left: the home. Right: the photo " + photo.getName() + ", turned upright as its camera held it.";
     }
     if (savedFile != null) {
       try {

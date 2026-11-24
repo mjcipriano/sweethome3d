@@ -106,20 +106,29 @@ public class AssistantPhotoCommandsTest {
    * Returns the bytes of a JPEG file with the place, the direction and the lens a camera writes.
    */
   private static byte [] createPhoto(double latitude, double longitude, double direction, int focalLength35) {
+    return createPhoto(latitude, longitude, direction, focalLength35, 1, null);
+  }
+
+  /**
+   * Returns the bytes of a JPEG file with what a camera writes, its orientation and its picture.
+   */
+  private static byte [] createPhoto(double latitude, double longitude, double direction, int focalLength35,
+                                     int orientation, java.awt.image.BufferedImage image) {
     java.nio.ByteBuffer tiff = java.nio.ByteBuffer.allocate(400).order(java.nio.ByteOrder.LITTLE_ENDIAN);
     tiff.put((byte)'I').put((byte)'I').putShort((short)42).putInt(8);
-    // The first directory: where the two others are
-    tiff.putShort((short)2);
-    tiff.putShort((short)0x8769).putShort((short)4).putInt(1).putInt(40);
-    tiff.putShort((short)0x8825).putShort((short)4).putInt(1).putInt(60);
+    // The first directory: the way the picture is turned, and where the two others are
+    tiff.putShort((short)3);
+    tiff.putShort((short)0x0112).putShort((short)3).putInt(1).putShort((short)orientation).putShort((short)0);
+    tiff.putShort((short)0x8769).putShort((short)4).putInt(1).putInt(60);
+    tiff.putShort((short)0x8825).putShort((short)4).putInt(1).putInt(80);
     tiff.putInt(0);
     // The lens
-    tiff.position(40);
+    tiff.position(60);
     tiff.putShort((short)1);
     tiff.putShort((short)0xA405).putShort((short)3).putInt(1).putShort((short)focalLength35).putShort((short)0);
     tiff.putInt(0);
     // The place
-    tiff.position(60);
+    tiff.position(80);
     tiff.putShort((short)6);
     tiff.putShort((short)1).putShort((short)2).putInt(2).put((byte)(latitude >= 0 ? 'N' : 'S')).put((byte)0).putShort((short)0);
     tiff.putShort((short)2).putShort((short)5).putInt(3).putInt(200);
@@ -149,8 +158,19 @@ public class AssistantPhotoCommandsTest {
     out.write(length & 0xFF);
     out.write(new byte [] {'E', 'x', 'i', 'f', 0, 0}, 0, 6);
     out.write(tiff.array(), 0, 400);
-    out.write(0xFF);
-    out.write(0xD9);
+    if (image != null) {
+      // The picture, after its first two bytes
+      try {
+        java.io.ByteArrayOutputStream picture = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(image, "jpg", picture);
+        out.write(picture.toByteArray(), 2, picture.size() - 2);
+      } catch (java.io.IOException ex) {
+        throw new IllegalStateException(ex);
+      }
+    } else {
+      out.write(0xFF);
+      out.write(0xD9);
+    }
     return out.toByteArray();
   }
 
@@ -227,5 +247,89 @@ public class AssistantPhotoCommandsTest {
     assertEquals(4, this.home.getPolylines().size());
     summary = run("{\"action\":\"photo_viewpoint\",\"photo\":\"PH9\"}");
     assertTrue(summary, summary.contains("no photo PH9"));
+  }
+
+  /**
+   * A photo taken upright is shown upright, with the field of view of its short side.
+   */
+  @Test
+  public void testPhotoTakenUpright() throws Exception {
+    java.io.File folder = java.nio.file.Files.createTempDirectory("photos").toFile();
+    folder.deleteOnExit();
+    // A picture stored 40 x 30 that its camera says to turn by a quarter: red at its left, which is its top
+    java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    java.awt.Graphics2D g2D = image.createGraphics();
+    g2D.setColor(java.awt.Color.RED);
+    g2D.fillRect(0, 0, 20, 30);
+    g2D.setColor(java.awt.Color.BLUE);
+    g2D.fillRect(20, 0, 20, 30);
+    g2D.dispose();
+    byte [] photo = createPhoto(33.7490 - 0.00018, -84.3880, 0, 26, 6, image);
+    assertEquals(6, com.eteks.sweethome3d.viewcontroller.AssistantPhotoCommands.getOrientation(photo));
+    assertEquals(1, com.eteks.sweethome3d.viewcontroller.AssistantPhotoCommands.getOrientation(createPhoto(33.7, -84.3, 0, 26)));
+    write(folder, "upright.jpg", photo);
+    run("{\"action\":\"set_georeference\",\"x\":0,\"y\":0,\"lat\":33.7490,\"lon\":-84.3880}");
+    String summary = run("{\"action\":\"import_photos\",\"folder\":\"" + folder.getPath().replace("\\", "\\\\") + "\"}");
+    assertTrue(summary, summary.contains("Placed 1 photo"));
+    // Across the photo is the short side of the film: 2 atan(36 x 0.75 / 2 / 26) = 54.9 degrees instead of 69.4
+    summary = run("{\"action\":\"list_photos\"}");
+    assertTrue(summary, summary.contains("54.9 degrees wide"));
+
+    // Beside a picture 100 x 80, the photo is 60 x 80 with its red half up
+    java.awt.image.BufferedImage rendered = new java.awt.image.BufferedImage(100, 80, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(rendered, "png", out);
+    java.lang.reflect.Method compose = com.eteks.sweethome3d.swing.HomePane.class.getDeclaredMethod("composeImages",
+        byte [].class, byte [].class, boolean.class, float.class);
+    compose.setAccessible(true);
+    byte [] composed = (byte [])compose.invoke(null, out.toByteArray(), photo, false, 0.5f);
+    java.awt.image.BufferedImage result = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(composed));
+    assertEquals(100 + 4 + 60, result.getWidth());
+    assertEquals(80, result.getHeight());
+    int top = result.getRGB(104 + 30, 15);
+    int bottom = result.getRGB(104 + 30, 65);
+    assertTrue(Integer.toHexString(top), ((top >> 16) & 0xFF) > 180 && (top & 0xFF) < 90);
+    assertTrue(Integer.toHexString(bottom), ((bottom >> 16) & 0xFF) < 90 && (bottom & 0xFF) > 180);
+  }
+
+  /**
+   * The place a photo recorded weighs in its correction, which isn't applied when it goes too far.
+   */
+  @Test
+  public void testPoseKeptNearItsRecordedPlace() throws Exception {
+    java.io.File folder = java.nio.file.Files.createTempDirectory("photos").toFile();
+    folder.deleteOnExit();
+    String file = write(folder, "a.jpg", createPhoto(33.7490, -84.3880, 0, 26)).getPath().replace("\\", "\\\\");
+    run("{\"action\":\"add_photo\",\"path\":\"" + file + "\",\"x\":0,\"y\":2000,\"heading\":0,\"fov\":60}");
+    // Matches that would put the camera 15 m to the right of the place recorded
+    double edge = 2000 * Math.tan(Math.toRadians(30));
+    String matches = "\"matches\":[{\"u\":0.5,\"plan\":[1500,0]},{\"u\":1,\"plan\":[" + (1500 + edge) + ",0]},{\"u\":0,\"plan\":["
+        + (1500 - edge) + ",0]},{\"u\":0.5,\"plan\":[1500,-1500]}]";
+    String summary = run("{\"action\":\"refine_photo_pose\",\"photo\":\"PH1\"," + matches + "}");
+    assertTrue(summary, summary.contains("nothing was changed") && summary.contains("more than the GPS accuracy 8 m")
+        && summary.contains("\"force\":true"));
+    assertTrue(run("{\"action\":\"list_photos\"}"), run("{\"action\":\"list_photos\"}").contains("at (0, 2000)"));
+    // Only its direction
+    summary = run("{\"action\":\"refine_photo_pose\",\"photo\":\"PH1\",\"keep_place\":true," + matches + "}");
+    assertTrue(summary, summary.contains("its place kept"));
+    // A place in a building isn't one a photo of the outside is taken from
+    com.eteks.sweethome3d.model.Room room = new com.eteks.sweethome3d.model.Room(
+        new float [][] {{1300, 1800}, {1700, 1800}, {1700, 2200}, {1300, 2200}});
+    this.home.addRoom(room);
+    summary = run("{\"action\":\"refine_photo_pose\",\"photo\":\"PH1\",\"gps_accuracy_m\":20," + matches + "}");
+    assertTrue(summary, summary.contains("its place moved by") && !summary.contains("inside a building"));
+    String list = run("{\"action\":\"list_photos\"}");
+    String at = list.substring(list.indexOf("at (") + 4, list.indexOf(")", list.indexOf("at (")));
+    float x = Float.parseFloat(at.split(",") [0].trim());
+    float y = Float.parseFloat(at.split(",") [1].trim());
+    assertFalse(at, room.containsPoint(x, y, 0));
+    assertEquals(at, 1500, x, 320);
+    // Forced, the matches alone tell the place
+    summary = run("{\"action\":\"refine_photo_pose\",\"photo\":\"PH1\",\"force\":true," + matches + "}");
+    assertTrue(summary, summary.contains("its place moved by") && summary.contains("inside a building"));
+    list = run("{\"action\":\"list_photos\"}");
+    at = list.substring(list.indexOf("at (") + 4, list.indexOf(")", list.indexOf("at (")));
+    assertEquals(at, 1500, Float.parseFloat(at.split(",") [0].trim()), 30);
+    assertEquals(at, 2000, Float.parseFloat(at.split(",") [1].trim()), 40);
   }
 }

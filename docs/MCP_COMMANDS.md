@@ -583,7 +583,9 @@ of a room.
   (`inside` by default). The answer gives the area left to build on.
 
 `check_home` reports the walls that stand beyond a setback line or a
-property line, as errors.
+property line, as errors, with the id and the name of that line. When several
+closed property lines are drawn, only the lot the walls stand in is used, and
+the neighbor lots that `import_parcels` draws (kind `neighbor_lot`) never are.
 
 ![A lot line shown in the 3D view by its stakes and its string](images/site-lines.jpg)
 
@@ -1341,9 +1343,9 @@ home (`set_georeference`). Four of them can also ask a web service, when the use
 | Command | What it does |
 | --- | --- |
 | `import_geojson`, `import_kml`, `import_shapefile`, `import_dxf` | Draws the points, the lines and the polygons of a file, each kind as the rules say |
-| `import_buildings` | The polygons of a file as neighbor buildings |
+| `import_buildings` | The polygons of a file as neighbor buildings, at the height their attributes give |
 | `import_roads` | The lines of a file as roads with their names |
-| `import_parcels` | The polygons of a file, or of a county parcel service, as property lines with labels |
+| `import_parcels` | The polygons of a file, or of a county parcel service: the lot of the home as its property line, the others as neighbor lots |
 | `import_osm` | OpenStreetMap data from a file, or from the Overpass service around the home |
 | `fetch_elevation` | The terrain from the heights of the USGS 3DEP service |
 | `set_basemap` | An aerial picture or a map behind the plan |
@@ -1375,32 +1377,55 @@ home (`set_georeference`). Four of them can also ask a web service, when the use
   `srs` is placed by `x`, `y`, the place in the plan of its origin, and `units` (`m`, `ft`, `cm`,
   `mm`, `in`), its north up the plan.
 - **Rules.** Each rule chooses features by `"geometry":"point|line|polygon"` and / or
-  `"where":{"<attribute>":"<value>"}` (`"*"` for any value; the layer of a DXF is the attribute
-  `layer`), and tells what they become with `as`. The first rule that fits is used, and with rules
-  the features that none chooses are left out.
+  `"where":{"<attribute>":"<value>"}` (`"if"` is the same key; `"*"` for any value; the layer of a
+  DXF is the attribute `layer`), and tells what they become with `as`. The first rule that fits is
+  used, and with rules the features that none chooses are left out.
 
 | A feature | `as` |
 | --- | --- |
 | polygon | `property_line`, `polyline`, `room`, `slab`, `patio`, `planting_bed`, `building`, `pond`, `pool`, `deck`, `driveway`, `fence`, `hedge` |
-| line | `polyline`, `fence`, `hedge`, `path`, `driveway`, `sidewalk`, `curb` |
+| line | `polyline`, `fence`, `hedge`, `path`, `road`, `driveway`, `sidewalk`, `curb` |
 | point | `tree`, `shrub`, `label`, `utility`, `furniture` |
 | any | `skip` |
 
 - The other keys of a rule are the ones of the command that builds it: `style` for a fence,
-  `roof` for a building, `type` for a utility. `name_from`, `height_from`, `width_from`,
-  `species_from` and `tag_from` name the attributes to read; heights and widths read from
-  attributes are in meters unless `"attribute_units":"ft"` or `"cm"`.
+  `roof` for a building, `type` for a utility. `<key>_from`, or `<key>_attribute`, names the
+  attribute that gives a key: `name_from`, `height_from`, `width_from`, `species_from`, `tag_from`,
+  `style_attribute` for the style of a fence (a style of `list_fence_styles` or a `fence_type` of
+  OpenStreetMap), and so on. Heights and widths read from attributes are in meters unless
+  `"attribute_units":"ft"` or `"cm"`. A key that the command built doesn't read comes back as a
+  warning.
+- `"buffer_m":N` or `"area":[[x,y],...]` keeps what is within that distance of the walls of the
+  home, or in that area: lines are cut at its edge, the other features are kept when their middle
+  is in it. The answer gives the area and how many features were outside.
 - Without rule a polygon and a line are drawn as lines of the plan and a named point as a label.
 - What is built has the tag `imported`. 3000 features at most are drawn by a call, and a feature
   more than 10 km from the plan is refused: the georeference, `srs` or `units` is then wrong.
-- **`import_parcels`** labels each lot with its owner, its address or its parcel id
-  (`"label_from":["OWNER","SITUS"]` names the attributes) and its acres. With
-  `"subject":{"<attribute>":"<value>"}` that lot is the property line of the home and the others
-  are drawn as grey dashed lines.
-- **`import_osm`** draws buildings with their levels and their roof shape, roads at the width of
-  their class with their names, footways, trees, fences with their `fence_type`, hedges, walls,
-  water and swimming pools. `only` limits it to `buildings`, `roads`, `paths`, `trees`, `fences`
-  or `water`.
+- **`import_buildings`** reads the height of each building from the attribute that
+  `height_attribute` (or `height_from`) names, or from an attribute named `height`, in
+  `"height_units":"m|cm|ft"`; without units a value over 100 is taken in centimeters and another
+  one in meters. Without height it uses the levels (`levels_attribute`, or an attribute named
+  `levels`, `stories`, `num_floors`...) at 280 cm each, then the `height` of the command. The
+  answer tells how many buildings took each one. A building whose middle is in a neighbor building
+  that exists, or that covers the walls of the home, is left out unless `"keep_existing":true`.
+- **`import_roads`** and the roads of `import_osm` are drawn as roads tagged `road`, in pieces of
+  `max_segment_m` meters at most (40) that each lie on the ground, with one label for their name.
+- **`import_parcels`** draws the parcel that contains the home as its property line. The others
+  are **neighbor lots**: gray dash-dot lines of the kind `neighbor_lot`, which the checks of walls
+  and of fences never take for the lot of the home. Each lot is named and labelled with its parcel
+  number and its address when its attributes have them (`PIN`, `PARCEL_NO`, `SITUS`...), plus its
+  owner with `"label_owner":true`, and with its acres; `"label_from":["PIN","SITUS"]` names the
+  attributes itself, and the answer lists the attributes when none was recognised.
+  `"subject":{"<attribute>":"<value>"}` names the lot of the home when no parcel contains its
+  walls. A parcel isn't drawn over a property line that already surrounds the home, nor a neighbor
+  lot over itself.
+- **`import_osm`** draws buildings with their levels and their roof shape, roads at their `width`,
+  their `lanes` or the width of their class, footways, trees, fences with their `fence_type`,
+  hedges, walls, water and swimming pools. `only` (or `layers`) limits it to `buildings`, `roads`,
+  `paths`, `trees`, `fences` or `water`. Asked from the service, it keeps only what is in the area:
+  a street that goes on for 600 m is cut at the edge.
+- `check_home` verifies the walls against the lot they stand in, and names it. When a home has
+  several closed property lines, the others aren't used.
 
 ### Web services
 
@@ -1411,12 +1436,21 @@ command then sends the corners of the area it asks for to one service, and nothi
 | --- | --- | --- |
 | `fetch_elevation` | USGS 3DEP (`elevation.nationalmap.gov`) | The heights around the home every `resolution_cm` (300), 12 000 at most, then the terrain as `set_terrain` builds it, with `pin`, `datum_offset_cm` and `max_points`. The United States only. Heights are above the sea: the lowest one is taken for the height 0 unless `pin` says otherwise |
 | `import_osm` without `path` | Overpass (`overpass-api.de`) | What OpenStreetMap has within `buffer_m` meters (150) of the home |
-| `import_parcels` with `url` | The ArcGIS REST layer given | The lots within `buffer_m` meters of the home |
-| `set_basemap` | Esri World Imagery, USGS imagery, OpenStreetMap, or `xyz:<template>` | The tiles around the home at `zoom` (19), turned to the plan and shown as its background image |
+| `import_parcels` with `url` | The ArcGIS REST layer given | The lots that touch the area `buffer_m` meters around the home |
+| `set_basemap` | `esri_world_imagery`, `usgs_naip` (`imagery.nationalmap.gov`), `usgs_imagery` (`basemap.nationalmap.gov`), `osm`, or `xyz:<template>` | The tiles around the home at `zoom` (19), turned to the plan and shown as its background image |
 
-`buffer_m` is measured around the walls, the rooms and the property lines of the home;
-`"area":[[x,y],...]` gives another zone. `set_basemap` replaces the background image of the
-level, and `remove_background_image` takes it away.
+- **Around the home** means around its walls, whatever was imported or drawn farther away: a
+  street or a neighbor lot 300 m long doesn't widen it. A home without wall uses its property
+  line, then the point of its georeference. `"area":[[x,y],...]` gives another zone.
+- `fetch_elevation` never changes a `resolution_cm` that was asked: an area that needs more than
+  12 000 heights at that resolution is refused, with the resolution that covers it. Without
+  `resolution_cm`, a large area is covered more coarsely and the answer says so.
+- `set_basemap` replaces the background image of the level, and `remove_background_image` takes
+  it away. The picture is 990 m and 4096 pixels across at most: a larger area is reduced to the
+  990 m around its middle and a zoom too fine is lowered, which the answer tells. `usgs_naip` is
+  the aerial picture of the United States from the image service of the USGS; `usgs_imagery` is
+  the tiles of The National Map, which stop at the zoom 16. An `xyz:` template has `{z}`, `{x}`
+  and `{y}`, or `{bbox}` for the box of each tile in Web Mercator meters.
 
 ### Limits
 
@@ -1458,11 +1492,19 @@ find the place of what two photos show.
   without direction has a mark without cone. `heading` is in degrees clockwise from the top of
   the plan, and the field of view comes from the focal length for a 35 mm film when it is written.
 - `get_3d_image` with `"photo":"PH1"` draws the home from where the photo was taken, looking the
-  same way, beside the photo; `compare_mode` and `compare_opacity` lay it over instead.
-- **`refine_photo_pose`**: `u` is where a thing is across the photo, 0 at its left edge and 1 at
-  its right edge; `plan` is its place. Two matches correct the direction, three or more the place
-  too. The answer tells how many degrees the matches are off: more than 3 means a wrong match or a
-  wrong field of view.
+  same way, beside the photo; `compare_mode` and `compare_opacity` lay it over instead. The photo
+  is turned upright as its camera held it (the orientation it wrote), and without `width` the
+  picture takes the shape of the photo: upright for a photo taken upright, with the field of view
+  of the short side of its lens across it.
+- **`refine_photo_pose`**: `u` is where a thing is across the photo seen upright, 0 at its left
+  edge and 1 at its right edge; `plan` is its place. Two matches correct the direction, three or
+  more the place too. The answer tells how many degrees the matches are off: more than 3 means a
+  wrong match or a wrong field of view.
+- The place the GPS recorded counts in that correction as much as its accuracy: the one the photo
+  wrote, 8 m without it, or `"gps_accuracy_m":N`. Places in a building are left aside. A result
+  farther from the recorded place than this accuracy, or with a match behind the camera, **isn't
+  applied**: the answer gives the distance and asks to check the matches. `"force":true` applies
+  it anyway, and `"keep_place":true` corrects only the direction.
 - **`locate_from_photos`**: one ray by photo, towards the same thing. The answer gives the point
   and the angle at which the lines cross: under 15 degrees the place is uncertain by meters.
 - The place a phone records is often 3 to 10 m off, and its compass a few degrees. Heights aren't

@@ -32,21 +32,27 @@ import java.util.Locale;
 import java.util.Map;
 
 import com.eteks.sweethome3d.model.Home;
+import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Label;
 import com.eteks.sweethome3d.model.Level;
 import com.eteks.sweethome3d.model.Polyline;
+import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Selectable;
 
 /**
  * The commands that place photos in the plan from the position and the direction their camera recorded,
  * look at the home from where a photo was taken, and find a place from what two photos show.
  */
-class AssistantPhotoCommands {
+public class AssistantPhotoCommands {
   /** The property of a home that keeps its photos, in JSON. */
   static final String PHOTOS_PROPERTY = "assistantPhotos";
 
   private static final long MAX_PHOTO_LENGTH = 60L * 1024 * 1024;
   private static final int  MAX_PHOTOS = 300;
+  /** The accuracy in cm of the place a phone records, when its photo doesn't tell it. */
+  private static final float DEFAULT_GPS_ACCURACY = 800;
+  /** How well a thing is pointed across a photo, in degrees. */
+  private static final double MATCH_ACCURACY = 1.5;
 
   private final Home                     home;
   private final HomeController           homeController;
@@ -71,11 +77,16 @@ class AssistantPhotoCommands {
         + "(a photo placed by hand: heading in degrees clockwise from the top of the plan)\n"
         + "  {\"action\":\"photo_viewpoint\",\"photo\":\"PH1\"}  "
         + "(moves the camera of the 3D view where the photo was taken, 160 cm above the ground, looking the same way with the "
-        + "same field of view. get_3d_image with \"photo\":\"PH1\" draws that view beside the photo without moving the camera)\n"
+        + "same field of view. get_3d_image with \"photo\":\"PH1\" draws that view beside the photo without moving the camera: "
+        + "the photo is turned upright as its camera held it, and the picture takes its shape and its field of view, upright "
+        + "for a photo taken upright)\n"
         + "  {\"action\":\"refine_photo_pose\",\"photo\":\"PH1\",\"matches\":[{\"u\":0.25,\"plan\":[x,y]},{\"u\":0.8,\"plan\":[x,y]}]}  "
         + "(corrects the place and the direction of a photo from things seen in it whose place in the plan is known: u is where "
-        + "each one is across the photo, 0 at its left edge and 1 at its right edge. Two matches correct its direction, three or "
-        + "more its place too)\n"
+        + "each one is across the photo seen upright, 0 at its left edge and 1 at its right edge. Two matches correct its "
+        + "direction, three or more its place too, the place its GPS recorded weighing as much as its accuracy: the one of the "
+        + "photo, 8 m without it, or \"gps_accuracy_m\":N. A result farther than this accuracy, in a building or with a match "
+        + "behind the camera isn't applied, and the answer tells why: \"force\":true applies it, \"keep_place\":true corrects "
+        + "only the direction)\n"
         + "  {\"action\":\"locate_from_photos\",\"rays\":[{\"photo\":\"PH1\",\"u\":0.4},{\"photo\":\"PH2\",\"u\":0.7}]}  "
         + "(the point of the plan where the lines of sight of two photos or more cross, towards something seen in each one: "
         + "a tree, a post, a corner of a shed; the answer tells how well they agree)\n";
@@ -220,6 +231,10 @@ class AssistantPhotoCommands {
         buffer.order(buffer.get(0) == 'I' ? ByteOrder.LITTLE_ENDIAN : ByteOrder.BIG_ENDIAN);
         try {
           Map<Integer, Object> ifd0 = readDirectory(buffer, buffer.getInt(4));
+          if (ifd0.get(0x0112) instanceof Number && ((Number)ifd0.get(0x0112)).intValue() >= 1
+              && ((Number)ifd0.get(0x0112)).intValue() <= 8) {
+            values.put("orientation", Integer.valueOf(((Number)ifd0.get(0x0112)).intValue()));
+          }
           if (ifd0.get(0x8769) instanceof Number) {
             Map<Integer, Object> exif = readDirectory(buffer, ((Number)ifd0.get(0x8769)).intValue());
             if (exif.get(0x9003) != null) {
@@ -264,6 +279,48 @@ class AssistantPhotoCommands {
       offset += 2 + length;
     }
     return values;
+  }
+
+  /**
+   * Returns the way the picture of a JPEG file is turned, as its camera wrote it: 1 for a picture
+   * stored upright, 3 upside down, 6 and 8 for a picture to turn by a quarter clockwise and
+   * counter clockwise, 2, 4, 5 and 7 for mirrored ones.
+   */
+  public static int getOrientation(byte [] data) {
+    Object orientation = readExif(data).get("orientation");
+    return orientation instanceof Number ? ((Number)orientation).intValue() : 1;
+  }
+
+  /**
+   * Returns the width of a photo divided by its height once it is turned upright, or 0 if it can't be read.
+   */
+  static float getAspect(byte [] data) {
+    int [] size = AssistantGeneratedModel.getImageSize(data);
+    if (size == null || size [0] < 1 || size [1] < 1) {
+      return 0;
+    }
+    return getOrientation(data) >= 5 ? (float)size [1] / size [0] : (float)size [0] / size [1];
+  }
+
+  /**
+   * Returns the shape and the width of view of a photo, as seen upright: its width divided by its
+   * height (0 if unknown) and the angle in degrees it sees from its left edge to its right edge.
+   */
+  static float [] getShape(Map<String, Object> photo) {
+    float fieldOfView = number(photo, "fov", 65);
+    float aspect = number(photo, "aspect", 0);
+    if (aspect <= 0 && photo.get("path") != null) {
+      // A photo placed by an older version, which took the long side of every photo for its width
+      try {
+        aspect = getAspect(AssistantGeneratedModel.readFile(new File(photo.get("path").toString()), MAX_PHOTO_LENGTH));
+        if (aspect > 0 && aspect < 1 && photo.get("lat") != null) {
+          fieldOfView = (float)Math.toDegrees(2 * Math.atan(Math.tan(Math.toRadians(fieldOfView / 2)) * aspect));
+        }
+      } catch (IOException ex) {
+        aspect = 0;
+      }
+    }
+    return new float [] {aspect, fieldOfView};
   }
 
   /**
@@ -368,8 +425,10 @@ class AssistantPhotoCommands {
     List<Map<String, Object>> added = new ArrayList<Map<String, Object>>();
     int withoutDirection = 0;
     for (File file : files) {
-      Map<String, Object> exif = byHand ? new LinkedHashMap<String, Object>()
-          : readExif(AssistantGeneratedModel.readFile(file, MAX_PHOTO_LENGTH));
+      byte [] data = AssistantGeneratedModel.readFile(file, MAX_PHOTO_LENGTH);
+      Map<String, Object> exif = byHand ? new LinkedHashMap<String, Object>() : readExif(data);
+      // The shape of the photo once it is turned as its camera held it
+      float aspect = getAspect(data);
       Map<String, Object> photo = new LinkedHashMap<String, Object>();
       double x = command.getDouble("x", Double.NaN);
       double y = command.getDouble("y", Double.NaN);
@@ -406,7 +465,12 @@ class AssistantPhotoCommands {
       }
       double fieldOfView = command.getDouble("fov", Double.NaN);
       if (Double.isNaN(fieldOfView) && exif.get("focal_length_35") instanceof Number) {
-        fieldOfView = Math.toDegrees(2 * Math.atan(36 / (2 * ((Number)exif.get("focal_length_35")).doubleValue())));
+        // Across the photo: the long side of the film, or its short side for a photo taken upright
+        fieldOfView = Math.toDegrees(2 * Math.atan(36 * (aspect > 0 && aspect < 1 ? aspect : 1)
+            / (2 * ((Number)exif.get("focal_length_35")).doubleValue())));
+      }
+      if (aspect > 0) {
+        photo.put("aspect", Double.valueOf(Math.round(aspect * 1000) / 1000.));
       }
       photo.put("fov", Double.valueOf(Double.isNaN(fieldOfView) ? 65 : Math.round(Math.max(10, Math.min(150, fieldOfView)) * 10) / 10.));
       if (exif.get("accuracy") instanceof Number) {
@@ -552,7 +616,7 @@ class AssistantPhotoCommands {
     parameters.put("look_at_y", Double.valueOf(number(photo, "y", 0) - Math.cos(heading) * 1000));
     parameters.put("look_at_height", Double.valueOf(command.getDouble("height", 160)));
     parameters.put("mode", "visitor");
-    parameters.put("fov", photo.get("fov"));
+    parameters.put("fov", Double.valueOf(getShape(photo) [1]));
     List<String> cameraNotes = new ArrayList<String>();
     this.executor.applySubCommand(new AssistantCommand("set_camera", parameters), tally, cameraNotes);
     notes.add("Moved the camera where the photo " + photo.get("id") + " \"" + photo.get("name") + "\" was taken: at ("
@@ -565,7 +629,7 @@ class AssistantPhotoCommands {
    * Returns the direction in the plan, in degrees clockwise from its top, of what is at <code>u</code> across a photo.
    */
   private static double getBearing(Map<String, Object> photo, double u) {
-    double half = Math.toRadians(number(photo, "fov", 65) / 2);
+    double half = Math.toRadians(getShape(photo) [1] / 2);
     return number(photo, "heading", 0) + Math.toDegrees(Math.atan((u - 0.5) * 2 * Math.tan(half)));
   }
 
@@ -591,16 +655,22 @@ class AssistantPhotoCommands {
       throw new IOException("give 2 \"matches\" at least: {\"u\":0.25,\"plan\":[x,y]}, u being where the thing is across the photo "
           + "(0 = its left edge, 1 = its right edge) and plan its place");
     }
-    double half = Math.toRadians(number(photo, "fov", 65) / 2);
+    double half = Math.toRadians(getShape(photo) [1] / 2);
     double startX = number(photo, "x", 0);
     double startY = number(photo, "y", 0);
-    boolean movePlace = matches.size() >= 3;
+    boolean force = command.getBoolean("force", false);
+    boolean movePlace = matches.size() >= 3 && !command.getBoolean("keep_place", false);
+    // How far the place a phone recorded may be from the true one
+    double accuracy = command.has("gps_accuracy_m") ? command.getDouble("gps_accuracy_m", 8) * 100
+        : number(photo, "accuracy", DEFAULT_GPS_ACCURACY);
+    accuracy = Math.max(100, Math.min(10000, accuracy));
     // The place around the recorded one, and the direction, that put the things where the photo shows them
     double bestX = startX;
     double bestY = startY;
     double bestHeading = 0;
+    double bestCost = Double.MAX_VALUE;
     double bestError = Double.MAX_VALUE;
-    double reach = movePlace ? Math.max(1500, number(photo, "accuracy", 1000) * 2) : 0;
+    double reach = movePlace ? Math.max(1500, accuracy * 3) : 0;
     for (double step = reach > 0 ? reach / 8 : 1; ; step /= 4) {
       double centerX = bestX;
       double centerY = bestY;
@@ -608,6 +678,10 @@ class AssistantPhotoCommands {
         for (int row = -8; row <= 8; row++) {
           double x = movePlace ? centerX + column * step : startX;
           double y = movePlace ? centerY + row * step : startY;
+          if (movePlace && !force && !(x == startX && y == startY) && isInBuilding(x, y)) {
+            // No photo of the outside is taken from within a building
+            continue;
+          }
           // The direction that fits best from this place
           double sumSin = 0;
           double sumCos = 0;
@@ -624,9 +698,12 @@ class AssistantPhotoCommands {
           for (double offset : offsets) {
             error += wrap(offset - heading) * wrap(offset - heading);
           }
-          // A place closer to the recorded one is preferred among equal ones
-          error += 1E-9 * Math.hypot(x - startX, y - startY);
-          if (error < bestError) {
+          // The recorded place is a measure too, as good as its accuracy; forced, it only breaks ties
+          double distance = Math.hypot(x - startX, y - startY);
+          double cost = force ? error + 1E-9 * distance
+              : error / (MATCH_ACCURACY * MATCH_ACCURACY) + distance * distance / (accuracy * accuracy);
+          if (cost < bestCost) {
+            bestCost = cost;
             bestError = error;
             bestX = x;
             bestY = y;
@@ -647,6 +724,25 @@ class AssistantPhotoCommands {
     double residual = Math.sqrt(bestError / matches.size());
     double moved = Math.hypot(bestX - startX, bestY - startY);
     double turned = photo.get("heading") != null ? wrap(bestHeading - number(photo, "heading", 0)) : Double.NaN;
+    String hint = ": check the matches (\"u\" goes from 0 at the left edge to 1 at the right edge of the photo seen upright, and "
+        + "\"plan\" is the place of the same thing). \"keep_place\":true corrects only the direction, \"gps_accuracy_m\":N "
+        + "tells another accuracy, and \"force\":true applies the result anyway";
+    if (!force) {
+      for (int i = 0; i < matches.size(); i++) {
+        double [] match = matches.get(i);
+        double bearing = Math.toDegrees(Math.atan2(match [1] - bestX, -(match [2] - bestY)));
+        if (Math.abs(wrap(bearing - bestHeading)) > 90) {
+          throw new IOException("nothing was changed: the match " + (i + 1) + " at (" + format(match [1]) + ", " + format(match [2])
+              + ") would be behind the camera" + hint);
+        }
+      }
+      if (movePlace && moved > accuracy) {
+        throw new IOException("nothing was changed: the matches put the camera " + format(moved / 100) + " m from the place its GPS "
+            + "recorded, at (" + format(bestX) + ", " + format(bestY) + "), more than the GPS accuracy " + format(accuracy / 100)
+            + " m, with matches " + format(residual) + " degrees off on average" + hint);
+      }
+    }
+    boolean inBuilding = isInBuilding(bestX, bestY);
     List<Map<String, Object>> photos = getPhotos(this.home);
     for (Map<String, Object> other : photos) {
       if (String.valueOf(photo.get("id")).equals(String.valueOf(other.get("id")))) {
@@ -654,7 +750,9 @@ class AssistantPhotoCommands {
         other.put("y", Double.valueOf(Math.round(bestY)));
         other.put("heading", Double.valueOf(Math.round((((bestHeading % 360) + 360) % 360) * 10) / 10.));
         other.put("refined", Double.valueOf(matches.size()));
-        other.remove("accuracy");
+        if (movePlace) {
+          other.remove("accuracy");
+        }
         photo = other;
       }
     }
@@ -662,12 +760,33 @@ class AssistantPhotoCommands {
     deleteMarkers(Collections.singletonList(String.valueOf(photo.get("id"))));
     drawMarker(photo, this.home.getSelectedLevel());
     notes.add("Corrected the photo " + photo.get("id") + " from " + matches.size() + " matches: " + (movePlace
-            ? "its place moved by " + format(moved / 100) + " m to (" + format(bestX) + ", " + format(bestY) + "), " : "its place kept, ")
+            ? "its place moved by " + format(moved / 100) + " m to (" + format(bestX) + ", " + format(bestY) + "), within the GPS accuracy "
+                + format(accuracy / 100) + " m that weighs the place recorded, "
+            : "its place kept, ")
         + "its direction " + (Double.isNaN(turned) ? "found: " : "turned by " + format(turned) + " degrees to ")
         + format(((bestHeading % 360) + 360) % 360) + " degrees. The matches are " + format(residual) + " degrees off on average"
         + (residual > 3 ? ": more than 3 degrees means a match is wrong, or the field of view of the photo (\"fov\" "
             + format(number(photo, "fov", 65)) + ") isn't the one of its lens" : "")
-        + (movePlace ? "" : ". With 3 matches or more its place is corrected too"));
+        + (inBuilding ? ". Warning: this place is inside a building" : "")
+        + (movePlace ? "" : matches.size() >= 3 ? "" : ". With 3 matches or more its place is corrected too"));
+  }
+
+  /**
+   * Returns <code>true</code> if a place is in a room under a ceiling or in a neighbor building.
+   */
+  private boolean isInBuilding(double x, double y) {
+    for (Room room : this.home.getRooms()) {
+      if (room.isCeilingVisible() && room.containsPoint((float)x, (float)y, 0)) {
+        return true;
+      }
+    }
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      if ("context_building".equals(piece.getProperty(AssistantGardenCommands.GARDEN_PROPERTY))
+          && piece.containsPoint((float)x, (float)y, 0)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private void locate(AssistantCommand command, List<String> notes) throws IOException {

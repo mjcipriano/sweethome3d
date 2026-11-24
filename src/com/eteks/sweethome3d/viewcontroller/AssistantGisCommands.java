@@ -32,6 +32,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -85,9 +88,20 @@ public class AssistantGisCommands {
     float [] toPlan(double first, double second);
   }
 
+  /** The tiles of the USGS imagery: their row comes before their column, and they stop at the zoom 16. */
+  static final String USGS_IMAGERY_TEMPLATE =
+      "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}";
+  /** The image service of the NAIP aerial pictures of the USGS, asked a box at a time. */
+  static final String USGS_NAIP_TEMPLATE =
+      "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer/exportImage"
+      + "?bbox={bbox}&bboxSR=3857&imageSR=3857&size=256,256&format=jpg&f=image";
+  /** The widest background image, in meters. */
+  private static final double MAX_BASEMAP_WIDTH = 990;
+
   private final Home                     home;
   private final AssistantCommandExecutor executor;
   private boolean                        webAccessAllowed;
+  private int                            unlabelledParcels;
   private TileComposer                   tileComposer;
 
   AssistantGisCommands(Home home, AssistantCommandExecutor executor) {
@@ -118,32 +132,50 @@ public class AssistantGisCommands {
         + "import_shapefile a .shp with its .dbf, import_dxf a DXF drawing; \"geojson\":{...} gives GeoJSON in the command. "
         + "Coordinates are longitude and latitude, or in \"srs\":\"EPSG:2240\"; a DXF or a shapefile without srs is placed by "
         + "\"x\",\"y\" (the plan place of its origin) and \"units\":\"m|ft|cm\", its north up the plan. "
-        + "Each rule chooses features by \"geometry\":\"point|line|polygon\" and / or \"where\":{\"<attribute>\":\"<value>\"} and tells "
+        + "Each rule chooses features by \"geometry\":\"point|line|polygon\" and / or \"where\":{\"<attribute>\":\"<value>\"} "
+        + "(\"if\" is the same; a feature takes the first rule it matches, and the ones that match none are left out) and tells "
         + "what they become with \"as\": for a polygon property_line, polyline, room, slab, patio, planting_bed, building, pond, "
-        + "pool or deck; for a line polyline, fence, hedge, path, driveway, sidewalk or curb; for a point tree, shrub, label, "
+        + "pool or deck; for a line polyline, fence, hedge, path, road, driveway, sidewalk or curb; for a point tree, shrub, label, "
         + "utility or furniture; skip leaves them out. The other keys of a rule are the ones of the command that builds it, and "
-        + "\"name_from\", \"height_from\", \"width_from\", \"species_from\", \"tag_from\" name the attributes to read, the heights and "
-        + "the widths in meters unless \"attribute_units\":\"ft|cm\". Without rule a "
-        + "polygon and a line are drawn as lines of the plan and a named point as a label. Up to " + MAX_FEATURES + " features a call)\n"
-        + "  {\"action\":\"import_buildings\",\"path\":\"<file>\",\"height\":600,\"height_from\":\"HEIGHT\",\"roof\":\"hip\"}  "
-        + "(the polygons of a file as neighbor buildings; import_roads draws its lines as "
-        + "roads \"width\" cm wide (600, or \"width_from\") of asphalt with their names as labels; import_parcels its polygons as "
-        + "property lines with their owner, address or parcel id as labels: \"label_from\":[\"OWNER\",\"SITUS\"], and "
-        + "\"subject\":{\"<attribute>\":\"<value>\"} names the lot of the home, the others being drawn as neighbors)\n"
+        + "\"<key>_from\" (or \"<key>_attribute\") names the attribute that gives a key: \"name_from\", \"height_from\", "
+        + "\"width_from\", \"species_from\", \"tag_from\", \"style_attribute\" for the style of a fence... The heights and "
+        + "the widths are in meters unless \"attribute_units\":\"ft|cm\". Without rule a "
+        + "polygon and a line are drawn as lines of the plan and a named point as a label. \"buffer_m\":N or \"area\":[[x,y],...] "
+        + "keeps what is that near the walls of the home or in that area, lines being cut at its edge. Up to " + MAX_FEATURES
+        + " features a call)\n"
+        + "  {\"action\":\"import_buildings\",\"path\":\"<file>\",\"height\":600,\"height_attribute\":\"HEIGHT\","
+        + "\"height_units\":\"m|cm|ft\",\"roof\":\"hip\"}  "
+        + "(the polygons of a file as neighbor buildings. Their height is the attribute \"height_attribute\" names, or an "
+        + "attribute named height, in \"height_units\" (without it a value over 100 is taken in cm, another in m), else "
+        + "their levels x 280 cm (\"levels_attribute\", or levels, stories...), else \"height\"; the answer tells which. "
+        + "Buildings where the home or a neighbor building stands already are left out unless \"keep_existing\":true. "
+        + "import_roads draws its lines as roads \"width\" cm wide (600, or \"width_from\") of asphalt, tagged road, in pieces of "
+        + "\"max_segment_m\" (40) at most that each follow the ground, with their names as labels. import_parcels draws the "
+        + "parcel that contains the home as its property line and the others as neighbor lots, dash-dot gray lines that no "
+        + "check takes for the lot of the home; a parcel isn't drawn over a property line that exists. Each is named and "
+        + "labelled by its number and its address when its attributes have them, plus its owner with \"label_owner\":true, or by "
+        + "\"label_from\":[\"PIN\",\"SITUS\"]; \"subject\":{\"<attribute>\":\"<value>\"} names the lot of the home itself)\n"
         + "  {\"action\":\"import_osm\",\"path\":\"<a .osm or Overpass JSON file>\"}  "
-        + "(OpenStreetMap data: buildings with their levels, roads and footways, trees, fences with their type, hedges, walls and "
-        + "water. Without path it asks the Overpass service for what is \"buffer_m\" meters (150) around the home, which needs "
-        + "the permission to use web services; \"only\":[\"buildings\",\"roads\",\"paths\",\"trees\",\"fences\",\"water\"] limits it)\n"
+        + "(OpenStreetMap data: buildings with their levels, roads with their width or lanes, footways, trees, fences with "
+        + "their type, hedges, walls and water. Without path it asks the Overpass service for what is \"buffer_m\" meters (150) "
+        + "around the walls of the home, which needs the permission to use web services, and keeps only what is in that area: "
+        + "roads are cut at its edge. \"only\" (or \"layers\"):[\"buildings\",\"roads\",\"paths\",\"trees\",\"fences\",\"water\"] "
+        + "limits it)\n"
         + "  {\"action\":\"import_parcels\",\"url\":\"<ArcGIS REST FeatureServer layer URL>\",\"buffer_m\":150}  "
-        + "(asks a county parcel service for the lots around the home; web permission needed)\n"
+        + "(asks a county parcel service for the lots that touch the area around the home; web permission needed)\n"
         + "  {\"action\":\"fetch_elevation\",\"source\":\"usgs_3dep\",\"buffer_m\":60,\"resolution_cm\":300}  "
         + "(asks the USGS 3DEP service for the heights of the ground around the home and builds the terrain with them, as "
         + "set_terrain with \"pin\", \"datum_offset_cm\" and \"max_points\"; \"area\":[[x,y],...] instead of buffer_m; web permission "
-        + "needed. Only in the United States)\n"
-        + "  {\"action\":\"set_basemap\",\"source\":\"esri_world_imagery|usgs_naip|osm|xyz:<template>\",\"buffer_m\":80,\"zoom\":19}  "
+        + "needed. Only in the United States. \"Around the home\" is around its walls, whatever was imported or drawn farther; "
+        + "without wall, around its lot, then around the point of its georeference. A call gives 12000 heights at most: an "
+        + "area too large for \"resolution_cm\" is refused with the resolution that covers it)\n"
+        + "  {\"action\":\"set_basemap\",\"source\":\"esri_world_imagery|usgs_naip|usgs_imagery|osm|xyz:<template>\",\"buffer_m\":80,"
+        + "\"zoom\":19}  "
         + "(downloads the tiles of an aerial picture or of a map around the home, turns them to the plan and shows them behind "
-        + "it as its background image; web permission needed. An \"xyz:\" template has {z}, {x} and {y}. remove_background_image "
-        + "takes it away)\n"
+        + "it as its background image; web permission needed. usgs_naip is the NAIP aerial picture of the United States, "
+        + "usgs_imagery the tiles of The National Map, which stop at the zoom 16. An \"xyz:\" template has {z}, {x} and {y}, "
+        + "or {bbox}. The picture is 990 m and 4096 pixels wide at most: a larger area or a finer zoom is reduced, which the "
+        + "answer tells. remove_background_image takes it away)\n"
         + "  {\"action\":\"web_sources\"}  (tells whether web services may be used, and what each command sends: the place of the "
         + "home goes to the service asked)\n";
   }
@@ -167,7 +199,7 @@ public class AssistantGisCommands {
             + " What each command sends: fetch_elevation sends the corners of the area asked to the USGS (elevation.nationalmap.gov); "
             + "import_osm without path sends them to the Overpass service of OpenStreetMap (overpass-api.de); import_parcels with "
             + "\"url\" sends them to that server; set_basemap asks the tiles around the home to Esri (server.arcgisonline.com), the "
-            + "USGS (basemap.nationalmap.gov), OpenStreetMap (tile.openstreetmap.org) or the server of an xyz template. Nothing "
+            + "USGS (imagery.nationalmap.gov for usgs_naip, basemap.nationalmap.gov for usgs_imagery), OpenStreetMap (tile.openstreetmap.org) or the server of an xyz template. Nothing "
             + "else of the home is sent. Point clouds aren't downloaded, and Bing and Google sources aren't available.");
       } else if ("fetch_point_cloud".equals(action)) {
         throw new IOException("point clouds aren't downloaded: the USGS serves them compressed (LAZ, Entwine), which this program "
@@ -761,13 +793,61 @@ public class AssistantGisCommands {
   }
 
   private static String getName(Map<String, Object> properties, Map<?, ?> rule) {
-    Object value = rule != null && rule.get("name_from") != null ? find(properties, rule.get("name_from").toString()) : null;
+    String nameAttribute = getAttributeName(rule, "name");
+    Object value = nameAttribute != null ? find(properties, nameAttribute) : null;
     for (String key : new String [] {"name", "addr:housenumber", "label", "title"}) {
       if (value == null) {
         value = find(properties, key);
       }
     }
     return value != null && value.toString().trim().length() > 0 ? value.toString().trim() : null;
+  }
+
+  /**
+   * Returns the attribute a rule reads a value from, given by <code>&lt;key&gt;_from</code> or
+   * <code>&lt;key&gt;_attribute</code>, or <code>null</code>.
+   */
+  private static String getAttributeName(Map<?, ?> rule, String key) {
+    if (rule == null) {
+      return null;
+    }
+    Object name = rule.get(key + "_from") != null ? rule.get(key + "_from") : rule.get(key + "_attribute");
+    return name != null && name.toString().trim().length() > 0 ? name.toString().trim() : null;
+  }
+
+  /**
+   * Returns the style of fence that a type of fence of OpenStreetMap names, or <code>null</code>.
+   */
+  private static String getFenceStyle(String fenceType) {
+    String type = fenceType.trim().toLowerCase(Locale.ENGLISH).replace(' ', '_').replace('-', '_');
+    if (AssistantFenceBuilder.getStyle(type) != null) {
+      return type;
+    }
+    return type.equals("chain_link") || type.equals("chainlink") ? "chain_link" : type.equals("wood") || type.equals("panel") ? "privacy_solid"
+        : type.equals("split_rail") ? "split_rail" : type.equals("wire") ? "field_fence"
+        : type.equals("electric") ? "electric" : type.equals("barbed_wire") ? "barbed_wire"
+        : type.equals("pole") ? "post_and_rail" : type.equals("railing") || type.equals("bars")
+            || type.equals("metal") ? "ornamental_steel" : null;
+  }
+
+  private static double parseNumber(Object value) {
+    try {
+      return Double.parseDouble(value.toString().replaceAll("[^0-9.\\-]", ""));
+    } catch (NumberFormatException ex) {
+      return Double.NaN;
+    }
+  }
+
+  /**
+   * Returns the number of centimeters of a unit of length, or 0 if it isn't known.
+   */
+  private static float getUnitScale(String units) {
+    if (units == null) {
+      return 0;
+    }
+    String text = units.trim().toLowerCase(Locale.ENGLISH);
+    return text.startsWith("cm") || text.startsWith("centi") ? 1 : text.startsWith("f") || text.startsWith("us") ? 30.48f
+        : text.equals("m") || text.startsWith("met") ? 100 : 0;
   }
 
   /**
@@ -804,10 +884,17 @@ public class AssistantGisCommands {
       if (!only.isEmpty() && !only.contains(path ? "paths" : "roads")) {
         return null;
       }
-      rule.put("as", path ? "path" : "driveway");
-      rule.put("width", Double.valueOf(path ? 150 : highway.equals("service") || highway.equals("track") ? 350
+      rule.put("as", path ? "path" : "road");
+      double width = path ? 150 : highway.equals("service") || highway.equals("track") ? 350
           : highway.equals("residential") || highway.equals("unclassified") || highway.equals("living_street") ? 600
-          : highway.equals("tertiary") ? 700 : 900));
+          : highway.equals("tertiary") ? 700 : 900;
+      // The width or the lanes that the road tells
+      double told = tags.get("width") != null ? parseNumber(tags.get("width")) * 100
+          : tags.get("lanes") != null ? parseNumber(tags.get("lanes")) * 300 : Double.NaN;
+      if (told >= 100 && told <= 3000) {
+        width = told;
+      }
+      rule.put("width", Double.valueOf(width));
       if (!path) {
         rule.put("material", highway.equals("track") ? "gravel" : "asphalt");
         rule.put("label", Boolean.TRUE);
@@ -820,14 +907,10 @@ public class AssistantGisCommands {
         rule.put("as", "hedge");
       } else {
         rule.put("as", "fence");
-        String fenceType = tags.get("fence_type") != null ? tags.get("fence_type").toString() : "";
+        String fenceStyle = tags.get("fence_type") != null ? getFenceStyle(tags.get("fence_type").toString()) : null;
         rule.put("style", barrier.equals("wall") ? "brick_wall" : barrier.equals("retaining_wall") ? "retaining_wall"
             : barrier.equals("guard_rail") ? "guardrail" : barrier.equals("bollard") ? "bollards"
-            : fenceType.equals("chain_link") ? "chain_link" : fenceType.equals("wood") ? "privacy_solid"
-            : fenceType.equals("split_rail") ? "split_rail" : fenceType.equals("wire") ? "field_fence"
-            : fenceType.equals("electric") ? "electric" : fenceType.equals("barbed_wire") ? "barbed_wire"
-            : fenceType.equals("pole") ? "post_and_rail" : fenceType.equals("railing") || fenceType.equals("bars")
-                || fenceType.equals("metal") ? "ornamental_steel" : fenceType.equals("panel") ? "privacy_solid" : "post_and_rail");
+            : fenceStyle != null ? fenceStyle : "post_and_rail");
         if (feature.type.equals("polygon")) {
           rule.put("closed", Boolean.TRUE);
         }
@@ -870,8 +953,9 @@ public class AssistantGisCommands {
         return false;
       }
     }
-    if (rule.get("where") instanceof Map) {
-      for (Map.Entry<?, ?> entry : ((Map<?, ?>)rule.get("where")).entrySet()) {
+    Object where = rule.get("where") != null ? rule.get("where") : rule.get("if");
+    if (where instanceof Map) {
+      for (Map.Entry<?, ?> entry : ((Map<?, ?>)where).entrySet()) {
         Object value = find(feature.properties, String.valueOf(entry.getKey()));
         String wanted = String.valueOf(entry.getValue());
         if (value == null && !wanted.equals("*") || value != null && !wanted.equals("*")
@@ -899,12 +983,15 @@ public class AssistantGisCommands {
     boolean geographic = true;
     String source;
     boolean osm = "import_osm".equals(action);
+    boolean fetched = false;
     if (osm && file == null) {
       features = readOsm(fetchOsm(command));
       source = "the Overpass service of OpenStreetMap";
+      fetched = true;
     } else if ("import_parcels".equals(action) && command.getString("url") != null) {
       features = readGeoJson(fetchParcels(command));
       source = "the parcel service";
+      fetched = true;
     } else if (file == null) {
       Object data = command.getParameters().get("geojson");
       if (data == null) {
@@ -940,6 +1027,7 @@ public class AssistantGisCommands {
       throw new IOException("nothing was read from " + source + ": no point, line or polygon");
     }
     Transform transform = getTransform(command, geographic && command.getString("x") == null);
+    this.unlabelledParcels = 0;
     // The rules of the command, or the ones of its kind
     List<Map<?, ?>> rules = new ArrayList<Map<?, ?>>();
     if (command.getParameters().get("rules") instanceof List) {
@@ -952,7 +1040,8 @@ public class AssistantGisCommands {
     Map<String, Object> defaultRule = new LinkedHashMap<String, Object>();
     for (Map.Entry<String, Object> entry : command.getParameters().entrySet()) {
       if (!Arrays.asList("action", "path", "file", "geojson", "srs", "units", "x", "y", "rules", "url", "buffer_m", "only", "subject",
-              "label_from", "max_features", "attribute_units").contains(entry.getKey())) {
+              "label_from", "max_features", "attribute_units", "layers", "area", "height_units", "max_segment_m", "label_owner",
+              "keep_existing").contains(entry.getKey())) {
         defaultRule.put(entry.getKey(), entry.getValue());
       }
     }
@@ -961,8 +1050,8 @@ public class AssistantGisCommands {
       defaultRule.put("as", "building");
     } else if ("import_roads".equals(action)) {
       defaultRule.put("geometry", "line");
-      defaultRule.put("as", "driveway");
-      if (defaultRule.get("width") == null) {
+      defaultRule.put("as", "road");
+      if (defaultRule.get("width") == null && getAttributeName(defaultRule, "width") == null) {
         defaultRule.put("width", Double.valueOf(600));
       }
       if (defaultRule.get("material") == null) {
@@ -973,21 +1062,106 @@ public class AssistantGisCommands {
       defaultRule.put("geometry", "polygon");
       defaultRule.put("as", "property_line");
     }
-    List<String> only = command.getStringList("only");
+    List<String> only = new ArrayList<String>();
+    for (String layer : command.getStringList("only")) {
+      only.add(layer.trim().toLowerCase(Locale.ENGLISH));
+    }
+    for (String layer : command.getStringList("layers")) {
+      only.add(layer.trim().toLowerCase(Locale.ENGLISH));
+    }
     // The heights and the widths that attributes give are in meters unless told otherwise
     float heightScale = 100;
     if (command.getString("attribute_units") != null) {
       String units = command.getString("attribute_units").toLowerCase(Locale.ENGLISH);
       heightScale = units.startsWith("cm") ? 1 : units.startsWith("f") ? 30.48f : 100;
     }
+    float heightUnitScale = getUnitScale(command.getString("height_units"));
+    if (command.getString("height_units") != null && heightUnitScale == 0) {
+      throw new IOException("\"height_units\" is m, cm or ft");
+    }
+    if (heightUnitScale == 0 && command.getString("attribute_units") != null) {
+      heightUnitScale = heightScale;
+    }
+    // What a service gives around the home, or what is asked with an area, is cut to that area
+    float [] clip = fetched || command.has("buffer_m") || command.has("area") ? getPlanBounds(command, 150) : null;
+    float maxSegment = (float)Math.max(0, Math.min(100000, command.getDouble("max_segment_m", 40))) * 100;
+    boolean parcels = "import_parcels".equals(action);
     int limit = (int)Math.max(1, Math.min(MAX_FEATURES, command.getDouble("max_features", MAX_FEATURES)));
+    // The points of the plan of each feature
+    List<List<float []>> planPoints = new ArrayList<List<float []>>();
+    int far = 0;
+    for (Feature feature : features) {
+      List<float []> points = new ArrayList<float []>();
+      boolean farAway = false;
+      for (double [] point : feature.points) {
+        float [] plan = transform.toPlan(point [0], point [1]);
+        farAway |= !AssistantCommandExecutor.coordinateSane(plan [0]) || !AssistantCommandExecutor.coordinateSane(plan [1]);
+        if (points.isEmpty() || Math.hypot(plan [0] - points.get(points.size() - 1) [0], plan [1] - points.get(points.size() - 1) [1]) > 0.5) {
+          points.add(plan);
+        }
+      }
+      if (feature.type.equals("polygon") && points.size() > 3
+          && Math.hypot(points.get(0) [0] - points.get(points.size() - 1) [0], points.get(0) [1] - points.get(points.size() - 1) [1]) < 0.5) {
+        points.remove(points.size() - 1);
+      }
+      if (farAway) {
+        far++;
+      }
+      planPoints.add(farAway ? null : points);
+    }
+    // The lot of the home among parcels: the one that contains it, unless "subject" names it
+    boolean subjectGiven = command.getParameters().get("subject") instanceof Map;
+    float [] homePoint = getHomePoint();
+    Feature subjectParcel = null;
+    Polyline existingLot = null;
+    int parcelCount = 0;
+    if (parcels) {
+      double smallest = Double.MAX_VALUE;
+      for (int i = 0; i < features.size(); i++) {
+        List<float []> points = planPoints.get(i);
+        if (points != null && features.get(i).type.equals("polygon") && points.size() >= 3) {
+          parcelCount++;
+          if (!subjectGiven && homePoint != null && contains(points, homePoint [0], homePoint [1]) && getPolygonArea(points) < smallest) {
+            smallest = getPolygonArea(points);
+            subjectParcel = features.get(i);
+          }
+        }
+      }
+      if (!subjectGiven && homePoint == null && parcelCount == 1) {
+        for (int i = 0; i < features.size(); i++) {
+          if (planPoints.get(i) != null && features.get(i).type.equals("polygon") && planPoints.get(i).size() >= 3) {
+            subjectParcel = features.get(i);
+          }
+        }
+      }
+      smallest = Double.MAX_VALUE;
+      for (Polyline polyline : this.home.getPolylines()) {
+        if ("property".equals(polyline.getProperty(AssistantSiteCommands.LINE_KIND_PROPERTY)) && polyline.isClosedPath()
+            && polyline.getPointCount() >= 3) {
+          List<float []> lot = Arrays.asList(polyline.getPoints());
+          if ((homePoint == null || contains(lot, homePoint [0], homePoint [1])) && getPolygonArea(lot) < smallest) {
+            smallest = getPolygonArea(lot);
+            existingLot = polyline;
+          }
+        }
+      }
+    }
     Map<String, Integer> counts = new TreeMap<String, Integer>();
+    Map<String, Integer> pieceCounts = new TreeMap<String, Integer>();
+    Map<String, Integer> heightUses = new LinkedHashMap<String, Integer>();
+    Set<String> warnings = new LinkedHashSet<String>();
     List<String> failures = new ArrayList<String>();
+    String subjectName = null;
+    String parcelAttributes = null;
     int skipped = 0;
     int built = 0;
-    int far = 0;
+    int outside = 0;
+    int existing = 0;
+    int alreadyDrawn = 0;
+    int sameLots = 0;
     this.executor.beginTurnUpdate();
-    for (Feature feature : features) {
+    for (int index = 0; index < features.size(); index++) {
+      Feature feature = features.get(index);
       if (built >= limit) {
         skipped++;
         continue;
@@ -1012,22 +1186,9 @@ public class AssistantGisCommands {
         skipped++;
         continue;
       }
-      List<float []> points = new ArrayList<float []>();
-      boolean farAway = false;
-      for (double [] point : feature.points) {
-        float [] plan = transform.toPlan(point [0], point [1]);
-        farAway |= !AssistantCommandExecutor.coordinateSane(plan [0]) || !AssistantCommandExecutor.coordinateSane(plan [1]);
-        if (points.isEmpty() || Math.hypot(plan [0] - points.get(points.size() - 1) [0], plan [1] - points.get(points.size() - 1) [1]) > 0.5) {
-          points.add(plan);
-        }
-      }
-      if (farAway) {
-        far++;
+      List<float []> points = planPoints.get(index);
+      if (points == null) {
         continue;
-      }
-      if (feature.type.equals("polygon") && points.size() > 3
-          && Math.hypot(points.get(0) [0] - points.get(points.size() - 1) [0], points.get(0) [1] - points.get(points.size() - 1) [1]) < 0.5) {
-        points.remove(points.size() - 1);
       }
       String as = rule != null && rule.get("as") != null ? rule.get("as").toString().toLowerCase(Locale.ENGLISH)
           : feature.type.equals("point") ? "label" : "polyline";
@@ -1035,20 +1196,115 @@ public class AssistantGisCommands {
         skipped++;
         continue;
       }
-      try {
-        if (build(feature, as, rule, points, heightScale, command, tally)) {
-          counts.put(as, Integer.valueOf(counts.containsKey(as) ? counts.get(as).intValue() + 1 : 1));
-          built++;
-        } else {
-          skipped++;
+      boolean line = feature.type.equals("line");
+      boolean building = as.equals("building") || as.equals("context_building");
+      List<List<float []>> parts = new ArrayList<List<float []>>();
+      if (clip == null || points.isEmpty()) {
+        parts.add(points);
+      } else if (line) {
+        parts.addAll(clipLine(points, clip));
+      } else if (feature.type.equals("point")) {
+        if (points.get(0) [0] >= clip [0] && points.get(0) [0] <= clip [2] && points.get(0) [1] >= clip [1] && points.get(0) [1] <= clip [3]) {
+          parts.add(points);
         }
-      } catch (IOException ex) {
-        if (failures.size() < 5) {
-          String name = getName(feature.properties, rule);
-          failures.add((name != null ? "\"" + name + "\": " : "") + ex.getMessage());
+      } else {
+        // A lot is kept if it touches the area, anything else if its middle is in it
+        float [] box = {Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE, 0, 0};
+        for (float [] point : points) {
+          box [0] = Math.min(box [0], point [0]);
+          box [1] = Math.min(box [1], point [1]);
+          box [2] = Math.max(box [2], point [0]);
+          box [3] = Math.max(box [3], point [1]);
+          box [4] += point [0] / points.size();
+          box [5] += point [1] / points.size();
         }
+        if (as.equals("property_line") ? box [0] <= clip [2] && box [2] >= clip [0] && box [1] <= clip [3] && box [3] >= clip [1]
+            : box [4] >= clip [0] && box [4] <= clip [2] && box [5] >= clip [1] && box [5] <= clip [3]) {
+          parts.add(points);
+        }
+      }
+      if (parts.isEmpty()) {
+        outside++;
+        continue;
+      }
+      if (building && !command.getBoolean("keep_existing", false) && isBuilt(points)) {
+        existing++;
+        continue;
+      }
+      boolean subject = false;
+      if (as.equals("property_line") && feature.type.equals("polygon")) {
+        subject = feature == subjectParcel;
+        if (subjectGiven) {
+          subject = true;
+          for (Map.Entry<?, ?> entry : ((Map<?, ?>)command.getParameters().get("subject")).entrySet()) {
+            Object value = find(feature.properties, String.valueOf(entry.getKey()));
+            subject &= value != null && value.toString().equalsIgnoreCase(String.valueOf(entry.getValue()));
+          }
+        } else if (!parcels) {
+          // A property line asked by a rule
+          subject = true;
+        }
+        if (subject && parcels && existingLot != null) {
+          // The lot of the home is drawn already
+          alreadyDrawn++;
+          continue;
+        }
+        if (!subject && parcels && isNeighborLotDrawn(points)) {
+          sameLots++;
+          continue;
+        }
+        if (parcelAttributes == null) {
+          parcelAttributes = feature.properties.keySet().toString();
+        }
+      }
+      if (line && maxSegment > 0 && (osm || "import_roads".equals(action)) && (as.equals("road") || as.equals("driveway"))) {
+        List<List<float []>> pieces = new ArrayList<List<float []>>();
+        for (List<float []> part : parts) {
+          pieces.addAll(splitLine(part, maxSegment));
+        }
+        parts = pieces;
+      }
+      String key = null;
+      int drawn = 0;
+      for (int i = 0; i < parts.size(); i++) {
+        try {
+          String [] name = new String [1];
+          String partKey = build(feature, as, rule, parts.get(i), heightScale, heightUnitScale, command, tally,
+              i == parts.size() / 2, subject, heightUses, warnings, name);
+          if (partKey != null) {
+            key = partKey;
+            drawn++;
+            if (subject && parcels) {
+              subjectName = name [0];
+            }
+          }
+        } catch (IOException ex) {
+          if (failures.size() < 5) {
+            String name = getName(feature.properties, rule);
+            failures.add((name != null ? "\"" + name + "\": " : "") + ex.getMessage());
+          }
+        }
+      }
+      if (drawn > 0) {
+        counts.put(key, Integer.valueOf(counts.containsKey(key) ? counts.get(key).intValue() + 1 : 1));
+        pieceCounts.put(key, Integer.valueOf(pieceCounts.containsKey(key) ? pieceCounts.get(key).intValue() + drawn : drawn));
+        built++;
+      } else {
         skipped++;
       }
+    }
+    if (built == 0 && (alreadyDrawn > 0 || existing > 0 || sameLots > 0)) {
+      notes.add("Nothing new in " + source + ": " + (alreadyDrawn > 0 ? "the lot of the home is drawn already by "
+          + this.executor.getId(existingLot) + (sameLots > 0 ? ", and its " + sameLots + " neighbor lots too" : "")
+          : sameLots > 0 ? "its " + sameLots + " neighbor lots are drawn already"
+          : existing + " buildings stand where the home or a neighbor building is already")
+          + (outside > 0 ? "; " + outside + " features are outside the area asked" : ""));
+      return;
+    }
+    if (built == 0 && outside > 0 && far == 0 && failures.isEmpty()) {
+      throw new IOException("the " + outside + " features of " + source + " that could be drawn are outside the area asked, "
+          + format((clip [2] - clip [0]) / 100) + " x " + format((clip [3] - clip [1]) / 100) + " m around ("
+          + format((clip [0] + clip [2]) / 2) + ", " + format((clip [1] + clip [3]) / 2) + "): a larger \"buffer_m\" or an \"area\" takes them");
     }
     if (built == 0) {
       throw new IOException("nothing was drawn from the " + features.size() + " features of " + source
@@ -1059,7 +1315,59 @@ public class AssistantGisCommands {
     boolean first = true;
     for (Map.Entry<String, Integer> entry : counts.entrySet()) {
       text.append(first ? "" : ", ").append(entry.getValue()).append(' ').append(entry.getKey());
+      if (pieceCounts.get(entry.getKey()).intValue() > entry.getValue().intValue()) {
+        text.append(" (in ").append(pieceCounts.get(entry.getKey())).append(" pieces of ").append(format(maxSegment / 100))
+            .append(" m at most, which each follow the ground)");
+      }
       first = false;
+    }
+    if (clip != null) {
+      text.append(", in the area of ").append(format((clip [2] - clip [0]) / 100)).append(" x ").append(format((clip [3] - clip [1]) / 100))
+          .append(" m around (").append(format((clip [0] + clip [2]) / 2)).append(", ").append(format((clip [1] + clip [3]) / 2)).append(")");
+      if (outside > 0) {
+        text.append("; ").append(outside).append(" features outside it were left out, and the lines were cut at its edge");
+      }
+    }
+    if (existing > 0) {
+      text.append(". ").append(existing).append(existing == 1 ? " building was" : " buildings were")
+          .append(" left out, where the home or a neighbor building stands already (\"keep_existing\":true draws them anyway)");
+    }
+    if (!heightUses.isEmpty()) {
+      text.append(". Heights of the buildings: ");
+      boolean firstUse = true;
+      for (Map.Entry<String, Integer> entry : heightUses.entrySet()) {
+        text.append(firstUse ? "" : ", ").append(entry.getValue()).append(" from ").append(entry.getKey());
+        firstUse = false;
+      }
+    }
+    if (parcels) {
+      int neighbors = counts.containsKey("neighbor_lot") ? counts.get("neighbor_lot").intValue() : 0;
+      if (alreadyDrawn > 0 || existingLot != null && subjectParcel != null) {
+        text.append(". The lot of the home is drawn already by ").append(this.executor.getId(existingLot))
+            .append(": its parcel wasn't drawn a second time");
+      } else if (subjectParcel != null && subjectName == null) {
+        text.append(". The lot of the home wasn't reached");
+      } else if (subjectName != null) {
+        text.append(". The lot of the home is \"").append(subjectName).append("\"")
+            .append(subjectGiven ? "" : homePoint != null ? ", the parcel that contains the home" : "");
+      } else {
+        text.append(". None of the parcels ").append(subjectGiven ? "matches \"subject\"" : "contains the home")
+            .append(": \"subject\":{\"<attribute>\":\"<value>\"} names its lot");
+      }
+      if (sameLots > 0) {
+        text.append(". ").append(sameLots).append(" neighbor lots drawn already were left out");
+      }
+      if (neighbors > 0) {
+        text.append(". The ").append(neighbors).append(neighbors == 1 ? " other is a neighbor lot" : " others are neighbor lots")
+            .append(", drawn dash-dot in gray: the checks of the walls and of the fences don't use them");
+      }
+      if (warnings.isEmpty() && parcelAttributes != null && this.unlabelledParcels > 0) {
+        text.append(". ").append(this.unlabelledParcels).append(" have no number or address among their attributes ")
+            .append(parcelAttributes).append(": \"label_from\":[\"<attribute>\",...] names the ones to write");
+      }
+    }
+    for (String warning : warnings) {
+      text.append(". ").append(warning);
     }
     if (skipped > 0) {
       text.append(". ").append(skipped).append(" were left out (no rule for them, nothing to draw, or more than ").append(limit).append(")");
@@ -1074,22 +1382,24 @@ public class AssistantGisCommands {
   }
 
   /**
-   * Builds what a feature becomes and returns <code>false</code> if it has nothing to draw.
+   * Builds what a feature becomes and returns what it is counted as, or <code>null</code> if it has nothing to draw.
    */
-  private boolean build(Feature feature, String as, Map<?, ?> rule, List<float []> points, float heightScale,
-                        AssistantCommand command, int [] tally) throws IOException {
+  private String build(Feature feature, String as, Map<?, ?> rule, List<float []> points, float heightScale, float heightUnitScale,
+                       AssistantCommand command, int [] tally, boolean labelled, boolean subject,
+                       Map<String, Integer> heightUses, Set<String> warnings, String [] builtName) throws IOException {
     Map<String, Object> parameters = new LinkedHashMap<String, Object>();
+    boolean building = as.equals("building") || as.equals("context_building");
     if (rule != null) {
       for (Map.Entry<?, ?> entry : rule.entrySet()) {
         String key = String.valueOf(entry.getKey());
-        if (!Arrays.asList("where", "geometry", "as", "name_from", "height_from", "width_from", "species_from", "tag_from", "label")
-                .contains(key)) {
+        if (!Arrays.asList("where", "if", "geometry", "as", "label", "height_units").contains(key)
+            && !key.endsWith("_from") && !key.endsWith("_attribute")) {
           parameters.put(key, entry.getValue());
         }
       }
     }
     String name = getName(feature.properties, rule);
-    if (name != null && parameters.get("name") == null && !as.equals("building")) {
+    if (name != null && parameters.get("name") == null && !building) {
       parameters.put("name", name.length() > 60 ? name.substring(0, 60) : name);
     }
     List<Object> tags = new ArrayList<Object>();
@@ -1097,20 +1407,92 @@ public class AssistantGisCommands {
       tags.addAll((List<?>)parameters.get("tags"));
     }
     tags.add("imported");
-    if (rule != null && rule.get("tag_from") != null && find(feature.properties, rule.get("tag_from").toString()) != null) {
-      tags.add(HomeItemTags.cleanTag(find(feature.properties, rule.get("tag_from").toString()).toString()));
+    String tagAttribute = getAttributeName(rule, "tag");
+    if (tagAttribute != null && find(feature.properties, tagAttribute) != null) {
+      tags.add(HomeItemTags.cleanTag(find(feature.properties, tagAttribute).toString()));
     }
-    for (String [] attribute : new String [][] {{"height_from", "height"}, {"width_from", "width"}}) {
-      if (rule != null && rule.get(attribute [0]) != null) {
-        Object value = find(feature.properties, rule.get(attribute [0]).toString());
-        if (value != null) {
-          try {
-            parameters.put(attribute [1], Double.valueOf(Double.parseDouble(value.toString().replaceAll("[^0-9.\\-]", "")) * heightScale));
-          } catch (NumberFormatException ex) {
-            // The default one
+    // The values that attributes give: <key>_from or <key>_attribute names the attribute of the key
+    if (rule != null) {
+      float ruleHeightScale = getUnitScale(rule.get("height_units") != null ? rule.get("height_units").toString() : null);
+      if (ruleHeightScale > 0) {
+        heightUnitScale = ruleHeightScale;
+      }
+      for (Object ruleKey : rule.keySet()) {
+        String key = String.valueOf(ruleKey);
+        String base = key.endsWith("_from") ? key.substring(0, key.length() - 5)
+            : key.endsWith("_attribute") ? key.substring(0, key.length() - 10) : null;
+        if (base == null || base.length() == 0 || Arrays.asList("name", "species", "tag", "label").contains(base)
+            || building && Arrays.asList("height", "stories", "levels").contains(base)) {
+          continue;
+        }
+        Object value = find(feature.properties, String.valueOf(rule.get(key)));
+        if (value == null || value.toString().trim().length() == 0) {
+          continue;
+        }
+        if (Arrays.asList("height", "width", "thickness", "depth", "length", "diameter", "elevation").contains(base)) {
+          double number = parseNumber(value);
+          if (!Double.isNaN(number)) {
+            parameters.put(base, Double.valueOf(number * (base.equals("height") && heightUnitScale > 0 ? heightUnitScale : heightScale)));
+          }
+        } else if (base.equals("style") && as.equals("fence")) {
+          String style = getFenceStyle(value.toString());
+          if (style != null) {
+            parameters.put("style", style);
+          } else if (warnings.size() < 4) {
+            warnings.add("Warning: \"" + value + "\" of the attribute " + rule.get(key) + " isn't a style of fence, so the "
+                + (parameters.get("style") != null ? "style " + parameters.get("style") : "usual style") + " was used");
+          }
+        } else {
+          parameters.put(base, value instanceof Number || value instanceof Boolean ? value : value.toString().trim());
+        }
+      }
+    }
+    if (building) {
+      // The height of a building: an attribute, its levels, or the one of the command
+      String heightAttribute = getAttributeName(rule, "height");
+      String levelsAttribute = getAttributeName(rule, "stories") != null ? getAttributeName(rule, "stories") : getAttributeName(rule, "levels");
+      boolean explicit = parameters.get("height") != null || parameters.get("stories") != null;
+      parameters.remove("levels");
+      String use = null;
+      List<String> heightNames = heightAttribute != null ? Arrays.asList(heightAttribute)
+          : explicit ? Collections.<String>emptyList()
+          : Arrays.asList("height", "building:height", "bldg_height", "bldgheight", "building_height", "height_m", "height_ft", "hgt");
+      for (String heightName : heightNames) {
+        Object value = find(feature.properties, heightName);
+        double number = value != null ? parseNumber(value) : Double.NaN;
+        if (number > 0) {
+          String lowerName = heightName.toLowerCase(Locale.ENGLISH);
+          float scale = heightUnitScale > 0 ? heightUnitScale : lowerName.endsWith("_ft") ? 30.48f : lowerName.endsWith("_m") ? 100
+              : number > 100 ? 1 : 100;
+          parameters.put("height", Double.valueOf(number * scale));
+          parameters.remove("stories");
+          use = "the attribute \"" + heightName + "\" in " + (scale == 1 ? "cm" : scale == 100 ? "m" : "ft")
+              + (heightUnitScale > 0 ? "" : scale == 1 ? " (more than 100: \"height_units\":\"m|ft\" says otherwise)"
+                  : " (\"height_units\":\"cm|ft\" says otherwise)");
+          break;
+        }
+      }
+      if (use == null) {
+        List<String> levelNames = levelsAttribute != null ? Arrays.asList(levelsAttribute)
+            : explicit ? Collections.<String>emptyList()
+            : Arrays.asList("levels", "building:levels", "stories", "num_floors", "numfloors", "floors", "num_stories", "numstories");
+        for (String levelName : levelNames) {
+          Object value = find(feature.properties, levelName);
+          double number = value != null ? parseNumber(value) : Double.NaN;
+          if (number >= 0.5 && number <= 60) {
+            parameters.put("stories", Double.valueOf(number));
+            parameters.remove("height");
+            use = "the levels of \"" + levelName + "\" x 280 cm";
+            break;
           }
         }
       }
+      if (use == null) {
+        use = parameters.get("height") != null ? "the height given" : parameters.get("stories") != null ? "the levels given x 280 cm"
+            : "the usual height of one level, without attribute of height or of levels"
+              + (heightAttribute != null ? " (no \"" + heightAttribute + "\")" : "");
+      }
+      heightUses.put(use, Integer.valueOf(heightUses.containsKey(use) ? heightUses.get(use).intValue() + 1 : 1));
     }
     List<Object> list = new ArrayList<Object>();
     for (float [] point : points) {
@@ -1124,8 +1506,9 @@ public class AssistantGisCommands {
       if (as.equals("tree") || as.equals("shrub")) {
         action = as.equals("tree") ? "add_tree" : "add_shrub";
         parameters.remove("name");
-        if (rule != null && rule.get("species_from") != null && find(feature.properties, rule.get("species_from").toString()) != null) {
-          String species = find(feature.properties, rule.get("species_from").toString()).toString();
+        String speciesAttribute = getAttributeName(rule, "species");
+        if (speciesAttribute != null && find(feature.properties, speciesAttribute) != null) {
+          String species = find(feature.properties, speciesAttribute).toString();
           if (AssistantPlantBuilder.getSpecies(species) != null) {
             parameters.put("species", species);
           } else {
@@ -1142,7 +1525,7 @@ public class AssistantGisCommands {
         parameters.put("name", rule.get("name"));
       } else if (as.equals("label")) {
         if (name == null) {
-          return false;
+          return null;
         }
         action = "add_label";
         parameters.clear();
@@ -1155,7 +1538,7 @@ public class AssistantGisCommands {
       }
     } else {
       if (points.size() < (feature.type.equals("polygon") ? 3 : 2)) {
-        return false;
+        return null;
       }
       parameters.put("points", list);
       boolean polygon = feature.type.equals("polygon");
@@ -1179,7 +1562,17 @@ public class AssistantGisCommands {
       } else if (!polygon && (as.equals("path") || as.equals("driveway") || as.equals("road") || as.equals("sidewalk") || as.equals("curb"))) {
         action = as.equals("path") ? "add_path" : as.equals("sidewalk") ? "add_sidewalk" : as.equals("curb") ? "add_curb" : "add_driveway";
         taggable = !as.equals("path");
-        if (rule != null && Boolean.TRUE.equals(rule.get("label")) && name != null) {
+        if (as.equals("road")) {
+          if (parameters.get("name") == null) {
+            parameters.put("name", "Road");
+          }
+          if (parameters.get("material") == null) {
+            parameters.put("material", "asphalt");
+          }
+          tags.add("road");
+        }
+        if (labelled && rule != null && (Boolean.TRUE.equals(rule.get("label")) || as.equals("road") && rule.get("label") == null)
+            && name != null) {
           // The name of a road, in its middle
           float [] middle = points.get(points.size() / 2);
           float [] before = points.get(Math.max(0, points.size() / 2 - 1));
@@ -1192,41 +1585,22 @@ public class AssistantGisCommands {
       } else if (polygon && as.equals("property_line")) {
         action = "add_property_line";
         taggable = false;
-        // What names a parcel: its owner, its address, its number
-        List<String> labelNames = command.getStringList("label_from");
-        if (labelNames.isEmpty()) {
-          labelNames = Arrays.asList("OWNER", "OWNER_NAME", "OWNERNME1", "SITUS", "SITEADDRESS", "ADDRESS", "PARCEL_ID", "PARCELID",
-              "PIN", "APN");
-        }
-        StringBuilder label = new StringBuilder();
-        int parts = 0;
-        for (String labelName : labelNames) {
-          Object value = find(feature.properties, labelName);
-          if (value != null && value.toString().trim().length() > 0 && parts < 2) {
-            label.append(label.length() > 0 ? " - " : "").append(value.toString().trim());
-            parts++;
-          }
-        }
-        boolean subject = true;
-        if (command.getParameters().get("subject") instanceof Map) {
-          for (Map.Entry<?, ?> entry : ((Map<?, ?>)command.getParameters().get("subject")).entrySet()) {
-            Object value = find(feature.properties, String.valueOf(entry.getKey()));
-            subject &= value != null && value.toString().equalsIgnoreCase(String.valueOf(entry.getValue()));
-          }
-        }
+        // What names a parcel: its number and its address
+        String label = getParcelLabel(feature.properties, command.getStringList("label_from"), command.getBoolean("label_owner", false));
         if (!subject) {
-          // A neighbor: a line of the plan, lighter
+          // A neighbor: a line of the plan that no check takes for the lot of the home
           action = "add_polyline";
+          parameters.put("kind", "neighbor_lot");
           parameters.put("closed", Boolean.TRUE);
-          parameters.put("dash", "dashed");
-          parameters.put("color", "#8A8A8A");
-          parameters.put("thickness", Double.valueOf(2));
         }
         String acres = format(getPolygonArea(points) / 10000 / 4046.86);
-        parameters.put("name", (label.length() > 0 ? label.toString() : subject ? "Property line" : "Neighbor lot") + " (" + acres + " ac)");
-        if (label.length() > 0) {
-          parameters.put("label", label + " (" + acres + " ac)");
+        parameters.put("name", (subject ? "Property line" : "Neighbor lot") + (label != null ? " " + label : "") + " (" + acres + " ac)");
+        if (label != null) {
+          parameters.put("label", label + (subject ? "" : " (neighbor)"));
+        } else {
+          this.unlabelledParcels++;
         }
+        as = subject ? "property_line" : "neighbor_lot";
       } else if (polygon && as.equals("room")) {
         action = "add_room";
         taggable = false;
@@ -1251,14 +1625,270 @@ public class AssistantGisCommands {
     if (taggable) {
       parameters.put("tags", tags);
     }
+    Set<HomePieceOfFurniture> before = as.equals("road") ? new HashSet<HomePieceOfFurniture>(this.home.getFurniture()) : null;
     List<String> notes = new ArrayList<String>();
     this.executor.applySubCommand(new AssistantCommand(action, parameters), tally, notes);
     for (String note : notes) {
       if (note.startsWith("Couldn't")) {
         throw new IOException(note.substring(note.indexOf('(') + 1, note.lastIndexOf(')')));
+      } else if (note.startsWith("Warning:") && warnings.size() < 4) {
+        warnings.add(note);
       }
     }
-    return true;
+    if (before != null) {
+      // A road isn't a driveway
+      for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+        if (!before.contains(piece)) {
+          List<String> pieceTags = new ArrayList<String>(HomeItemTags.getTags(piece));
+          pieceTags.remove("driveway");
+          if (!pieceTags.contains("road")) {
+            pieceTags.add("road");
+          }
+          piece.setProperty(HomeItemTags.TAGS_PROPERTY, HomeItemTags.formatTags(pieceTags));
+        }
+      }
+    }
+    builtName [0] = parameters.get("name") != null ? parameters.get("name").toString() : null;
+    return as;
+  }
+
+  /**
+   * Returns the number and the address of a parcel among its attributes, or the values of the
+   * attributes named, or <code>null</code> if it has none.
+   */
+  private static String getParcelLabel(Map<String, Object> properties, List<String> labelNames, boolean owner) {
+    List<String> parts = new ArrayList<String>();
+    if (!labelNames.isEmpty()) {
+      for (String labelName : labelNames) {
+        Object value = find(properties, labelName);
+        if (value != null && isMeaningful(value) && parts.size() < 3) {
+          parts.add(value.toString().trim());
+        }
+      }
+    } else {
+      String [][] exactNames = {
+          {"parcelid", "parcelno", "parcelnum", "parcelnumber", "parcelidentifier", "pin", "apn", "parcel", "taxparcel", "taxid",
+           "mapparcel", "parcelpin", "gpin", "pid", "realkey"},
+          {"situs", "siteaddress", "siteaddr", "situsaddress", "situsaddr", "propertyaddress", "propaddr", "propertyaddr", "address",
+           "fulladdress", "fulladdr", "physicaladdress", "streetaddress", "location", "locaddr"},
+          {"owner", "ownername", "owner1", "ownernme1", "ownname", "ownername1"}};
+      for (int kind = 0; kind < (owner ? 3 : 2); kind++) {
+        String found = null;
+        // A usual name first, then a name that looks like one
+        for (int pass = 0; pass < 2 && found == null; pass++) {
+          for (Map.Entry<String, Object> entry : properties.entrySet()) {
+            String key = entry.getKey().toLowerCase(Locale.ENGLISH).replaceAll("[^a-z0-9]", "");
+            boolean named = pass == 0 ? Arrays.asList(exactNames [kind]).contains(key)
+                : kind == 0 ? key.contains("parcel") && (key.contains("id") || key.contains("no") || key.contains("num") || key.contains("pin"))
+                : kind == 1 ? (key.contains("situs") || key.contains("addr")) && !key.contains("mail") && !key.contains("own")
+                    && !key.contains("city") && !key.contains("zip") && !key.contains("state")
+                : key.contains("owner") && !key.contains("addr") && !key.contains("city") && !key.contains("zip")
+                    && !key.contains("state") && !key.contains("mail");
+            if (named && entry.getValue() != null && isMeaningful(entry.getValue())) {
+              found = entry.getValue().toString().trim();
+              break;
+            }
+          }
+        }
+        if (found != null) {
+          parts.add(found.length() > 50 ? found.substring(0, 50) : found);
+        }
+      }
+    }
+    if (parts.isEmpty()) {
+      return null;
+    }
+    StringBuilder label = new StringBuilder();
+    for (String part : parts) {
+      label.append(label.length() > 0 ? " - " : "").append(part);
+    }
+    return label.toString();
+  }
+
+  private static boolean isMeaningful(Object value) {
+    String text = value.toString().trim();
+    return text.length() > 0 && !text.equalsIgnoreCase("null") && !text.equals("0") && !text.equalsIgnoreCase("none");
+  }
+
+  /**
+   * Returns the place the home stands at: the middle of its walls, or the point of its georeference,
+   * or <code>null</code> if it has neither.
+   */
+  private float [] getHomePoint() {
+    double x = 0;
+    double y = 0;
+    int count = 0;
+    for (Wall wall : this.home.getWalls()) {
+      x += (wall.getXStart() + wall.getXEnd()) / 2;
+      y += (wall.getYStart() + wall.getYEnd()) / 2;
+      count++;
+    }
+    if (count > 0) {
+      return new float [] {(float)(x / count), (float)(y / count)};
+    }
+    HomeGeoreference georeference = HomeGeoreference.get(this.home);
+    return georeference != null ? new float [] {(float)georeference.getX(), (float)georeference.getY()} : null;
+  }
+
+  private static boolean contains(List<float []> polygon, float x, float y) {
+    boolean inside = false;
+    for (int i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
+      float [] a = polygon.get(i);
+      float [] b = polygon.get(j);
+      if ((a [1] > y) != (b [1] > y) && x < (b [0] - a [0]) * (y - a [1]) / (b [1] - a [1]) + a [0]) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
+  /**
+   * Returns <code>true</code> if the line of a neighbor lot with the same points exists.
+   */
+  private boolean isNeighborLotDrawn(List<float []> polygon) {
+    for (Polyline polyline : this.home.getPolylines()) {
+      if (AssistantSiteCommands.NEIGHBOR_LOT_KIND.equals(polyline.getProperty(AssistantSiteCommands.LINE_KIND_PROPERTY))
+          && polyline.getPointCount() == polygon.size()) {
+        float [][] points = polyline.getPoints();
+        boolean same = true;
+        for (int i = 0; i < points.length && same; i++) {
+          same = Math.hypot(points [i][0] - polygon.get(i) [0], points [i][1] - polygon.get(i) [1]) < 5;
+        }
+        if (same) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Returns <code>true</code> if the home or a neighbor building stands already where a building would be drawn.
+   */
+  private boolean isBuilt(List<float []> polygon) {
+    float x = 0;
+    float y = 0;
+    for (float [] point : polygon) {
+      x += point [0] / polygon.size();
+      y += point [1] / polygon.size();
+    }
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      if ("context_building".equals(piece.getProperty(AssistantGardenCommands.GARDEN_PROPERTY))
+          && (piece.containsPoint(x, y, 0) || contains(polygon, piece.getX(), piece.getY()))) {
+        return true;
+      }
+    }
+    // The home itself: most of its walls are in the building
+    int inside = 0;
+    for (Wall wall : this.home.getWalls()) {
+      if (contains(polygon, (wall.getXStart() + wall.getXEnd()) / 2, (wall.getYStart() + wall.getYEnd()) / 2)) {
+        inside++;
+      }
+    }
+    if (inside > 0 && inside * 2 >= this.home.getWalls().size()) {
+      return true;
+    }
+    for (Room room : this.home.getRooms()) {
+      if (room.isCeilingVisible() && room.containsPoint(x, y, 0) && inside > 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Returns the parts of a line that are in a box: x min, y min, x max, y max.
+   */
+  public static List<List<float []>> clipLine(List<float []> points, float [] box) {
+    List<List<float []>> parts = new ArrayList<List<float []>>();
+    List<float []> part = null;
+    for (int i = 0; i + 1 < points.size(); i++) {
+      float [] a = points.get(i);
+      float [] b = points.get(i + 1);
+      // The part of the segment in the box, by Liang and Barsky
+      double start = 0;
+      double end = 1;
+      double dx = b [0] - a [0];
+      double dy = b [1] - a [1];
+      double [] p = {-dx, dx, -dy, dy};
+      double [] q = {a [0] - box [0], box [2] - a [0], a [1] - box [1], box [3] - a [1]};
+      boolean visible = true;
+      for (int k = 0; k < 4 && visible; k++) {
+        if (p [k] == 0) {
+          visible = q [k] >= 0;
+        } else if (p [k] < 0) {
+          start = Math.max(start, q [k] / p [k]);
+        } else {
+          end = Math.min(end, q [k] / p [k]);
+        }
+      }
+      if (!visible || start > end) {
+        part = null;
+        continue;
+      }
+      float [] first = {(float)(a [0] + dx * start), (float)(a [1] + dy * start)};
+      float [] last = {(float)(a [0] + dx * end), (float)(a [1] + dy * end)};
+      if (part == null || start > 0) {
+        part = new ArrayList<float []>();
+        parts.add(part);
+        part.add(first);
+      }
+      if (Math.hypot(last [0] - first [0], last [1] - first [1]) > 0.5) {
+        part.add(last);
+      }
+      if (end < 1) {
+        part = null;
+      }
+    }
+    for (int i = parts.size() - 1; i >= 0; i--) {
+      if (parts.get(i).size() < 2) {
+        parts.remove(i);
+      }
+    }
+    return parts;
+  }
+
+  /**
+   * Returns a line cut in pieces of a length at most, which share their ends.
+   */
+  static List<List<float []>> splitLine(List<float []> points, float maxLength) {
+    List<List<float []>> parts = new ArrayList<List<float []>>();
+    double total = 0;
+    for (int i = 0; i + 1 < points.size(); i++) {
+      total += Math.hypot(points.get(i + 1) [0] - points.get(i) [0], points.get(i + 1) [1] - points.get(i) [1]);
+    }
+    int count = (int)Math.ceil(total / maxLength);
+    if (count <= 1) {
+      parts.add(points);
+      return parts;
+    }
+    double pieceLength = total / count;
+    List<float []> part = new ArrayList<float []>();
+    part.add(points.get(0));
+    double length = 0;
+    for (int i = 0; i + 1 < points.size(); i++) {
+      float [] a = points.get(i);
+      float [] b = points.get(i + 1);
+      double segment = Math.hypot(b [0] - a [0], b [1] - a [1]);
+      double done = 0;
+      while (parts.size() < count - 1 && length + (segment - done) > pieceLength + 0.01) {
+        done += pieceLength - length;
+        float [] cut = {(float)(a [0] + (b [0] - a [0]) * done / segment), (float)(a [1] + (b [1] - a [1]) * done / segment)};
+        part.add(cut);
+        parts.add(part);
+        part = new ArrayList<float []>();
+        part.add(cut);
+        length = 0;
+      }
+      length += segment - done;
+      if (Math.hypot(b [0] - part.get(part.size() - 1) [0], b [1] - part.get(part.size() - 1) [1]) > 0.5) {
+        part.add(b);
+      }
+    }
+    if (part.size() >= 2) {
+      parts.add(part);
+    }
+    return parts;
   }
 
   // ---- Web services ----
@@ -1323,7 +1953,8 @@ public class AssistantGisCommands {
   }
 
   /**
-   * Returns the box of the plan a command asks for: its area, or the home with a margin.
+   * Returns the box of the plan a command asks for: its area, or the home with a margin. The home
+   * is its walls; without wall, its lot; without lot, the point of its georeference.
    */
   private float [] getPlanBounds(AssistantCommand command, double defaultBuffer) throws IOException {
     float [] bounds = {Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
@@ -1334,20 +1965,27 @@ public class AssistantGisCommands {
       shapes.add(area.toArray(new float [area.size()][]));
     } else {
       buffer = (float)(Math.max(1, Math.min(2000, command.getDouble("buffer_m", defaultBuffer))) * 100);
+      // The home is its walls; what was imported or drawn around it doesn't count
       for (Wall wall : this.home.getWalls()) {
         shapes.add(wall.getPoints());
       }
-      for (Room room : this.home.getRooms()) {
-        shapes.add(room.getPoints());
-      }
-      for (Polyline polyline : this.home.getPolylines()) {
-        if ("property".equals(polyline.getProperty(AssistantSiteCommands.LINE_KIND_PROPERTY))) {
-          shapes.add(polyline.getPoints());
+      float [] homePoint = getHomePoint();
+      if (shapes.isEmpty()) {
+        // Without wall, the lot of the home, then the point of its georeference
+        Polyline lot = null;
+        for (Polyline polyline : this.home.getPolylines()) {
+          if ("property".equals(polyline.getProperty(AssistantSiteCommands.LINE_KIND_PROPERTY)) && polyline.isClosedPath()
+              && (homePoint == null || contains(Arrays.asList(polyline.getPoints()), homePoint [0], homePoint [1]))
+              && (lot == null || getPolygonArea(Arrays.asList(polyline.getPoints())) < getPolygonArea(Arrays.asList(lot.getPoints())))) {
+            lot = polyline;
+          }
+        }
+        if (lot != null) {
+          shapes.add(lot.getPoints());
         }
       }
       if (shapes.isEmpty()) {
-        HomeGeoreference georeference = HomeGeoreference.get(this.home);
-        shapes.add(new float [][] {{georeference != null ? (float)georeference.getX() : 0, georeference != null ? (float)georeference.getY() : 0}});
+        shapes.add(new float [][] {{homePoint != null ? homePoint [0] : 0, homePoint != null ? homePoint [1] : 0}});
       }
     }
     for (float [][] shape : shapes) {
@@ -1411,12 +2049,19 @@ public class AssistantGisCommands {
     float resolution = (float)Math.max(100, Math.min(3000, command.getDouble("resolution_cm", 300)));
     int columns = (int)Math.ceil((bounds [2] - bounds [0]) / resolution) + 1;
     int rows = (int)Math.ceil((bounds [3] - bounds [1]) / resolution) + 1;
+    String coarser = "";
     if ((long)columns * rows > 12000) {
       double scale = Math.sqrt((double)columns * rows / 12000);
+      if (command.has("resolution_cm")) {
+        // The resolution asked isn't changed silently
+        throw new IOException("the area of " + format((bounds [2] - bounds [0]) / 100) + " x " + format((bounds [3] - bounds [1]) / 100)
+            + " m needs " + (long)columns * rows + " heights every " + format(resolution) + " cm, more than the 12000 of a call: "
+            + "\"resolution_cm\":" + (int)Math.ceil(resolution * scale / 10) * 10 + " covers it, or a smaller \"buffer_m\" or \"area\"");
+      }
       resolution *= scale;
       columns = (int)Math.ceil((bounds [2] - bounds [0]) / resolution) + 1;
       rows = (int)Math.ceil((bounds [3] - bounds [1]) / resolution) + 1;
-      notes.add("The heights are asked every " + format(resolution) + " cm, for 12000 points at most");
+      coarser = " (coarser than the usual 300 cm, for 12000 heights at most a call: a smaller \"buffer_m\" keeps 300 cm)";
     }
     float [] heights = new float [columns * rows];
     Arrays.fill(heights, Float.NaN);
@@ -1497,9 +2142,24 @@ public class AssistantGisCommands {
       notes.add(note);
     }
     notes.add("The heights come from the USGS 3DEP service: " + columns + " x " + rows + " of them every " + format(resolution)
-        + " cm. They are heights above the sea, of which the lowest one, " + format(lowest / 100) + " m, was taken for the height 0"
+        + " cm" + coarser + ", over " + format((bounds [2] - bounds [0]) / 100) + " x " + format((bounds [3] - bounds [1]) / 100)
+        + " m around (" + format((bounds [0] + bounds [2]) / 2) + ", " + format((bounds [1] + bounds [3]) / 2) + "), "
+        + (command.getPoints("area").size() >= 2 ? "the area given" : "the walls of the home and " + format(Math.max(1, Math.min(2000,
+            command.getDouble("buffer_m", 60)))) + " m around them") + ". They are heights above the sea, of which the lowest one, " + format(lowest / 100) + " m, was taken for the height 0"
         + (command.getParameters().get("pin") != null ? " before the pin" : ": \"pin\" sets the ground at a height at a place")
         + (missing > 0 ? ". " + missing + " places had no height and were set to 0" : ""));
+  }
+
+  /**
+   * Returns the address of a tile: {z}, {x} and {y} are its zoom, its column and its row, {bbox} its box
+   * in Web Mercator meters (west, south, east, north).
+   */
+  public static String getTileAddress(String template, int zoom, int column, int row) {
+    double half = 20037508.342789244;
+    double size = 2 * half / Math.pow(2, zoom);
+    return template.replace("{z}", String.valueOf(zoom)).replace("{x}", String.valueOf(column)).replace("{y}", String.valueOf(row))
+        .replace("{bbox}", String.format(Locale.US, "%.3f,%.3f,%.3f,%.3f", -half + column * size, half - (row + 1) * size,
+            -half + (column + 1) * size, half - row * size));
   }
 
   private void setBasemap(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
@@ -1507,26 +2167,34 @@ public class AssistantGisCommands {
     String lowerSource = source.toLowerCase(Locale.ENGLISH);
     String template;
     String credit;
+    int maxZoom = 21;
     if (lowerSource.equals("esri_world_imagery") || lowerSource.equals("esri")) {
       template = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
       credit = "Esri World Imagery (Esri, Maxar, Earthstar Geographics)";
-    } else if (lowerSource.equals("usgs_naip") || lowerSource.equals("usgs")) {
-      template = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}";
+    } else if (lowerSource.equals("usgs_naip") || lowerSource.equals("naip")) {
+      // The image service of the NAIP pictures draws any box; the tiles of USGSImageryOnly stop at the zoom 16
+      template = USGS_NAIP_TEMPLATE;
+      credit = "USGS National Agriculture Imagery Program (NAIP)";
+    } else if (lowerSource.equals("usgs") || lowerSource.equals("usgs_imagery")) {
+      template = USGS_IMAGERY_TEMPLATE;
       credit = "USGS The National Map";
+      maxZoom = 16;
     } else if (lowerSource.equals("osm") || lowerSource.equals("openstreetmap")) {
       template = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
       credit = "OpenStreetMap contributors";
     } else if (lowerSource.startsWith("xyz:")) {
       template = source.substring(4).trim();
       credit = "the server of the template";
-      if (!template.contains("{z}") || !template.contains("{x}") || !template.contains("{y}") || !template.toLowerCase(Locale.ENGLISH).startsWith("http")) {
-        throw new IOException("an \"xyz:\" source is the address of tiles with {z}, {x} and {y}");
+      if (!(template.contains("{z}") && template.contains("{x}") && template.contains("{y}") || template.contains("{bbox}"))
+          || !template.toLowerCase(Locale.ENGLISH).startsWith("http")) {
+        throw new IOException("an \"xyz:\" source is the address of tiles with {z}, {x} and {y}, or with {bbox} for the box of "
+            + "a tile in Web Mercator meters");
       }
     } else {
-      throw new IOException("\"source\" is esri_world_imagery, usgs_naip, osm, or xyz:<template with {z}, {x}, {y}>. Bing and Google "
+      throw new IOException("\"source\" is esri_world_imagery, usgs_naip, usgs_imagery, osm, or xyz:<template with {z}, {x}, {y}>. Bing and Google "
           + "need a key and forbid this use; a WMS server isn't read");
     }
-    checkWebAccess("set_basemap", new URL(template.replace("{z}", "0").replace("{x}", "0").replace("{y}", "0")).getHost());
+    checkWebAccess("set_basemap", new URL(template.replace("{z}", "0").replace("{x}", "0").replace("{y}", "0").replace("{bbox}", "0")).getHost());
     if (this.tileComposer == null) {
       throw new IOException("pictures can't be put together here");
     }
@@ -1539,12 +2207,24 @@ public class AssistantGisCommands {
     float centerY = (bounds [1] + bounds [3]) / 2;
     // A square around the middle, wide enough once turned
     double halfSize = Math.hypot(bounds [2] - bounds [0], bounds [3] - bounds [1]) / 2 / 100;
+    String limits = "";
+    if (halfSize * 2 > MAX_BASEMAP_WIDTH) {
+      // A background image is 1 km wide at most
+      limits = ". The area asked is " + format(halfSize * 2) + " m across: the picture covers the " + format(MAX_BASEMAP_WIDTH)
+          + " m around its middle, the widest a background image may be";
+      halfSize = MAX_BASEMAP_WIDTH / 2;
+    }
     double [] center = georeference.toLatitudeLongitude(centerX, centerY);
-    int zoom = (int)Math.max(1, Math.min(21, command.getDouble("zoom", 19)));
+    int askedZoom = (int)Math.max(1, Math.min(21, command.getDouble("zoom", 19)));
+    int zoom = Math.min(askedZoom, maxZoom);
     double metersPerPixel = 156543.03392 * Math.cos(Math.toRadians(center [0])) / Math.pow(2, zoom);
     while (zoom > 1 && halfSize * 2 / metersPerPixel > 4096) {
       zoom--;
       metersPerPixel *= 2;
+    }
+    if (zoom < askedZoom) {
+      limits += ". The zoom " + zoom + " was used instead of " + askedZoom + (zoom == maxZoom ? ": this source has no tile beyond it"
+          : ": a picture is 4096 pixels wide at most, and a smaller \"buffer_m\" allows a finer one");
     }
     double scale = Math.pow(2, zoom) * 256;
     double pixelX = (center [1] + 180) / 360 * scale;
@@ -1565,8 +2245,7 @@ public class AssistantGisCommands {
     for (int row = 0; row < rows; row++) {
       for (int column = 0; column < columns; column++) {
         try {
-          tiles [row * columns + column] = download(template.replace("{z}", String.valueOf(zoom))
-              .replace("{x}", String.valueOf(firstColumn + column)).replace("{y}", String.valueOf(firstRow + row)), null);
+          tiles [row * columns + column] = download(getTileAddress(template, zoom, firstColumn + column, firstRow + row), null);
         } catch (IOException ex) {
           missing++;
           if (missing > columns * rows / 2) {
@@ -1602,13 +2281,13 @@ public class AssistantGisCommands {
     this.executor.applySubCommand(new AssistantCommand("set_background_image", parameters), tally, imageNotes);
     for (String note : imageNotes) {
       if (note.startsWith("Couldn't") || note.startsWith("Ignored")) {
-        throw new IOException(note);
+        throw new IOException("the picture of " + format(width / 100) + " m couldn't be set as the background image: " + note);
       }
     }
     notes.add("Displayed behind the plan " + columns * rows + " tiles of " + credit + " at the zoom " + zoom + " ("
         + format(metersPerPixel * 100) + " cm a pixel), " + format(width / 100) + " m wide around (" + format(centerX) + ", "
         + format(centerY) + ")" + (Math.abs(georeference.getRotation()) > 0.01 ? ", turned by " + format(georeference.getRotation())
-            + " degrees to the plan" : "") + (missing > 0 ? "; " + missing + " tiles were missing" : "")
+            + " degrees to the plan" : "") + (missing > 0 ? "; " + missing + " tiles were missing" : "") + limits
         + ". The date of the picture isn't given by this source. remove_background_image takes it away");
   }
 }

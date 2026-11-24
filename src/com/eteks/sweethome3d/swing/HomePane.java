@@ -6297,6 +6297,48 @@ public class HomePane extends JRootPane implements HomeView {
   }
 
   /**
+   * Returns an image turned or mirrored as the orientation its camera wrote tells, from 1 to 8.
+   */
+  static BufferedImage orientImage(BufferedImage image, int orientation) {
+    if (orientation < 2 || orientation > 8) {
+      return image;
+    }
+    int width = image.getWidth();
+    int height = image.getHeight();
+    java.awt.geom.AffineTransform transform = new java.awt.geom.AffineTransform();
+    switch (orientation) {
+      case 2 :
+        transform.setTransform(-1, 0, 0, 1, width, 0);
+        break;
+      case 3 :
+        transform.setTransform(-1, 0, 0, -1, width, height);
+        break;
+      case 4 :
+        transform.setTransform(1, 0, 0, -1, 0, height);
+        break;
+      case 5 :
+        transform.setTransform(0, 1, 1, 0, 0, 0);
+        break;
+      case 6 :
+        transform.setTransform(0, 1, -1, 0, height, 0);
+        break;
+      case 7 :
+        transform.setTransform(0, -1, -1, 0, height, width);
+        break;
+      default :
+        transform.setTransform(0, -1, 1, 0, 0, width);
+        break;
+    }
+    BufferedImage orientedImage = orientation >= 5
+        ? new BufferedImage(height, width, BufferedImage.TYPE_INT_RGB)
+        : new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+    Graphics2D g2D = orientedImage.createGraphics();
+    g2D.drawImage(image, transform, null);
+    g2D.dispose();
+    return orientedImage;
+  }
+
+  /**
    * Returns a PNG image showing <code>reference</code> at the right of <code>image</code>
    * at the same height, or over it with the given opacity, or <code>null</code>
    * if one of them can't be read.
@@ -6309,6 +6351,9 @@ public class HomePane extends JRootPane implements HomeView {
           || referenceImage.getWidth() < 1 || referenceImage.getHeight() < 1) {
         return null;
       }
+      // A photo is shown the way its camera was held
+      referenceImage = orientImage(referenceImage,
+          com.eteks.sweethome3d.viewcontroller.AssistantPhotoCommands.getOrientation(reference));
       int width = renderedImage.getWidth();
       int height = renderedImage.getHeight();
       BufferedImage composedImage;
