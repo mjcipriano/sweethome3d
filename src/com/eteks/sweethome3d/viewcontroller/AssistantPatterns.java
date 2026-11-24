@@ -49,6 +49,20 @@ final class AssistantPatterns {
    * @param color2   the color of its joints, or of its second tone
    * @param ratio    the share of the picture its lines or its holes take, from 0 to 1
    */
+  /**
+   * Returns the ARGB pixels of a pattern, {@link #SIZE} x {@link #SIZE}, its first row at its top.
+   */
+  static int [] createPixels(String pattern, int color, int color2, float ratio) {
+    int [] pixels = new int [SIZE * SIZE];
+    int [][] seeds = getSeeds(pattern.equals("flagstone") ? 5 : 11, pattern.hashCode());
+    for (int y = 0; y < SIZE; y++) {
+      for (int x = 0; x < SIZE; x++) {
+        pixels [y * SIZE + x] = getPixel(pattern, x, y, color, color2, ratio, seeds);
+      }
+    }
+    return pixels;
+  }
+
   static byte [] create(String pattern, int color, int color2, float ratio) throws IOException {
     byte [] pixels = new byte [SIZE * (SIZE * 4 + 1)];
     int [][] seeds = getSeeds(pattern.equals("flagstone") ? 5 : 11, pattern.hashCode());

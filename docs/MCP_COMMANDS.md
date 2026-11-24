@@ -1226,10 +1226,20 @@ Sizes are in cm. What isn't given is the usual size of the species, in proportio
 | `angle` | Its angle in degrees. Without it a tree is turned its own way, from its place |
 | `name`, `tags`, `level` | Its name (the common name of the species by default), more tags, its level |
 
-Plants of the same species, season and proportions share one model, so a forest stays light.
+Plants of the same species, season, proportions and close heights (1 m apart under 10 m, 2 m
+above) share one model, so a forest stays light.
 A key that isn't one of these is reported in a warning.
 
 ### How a tree grows
+
+Since 7.33 a cluster of leaves has the size of a real one (35 to 55 cm) whatever the size of
+the tree: a larger crown has more clusters, up to what its detail allows, then larger ones. The
+leaves are at the outside of the crown and its heart is left to its limbs, so that the sky and
+the limbs show through it. The clusters of a limb share a picture, are lit as the mass of that
+limb, and have its color in autumn. In winter the twigs are fewer and the dead leaves an oak
+keeps stay low in the crown. The masses of a pine are set around its trunk at heights that
+differ. `"card"` of a `profile` was a share of the radius of the crown before 7.33; it is now
+a multiplier around 1.
 
 ![A white oak at the high detail](images/tree-natural.jpg)
 
@@ -1289,7 +1299,8 @@ The values of each form of crown and of each species are in the file
 | `up`, `droop` | How much the branches turn upward, and how much they hang away from the trunk |
 | `pipe` | The exponent that gives the thickness of a limb from the ones it carries (2 to 3) |
 | `leaf` | The picture of the clusters: `ovate`, `lance`, `lobed`, `palmate`, `round`, `broad`, `small`, `compound`, `tuft`, `spray`, `scale` |
-| `card`, `lift`, `along` | The size of a cluster (share of the radius of the crown), how much it points up, and 1 to put clusters along the branches |
+| `card`, `lift`, `along` | What multiplies the size of a cluster (1 is 35 to 55 cm according to the kind of leaf), how much it points up, and 1 to put clusters along the branches |
+| `clump_size` | The radius of each mass of a crown made of separate masses (`clumps`), as a share of the radius of the crown |
 | `density` | Multiplies the count of branch ends and of clusters |
 | `bark` | `bark`, `bark_plated`, `bark_furrowed`, `bark_birch` or `bark_smooth` |
 | `marcescent` | The share of dead leaves kept in winter |
@@ -1297,7 +1308,7 @@ The values of each form of crown and of each species are in the file
 
 ```json
 {"action":"add_tree","species":"river_birch","x":900,"y":200,"height":1100,
- "profile":{"droop":0.6,"gaps":0.3,"card":0.2}}
+ "profile":{"droop":0.6,"gaps":0.4,"card":0.8}}
 ```
 
 ### Trees of the catalog

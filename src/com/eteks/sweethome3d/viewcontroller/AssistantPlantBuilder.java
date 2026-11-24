@@ -149,7 +149,7 @@ final class AssistantPlantBuilder {
         "shumard_oak,Shumard oak,ROUND,D,2200,0.8,0.33,0.04,6A625A,3F6A32,B5301C,,60",
         "overcup_oak,Overcup oak,ROUND,D,1500,0.9,0.3,0.04,8A8278,4A7038,B08A2E,,40");
     add("Shade trees", false,
-        "sweetgum,Sweetgum,PYRAMIDAL,D,2200,0.6,0.3,0.035,7A7268,3F6E34,A8284A,,60",
+        "sweetgum,Sweetgum,PYRAMIDAL,D,2200,0.6,0.3,0.035,7A7268,3F6E34,9A2A26,,60",
         "tulip_poplar|tulip_tree,Tulip poplar,OVAL,D,2800,0.45,0.45,0.035,8A8478,4F8038,E0B62E,,75",
         "red_maple|maple,Red maple,OVAL,D,1700,0.7,0.3,0.035,8A8680,45733A,C8281E,B03A3A,60",
         "sugar_maple,Sugar maple,ROUND,D,2000,0.75,0.3,0.035,7A726A,45733A,E8792A,,35",
@@ -302,6 +302,8 @@ final class AssistantPlantBuilder {
   static final class Plant {
     Species species;
     float   height;
+    /** The height of the plant in the home when its model is built at another size, or 0. */
+    float   realHeight;
     float   crownWidth;
     float   crownDepth;
     float   crownBase;

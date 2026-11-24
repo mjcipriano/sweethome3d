@@ -347,6 +347,65 @@ public class AssistantPlantCommandsTest {
     return url.substring(url.indexOf("!/") + 2);
   }
 
+  /**
+   * A crown lets see the sky and its limbs, and the leaves of autumn keep their hue.
+   */
+  @Test
+  public void testOpenCrownsAndAutumnHues() throws Exception {
+    run("{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":0,\"y\":0,\"height\":1500,\"seed\":2}");
+    HomePieceOfFurniture oak = getPlants().get(0);
+    java.awt.image.BufferedImage icon = readImage(oak.getIcon());
+    // The sky between the first and the last leaf of each row of the upper half of the picture
+    int inside = 0;
+    int sky = 0;
+    for (int y = 0; y < icon.getHeight() / 2; y++) {
+      int first = -1;
+      int last = -1;
+      for (int x = 0; x < icon.getWidth(); x++) {
+        if (icon.getRGB(x, y) >>> 24 != 0) {
+          first = first < 0 ? x : first;
+          last = x;
+        }
+      }
+      for (int x = first; first >= 0 && x <= last; x++) {
+        inside++;
+        sky += icon.getRGB(x, y) >>> 24 == 0 ? 1 : 0;
+      }
+    }
+    assertTrue(sky + " / " + inside, inside > 500 && sky >= inside * 0.15f && sky <= inside * 0.6f);
+    // Clusters of the size of real ones: two oaks of different heights don't share a model
+    run("{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":4000,\"y\":0,\"height\":700,\"seed\":2}");
+    assertFalse(getObj(oak).equals(getObj(getPlants().get(1))));
+
+    // No pink or purple in a sweetgum of autumn
+    run("{\"action\":\"add_tree\",\"species\":\"sweetgum\",\"x\":8000,\"y\":0,\"height\":1500,\"seed\":2,\"season\":\"autumn\"}");
+    icon = readImage(getPlants().get(2).getIcon());
+    int leaves = 0;
+    int magenta = 0;
+    for (int y = 0; y < icon.getHeight(); y++) {
+      for (int x = 0; x < icon.getWidth(); x++) {
+        int argb = icon.getRGB(x, y);
+        if (argb >>> 24 != 0) {
+          float [] hsb = java.awt.Color.RGBtoHSB((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF, null);
+          if (hsb [1] > 0.3f) {
+            leaves++;
+            magenta += hsb [0] * 360 >= 290 && hsb [0] * 360 <= 340 ? 1 : 0;
+          }
+        }
+      }
+    }
+    assertTrue(magenta + " / " + leaves, leaves > 300 && magenta == 0);
+  }
+
+  private static java.awt.image.BufferedImage readImage(com.eteks.sweethome3d.model.Content content) throws java.io.IOException {
+    java.io.InputStream in = content.openStream();
+    try {
+      return javax.imageio.ImageIO.read(in);
+    } finally {
+      in.close();
+    }
+  }
+
   @Test
   public void testTreesOfTheCatalog() throws Exception {
     // No tree in this catalog: the plant is generated and the answer tells it
@@ -569,7 +628,8 @@ public class AssistantPlantCommandsTest {
     run("{\"action\":\"set_georeference\",\"x\":0,\"y\":0,\"lat\":33.7490,\"lon\":-84.3880}");
     summary = run("{\"action\":\"import_trees\",\"geojson\":" + geojson + "}");
     assertTrue(summary, summary.contains("Added 1 tree on the ground: 1 white_oak"));
-    assertEquals(0, getPiece("White oak").getX(), 60);
+    // The middle of its irregular crown isn't over its trunk
+    assertEquals(0, getPiece("White oak").getX(), 150);
 
     // A forest, the same at each call for the same seed, out of the house
     run("{\"action\":\"add_rectangular_room\",\"x\":2000,\"y\":2000,\"width\":500,\"depth\":400}");

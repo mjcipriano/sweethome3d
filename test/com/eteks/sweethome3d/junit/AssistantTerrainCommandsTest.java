@@ -702,8 +702,9 @@ public class AssistantTerrainCommandsTest {
         && summary.contains("merged with it"));
     List<HomePieceOfFurniture> plants = getPlants();
     assertEquals(1, plants.size());
-    assertEquals(2000, plants.get(0).getX(), 150);
-    assertEquals(3000, plants.get(0).getY(), 150);
+    // The middle of an irregular crown isn't over its trunk
+    assertEquals(2000, plants.get(0).getX(), 300);
+    assertEquals(3000, plants.get(0).getY(), 300);
     // On the ground, not on the floor of a room
     assertEquals(50, getBottom(plants.get(0)), 1);
   }

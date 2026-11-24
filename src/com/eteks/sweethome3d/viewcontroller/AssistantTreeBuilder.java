@@ -59,6 +59,10 @@ final class AssistantTreeBuilder {
   private final float    irregularity;
   /** The share of the crown the ends of the branches stay in, to leave its edge to their leaves. */
   private final float    inset;
+  /** The size of a cluster of leaves. */
+  private final float    cardSize;
+  /** The centers of the separate masses of the crown, or <code>null</code>. */
+  private float [][]     clumpCenters;
 
   // The skeleton
   private float [] nodeX;
@@ -88,7 +92,17 @@ final class AssistantTreeBuilder {
       this.phases [i] = random.nextFloat() * (float)Math.PI * 2;
     }
     this.irregularity = number("irregularity", 0.15f);
-    this.inset = Math.max(0.55f, 1 - number("card", 0.3f) * (detail == 0 ? 1 : 0.42f));
+    // A cluster has the size of a real one whatever the size of the tree: a larger crown has more of them
+    String kind = text("leaf", "ovate");
+    float clusterSize = kind.equals("tuft") ? 55 : kind.equals("spray") ? 46 : kind.equals("scale") ? 42
+        : kind.equals("small") || kind.equals("lance") ? 34 : 48;
+    float realHeight = plant.realHeight > 0 ? plant.realHeight : plant.height;
+    float crownRadius = Math.min(this.radiusX, this.radiusZ);
+    float size = clusterSize * plant.height / Math.max(1, realHeight) * Math.max(0.2f, Math.min(4, number("card", 1)))
+        * (detail == 0 ? 2.4f : detail == 1 ? 1 : 0.85f);
+    // Not so small that the clusters a model may have leave a large crown empty
+    this.cardSize = Math.max(crownRadius * (detail == 0 ? 0.3f : detail == 1 ? 0.115f : 0.075f), Math.min(crownRadius * 0.5f, size));
+    this.inset = Math.max(0.55f, 1 - this.cardSize / Math.max(1, crownRadius) * 0.45f);
   }
 
   /**
@@ -204,7 +218,7 @@ final class AssistantTreeBuilder {
    * Returns the names of the values a profile has.
    */
   static List<String> getProfileKeys() {
-    return java.util.Arrays.asList("excurrent", "trunk_top", "shell", "irregularity", "gaps", "clumps", "up", "droop", "pipe",
+    return java.util.Arrays.asList("excurrent", "trunk_top", "shell", "irregularity", "gaps", "clumps", "clump_size", "up", "droop", "pipe",
         "leaf", "card", "lift", "along", "density", "bark", "marcescent", "autumn");
   }
 
@@ -338,10 +352,19 @@ final class AssistantTreeBuilder {
     if (clumps > 0) {
       // Separate masses, as the crown of an old pine
       float [][] centers = new float [clumps][];
+      double turn = this.random.nextFloat() * Math.PI * 2;
       for (int i = 0; i < clumps; i++) {
-        centers [i] = getPoint(shell);
+        // Around the trunk at heights that differ, each at the end of a limb, with the sky between them
+        float t = Math.min(0.95f, 0.12f + 0.8f * (i + this.random.nextFloat() * 0.7f) / clumps);
+        double angle = turn + i * 2.4;
+        float outline = getOutline(t);
+        float share = (0.5f + this.random.nextFloat() * 0.3f) * outline * getBump(angle, t) * (i == clumps - 1 ? 0.3f : 1);
+        float y = this.crownBase + t * this.crownHeight * (0.5f + this.inset / 2);
+        centers [i] = new float [] {this.leanX * y + (float)Math.cos(angle) * this.radiusX * share, y,
+                                    this.leanZ * y + (float)Math.sin(angle) * this.radiusZ * share};
       }
-      float clumpRadius = Math.max(this.radiusX, this.radiusZ) * 0.42f;
+      this.clumpCenters = centers;
+      float clumpRadius = Math.max(this.radiusX, this.radiusZ) * Math.max(0.1f, number("clump_size", 0.42f));
       for (int i = 0; i < pointCount * 4 && points.size() < pointCount; i++) {
         float [] center = centers [i % clumps];
         float [] point = {center [0] + (this.random.nextFloat() * 2 - 1) * clumpRadius,
@@ -726,7 +749,7 @@ final class AssistantTreeBuilder {
         return;
       }
       kind = "twigs";
-      leafShare = marcescent;
+      leafShare = 0;
       colors = new int [] {0x8E6C42, 0x9C7A4C, 0x7A5A36};
     } else if (!species.evergreen && "autumn".equals(season)) {
       List<Integer> list = new ArrayList<Integer>();
@@ -766,45 +789,59 @@ final class AssistantTreeBuilder {
     }
     boolean centered = kind.equals("tuft");
 
-    // Three tones of the same cluster: the heart of the crown, its outside, its top in the light
-    AssistantMeshBuilder.Material [] materials = new AssistantMeshBuilder.Material [3];
+    // Pictures of clusters: some that differ, each in the tones of the heart of the crown, of its outside
+    // and of its top in the light
+    boolean autumn = !bare && !species.evergreen && "autumn".equals(season);
+    float marcescent = bare ? number("marcescent", 0) : 0;
+    int variants = this.detail == 0 ? 1 : autumn ? Math.min(4, colors.length) : bare ? (marcescent > 0 ? 2 : 1) : this.detail == 1 ? 2 : 3;
+    int toneCount = this.detail == 0 ? 1 : autumn || bare ? 2 : 3;
     float [] tones = species.evergreen && !kind.equals("ovate") ? new float [] {1.1f, 1.45f, 1.75f} : new float [] {1, 1.3f, 1.55f};
-    for (int i = 0; i < materials.length; i++) {
-      int tone = this.detail == 0 && i != 1 ? 1 : i;
-      if (tone != i) {
-        materials [i] = materials [1] != null ? materials [1] : null;
-        continue;
+    AssistantMeshBuilder.Material [][] materials = new AssistantMeshBuilder.Material [variants][3];
+    for (int v = 0; v < variants; v++) {
+      int [] variantColors = colors;
+      float variantLeafShare = leafShare;
+      if (autumn) {
+        // A limb in one color, with a few leaves of another one
+        int index = v == 3 ? colors.length - 1 : v;
+        variantColors = new int [] {colors [index], colors [index], colors [index], colors [(index + 1) % colors.length]};
+      } else if (bare) {
+        // The dead leaves stay low in the crown
+        variantLeafShare = v == 0 ? 0 : Math.min(1, marcescent * 2.5f);
       }
-      try {
-        int [] pixels = AssistantLeafTextures.createPixels(kind, colors, species.bark, flowering ? species.flower : 0, flowerShare, leafShare,
-            tones [i], this.detail == 0 ? 0.5f : 1, this.plant.seed * 31 + species.name.hashCode() + i * 7);
-        byte [] image = AssistantLeafTextures.encode(pixels, AssistantLeafTextures.SIZE);
-        int iconColor = flowering && bare ? species.flower : bare ? AssistantPlantBuilder.shade(species.bark, 1.1f)
-            : AssistantPlantBuilder.shade(colors [0], tones [i]);
-        materials [i] = this.mesh.getImageMaterial(kind + "_" + season + "_" + i, image, iconColor, pixels, AssistantLeafTextures.SIZE);
-      } catch (IOException ex) {
-        materials [i] = this.mesh.getMaterial(AssistantPlantBuilder.shade(colors [0], tones [i]));
+      for (int i = 0; i < 3; i++) {
+        int tone = this.detail == 0 ? 1 : Math.min(i, toneCount - 1);
+        if (tone != i && materials [v][tone] != null) {
+          materials [v][i] = materials [v][tone];
+          continue;
+        }
+        try {
+          int [] pixels = AssistantLeafTextures.createPixels(kind, variantColors, species.bark, flowering ? species.flower : 0,
+              flowerShare, variantLeafShare, tones [tone], this.detail == 0 ? 0.5f : 1,
+              this.plant.seed * 31 + species.name.hashCode() + tone * 7 + v * 1013);
+          byte [] image = AssistantLeafTextures.encode(pixels, AssistantLeafTextures.SIZE);
+          int iconColor = flowering && bare ? species.flower : bare ? AssistantPlantBuilder.shade(species.bark, 1.1f)
+              : AssistantPlantBuilder.shade(variantColors [0], tones [tone]);
+          materials [v][i] = this.mesh.getImageMaterial(kind + "_" + season + "_" + v + "_" + tone, image, iconColor,
+              pixels, AssistantLeafTextures.SIZE);
+        } catch (IOException ex) {
+          materials [v][i] = this.mesh.getMaterial(AssistantPlantBuilder.shade(variantColors [0], tones [tone]));
+        }
       }
-    }
-    if (materials [0] == null) {
-      materials [0] = materials [1];
-    }
-    if (materials [2] == null) {
-      materials [2] = materials [1];
     }
 
     // Where the clusters go: the ends of the branches, and along the thin ones
     boolean along = number("along", 0) > 0.5f;
+    boolean excurrent = number("excurrent", 0) > 0.5f;
+    float droop = number("droop", 0.05f);
     List<Integer> places = new ArrayList<Integer>();
     for (int n = trunkNodes; n < this.nodeCount; n++) {
       if (this.nodeChildren [n] == 0) {
         places.add(Integer.valueOf(n));
       }
     }
-    int ends = places.size();
-    int wanted = Math.min(this.detail == 0 ? 90 : this.detail == 1 ? 740 : 3100,
-        Math.round((this.detail == 0 ? 60 : this.detail == 1 ? (bare ? 360 : 500) : (bare ? 1100 : 2200)) * density));
-    if (number("excurrent", 0) > 0.5f) {
+    int wanted = Math.min(this.detail == 0 ? 90 : this.detail == 1 ? 800 : 3000,
+        Math.round((this.detail == 0 ? 60 : this.detail == 1 ? (bare ? 260 : 800) : (bare ? 800 : 3000)) * density));
+    if (excurrent) {
       // The top of the trunk carries leaves too
       for (int n = 1; n < trunkNodes; n++) {
         if (n == trunkNodes - 1 || this.nodeParent [n + 1] < 0) {
@@ -820,23 +857,56 @@ final class AssistantTreeBuilder {
         }
       }
     }
+    Random placeRandom = new Random(this.plant.seed * 131 + 17);
+    if (!excurrent && droop <= 0.5f && this.detail > 0 && this.clumpCenters == null) {
+      // The leaves are at the outside of the crown: its heart is left to its limbs
+      float heart = bare ? 0.62f : 0.55f;
+      List<Integer> outside = new ArrayList<Integer>();
+      for (Integer place : places) {
+        int n = place.intValue();
+        if (getDepth(this.nodeX [n], this.nodeY [n], this.nodeZ [n]) >= heart || placeRandom.nextFloat() < (bare ? 0.08f : 0.18f)) {
+          outside.add(place);
+        }
+      }
+      if (outside.size() >= Math.min(places.size(), wanted) * 0.35f) {
+        places = outside;
+      }
+    }
     if (places.isEmpty()) {
       // A plant too small to have branches
       places.add(Integer.valueOf(this.nodeCount - 1));
     }
-    // Fewer and larger clusters when there are too many of them
-    java.util.Collections.shuffle(places, new Random(this.plant.seed * 131 + 17));
+    // Some clusters left out when there are too many of them
+    java.util.Collections.shuffle(places, placeRandom);
     float crownRadius = Math.min(this.radiusX, this.radiusZ);
-    float size = Math.max(this.height * 0.03f, crownRadius * number("card", 0.3f)) * (bare ? 1.2f : 1)
-        * (this.detail == 0 ? 1.8f : this.detail == 1 ? 1 : 0.78f);
+    float size = this.cardSize;
     if (places.size() > wanted) {
       places = places.subList(0, wanted);
     }
+    // The limb of the trunk that carries each cluster, and the middle of the clusters of each limb
+    int [] limbs = new int [places.size()];
+    Map<Integer, float []> limbCenters = new java.util.HashMap<Integer, float []>();
+    for (int i = 0; i < limbs.length; i++) {
+      int n = places.get(i).intValue();
+      int limb = n;
+      for (int guard = 0; guard < this.nodeCount && limb >= trunkNodes && this.nodeParent [limb] >= trunkNodes; guard++) {
+        limb = this.nodeParent [limb];
+      }
+      limbs [i] = limb;
+      float [] center = limbCenters.get(Integer.valueOf(limb));
+      if (center == null) {
+        center = new float [4];
+        limbCenters.put(Integer.valueOf(limb), center);
+      }
+      center [0] += this.nodeX [n];
+      center [1] += this.nodeY [n];
+      center [2] += this.nodeZ [n];
+      center [3]++;
+    }
     float lift = number("lift", 0.3f);
-    float droop = number("droop", 0.05f);
     float centerY = this.crownBase + this.crownHeight * 0.45f;
-    for (Integer place : places) {
-      int n = place.intValue();
+    for (int i = 0; i < limbs.length; i++) {
+      int n = places.get(i).intValue();
       int parent = Math.max(0, this.nodeParent [n]);
       float x = this.nodeX [n];
       float y = this.nodeY [n];
@@ -844,7 +914,8 @@ final class AssistantTreeBuilder {
       // The way the branch goes, and the way out of the crown
       float [] growth = normalize(x - this.nodeX [parent], y - this.nodeY [parent], z - this.nodeZ [parent]);
       float [] out = normalize(x - this.leanX * y, 0, z - this.leanZ * y);
-      float hang = droop > 0.5f ? droop : 0;
+      // Some clusters hang
+      float hang = droop > 0.5f ? droop : !excurrent && !bare && this.random.nextFloat() < 0.18f ? 0.75f : 0;
       float [] upward = normalize(growth [0] * 0.5f + out [0] * 0.5f + (this.random.nextFloat() - 0.5f) * 0.5f,
           growth [1] * 0.5f + lift - hang + (this.random.nextFloat() - 0.5f) * 0.3f,
           growth [2] * 0.5f + out [2] * 0.5f + (this.random.nextFloat() - 0.5f) * 0.5f);
@@ -853,32 +924,80 @@ final class AssistantTreeBuilder {
           upward [0] * any [1] - upward [1] * any [0]);
       float [] side2 = {upward [1] * side [2] - upward [2] * side [1], upward [2] * side [0] - upward [0] * side [2],
                         upward [0] * side [1] - upward [1] * side [0]};
-      float clusterSize = size * (0.8f + this.random.nextFloat() * 0.45f);
+      float clusterSize = size * (this.detail == 0 ? 0.8f + this.random.nextFloat() * 0.45f : 0.5f + this.random.nextFloat());
+      // Some longer than wide, along their twig
+      float length = this.detail > 0 && !centered && this.random.nextFloat() < 0.4f ? 1.15f + this.random.nextFloat() * 0.45f : 1;
       float depth = getDepth(x, y, z);
       float topShare = (y - this.crownBase) / Math.max(1, this.crownHeight);
-      AssistantMeshBuilder.Material material = depth < 0.5f || this.random.nextFloat() < 0.14f ? materials [0]
-          : depth > 0.75f && topShare > 0.5f && this.random.nextFloat() < 0.6f ? materials [2] : materials [1];
-      // Lit as a part of the round mass of the crown
-      float [] normal = normalize((x - this.leanX * centerY) * 0.6f, (y - centerY) * 0.6f + crownRadius * 0.7f,
-          (z - this.leanZ * centerY) * 0.6f);
+      // The clusters of a limb look alike, and in autumn have its color
+      int variant;
+      if (bare) {
+        variant = variants > 1 && topShare < 0.55f && depth < 0.85f ? 1 : 0;
+      } else if (excurrent || !autumn) {
+        variant = Math.abs((int)Math.floor(Math.atan2(out [2], out [0]) * 0.8 + topShare * 3) + limbs [i]) % variants;
+        if (autumn) {
+          variant = Math.abs((int)Math.floor(Math.atan2(out [2], out [0]) * 0.8 + topShare * 3 + this.plant.seed)) % variants;
+        }
+      } else {
+        variant = Math.abs(limbs [i] * 7 + (int)this.plant.seed) % variants;
+      }
+      AssistantMeshBuilder.Material material = depth < 0.5f || this.random.nextFloat() < 0.14f ? materials [variant][0]
+          : depth > 0.75f && topShare > 0.5f && this.random.nextFloat() < 0.6f ? materials [variant][2] : materials [variant][1];
+      // Lit as a part of the mass of leaves it belongs to: the one of its limb, or one of the masses of the crown
+      float [] massCenter = null;
+      float massRadius = crownRadius;
+      if (this.clumpCenters != null) {
+        float best = Float.MAX_VALUE;
+        for (float [] center : this.clumpCenters) {
+          float distance = (x - center [0]) * (x - center [0]) + (y - center [1]) * (y - center [1]) + (z - center [2]) * (z - center [2]);
+          if (distance < best) {
+            best = distance;
+            massCenter = center;
+          }
+        }
+        massRadius = crownRadius * 0.4f;
+      } else if (!excurrent) {
+        float [] sum = limbCenters.get(Integer.valueOf(limbs [i]));
+        if (sum != null && sum [3] >= 5) {
+          massCenter = new float [] {sum [0] / sum [3], sum [1] / sum [3], sum [2] / sum [3]};
+          massRadius = crownRadius * 0.5f;
+        }
+      }
+      float [] round = massCenter != null
+          ? normalize(x - massCenter [0], y - massCenter [1] + massRadius * 0.55f, z - massCenter [2])
+          : normalize((x - this.leanX * centerY) * 0.6f, (y - centerY) * 0.6f + crownRadius * 0.7f, (z - this.leanZ * centerY) * 0.6f);
+      if (massCenter != null) {
+        // Still a part of the whole crown
+        float [] whole = normalize((x - this.leanX * centerY) * 0.6f, (y - centerY) * 0.6f + crownRadius * 0.7f, (z - this.leanZ * centerY) * 0.6f);
+        round = normalize(round [0] * 0.6f + whole [0] * 0.4f, round [1] * 0.6f + whole [1] * 0.4f, round [2] * 0.6f + whole [2] * 0.4f);
+      }
       int quads = this.detail == 2 && this.random.nextFloat() < 0.35f ? 3 : 2;
       for (int q = 0; q < quads; q++) {
         double turn = Math.PI * q / quads;
         float cos = (float)Math.cos(turn);
         float sin = (float)Math.sin(turn);
         float [] across = {side [0] * cos + side2 [0] * sin, side [1] * cos + side2 [1] * sin, side [2] * cos + side2 [2] * sin};
+        // Half of the light of its mass, half of its own
+        float [] own = {across [1] * upward [2] - across [2] * upward [1], across [2] * upward [0] - across [0] * upward [2],
+                        across [0] * upward [1] - across [1] * upward [0]};
+        if (own [0] * round [0] + own [1] * round [1] + own [2] * round [2] < 0) {
+          own = new float [] {-own [0], -own [1], -own [2]};
+        }
+        float [] normal = this.detail == 0 ? round
+            : normalize(round [0] * 0.5f + own [0] * 0.5f, round [1] * 0.5f + own [1] * 0.5f, round [2] * 0.5f + own [2] * 0.5f);
         float back = centered ? 0.5f : 0.1f;
-        addCard(new float [] {x - upward [0] * clusterSize * back, y - upward [1] * clusterSize * back, z - upward [2] * clusterSize * back},
-            across, upward, clusterSize, material, normal);
+        addCard(new float [] {x - upward [0] * clusterSize * length * back, y - upward [1] * clusterSize * length * back,
+                              z - upward [2] * clusterSize * length * back},
+            across, upward, clusterSize, length, material, normal);
       }
-      if (!centered && number("excurrent", 0) < 0.5f && (this.detail == 0 || topShare > 0.45f && this.random.nextFloat() < 0.5f)
+      if (!centered && !excurrent && (this.detail == 0 || topShare > 0.45f && this.random.nextFloat() < 0.3f)
           || centered && this.random.nextFloat() < 0.4f) {
         // A cluster that lies nearly flat, for who looks from above
         float [] flat = normalize(side2 [0], side2 [1] * 0.4f, side2 [2]);
         float [] flatSide = normalize(flat [2], 0, -flat [0]);
         float [] rise = normalize(flat [0], 0.3f, flat [2]);
         addCard(new float [] {x - rise [0] * clusterSize * 0.5f, y + clusterSize * (centered ? 0.05f : 0.3f), z - rise [2] * clusterSize * 0.5f},
-            flatSide, rise, clusterSize, material, new float [] {normal [0] * 0.5f, 0.86f, normal [2] * 0.5f});
+            flatSide, rise, clusterSize, 1, material, new float [] {round [0] * 0.5f, 0.86f, round [2] * 0.5f});
       }
     }
   }
@@ -891,8 +1010,10 @@ final class AssistantTreeBuilder {
   /**
    * Adds a card seen from both sides: its picture stands on <code>base</code>, the middle of its bottom side.
    */
-  private void addCard(float [] base, float [] across, float [] upward, float size, AssistantMeshBuilder.Material material, float [] normal) {
-    float half = size / 2;
+  private void addCard(float [] base, float [] across, float [] upward, float width, float length,
+                       AssistantMeshBuilder.Material material, float [] normal) {
+    float half = width / 2;
+    float size = width * length;
     int a = this.mesh.addVertex(base [0] - across [0] * half, Math.max(0, base [1] - across [1] * half), base [2] - across [2] * half);
     int b = this.mesh.addVertex(base [0] + across [0] * half, Math.max(0, base [1] + across [1] * half), base [2] + across [2] * half);
     float top = this.height * 1.02f;
