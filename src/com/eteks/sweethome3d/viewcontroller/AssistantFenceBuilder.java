@@ -498,6 +498,8 @@ final class AssistantFenceBuilder {
     float                retained;
     float                height;
     boolean              closed;
+    /** The gates that slide and lack room along the fence. */
+    final List<String>   slideProblems = new ArrayList<String>();
     final List<String>   gates = new ArrayList<String>();
     final List<String>   notes = new ArrayList<String>();
     final List<String>   violations = new ArrayList<String>();
@@ -832,7 +834,7 @@ final class AssistantFenceBuilder {
       this.mesh.addBox(x - half, high, y - half, x + half, high + 2, y + half, capMaterial);
       if (cap.equals("solar_light") || cap.equals("light") || cap.equals("lighted")) {
         this.mesh.addBox(x - half * 0.6f, high + 2, y - half * 0.6f, x + half * 0.6f, high + 7, y + half * 0.6f,
-            this.mesh.getMaterial(0xFFF3C0));
+            named("lights", this.mesh.getMaterial(0xFFF3C0)));
         this.mesh.addBox(x - half, high + 7, y - half, x + half, high + 8.5f, y + half, capMaterial);
       }
     }
@@ -852,7 +854,7 @@ final class AssistantFenceBuilder {
     final AssistantMeshBuilder.Material rail;
     final AssistantMeshBuilder.Material cap;
 
-    Colors(Options options) throws IOException {
+    Colors(Options options, String prefix) throws IOException {
       int styleColor = options.color("color", 0x8B6B47);
       String finish = options.str("finish", null);
       boolean finished = false;
@@ -872,12 +874,53 @@ final class AssistantFenceBuilder {
           result.notes.add("no texture \"" + texture + "\" in the catalog: the fence keeps its color");
         }
       }
-      this.infill = textured != null ? textured : mesh.getMaterial(this.infillColor);
+      // Materials named after the parts they show, for list_materials and set_material
+      this.infill = mesh.getNamedMaterial(prefix + getInfillName(options.style.infill),
+          textured != null ? textured : mesh.getMaterial(this.infillColor));
       String postPattern = options.str("post_pattern", null);
-      this.post = postPattern != null ? getPattern(postPattern, this.postColor) : mesh.getMaterial(this.postColor);
-      this.rail = mesh.getMaterial(this.railColor);
+      this.post = mesh.getNamedMaterial(prefix + "posts",
+          postPattern != null ? getPattern(postPattern, this.postColor) : mesh.getMaterial(this.postColor));
+      this.rail = mesh.getNamedMaterial(prefix + "rails", mesh.getMaterial(this.railColor));
       String cap = options.str("post", "cap", "post_cap", "flat");
-      this.cap = mesh.getMaterial(cap.equals("copper") ? 0xB87333 : shade(this.postColor, 0.9f));
+      this.cap = mesh.getNamedMaterial(prefix + "caps", mesh.getMaterial(cap.equals("copper") ? 0xB87333 : shade(this.postColor, 0.9f)));
+    }
+  }
+
+  /**
+   * Returns a material named after the part it shows.
+   */
+  private AssistantMeshBuilder.Material named(String name, AssistantMeshBuilder.Material material) {
+    return this.mesh.getNamedMaterial(name, material);
+  }
+
+  /**
+   * Returns the name of the material of what fills the spans of a style.
+   */
+  private static String getInfillName(Infill infill) {
+    switch (infill) {
+      case PICKET :
+      case PALISADE :
+        return "pickets";
+      case SOLID :
+      case DOUBLE_BOARDS :
+      case HSLAT :
+      case BASKET :
+        return "boards";
+      case BARS :
+        return "bars";
+      case STRANDS :
+        return "wires";
+      case WALL :
+      case HAHA :
+      case RETAINING :
+      case GABION :
+        return "wall";
+      case SHEET :
+      case GLASS :
+      case PIER_PANEL :
+        return "panels";
+      default :
+        return "infill";
     }
   }
 
@@ -972,8 +1015,13 @@ final class AssistantFenceBuilder {
             + " points: the points without height are " + format(height) + " cm high");
       }
     }
+    // "spacing" is read as the spacing of the posts when nothing else gives it
+    boolean spacingAlias = this.spec.get("spacing") instanceof Number && this.spec.get("post_spacing") == null
+        && !(this.spec.get("post") instanceof Map && ((Map<?, ?>)this.spec.get("post")).get("spacing") != null);
+    this.result.usedKeys.add("spacing");
     if (style.infill == Infill.ZIGZAG) {
-      points = getZigzag(points, options.num("post", "spacing", "post_spacing", 300, 60, 1000), options.num("zigzag", 45, 5, 200));
+      points = getZigzag(points, spacingAlias ? options.num("spacing", 300, 60, 1000)
+          : options.num("post", "spacing", "post_spacing", 300, 60, 1000), options.num("zigzag", 45, 5, 200));
       closed = false;
       pointHeights = new float [points.length];
       java.util.Arrays.fill(pointHeights, height);
@@ -982,7 +1030,8 @@ final class AssistantFenceBuilder {
     double length = distances [distances.length - 1];
     List<Opening> openings = getOpenings(length);
     boolean drawPosts = options.bool("posts", true);
-    float spacing = options.num("post", "spacing", "post_spacing", 240, 20, 1500);
+    float spacing = spacingAlias ? options.num("spacing", 240, 20, 1500)
+        : options.num("post", "spacing", "post_spacing", 240, 20, 1500);
     float piers = options.num("piers_every", 0, 0, 3000);
     if (piers > 0) {
       spacing = Math.max(60, piers);
@@ -1016,7 +1065,7 @@ final class AssistantFenceBuilder {
     float embedDepth = options.num("post", "embed_depth", "embed_depth", Math.max(45, height / 3), 0, 400);
     String setIn = options.str("post", "set_in", "set_in", style.family.equals("Wire and mesh") && !style.name.equals("chain_link") ? "driven" : "concrete");
     options.get("post", "material", "post_material");
-    Colors colors = new Colors(options);
+    Colors colors = new Colors(options, "");
 
     // The parts of each side left by the openings, cut in spans
     List<Span> spans = new ArrayList<Span>();
@@ -1140,7 +1189,7 @@ final class AssistantFenceBuilder {
                                            {x + nx - direction.dx * 11, ground, y + ny - direction.dy * 11},
                                            {x + nx + direction.dx * 11, ground, y + ny + direction.dy * 11},
                                            {x - nx + direction.dx * 11, ground, y - ny + direction.dy * 11}},
-            new float [] {0, 12, 0}, this.mesh.getMaterial(0x8E8E88));
+            new float [] {0, 12, 0}, named("concrete", this.mesh.getMaterial(0x8E8E88)));
       }
       this.result.postPlaces.add(new float [] {x, y, ground - this.elevationOffset});
       if (kind == 2) {
@@ -1165,7 +1214,7 @@ final class AssistantFenceBuilder {
       infill(options, colors, span, false);
       if (follow.equals("step") && !fillGaps.equals("none") && Math.abs(span.g1 - span.g2) > 1) {
         box(span, 0, 1, span.g1 - this.sink, span.b1, span.g2 - this.sink, span.b2, fillGaps.equals("soil") ? 12 : 2.5f, 0,
-            fillGaps.equals("soil") ? this.mesh.getMaterial(0x5B4634) : colors.rail);
+            fillGaps.equals("soil") ? named("soil", this.mesh.getMaterial(0x5B4634)) : colors.rail);
       }
       Object kickboard = options.get("kickboard");
       if (kickboard == null) {
@@ -1178,7 +1227,7 @@ final class AssistantFenceBuilder {
         this.result.boards++;
       }
       if (lighting instanceof Map && "strip".equals(String.valueOf(((Map<?, ?>)lighting).get("type")))) {
-        railUnderTop(span, 12, 1.5f, 1.5f, 3, this.mesh.getMaterial(0xFFF3C0));
+        railUnderTop(span, 12, 1.5f, 1.5f, 3, named("lights", this.mesh.getMaterial(0xFFF3C0)));
       }
     }
     this.result.spans = spans.size();
@@ -1307,8 +1356,8 @@ final class AssistantFenceBuilder {
         // Wires thick enough to be seen from a few meters
         float ratio = Math.max(0.1f, Math.min(0.5f, wire * 2 / Math.min(cellWidth, cellHeight) + 0.06f));
         float tile = pattern.equals("fine") ? 4 : pattern.equals("hex") ? 2 : 1;
-        AssistantMeshBuilder.Material meshMaterial = this.mesh.getMaterial(pattern, cellWidth * tile,
-            cellHeight * (pattern.equals("fine") || pattern.equals("hex") ? 2 : 1), colors.infillColor, colors.infillColor, ratio);
+        AssistantMeshBuilder.Material meshMaterial = this.mesh.getNamedMaterial("mesh", this.mesh.getMaterial(pattern, cellWidth * tile,
+            cellHeight * (pattern.equals("fine") || pattern.equals("hex") ? 2 : 1), colors.infillColor, colors.infillColor, ratio));
         String frame = options.str("frame", "none");
         float inset = 0;
         if (!frame.equals("none") && !frame.equals("false")) {
@@ -1330,9 +1379,9 @@ final class AssistantFenceBuilder {
         String slats = options.str("privacy_slats", "none");
         if (!slats.equals("none") && !slats.equals("false")) {
           int slatColor = options.color("slat_color", slats.equals("hedge") ? 0x3F6B35 : 0x5E6B5E);
-          AssistantMeshBuilder.Material slatMaterial = slats.equals("hedge")
+          AssistantMeshBuilder.Material slatMaterial = this.mesh.getNamedMaterial("slats", slats.equals("hedge")
               ? this.mesh.getMaterial("leaves", 40, 40, slatColor, shade(slatColor, 1.25f), 0.12f)
-              : this.mesh.getMaterial("slats", cellWidth, 60, slatColor, slatColor, slats.equals("winged") ? 0.04f : 0.25f);
+              : this.mesh.getMaterial("slats", cellWidth, 60, slatColor, slatColor, slats.equals("winged") ? 0.04f : 0.25f));
           sheet(span, 0, 1, span.b1 + inset, span.t1 - inset, span.b2 + inset, span.t2 - inset, -0.6f, slatMaterial);
         }
         float barbed = options.num("barbed_top", 0, 0, 3);
@@ -1418,7 +1467,7 @@ final class AssistantFenceBuilder {
           }
         } else {
           AssistantMeshBuilder.Material boards = colors.infill.isTextured() ? colors.infill
-              : getPattern(horizontal ? "hboards" : "boards", colors.infillColor);
+              : named("boards", getPattern(horizontal ? "hboards" : "boards", colors.infillColor));
           slab(span, 0, 0, 2, 0, boards);
           this.result.boards += Math.max(1, Math.round(horizontal ? height / 14 : span.length / 14));
         }
@@ -1490,7 +1539,8 @@ final class AssistantFenceBuilder {
       case LATTICE : {
         float cell = options.num("lattice_cell", 12, 2, 100);
         String pattern = "square".equals(options.str("lattice_pattern", "diagonal")) ? "lattice_square" : "lattice_diagonal";
-        AssistantMeshBuilder.Material lattice = this.mesh.getMaterial(pattern, cell, cell, colors.infillColor, colors.infillColor, 0.3f);
+        AssistantMeshBuilder.Material lattice = named("lattice",
+            this.mesh.getMaterial(pattern, cell, cell, colors.infillColor, colors.infillColor, 0.3f));
         boolean framed = !"none".equals(options.str("frame", "wood"));
         if (framed) {
           railUnderTop(span, 0, 4, 6, 0, colors.rail);
@@ -1503,8 +1553,9 @@ final class AssistantFenceBuilder {
       case LATTICE_TOP : {
         float latticeHeight = Math.min(height * 0.6f, options.num("lattice_height", 30, 5, 300));
         String pattern = "square".equals(options.str("lattice_pattern", "square")) ? "lattice_square" : "lattice_diagonal";
-        AssistantMeshBuilder.Material lattice = this.mesh.getMaterial(pattern, 10, 10, colors.infillColor, colors.infillColor, 0.3f);
-        slab(span, 0, latticeHeight, 2, 0, colors.infill.isTextured() ? colors.infill : getPattern("boards", colors.infillColor));
+        AssistantMeshBuilder.Material lattice = named("lattice",
+            this.mesh.getMaterial(pattern, 10, 10, colors.infillColor, colors.infillColor, 0.3f));
+        slab(span, 0, latticeHeight, 2, 0, colors.infill.isTextured() ? colors.infill : named("boards", getPattern("boards", colors.infillColor)));
         this.result.boards += Math.max(1, Math.round(span.length / 14));
         railUnderTop(span, latticeHeight - 3, 4, 6, 0, colors.rail);
         railUnderTop(span, 0, 4, 5, 0, colors.rail);
@@ -1609,17 +1660,17 @@ final class AssistantFenceBuilder {
         }
         if (pattern.equals("holes") || pattern.equals("geometric") || pattern.equals("foliage")) {
           float open = options.num("open_area", pattern.equals("holes") ? 40 : 35, 2, 70) / 100;
-          AssistantMeshBuilder.Material pierced = pattern.equals("geometric")
+          AssistantMeshBuilder.Material pierced = named("panels", pattern.equals("geometric")
               ? this.mesh.getMaterial("lattice_diagonal", 30, 30, colors.infillColor, colors.infillColor, 1 - open)
               : pattern.equals("foliage")
                   ? this.mesh.getMaterial("leaves", 60, 60, colors.infillColor, colors.infillColor, open)
                   : this.mesh.getMaterial("holes", options.num("hole_size", 2.5f, 0.3f, 30), options.num("hole_size", 2.5f, 0.3f, 30),
-                        colors.infillColor, colors.infillColor, open);
+                        colors.infillColor, colors.infillColor, open));
           options.get("hole_pattern");
           sheet(span, 0, 1, span.b1, span.t1, span.b2, span.t2, 0, pierced);
         } else {
           slab(span, 0, 0, thickness, 0, colors.infill.isTextured() ? colors.infill
-              : pattern.equals("corrugated") ? getPattern("corrugated", colors.infillColor) : colors.infill);
+              : pattern.equals("corrugated") ? named("panels", getPattern("corrugated", colors.infillColor)) : colors.infill);
         }
         break;
       }
@@ -1627,7 +1678,7 @@ final class AssistantFenceBuilder {
         boolean framed = "framed".equals(options.str("frame", "frameless"));
         float gap = framed ? 0 : 0.02f;
         box(span, gap, 1 - gap, span.bottom(gap), span.top(gap), span.bottom(1 - gap), span.top(1 - gap), 1.2f, 0,
-            this.mesh.getMaterial(colors.infillColor, 0.35f));
+            named("glass", this.mesh.getMaterial(colors.infillColor, 0.35f)));
         if (framed) {
           railAboveBottom(span, -3, 3, 3, 0, colors.rail);
         }
@@ -1639,9 +1690,9 @@ final class AssistantFenceBuilder {
       case GABION : {
         float size = options.num("basket_size", 50, 10, 300);
         int stone = options.color("stone_color", colors.infillColor);
-        slab(span, -this.sink, 0, size, 0, getPattern("fieldstone", stone));
+        slab(span, -this.sink, 0, size, 0, named("stones", getPattern("fieldstone", stone)));
         // The wires of the baskets
-        AssistantMeshBuilder.Material wire = this.mesh.getMaterial(0x6E7275);
+        AssistantMeshBuilder.Material wire = named("steel", this.mesh.getMaterial(0x6E7275));
         for (float offset = -size / 2; offset <= size / 2; offset += size) {
           railUnderTop(span, -0.5f, 1, 1, offset, wire);
           board(span, 0.002f, 1, 1, span.b1, span.t1, offset + 0.5f, wire, "flat");
@@ -1663,7 +1714,7 @@ final class AssistantFenceBuilder {
         if (bond != null && pattern.startsWith("brick")) {
           pattern = "brick_" + bond;
         }
-        AssistantMeshBuilder.Material wall = colors.infill.isTextured() ? colors.infill : getPattern(pattern, colors.infillColor);
+        AssistantMeshBuilder.Material wall = colors.infill.isTextured() ? colors.infill : named("wall", getPattern(pattern, colors.infillColor));
         float low1 = span.g1 - this.sink;
         float low2 = span.g2 - this.sink;
         float high1 = span.t1;
@@ -1703,7 +1754,7 @@ final class AssistantFenceBuilder {
         if (infill != Infill.HAHA && coping != null && !Boolean.FALSE.equals(coping) && !"none".equals(coping.toString())
             && !"false".equals(coping.toString())) {
           box(span, 0, 1, high1, high1 + 6, high2, high2 + 6, thickness + 6, 0,
-              this.mesh.getMaterial(options.color("coping_color", shade(colors.infillColor, 1.15f))));
+              named("coping", this.mesh.getMaterial(options.color("coping_color", shade(colors.infillColor, 1.15f)))));
         }
         break;
       }
@@ -1718,13 +1769,13 @@ final class AssistantFenceBuilder {
         Options nestedOptions = new Options(nestedMap, nestedStyle, options);
         float pier = options.num("post", "size", "post_size", 40, 1, 200) / 2;
         Span inner = inset(span, pier, pier);
-        infill(nestedOptions, new Colors(nestedOptions), inner, leaf);
+        infill(nestedOptions, new Colors(nestedOptions, "panel_"), inner, leaf);
         break;
       }
       case ROLL : {
         float thickness = options.num("thickness", 3, 0.5f, 30);
         slab(span, 0, 0, thickness, 0, colors.infill.isTextured() ? colors.infill
-            : getPattern(options.str("pattern", "reed"), colors.infillColor));
+            : named("screen", getPattern(options.str("pattern", "reed"), colors.infillColor)));
         break;
       }
       case PALISADE : {
@@ -1740,11 +1791,11 @@ final class AssistantFenceBuilder {
       case LEAFY : {
         int count = Math.round(options.num("strands", 4, 1, 12));
         for (int i = 0; i < count; i++) {
-          rail(span, 0.25f + 0.7f * i / Math.max(1, count - 1), 0.5f, 0.5f, 0, this.mesh.getMaterial(0x8E9398));
+          rail(span, 0.25f + 0.7f * i / Math.max(1, count - 1), 0.5f, 0.5f, 0, named("wires", this.mesh.getMaterial(0x8E9398)));
         }
         sheet(span, 0, 1, span.b1 + height * 0.15f, span.t1, span.b2 + height * 0.15f, span.t2, 1,
-            this.mesh.getMaterial("leaves", 50, 50, colors.infillColor, shade(colors.infillColor, 1.3f), 0.3f));
-        board(span, 0.5f, 5, 5, span.bottom(0.5f) - 5, span.at(0.5f, 0.4f), 0, this.mesh.getMaterial(0x5B4634), "flat");
+            named("leaves", this.mesh.getMaterial("leaves", 50, 50, colors.infillColor, shade(colors.infillColor, 1.3f), 0.3f)));
+        board(span, 0.5f, 5, 5, span.bottom(0.5f) - 5, span.at(0.5f, 0.4f), 0, named("soil", this.mesh.getMaterial(0x5B4634)), "flat");
         this.result.boards--;
         break;
       }
@@ -1870,7 +1921,7 @@ final class AssistantFenceBuilder {
           : style.family.equals("Wire and mesh") ? getStyle("pipe_fence") : getStyle("picket");
     }
     Options options = new Options(map, style, this.options);
-    Colors colors = new Colors(options);
+    Colors colors = new Colors(options, "gate_");
     float clearance = type.equals("sliding") || type.equals("rolling") ? 6 : 5;
     float low = ground + clearance;
     float high = ground + height;
@@ -1931,7 +1982,7 @@ final class AssistantFenceBuilder {
         // The track, across the opening and where the gate goes when it opens
         Span track = getLeaf(start [0] + line.dx * (sign < 0 ? -width : 0) - line.dy * offset,
             start [1] + line.dy * (sign < 0 ? -width : 0) + line.dx * offset, line.dx, line.dy, width * 2, 0, ground, ground + 3);
-        box(track, 0, 1, ground, ground + 3, ground, ground + 3, 5, 0, this.mesh.getMaterial(0x6E7275));
+        box(track, 0, 1, ground, ground + 3, ground, ground + 3, 5, 0, named("steel", this.mesh.getMaterial(0x6E7275)));
       } else {
         // Two guide posts beyond the opening
         float guide = sign < 0 ? -width * 0.35f : width * 1.35f;
@@ -1941,6 +1992,20 @@ final class AssistantFenceBuilder {
       }
       description += ", slides to the " + (sign < 0 ? "start" : "end") + " of the fence and needs " + format(width + tail)
           + " cm free along it";
+      // The run of fence the gate slides along
+      double total = distances [distances.length - 1];
+      double gateWidth = opening.end - opening.start;
+      double run = this.result.closed ? total - gateWidth : sign < 0 ? opening.start : total - opening.end;
+      double otherRun = this.result.closed ? run : sign < 0 ? total - opening.end : opening.start;
+      if (run < width + tail - 1) {
+        String problem = "the " + type + " gate at " + format((opening.start + opening.end) / 2) + " cm is " + format(width)
+            + " cm wide and needs " + format(width + tail) + " cm of fence on the side of its " + (sign < 0 ? "start" : "end")
+            + " to slide: " + format(run) + " cm are there"
+            + (otherRun >= width + tail - 1 ? ". \"slide_direction\":\"" + (sign < 0 ? "end" : "start") + "\" slides it the other way, where "
+                + format(otherRun) + " cm are free" : ". A narrower gate, a longer fence or a gate that swings fits");
+        this.result.slideProblems.add(problem);
+        description += " (only " + format(run) + " cm there)";
+      }
     } else if (type.equals("vertical_lift")) {
       Span leaf = getLeaf(start [0] + line.dx * margin, start [1] + line.dy * margin, line.dx, line.dy, width - 2 * margin, 0,
           low + open * height, high + open * height);
@@ -1954,12 +2019,12 @@ final class AssistantFenceBuilder {
     } else if (type.equals("arm_barrier")) {
       float [] place = hingeAtEnd ? end : start;
       float sign = hingeAtEnd ? -1 : 1;
-      this.mesh.addBox(place [0] - 15, ground, place [1] - 15, place [0] + 15, ground + 105, place [1] + 15, this.mesh.getMaterial(0xE0E0DC));
+      this.mesh.addBox(place [0] - 15, ground, place [1] - 15, place [0] + 15, ground + 105, place [1] + 15, named("gate_barrier", this.mesh.getMaterial(0xE0E0DC)));
       double angle = Math.toRadians(Math.min(90, openAngle));
       float reach = (float)(Math.cos(angle) * (width - 10));
       float rise = (float)(Math.sin(angle) * (width - 10));
       Span arm = getLeaf(place [0], place [1], sign * line.dx, sign * line.dy, Math.max(1, reach), 0, ground, ground + 95);
-      box(arm, 0, 1, ground + 87, ground + 95, ground + 87 + rise, ground + 95 + rise, 6, 0, this.mesh.getMaterial(0xD8402A));
+      box(arm, 0, 1, ground + 87, ground + 95, ground + 87 + rise, ground + 95 + rise, 6, 0, named("gate_arm", this.mesh.getMaterial(0xD8402A)));
     } else if (type.equals("pedestrian_turnstile")) {
       float centerX = (start [0] + end [0]) / 2;
       float centerY = (start [1] + end [1]) / 2;
@@ -1974,7 +2039,7 @@ final class AssistantFenceBuilder {
       int bars = Math.max(4, Math.round(depth / 20));
       for (int i = 0; i < bars; i++) {
         float offset = -depth / 2 + depth * (i + 0.5f) / bars;
-        box(line, 0, 1, ground + 2, ground + 9, ground + 2, ground + 9, 8, offset, this.mesh.getMaterial(0x6E7275));
+        box(line, 0, 1, ground + 2, ground + 9, ground + 2, ground + 9, 8, offset, named("steel", this.mesh.getMaterial(0x6E7275)));
       }
       description += ", " + format(depth) + " cm deep";
     }
@@ -2028,7 +2093,7 @@ final class AssistantFenceBuilder {
     if (!operator.equals("none")) {
       float [] place = hingeAtEnd ? end : start;
       this.mesh.addBox(place [0] - line.dy * 25 * turn - 12, ground, place [1] + line.dx * 25 * turn - 12,
-          place [0] - line.dy * 25 * turn + 12, ground + 40, place [1] + line.dx * 25 * turn + 12, this.mesh.getMaterial(0x4A4F54));
+          place [0] - line.dy * 25 * turn + 12, ground + 40, place [1] + line.dx * 25 * turn + 12, named("gate_operator", this.mesh.getMaterial(0x4A4F54)));
       description += ", " + operator + " operator";
     }
     if (!latch.equals("none")) {
@@ -2057,7 +2122,7 @@ final class AssistantFenceBuilder {
     float low = Math.min(leaf.t2 - 8, ground + height);
     float size = latch.equals("keypad") || latch.equals("electric_strike") ? 9 : 5;
     board(leaf, 1 - 3 / leaf.length, 5, 4, low, low + (latch.equals("drop_rod") ? 45 : size), -this.side * 3,
-        this.mesh.getMaterial(0x2B2B2B), "flat");
+        named("gate_hardware", this.mesh.getMaterial(0x2B2B2B)), "flat");
     this.result.boards--;
   }
 

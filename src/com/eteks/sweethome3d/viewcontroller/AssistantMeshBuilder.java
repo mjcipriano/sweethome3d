@@ -207,6 +207,29 @@ final class AssistantMeshBuilder {
     return material;
   }
 
+  /**
+   * Returns a material that looks like <code>material</code> and is named after the part it shows
+   * (<code>posts</code>, <code>rails</code>...), for <code>list_materials</code> and <code>set_material</code>.
+   * A name already used by a material that looks different gets a number.
+   */
+  Material getNamedMaterial(String name, Material material) {
+    String key = "named:" + name + ":" + material.name;
+    Material named = this.materials.get(key);
+    if (named == null) {
+      int count = 1;
+      for (String otherKey : this.materials.keySet()) {
+        if (otherKey.startsWith("named:" + name + ":")) {
+          count++;
+        }
+      }
+      named = new Material(count == 1 ? name : name + "_" + count, material.color, material.image, material.imageName,
+          material.textureWidth, material.textureHeight, material.angle, material.xOffset, material.yOffset);
+      named.opacity = material.opacity;
+      this.materials.put(key, named);
+    }
+    return named;
+  }
+
   private static byte [] read(Content content) throws IOException {
     InputStream in = content.openStream();
     try {

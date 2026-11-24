@@ -212,7 +212,7 @@ public class AssistantGardenCommandsTest {
     // A gate in the middle of 10 m: two runs of 450 cm, each one cut in 2 spans
     summary = run("{\"action\":\"add_fence\",\"name\":\"Front fence\",\"points\":[[0,0],[1000,0]],\"style\":\"rail\","
         + "\"gate\":{\"at\":500,\"width\":100}}");
-    assertTrue(summary, summary.contains("6 posts") && summary.contains("4 spans") && summary.contains("9 m long")
+    assertTrue(summary, summary.contains("6 posts") && summary.contains("4 spans") && summary.contains("10 m of line (9 m of fence, 1 m of gate)")
         && summary.contains("single_swing 100 cm wide at 500 cm"));
     // The posts of the gate are 10 cm taller
     assertEquals(138, getPiece("Front fence").getHeight(), 0.5f);
