@@ -87,8 +87,8 @@ class AssistantPlantCommands {
         + "\"crown_base\" (the height under the crown), \"trunk_dbh\" (the diameter of the trunk), "
         + "\"trunk_lean\":{\"angle\":N,\"dir\":N} (degrees from upright, towards a compass direction of the plan: 0 = up the plan), "
         + "\"multi_trunk\":N, \"season\":\"spring|summer|autumn|winter\" (the season of the home by default: a deciduous tree is bare in "
-        + "winter, colored in autumn, in flower in spring if it blooms), \"lod\":\"low|medium|high\" (at most 2000, 10000 and more "
-        + "triangles), \"seed\":N for another shape of the same species, \"name\", \"tags\", \"level\". "
+        + "winter, colored in autumn, in flower in spring if it blooms), \"lod\":\"impostor|low|medium|high\" (at most 2000, 10000 and more "
+        + "triangles; impostor shows pictures of the plant on 9 flat faces, for the many trees seen from far), \"seed\":N for another shape of the same species, \"name\", \"tags\", \"level\". "
         + "\"style\":\"simple\" builds plain masses of leaves instead of branches and clusters (\"natural\", the default); "
         + "\"profile\":{\"droop\":0.4,\"gaps\":0.3,\"leaf\":\"lance\"} changes how it grows (" + AssistantTreeBuilder.getProfileKeys()
         + "); \"model\":\"catalog\" shows it by a tree of the furniture catalog at its size, turned and mirrored its own way - the "
@@ -118,7 +118,7 @@ class AssistantPlantCommands {
         + "the answer gives the average by species; \"where\" or \"ids\" limits it)\n"
         + "  {\"action\":\"set_season\",\"season\":\"autumn\"}  "
         + "(the season of every generated plant of the home, and of the ones added later; or \"date\":\"2026-10-20\", read with the "
-        + "hemisphere of the home. \"lod\":\"low|medium|high\" changes their detail the same way)\n"
+        + "hemisphere of the home. \"lod\":\"impostor|low|medium|high\" changes their detail the same way)\n"
         + "  {\"action\":\"set_plant_style\",\"model\":\"catalog\"}  "
         + "(what shows the plants of the home and the ones added later: \"model\":\"catalog|generated\" - trees of the furniture "
         + "catalog, or generated ones - and \"style\":\"natural|simple\" for the generated ones; \"ids\" or \"where\" changes "
@@ -267,8 +267,8 @@ class AssistantPlantCommands {
     plant.season = season;
     String lod = spec.get("lod") != null ? spec.get("lod").toString().trim().toLowerCase(Locale.ENGLISH)
         : this.home.getProperty(LOD_PROPERTY) != null ? this.home.getProperty(LOD_PROPERTY) : "medium";
-    if (!lod.equals("low") && !lod.equals("medium") && !lod.equals("high")) {
-      throw new IOException("\"lod\" is low, medium or high");
+    if (!lod.equals("impostor") && !lod.equals("low") && !lod.equals("medium") && !lod.equals("high")) {
+      throw new IOException("\"lod\" is impostor, low, medium or high");
     }
     plant.lod = lod;
     String pruned = spec.get("pruned_shape") != null ? spec.get("pruned_shape").toString().trim().toLowerCase(Locale.ENGLISH) : "natural";
@@ -354,7 +354,11 @@ class AssistantPlantCommands {
       shape.ghost = plant.ghost;
       shape.style = plant.style;
       shape.profile = plant.profile;
-      AssistantGeneratedModel model = AssistantPlantBuilder.build(shape).store("plant");
+      // The model kept from another time, or one built now and kept for the next time
+      AssistantGeneratedModel model = AssistantModelCache.load("plant", key);
+      if (model == null) {
+        model = AssistantModelCache.store("plant", key, AssistantPlantBuilder.build(shape));
+      }
       if (this.models.size() > 400) {
         this.models.clear();
       }
@@ -1288,8 +1292,8 @@ class AssistantPlantCommands {
     }
     if (lod != null) {
       lod = lod.trim().toLowerCase(Locale.ENGLISH);
-      if (!lod.equals("low") && !lod.equals("medium") && !lod.equals("high")) {
-        throw new IOException("\"lod\" is low, medium or high");
+      if (!lod.equals("impostor") && !lod.equals("low") && !lod.equals("medium") && !lod.equals("high")) {
+        throw new IOException("\"lod\" is impostor, low, medium or high");
       }
     }
     String style = command.getString("style");
@@ -1307,7 +1311,7 @@ class AssistantPlantCommands {
       }
     }
     if (season == null && lod == null && style == null && model == null) {
-      throw new IOException("give \"season\":\"spring|summer|autumn|winter\", a \"date\", \"lod\":\"low|medium|high\", "
+      throw new IOException("give \"season\":\"spring|summer|autumn|winter\", a \"date\", \"lod\":\"impostor|low|medium|high\", "
           + "\"style\":\"natural|simple\" or \"model\":\"generated|catalog\"");
     }
     List<HomePieceOfFurniture> plants = getPlants(command, true);

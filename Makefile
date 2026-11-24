@@ -14,6 +14,7 @@ USER_LANG ?= en
 USER_COUNTRY ?= US
 USER_VARIANT ?=
 JAVA_TEST_OPTS ?= $(JAVA_OPTS) \
+  -Dcom.eteks.sweethome3d.assistantModelCache=false \
   --add-opens=java.base/java.util=ALL-UNNAMED \
   --add-exports=java.desktop/sun.awt=ALL-UNNAMED
 TEST_JAVAC_FLAGS ?= -source 8 -target 8

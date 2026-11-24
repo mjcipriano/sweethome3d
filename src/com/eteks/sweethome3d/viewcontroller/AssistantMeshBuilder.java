@@ -50,6 +50,7 @@ final class AssistantMeshBuilder {
   private static final int PLAN_ICON_SIZE = 160;
   // Pictures are drawn three times larger then reduced, to keep thin parts and smooth edges
   private static final int ICON_SAMPLING = 3;
+  private static final int TEXTURED_PLAN_ICON_SIZE = 256;
   /** Images larger than this aren't copied in a model. */
   private static final int MAX_IMAGE_LENGTH = 8 * 1024 * 1024;
 
@@ -67,6 +68,9 @@ final class AssistantMeshBuilder {
     private final float   xOffset;
     private final float   yOffset;
     private float         opacity = 1;
+    /** The ARGB pixels of a square image, kept to draw pictures of the model, or <code>null</code>. */
+    private int []        pixels;
+    private int           pixelsSize;
 
     private Material(String name, int color, byte [] image, String imageName,
                      float textureWidth, float textureHeight, float angle, float xOffset, float yOffset) {
@@ -111,6 +115,9 @@ final class AssistantMeshBuilder {
   private final Map<String, Material> materials = new LinkedHashMap<String, Material>();
   private final Map<String, String>   imageNames = new LinkedHashMap<String, String>();
   private final String                suffix = Long.toHexString(System.nanoTime());
+  /** The pictures stored with the model instead of the ones drawn from its faces, or <code>null</code>. */
+  private byte []                     icon;
+  private byte []                     planIcon;
 
   /**
    * Returns the material of the given color.
@@ -180,12 +187,26 @@ final class AssistantMeshBuilder {
    * @param image  the PNG image
    * @param color  the color used for the icon of the model
    */
+  Material getImageMaterial(String key, byte [] image, int color, int [] pixels, int pixelsSize) {
+    Material material = getImageMaterial(key, image, color);
+    material.pixels = pixels;
+    material.pixelsSize = pixelsSize;
+    return material;
+  }
+
+  /**
+   * Returns the material showing a PNG image built for this model, laid by the texture coordinates of the faces.
+   */
   Material getImageMaterial(String key, byte [] image, int color) {
+    return getImageMaterial(key, image, color, "texture");
+  }
+
+  private Material getImageMaterial(String key, byte [] image, int color, String namePrefix) {
     Material material = this.materials.get("image_" + key);
     if (material == null) {
       String imageName = "texture" + this.imageNames.size() + "_" + this.suffix + ".png";
       this.imageNames.put("image_" + key, imageName);
-      material = new Material("texture" + this.materials.size() + "_" + this.suffix, color & 0xFFFFFF, image, imageName, 1, 1, 0, 0, 0);
+      material = new Material(namePrefix + this.materials.size() + "_" + this.suffix, color & 0xFFFFFF, image, imageName, 1, 1, 0, 0, 0);
       this.materials.put("image_" + key, material);
     }
     return material;
@@ -628,6 +649,17 @@ final class AssistantMeshBuilder {
    * with its icon and its size.
    */
   AssistantGeneratedModel store(String prefix) throws IOException {
+    float [] bounds = getBounds();
+    AssistantGeneratedModel model = AssistantGeneratedModel.store(prefix, getFiles(prefix),
+        bounds [3] - bounds [0], bounds [5] - bounds [2], bounds [4] - bounds [1]);
+    model.setBounds(bounds);
+    return model;
+  }
+
+  /**
+   * Returns the files of the model: its OBJ and MTL files, its images and its icons.
+   */
+  Map<String, byte []> getFiles(String prefix) throws IOException {
     if (this.faces.isEmpty()) {
       throw new IOException("nothing to build");
     }
@@ -702,12 +734,287 @@ final class AssistantMeshBuilder {
     }
     files.put(name + ".obj", obj.toString().getBytes("ISO-8859-1"));
     files.put(name + ".mtl", mtl.toString().getBytes("ISO-8859-1"));
-    files.put("icon_" + this.suffix + ".png", createIcon(bounds));
-    files.put("planicon_" + this.suffix + ".png", createPlanIcon(bounds));
-    AssistantGeneratedModel model = AssistantGeneratedModel.store(prefix, files,
-        bounds [3] - bounds [0], bounds [5] - bounds [2], bounds [4] - bounds [1]);
-    model.setBounds(bounds);
-    return model;
+    files.put("icon_" + this.suffix + ".png", this.icon != null ? this.icon : createIcon(bounds));
+    files.put("planicon_" + this.suffix + ".png", this.planIcon != null ? this.planIcon : createPlanIcon(bounds));
+    return files;
+  }
+
+  /**
+   * Returns <code>true</code> if some faces show pictures that let see through parts of them.
+   */
+  private boolean hasPictures() {
+    for (Material material : this.materials.values()) {
+      if (material.pixels != null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // ---- Impostors ----
+
+  /** The count of triangles of an impostor. */
+  static final int IMPOSTOR_TRIANGLES = 18;
+  /**
+   * The start of the name of a material that shows no shadow cast on it, as
+   * <code>ModelManager.UNSHADOWED_MATERIAL_PREFIX</code>: the shade of a plant is in the pictures of
+   * its impostor already, and the shadow a card casts on the other ones would show them as flat faces.
+   */
+  static final String UNSHADOWED_MATERIAL_PREFIX = "unshadowed_";
+
+  /**
+   * Returns a model of nine flat faces that show pictures of this one: its views from 8 sides on 4 crossed
+   * upright cards, each side of a card showing what is seen from there, and its view from the top on a
+   * horizontal card. The pictures are tiles of one image, and the model keeps the icons of this one.
+   * @param tileSize the size in pixels of each of the 9 pictures
+   */
+  AssistantMeshBuilder createImpostor(int tileSize) throws IOException {
+    if (this.faces.isEmpty()) {
+      throw new IOException("nothing to build");
+    }
+    float [] bounds = getBounds();
+    float centerX = (bounds [0] + bounds [3]) / 2;
+    float centerZ = (bounds [2] + bounds [5]) / 2;
+    float bottom = bounds [1];
+    float top = bounds [4];
+    int margin = 2;
+    int inner = tileSize - 2 * margin;
+    int size = tileSize * 3;
+    int [] atlas = new int [size * size];
+    float [] up = {0, 1, 0};
+    float [] center = {centerX, (bottom + top) / 2, centerZ};
+    float [][] rights = new float [8][];
+    float [][] towards = new float [8][];
+    float [] extents = new float [8];
+    for (int view = 0; view < 8; view++) {
+      double angle = Math.PI / 4 * (view / 2);
+      int side = view % 2 == 0 ? 1 : -1;
+      float [] toward = {(float)-Math.sin(angle) * side, 0, (float)Math.cos(angle) * side};
+      float [] right = {toward [2], 0, -toward [0]};
+      float extent = 0;
+      for (float [] vertex : this.vertices) {
+        extent = Math.max(extent, Math.abs((vertex [0] - centerX) * right [0] + (vertex [2] - centerZ) * right [2]));
+      }
+      extent = Math.max(extent, 0.5f);
+      rights [view] = right;
+      towards [view] = toward;
+      extents [view] = extent;
+      copyTile(render(right, up, toward, center, extent, Math.max(0.5f, (top - bottom) / 2), inner), inner,
+          atlas, size, (view % 3) * tileSize + margin, (view / 3) * tileSize + margin);
+    }
+    float halfWidth = Math.max(0.5f, (bounds [3] - bounds [0]) / 2);
+    float halfDepth = Math.max(0.5f, (bounds [5] - bounds [2]) / 2);
+    copyTile(render(new float [] {1, 0, 0}, new float [] {0, 0, -1}, up, center, halfWidth, halfDepth, inner), inner,
+        atlas, size, 2 * tileSize + margin, 2 * tileSize + margin);
+
+    // Where nothing is drawn, the mean color of the picture, which the edges of the leaves blend with
+    long red = 0;
+    long green = 0;
+    long blue = 0;
+    int count = 0;
+    for (int argb : atlas) {
+      if (argb >>> 24 != 0) {
+        red += (argb >> 16) & 0xFF;
+        green += (argb >> 8) & 0xFF;
+        blue += argb & 0xFF;
+        count++;
+      }
+    }
+    if (count == 0) {
+      throw new IOException("nothing to draw");
+    }
+    int meanColor = (int)(red / count) << 16 | (int)(green / count) << 8 | (int)(blue / count);
+    for (int i = 0; i < atlas.length; i++) {
+      if (atlas [i] >>> 24 == 0) {
+        atlas [i] = meanColor;
+      }
+    }
+
+    AssistantMeshBuilder impostor = new AssistantMeshBuilder();
+    Material material = impostor.getImageMaterial("impostor", AssistantLeafTextures.encode(atlas, size), meanColor,
+        UNSHADOWED_MATERIAL_PREFIX + "texture");
+    material.pixels = atlas;
+    material.pixelsSize = size;
+    for (int view = 0; view < 8; view++) {
+      float [] right = rights [view];
+      float [] toward = towards [view];
+      float extent = extents [view];
+      // Each side a little in front of the other one, for the renderers that show both
+      float shift = extent * 0.002f;
+      float x = centerX + toward [0] * shift;
+      float z = centerZ + toward [2] * shift;
+      int a = impostor.addVertex(x - right [0] * extent, bottom, z - right [2] * extent);
+      int b = impostor.addVertex(x + right [0] * extent, bottom, z + right [2] * extent);
+      int c = impostor.addVertex(x + right [0] * extent, top, z + right [2] * extent);
+      int d = impostor.addVertex(x - right [0] * extent, top, z - right [2] * extent);
+      // All the cards lit the same way, as from the top, whichever side the light comes from
+      impostor.addFace(new int [] {a, b, c, d}, material, false, getTile(view % 3, view / 3, tileSize, margin), up);
+    }
+    // The view from the top where the plant is the widest
+    int slabs = 12;
+    float [] radii = new float [slabs];
+    for (float [] vertex : this.vertices) {
+      int slab = Math.max(0, Math.min(slabs - 1, (int)((vertex [1] - bottom) / Math.max(1E-3f, top - bottom) * slabs)));
+      float dx = vertex [0] - centerX;
+      float dz = vertex [2] - centerZ;
+      radii [slab] = Math.max(radii [slab], dx * dx + dz * dz);
+    }
+    int widest = 0;
+    for (int i = 1; i < slabs; i++) {
+      if (radii [i] >= radii [widest] * 0.9f && radii [i] > radii [0] * 1.05f || radii [i] > radii [widest]) {
+        widest = i;
+      }
+    }
+    float y = bottom + (top - bottom) * (widest + 0.5f) / slabs;
+    int a = impostor.addVertex(bounds [0], y, bounds [5]);
+    int b = impostor.addVertex(bounds [3], y, bounds [5]);
+    int c = impostor.addVertex(bounds [3], y, bounds [2]);
+    int d = impostor.addVertex(bounds [0], y, bounds [2]);
+    // Seen from above only: from the ground it would be a line across the plant
+    impostor.addFace(new int [] {a, b, c, d}, material, false, getTile(2, 2, tileSize, margin), up);
+    impostor.icon = createIcon(bounds);
+    impostor.planIcon = createPlanIcon(bounds);
+    return impostor;
+  }
+
+  /**
+   * Returns the texture coordinates of the corners of a tile among 3 x 3, from its bottom left one
+   * turning to its bottom right one.
+   */
+  private static float [][] getTile(int column, int row, int tileSize, int margin) {
+    float size = tileSize * 3;
+    float left = (column * tileSize + margin) / size;
+    float right = ((column + 1) * tileSize - margin) / size;
+    float low = 1 - ((row + 1) * tileSize - margin) / size;
+    float high = 1 - (row * tileSize + margin) / size;
+    return new float [][] {{left, low}, {right, low}, {right, high}, {left, high}};
+  }
+
+  private static void copyTile(int [] tile, int tileSize, int [] image, int imageSize, int x, int y) {
+    for (int row = 0; row < tileSize; row++) {
+      System.arraycopy(tile, row * tileSize, image, (y + row) * imageSize + x, tileSize);
+    }
+  }
+
+  /**
+   * Returns the <code>size</code> x <code>size</code> ARGB pixels of the model seen from the direction
+   * <code>toward</code> without perspective, its textures drawn where they aren't seen through.
+   * Pixels are either opaque or fully transparent.
+   * @param right   the direction that goes to the right of the picture
+   * @param up      the direction that goes to its top
+   * @param toward  the direction that comes to the viewer
+   * @param center  the point shown at the center of the picture
+   * @param halfWidth  the half of the width shown
+   * @param halfHeight the half of the height shown
+   */
+  int [] render(float [] right, float [] up, float [] toward, float [] center,
+                float halfWidth, float halfHeight, int size) {
+    int sampling = 3;
+    int width = size * sampling;
+    float scaleX = width / 2f / halfWidth;
+    float scaleY = width / 2f / halfHeight;
+    float [][] view = new float [this.vertices.size()][];
+    for (int i = 0; i < view.length; i++) {
+      float [] vertex = this.vertices.get(i);
+      float x = vertex [0] - center [0];
+      float y = vertex [1] - center [1];
+      float z = vertex [2] - center [2];
+      view [i] = new float [] {width / 2f + (x * right [0] + y * right [1] + z * right [2]) * scaleX,
+          width / 2f - (x * up [0] + y * up [1] + z * up [2]) * scaleY,
+          x * toward [0] + y * toward [1] + z * toward [2]};
+    }
+    // Light from above the viewer
+    float [] light = {toward [0] * 0.4f + up [0] * 0.3f, toward [1] * 0.4f + up [1] * 0.3f + 0.85f, toward [2] * 0.4f + up [2] * 0.3f};
+    float lightLength = (float)Math.sqrt(light [0] * light [0] + light [1] * light [1] + light [2] * light [2]);
+    float [] depths = new float [width * width];
+    java.util.Arrays.fill(depths, -Float.MAX_VALUE);
+    int [] colors = new int [width * width];
+    for (Face face : this.faces) {
+      Material material = face.material;
+      int [] pixels = face.textureCoordinates != null ? material.pixels : null;
+      float [] a = view [face.indices [0]];
+      float [] normal = face.normal != null ? face.normal : getNormal(face.indices);
+      float shade = 0.85f;
+      if (normal != null) {
+        float dot = (normal [0] * light [0] + normal [1] * light [1] + normal [2] * light [2]) / lightLength;
+        shade = 0.66f + 0.34f * Math.max(0, dot);
+      }
+      int faceColor = material.color;
+      for (int i = 1; i < face.indices.length - 1; i++) {
+        float [] b = view [face.indices [i]];
+        float [] c = view [face.indices [i + 1]];
+        // In the picture y goes down: the faces turned to the viewer are the ones with a negative area
+        float area = (b [0] - a [0]) * (c [1] - a [1]) - (b [1] - a [1]) * (c [0] - a [0]);
+        if (area > -1E-6f) {
+          continue;
+        }
+        int xMin = Math.max(0, (int)Math.floor(Math.min(a [0], Math.min(b [0], c [0]))));
+        int xMax = Math.min(width - 1, (int)Math.ceil(Math.max(a [0], Math.max(b [0], c [0]))));
+        int yMin = Math.max(0, (int)Math.floor(Math.min(a [1], Math.min(b [1], c [1]))));
+        int yMax = Math.min(width - 1, (int)Math.ceil(Math.max(a [1], Math.max(b [1], c [1]))));
+        float [] ta = pixels != null ? face.textureCoordinates [0] : null;
+        float [] tb = pixels != null ? face.textureCoordinates [i] : null;
+        float [] tc = pixels != null ? face.textureCoordinates [i + 1] : null;
+        for (int py = yMin; py <= yMax; py++) {
+          for (int px = xMin; px <= xMax; px++) {
+            float x = px + 0.5f;
+            float y = py + 0.5f;
+            float w1 = ((b [0] - x) * (c [1] - y) - (b [1] - y) * (c [0] - x)) / area;
+            float w2 = ((c [0] - x) * (a [1] - y) - (c [1] - y) * (a [0] - x)) / area;
+            float w3 = 1 - w1 - w2;
+            if (w1 < 0 || w2 < 0 || w3 < 0) {
+              continue;
+            }
+            int index = py * width + px;
+            float depth = w1 * a [2] + w2 * b [2] + w3 * c [2];
+            if (depth <= depths [index]) {
+              continue;
+            }
+            int color = faceColor;
+            if (pixels != null) {
+              float u = w1 * ta [0] + w2 * tb [0] + w3 * tc [0];
+              float v = w1 * ta [1] + w2 * tb [1] + w3 * tc [1];
+              int tx = Math.max(0, Math.min(material.pixelsSize - 1, (int)((u - Math.floor(u)) * material.pixelsSize)));
+              int ty = Math.max(0, Math.min(material.pixelsSize - 1, (int)((1 - (v - Math.floor(v))) * material.pixelsSize)));
+              color = pixels [ty * material.pixelsSize + tx];
+              if (color >>> 24 < 128) {
+                continue;
+              }
+            }
+            depths [index] = depth;
+            colors [index] = 0xFF000000
+                | Math.min(255, (int)(((color >> 16) & 0xFF) * shade)) << 16
+                | Math.min(255, (int)(((color >> 8) & 0xFF) * shade)) << 8
+                | Math.min(255, (int)((color & 0xFF) * shade));
+          }
+        }
+      }
+    }
+    int [] picture = new int [size * size];
+    for (int y = 0; y < size; y++) {
+      for (int x = 0; x < size; x++) {
+        int red = 0;
+        int green = 0;
+        int blue = 0;
+        int count = 0;
+        for (int sy = 0; sy < sampling; sy++) {
+          for (int sx = 0; sx < sampling; sx++) {
+            int sample = colors [(y * sampling + sy) * width + x * sampling + sx];
+            if (sample != 0) {
+              red += (sample >> 16) & 0xFF;
+              green += (sample >> 8) & 0xFF;
+              blue += sample & 0xFF;
+              count++;
+            }
+          }
+        }
+        if (count * 3 >= sampling * sampling) {
+          // Colors rounded, for the image to take less room in the file of the home
+          picture [y * size + x] = 0xFF000000 | (red / count & 0xF8) << 16 | (green / count & 0xF8) << 8 | blue / count & 0xF8;
+        }
+      }
+    }
+    return picture;
   }
 
   /**
@@ -758,6 +1065,21 @@ final class AssistantMeshBuilder {
     double cosPitch = Math.cos(pitch);
     double sinPitch = Math.sin(pitch);
     float [] modelCenter = {(bounds [0] + bounds [3]) / 2, (bounds [1] + bounds [4]) / 2, (bounds [2] + bounds [5]) / 2};
+    if (hasPictures()) {
+      // Leaves drawn as they are cut in their pictures, not as the cards that carry them
+      float [] right = {(float)cosYaw, 0, (float)sinYaw};
+      float [] up = {(float)(sinYaw * sinPitch), (float)cosPitch, (float)(-cosYaw * sinPitch)};
+      float [] toward = {(float)(-sinYaw * cosPitch), (float)sinPitch, (float)(cosYaw * cosPitch)};
+      float half = 0;
+      for (float [] vertex : this.vertices) {
+        float x = vertex [0] - modelCenter [0];
+        float y = vertex [1] - modelCenter [1];
+        float z = vertex [2] - modelCenter [2];
+        half = Math.max(half, Math.max(Math.abs(x * right [0] + z * right [2]), Math.abs(x * up [0] + y * up [1] + z * up [2])));
+      }
+      half = Math.max(0.5f, half * 1.06f);
+      return AssistantLeafTextures.encode(render(right, up, toward, modelCenter, half, half, ICON_SIZE * 2), ICON_SIZE * 2);
+    }
     // View frame: sx to the right, sy upward, sz toward the viewer
     float [][] view = new float [this.vertices.size()][];
     float extent = 0;
@@ -785,6 +1107,11 @@ final class AssistantMeshBuilder {
     int size = PLAN_ICON_SIZE * ICON_SAMPLING;
     float centerX = (bounds [0] + bounds [3]) / 2;
     float centerZ = (bounds [2] + bounds [5]) / 2;
+    if (hasPictures()) {
+      return AssistantLeafTextures.encode(render(new float [] {1, 0, 0}, new float [] {0, 0, -1}, new float [] {0, 1, 0},
+          new float [] {centerX, 0, centerZ}, Math.max(0.5f, (bounds [3] - bounds [0]) / 2),
+          Math.max(0.5f, (bounds [5] - bounds [2]) / 2), TEXTURED_PLAN_ICON_SIZE), TEXTURED_PLAN_ICON_SIZE);
+    }
     // View frame: sx to the right of the plan, sy to its top, sz upward
     float [][] view = new float [this.vertices.size()][];
     for (int i = 0; i < view.length; i++) {

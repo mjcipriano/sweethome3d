@@ -138,6 +138,11 @@ public class ModelManager {
    */
   public static final String    WINDOW_PANE_SHAPE_PREFIX = SPECIAL_SHAPE_PREFIX + "window_pane";
   /**
+   * <code>Appearance</code> name prefix for the materials that show no shadow cast on them,
+   * as the pictures of a plant drawn with its shade on crossed flat faces.
+   */
+  public static final String    UNSHADOWED_MATERIAL_PREFIX = "unshadowed_";
+  /**
    * <code>Shape3D</code> user data prefix for mirror shapes.
    */
   public static final String    MIRROR_SHAPE_PREFIX = SPECIAL_SHAPE_PREFIX + "window_mirror";
