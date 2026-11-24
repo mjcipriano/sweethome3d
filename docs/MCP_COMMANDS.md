@@ -1232,13 +1232,13 @@ A key that isn't one of these is reported in a warning.
 
 ### How a tree grows
 
-Since 7.33 a cluster of leaves has the size of a real one (35 to 55 cm) whatever the size of
+Since 7.32.1 a cluster of leaves has the size of a real one (35 to 55 cm) whatever the size of
 the tree: a larger crown has more clusters, up to what its detail allows, then larger ones. The
 leaves are at the outside of the crown and its heart is left to its limbs, so that the sky and
 the limbs show through it. The clusters of a limb share a picture, are lit as the mass of that
 limb, and have its color in autumn. In winter the twigs are fewer and the dead leaves an oak
 keeps stay low in the crown. The masses of a pine are set around its trunk at heights that
-differ. `"card"` of a `profile` was a share of the radius of the crown before 7.33; it is now
+differ. `"card"` of a `profile` was a share of the radius of the crown before 7.32.1; it is now
 a multiplier around 1.
 
 ![A white oak at the high detail](images/tree-natural.jpg)

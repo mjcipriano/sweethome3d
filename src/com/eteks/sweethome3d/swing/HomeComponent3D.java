@@ -45,6 +45,7 @@ import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.ComponentListener;
@@ -80,6 +81,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -234,6 +236,9 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
   private BranchGroup                              openGLSceneRoot;
   private Object3DBranch.ChangeObserver            openGLObjectObserver;
   private OpenGLCameraAnimator                     openGLCameraAnimator;
+  // true while the camera follows the mouse or the keys at each frame: the view shows it where it is
+  private boolean                                  directNavigation;
+  private SmoothNavigator                          smoothNavigator;
   private final boolean                            openGLImagesAllowed;
   private OpenGLOffscreen3D                        openGLOffscreen;
   private BranchGroup                              openGLOffscreenSceneRoot;
@@ -1478,7 +1483,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
             updateDollHouseView();
           }
           if (openGLView != null) {
-            openGLCameraAnimator.moveCamera(home.getCamera(), true);
+            openGLCameraAnimator.moveCamera(home.getCamera(), !directNavigation);
             openGLView.repaint();
           }
           clearPrintedImageCache();
@@ -2620,12 +2625,24 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
         private Component  grabComponent;
         private Component  previousMouseEventTarget;
         private KeyEventPostProcessor windowsAltPostProcessor;
+        private boolean    panned;
+        private boolean    popupAtRelease;
 
         @Override
         public void mousePressed(MouseEvent ev) {
+          if (smoothNavigator != null) {
+            smoothNavigator.stopMouseLook();
+          }
           if (!retargetMouseEventToNavigationPanelChildren(ev)) {
-            if (ev.isPopupTrigger()) {
+            this.panned = false;
+            this.popupAtRelease = false;
+            if (ev.isPopupTrigger() && !SwingUtilities.isRightMouseButton(ev)) {
               mouseReleased(ev);
+            } else if (ev.isPopupTrigger()) {
+              // The right button moves the view sideways: its menu waits to know if the mouse moves
+              this.popupAtRelease = true;
+              this.xLastMouseMove = ev.getX();
+              this.yLastMouseMove = ev.getY();
             } else if (isEnabled()) {
               requestFocusInWindow();
               this.xLastMouseMove = ev.getX();
@@ -2679,6 +2696,9 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
 
         @Override
         public void mouseMoved(MouseEvent ev) {
+          if (smoothNavigator != null && smoothNavigator.lookWithMouse(ev)) {
+            return;
+          }
           if (!retargetMouseEventToNavigationPanelChildren(ev)) {
             controller.moveMouse(ev.getX(), ev.getY());
           }
@@ -2691,6 +2711,24 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
                 && !ev.isPopupTrigger()) {
               if (controller.isEditingState()) {
                 controller.moveMouse(ev.getX(), ev.getY());
+              } else if (SwingUtilities.isMiddleMouseButton(ev)
+                           && !Boolean.getBoolean("com.eteks.sweethome3d.interpretMiddleButtonAsLeftButtonWithAltKey")
+                         || SwingUtilities.isRightMouseButton(ev)) {
+                int dx = ev.getX() - this.xLastMouseMove;
+                int dy = ev.getY() - this.yLastMouseMove;
+                if (this.panned || Math.abs(dx) + Math.abs(dy) > 3) {
+                  this.panned = true;
+                  directNavigation = true;
+                  if (ev.isControlDown()) {
+                    // Closer or farther, as with the wheel
+                    controller.zoomCamera(-dy * 0.05f);
+                  } else {
+                    // What is shown follows the mouse
+                    controller.panCamera(dx, dy, component3D.getHeight());
+                  }
+                } else {
+                  return;
+                }
               } else if (ev.isAltDown()
                   || (SwingUtilities.isMiddleMouseButton(ev)
                       && Boolean.getBoolean("com.eteks.sweethome3d.interpretMiddleButtonAsLeftButtonWithAltKey"))) {
@@ -2711,6 +2749,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
                 }
               } else {
                 final float ANGLE_FACTOR = 0.005f;
+                directNavigation = true;
                 // Mouse move along X axis changes camera yaw
                 float yawDelta = ANGLE_FACTOR * (ev.getX() - this.xLastMouseMove);
                 // Multiply yaw delta by 5 if shift is down
@@ -2732,8 +2771,14 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
 
         @Override
         public void mouseReleased(MouseEvent ev) {
+          directNavigation = false;
           if (!retargetMouseEventToNavigationPanelChildren(ev)) {
-            if (ev.isPopupTrigger()) {
+            if (this.panned) {
+              // The mouse moved the view
+              this.panned = false;
+              this.popupAtRelease = false;
+            } else if (ev.isPopupTrigger() || this.popupAtRelease) {
+              this.popupAtRelease = false;
               JPopupMenu componentPopupMenu = getComponentPopupMenu();
               if (componentPopupMenu != null) {
                 componentPopupMenu.show(HomeComponent3D.this, ev.getX(), ev.getY());
@@ -2854,7 +2899,9 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
               steps *= 3;
             }
             if (steps != 0) {
-              controller.zoomCamera(Math.max(-6, Math.min(6, steps)));
+              // What is under the mouse stays under it
+              controller.zoomCameraAt(Math.max(-6, Math.min(6, steps)),
+                  ev.getX() - component3D.getWidth() / 2f, ev.getY() - component3D.getHeight() / 2f, component3D.getHeight());
             }
           }
         }
@@ -3017,9 +3064,329 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
   }
 
   /**
+   * Moves the camera at each frame while keys are held, at speeds that start and stop
+   * smoothly, and turns the visitor with the mouse in the mouse look mode of the virtual visit.
+   * <ul><li>W / S or the up and down arrows: forward and backward (closer and farther in the aerial view)
+   * <li>A / D: to the left and to the right
+   * <li>Q / E, End / Home: down and up
+   * <li>the left and right arrows: turn; Page up / Page down: look up and down
+   * <li>Shift: faster
+   * <li>M: mouse look in the virtual visit, until M, Escape or a click</ul>
+   */
+  private class SmoothNavigator extends java.awt.event.KeyAdapter implements ActionListener {
+    private static final int FORWARD = 0;
+    private static final int SIDEWAYS = 1;
+    private static final int UPWARD = 2;
+    private static final int YAW = 3;
+    private static final int PITCH = 4;
+    // Centimeters and radians per second in the virtual visit
+    private final float [] SPEEDS = {260, 220, 150, 1.9f, 1.1f};
+    // What is left to the keys repeated by the system before they are taken as released
+    private static final long RELEASE_DELAY = 45000000L;
+
+    private final HomeController3D controller;
+    private final Timer            timer = new Timer(15, this);
+    private final Map<Integer, Long> pressedKeys = new HashMap<Integer, Long>();
+    private final float []         speeds = new float [5];
+    private boolean                fast;
+    private boolean                arrowsMoveSideways;
+    private long                   lastTime;
+    // Mouse look
+    private boolean                mouseLook;
+    private java.awt.Robot         robot;
+    private java.awt.Point         lastMouseLocation;
+    private java.awt.Cursor        previousCursor;
+    private int                    ignoredMoves;
+
+    public SmoothNavigator(HomeController3D controller) {
+      this.controller = controller;
+    }
+
+    private int getAxis(KeyEvent ev) {
+      if (ev.isControlDown() || ev.isMetaDown()) {
+        return -1;
+      }
+      switch (ev.getKeyCode()) {
+        case KeyEvent.VK_W :
+        case KeyEvent.VK_S :
+        case KeyEvent.VK_UP :
+        case KeyEvent.VK_DOWN :
+          return FORWARD;
+        case KeyEvent.VK_A :
+        case KeyEvent.VK_D :
+          return SIDEWAYS;
+        case KeyEvent.VK_LEFT :
+        case KeyEvent.VK_RIGHT :
+          return ev.isAltDown() ? SIDEWAYS : YAW;
+        case KeyEvent.VK_Q :
+        case KeyEvent.VK_E :
+        case KeyEvent.VK_HOME :
+        case KeyEvent.VK_END :
+          return UPWARD;
+        case KeyEvent.VK_PAGE_UP :
+        case KeyEvent.VK_PAGE_DOWN :
+          return PITCH;
+        default :
+          return -1;
+      }
+    }
+
+    private boolean isNavigationPossible() {
+      return isEnabled() && !this.controller.isEditingState();
+    }
+
+    @Override
+    public void keyPressed(KeyEvent ev) {
+      if (ev.getKeyCode() == KeyEvent.VK_M && !ev.isControlDown() && !ev.isMetaDown() && !ev.isAltDown()
+          && isNavigationPossible()) {
+        if (this.mouseLook) {
+          stopMouseLook();
+        } else {
+          startMouseLook();
+        }
+        ev.consume();
+      } else if (ev.getKeyCode() == KeyEvent.VK_ESCAPE && this.mouseLook) {
+        stopMouseLook();
+        ev.consume();
+      } else if (getAxis(ev) >= 0 && isNavigationPossible()) {
+        this.fast = ev.isShiftDown();
+        if (ev.getKeyCode() == KeyEvent.VK_LEFT || ev.getKeyCode() == KeyEvent.VK_RIGHT) {
+          this.arrowsMoveSideways = ev.isAltDown();
+        }
+        this.pressedKeys.put(Integer.valueOf(ev.getKeyCode()), Long.valueOf(Long.MAX_VALUE));
+        if (!this.timer.isRunning()) {
+          this.lastTime = System.nanoTime();
+          this.timer.start();
+        }
+        // The camera moves at each frame, not at each time the system repeats the key
+        ev.consume();
+      } else if (ev.getKeyCode() == KeyEvent.VK_SHIFT) {
+        this.fast = true;
+      }
+    }
+
+    @Override
+    public void keyReleased(KeyEvent ev) {
+      Integer key = Integer.valueOf(ev.getKeyCode());
+      if (this.pressedKeys.containsKey(key)) {
+        // Some systems release a held key before each time they repeat it
+        this.pressedKeys.put(key, Long.valueOf(System.nanoTime()));
+        ev.consume();
+      } else if (ev.getKeyCode() == KeyEvent.VK_SHIFT) {
+        this.fast = false;
+      }
+    }
+
+    private boolean isPressed(int keyCode, long time) {
+      Long released = this.pressedKeys.get(Integer.valueOf(keyCode));
+      return released != null && time - released.longValue() < RELEASE_DELAY;
+    }
+
+    private float getDirection(long time, int [] positiveKeys, int [] negativeKeys) {
+      float direction = 0;
+      for (int key : positiveKeys) {
+        if (isPressed(key, time)) {
+          direction = 1;
+        }
+      }
+      for (int key : negativeKeys) {
+        if (isPressed(key, time)) {
+          direction -= 1;
+        }
+      }
+      return direction;
+    }
+
+    public void actionPerformed(ActionEvent ev) {
+      long time = System.nanoTime();
+      float elapsed = Math.min(0.1f, (time - this.lastTime) / 1E9f);
+      this.lastTime = time;
+      if (!isNavigationPossible() || !isShowing()) {
+        stop();
+        return;
+      }
+      // Forget the keys released for long enough
+      for (Iterator<Map.Entry<Integer, Long>> it = this.pressedKeys.entrySet().iterator(); it.hasNext(); ) {
+        if (time - it.next().getValue().longValue() >= RELEASE_DELAY) {
+          it.remove();
+        }
+      }
+      float [] targets = new float [5];
+      targets [FORWARD] = getDirection(time, new int [] {KeyEvent.VK_W, KeyEvent.VK_UP}, new int [] {KeyEvent.VK_S, KeyEvent.VK_DOWN});
+      targets [SIDEWAYS] = getDirection(time, new int [] {KeyEvent.VK_D}, new int [] {KeyEvent.VK_A});
+      targets [UPWARD] = getDirection(time, new int [] {KeyEvent.VK_E, KeyEvent.VK_HOME}, new int [] {KeyEvent.VK_Q, KeyEvent.VK_END});
+      targets [this.arrowsMoveSideways ? SIDEWAYS : YAW] += getDirection(time, new int [] {KeyEvent.VK_RIGHT}, new int [] {KeyEvent.VK_LEFT});
+      targets [PITCH] = getDirection(time, new int [] {KeyEvent.VK_PAGE_DOWN}, new int [] {KeyEvent.VK_PAGE_UP});
+      boolean moving = false;
+      // Speeds reach their value in about a fifth of a second
+      float share = Math.min(1, elapsed / 0.07f);
+      for (int i = 0; i < this.speeds.length; i++) {
+        float target = targets [i] * (this.fast ? 3 : 1);
+        this.speeds [i] += (target - this.speeds [i]) * share;
+        if (Math.abs(this.speeds [i]) < 0.01f && target == 0) {
+          this.speeds [i] = 0;
+        } else {
+          moving = true;
+        }
+      }
+      if (!moving) {
+        stop();
+        return;
+      }
+      boolean aerialView = home.getCamera() == home.getTopCamera();
+      directNavigation = true;
+      try {
+        if (this.speeds [FORWARD] != 0) {
+          if (aerialView) {
+            // Closer or farther by a share of the distance
+            this.controller.zoomCamera(this.speeds [FORWARD] * 5 * elapsed);
+          } else {
+            this.controller.moveCamera(this.speeds [FORWARD] * SPEEDS [FORWARD] * elapsed);
+          }
+        }
+        if (this.speeds [SIDEWAYS] != 0) {
+          this.controller.moveCameraSideways(this.speeds [SIDEWAYS] * (aerialView ? 130 : SPEEDS [SIDEWAYS]) * elapsed);
+        }
+        if (this.speeds [UPWARD] != 0) {
+          this.controller.elevateCamera(this.speeds [UPWARD] * (aerialView ? 100 : SPEEDS [UPWARD]) * elapsed);
+        }
+        if (this.speeds [YAW] != 0) {
+          this.controller.rotateCameraYaw(this.speeds [YAW] * SPEEDS [YAW] * elapsed / (this.fast ? 1.5f : 1));
+        }
+        if (this.speeds [PITCH] != 0) {
+          this.controller.rotateCameraPitch(this.speeds [PITCH] * SPEEDS [PITCH] * elapsed / (this.fast ? 1.5f : 1));
+        }
+      } finally {
+        directNavigation = this.mouseLook;
+      }
+    }
+
+    /**
+     * Stops the moves in progress and the mouse look.
+     */
+    public void stop() {
+      this.timer.stop();
+      this.pressedKeys.clear();
+      java.util.Arrays.fill(this.speeds, 0);
+      this.fast = false;
+      if (!this.mouseLook) {
+        directNavigation = false;
+      }
+    }
+
+    /**
+     * Lets the mouse turn the visitor without any button, its pointer hidden and kept in the view.
+     */
+    private void startMouseLook() {
+      if (home.getCamera() == home.getTopCamera()) {
+        // Turning around the home is done with the mouse dragged
+        return;
+      }
+      this.mouseLook = true;
+      directNavigation = true;
+      this.ignoredMoves = 0;
+      this.lastMouseLocation = null;
+      try {
+        this.robot = new java.awt.Robot();
+      } catch (Exception ex) {
+        // The mouse turns the visitor as far as the pointer can go
+        this.robot = null;
+      }
+      this.previousCursor = component3D != null ? component3D.getCursor() : null;
+      try {
+        java.awt.Cursor hiddenCursor = java.awt.Toolkit.getDefaultToolkit().createCustomCursor(
+            new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB), new java.awt.Point(0, 0), "hidden");
+        if (component3D != null) {
+          component3D.setCursor(hiddenCursor);
+        }
+      } catch (RuntimeException ex) {
+        // The pointer stays visible
+      }
+    }
+
+    public void stopMouseLook() {
+      if (this.mouseLook) {
+        this.mouseLook = false;
+        directNavigation = false;
+        this.lastMouseLocation = null;
+        if (component3D != null) {
+          component3D.setCursor(this.previousCursor);
+        }
+      }
+    }
+
+    /**
+     * Turns the visitor by the move of the mouse in the mouse look mode,
+     * and returns <code>false</code> out of this mode.
+     */
+    public boolean lookWithMouse(MouseEvent ev) {
+      if (!this.mouseLook) {
+        return false;
+      } else if (!isNavigationPossible() || home.getCamera() == home.getTopCamera()) {
+        stopMouseLook();
+        return false;
+      }
+      java.awt.Point location = ev.getLocationOnScreen();
+      if (this.ignoredMoves > 0) {
+        // Moves sent before the pointer came back to the center of the view
+        this.ignoredMoves--;
+        this.lastMouseLocation = location;
+        return true;
+      }
+      if (this.lastMouseLocation != null) {
+        final float ANGLE_FACTOR = 0.0028f;
+        int dx = location.x - this.lastMouseLocation.x;
+        int dy = location.y - this.lastMouseLocation.y;
+        if (Math.abs(dx) < 400 && Math.abs(dy) < 400) {
+          if (dx != 0) {
+            this.controller.rotateCameraYaw(dx * ANGLE_FACTOR);
+          }
+          if (dy != 0) {
+            this.controller.rotateCameraPitch(dy * ANGLE_FACTOR);
+          }
+        }
+      }
+      this.lastMouseLocation = location;
+      if (this.robot != null && component3D != null && component3D.isShowing()) {
+        // Back to the center of the view when the pointer comes close to its border
+        java.awt.Point origin = component3D.getLocationOnScreen();
+        int margin = Math.min(component3D.getWidth(), component3D.getHeight()) / 4;
+        if (location.x < origin.x + margin || location.x > origin.x + component3D.getWidth() - margin
+            || location.y < origin.y + margin || location.y > origin.y + component3D.getHeight() - margin) {
+          java.awt.Point center = new java.awt.Point(origin.x + component3D.getWidth() / 2, origin.y + component3D.getHeight() / 2);
+          this.robot.mouseMove(center.x, center.y);
+          try {
+            java.awt.Point moved = java.awt.MouseInfo.getPointerInfo().getLocation();
+            if (Math.abs(moved.x - center.x) <= 2 && Math.abs(moved.y - center.y) <= 2) {
+              this.lastMouseLocation = center;
+              this.ignoredMoves = 1;
+            } else {
+              // A system that doesn't let programs move the pointer
+              this.robot = null;
+            }
+          } catch (RuntimeException ex) {
+            this.robot = null;
+          }
+        }
+      }
+      return true;
+    }
+  }
+
+  /**
    * Creates actions that calls back <code>controller</code> methods.
    */
   private void createActions(final HomeController3D controller) {
+    if (this.smoothNavigator == null) {
+      this.smoothNavigator = new SmoothNavigator(controller);
+      addKeyListener(this.smoothNavigator);
+      addFocusListener(new java.awt.event.FocusAdapter() {
+          @Override
+          public void focusLost(java.awt.event.FocusEvent ev) {
+            smoothNavigator.stop();
+          }
+        });
+    }
     // Move camera action mapped to arrow keys
     class MoveCameraAction extends AbstractAction {
       private final float delta;
