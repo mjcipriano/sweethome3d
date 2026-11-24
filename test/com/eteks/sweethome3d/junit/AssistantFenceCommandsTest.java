@@ -333,8 +333,8 @@ public class AssistantFenceCommandsTest {
     run("{\"action\":\"modify_gate\",\"fence\":\"" + id + "\",\"gate\":1,\"swing\":\"out\"}");
     report = run("{\"action\":\"check_home\"}");
     assertFalse(report, report.contains("The gate 1"));
-    // The ground raised after the fence was built
-    run("{\"action\":\"set_terrain\",\"points\":[[-3000,-3000,50],[3000,-3000,50],[3000,3000,50],[-3000,3000,50]]}");
+    // The ground raised after the fence was built, the fences left as they are
+    run("{\"action\":\"set_terrain\",\"points\":[[-3000,-3000,50],[3000,-3000,50],[3000,3000,50],[-3000,3000,50]],\"reseat\":false}");
     report = run("{\"action\":\"check_home\"}");
     assertTrue(report, report.contains("The ground changed under the fence " + id) && report.contains("50 cm under it"));
     run("{\"action\":\"modify_fence\",\"id\":\"" + id + "\",\"rebuild\":true}");

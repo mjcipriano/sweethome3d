@@ -1203,11 +1203,18 @@ public class HomeMCPHandler {
         schema(switchProperties, "home"), false));
     Map<String, Object> exportProperties = new LinkedHashMap<String, Object>();
     exportProperties.put("format", enumProperty("pdf: the printed pages (plan, furniture list, 3D view); svg: the plan as a drawing; "
-        + "obj: the 3D model with its materials; csv: the furniture list; web_page: a folder with the 3D visit for a browser; "
+        + "obj: the 3D model with its materials; csv: the furniture list with the id, the level, the place, the elevation, "
+        + "the angle and the size of each piece, in cm unless \"units\" is given; web_page: a folder with the 3D visit for a browser; "
         + "panorama: a 360 degree picture from the place of the virtual visitor, with its page",
         "pdf", "svg", "obj", "glb", "csv", "web_page", "panorama"));
     exportProperties.put("path", property("string", "Absolute path of the file to write (pdf, svg, obj, csv), or of an existing folder that will receive a new folder (web_page, panorama)"));
     exportProperties.put("replace", property("boolean", "true to replace a file that exists"));
+    Map<String, Object> columnsProperty = property("array", "csv: the columns to write, among " + HomeFurnitureCsvWriter.COLUMNS
+        + " (default: " + HomeFurnitureCsvWriter.DEFAULT_COLUMNS + ")");
+    columnsProperty.put("items", property("string", "A column"));
+    exportProperties.put("columns", columnsProperty);
+    exportProperties.put("units", property("string", "csv: the unit of the lengths, cm (default), m, mm, in or ft; "
+        + "the header tells it, as in x_cm"));
     exportProperties.put("width", property("number", "panorama: width of the picture in pixels (default 4096, from 1024 to 8192)"));
     tools.add(tool("export_home", "Export the home",
         "Writes the home in another format. Pictures are made by get_3d_image and get_plan_image (save_to), "
@@ -3247,6 +3254,15 @@ public class HomeMCPHandler {
           return toolResult("The folder " + target.getParent() + " doesn't exist.", true);
         } else if (target.exists() && !bool(arguments, "replace", false)) {
           return toolResult(target + " exists: give \"replace\":true to replace it, or another name.", true);
+        }
+      }
+      if ("csv".equals(format)) {
+        // A table with ids, places and a unit of its own, whatever the furniture list of the window shows
+        try {
+          return toolResult(HomeFurnitureCsvWriter.write(this.home, target,
+              arguments.get("columns") instanceof List ? (List<?>)arguments.get("columns") : null, string(arguments, "units")), false);
+        } catch (java.io.IOException ex) {
+          return toolResult("The furniture list couldn't be written: " + ex.getMessage(), true);
         }
       }
       if ("glb".equals(format)) {

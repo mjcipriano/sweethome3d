@@ -161,7 +161,7 @@ public final class ElevationDrawing {
    */
   private static void addTerrain(List<Shape> shapes, String side, HomePieceOfFurniture piece) {
     int color = 0x8FB36B;
-    for (float [][] triangle : HomeTerrain.getTriangles(piece.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY))) {
+    for (float [][] triangle : HomeTerrain.getTriangles(piece)) {
       float [][] points = new float [3][];
       float depth = 0;
       for (int i = 0; i < 3; i++) {
