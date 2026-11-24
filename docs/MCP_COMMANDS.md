@@ -802,8 +802,8 @@ A line whose last point repeats the first one is closed, as with `"closed":true`
 | `add_fence` | A fence, a garden wall or a barrier along `points`, in one of 63 styles, with its gates. See [Fences, walls and gates](#fences-walls-and-gates) |
 | `add_hedge` | A hedge along `points`, mitred at its corners, with chamfered top edges: `height` (150), `width` (60), `color` (a dark green), `closed`, `name`. `"species":"boxwood"` gives it the leaves of a species, and `"pruned_shape":"natural\|box\|rounded"` its shape |
 | `add_path` | A paved strip along the center line `points`, mitred at its corners and laid on the ground: `width` (100), `thickness` (4), `color` or `texture` (with `texture_scale`, `texture_angle`), `"edging":true` for a curb on both sides (`edging_color`), `closed`, `name`. `"stepping_stones":{"length":40,"gap":20}` lays separate slabs of `length` x `width` cm instead |
-| `add_planting_bed` | An area of soil over the polygon `points`: `thickness` (6), `color` (dark soil) or `texture`, `"border":{"height":10,"width":5,"color":"#RRGGBB"}` for an edging, `name`. `"plants":{"name":"Plant","spacing":80}` (or `"names":[...]`, or just a list of names) scatters catalog pieces inside it. `add_groundcover` is the same command: `material` is `pine_straw`, `hardwood_mulch`, `rubber_mulch`, `gravel`, `river_rock`, `lawn`, `fescue`, `bermuda`, `zoysia`, `centipede`, `st_augustine`, `leaf_litter`, `moss`, `ivy`, `vinca` or `pachysandra`, and `"edging":"steel\|brick\|stone\|liriope"` borders it |
-| `add_trees` / `scatter` | Catalog pieces put on the ground: `"names":[...]` (or `name`), in the polygon `"area":[[x,y],...]` or along the line `"along":[[x,y],...]`, every `spacing` cm (300) or `count` of them. `"min_distance_from_buildings"` (150), `"jitter":N` cm, `"rotate":false` |
+| `add_planting_bed` | An area of soil over the polygon `points`: `thickness` (6), `color` (dark soil) or `texture`, `"border":{"height":10,"width":5,"color":"#RRGGBB"}` for an edging, `name`. `"plants":{"names":["azalea"],"spacing":80}` (or `name`, or just a list of names) scatters plants inside it: a name is a species of `list_species`, which gives generated plants, or else the exact name of a catalog piece like `Plant`. `add_groundcover` is the same command: `material` is `pine_straw`, `hardwood_mulch`, `rubber_mulch`, `gravel`, `river_rock`, `lawn`, `fescue`, `bermuda`, `zoysia`, `centipede`, `st_augustine`, `leaf_litter`, `moss`, `ivy`, `vinca` or `pachysandra`, and `"edging":"steel\|brick\|stone\|liriope"` borders it |
+| `add_trees` / `scatter` | Plants put on the ground: `"names":[...]` (or `name`), species of `list_species` or exact names of catalog pieces, in the polygon `"area":[[x,y],...]` or along the line `"along":[[x,y],...]`, every `spacing` cm (300) or `count` of them. `"min_distance_from_buildings"` (150), `"jitter":N` cm, `"rotate":false` |
 
 ```json
 {"commands":[
@@ -829,12 +829,15 @@ posts, of stones or of plants with their ids.
   ground under it, across their width too. They aren't built again when `set_terrain` changes the
   ground: delete them and run the command again. A fence is the exception: `check_home` tells when
   the ground changed under it, and `{"action":"modify_fence","id":"F7","rebuild":true}` builds it again.
-- **Plants and trees.** They are ordinary catalog pieces, each put at the height of the ground at
-  its place and marked as standing outdoors. Their places come from a grid moved at random, but the
+- **Plants and trees.** A name of `names` is first read as a species of `list_species` (`azalea`,
+  `red_maple`): the plants are then the generated ones of [Trees and plants](#trees-and-plants).
+  Otherwise it must be the exact name of a catalog piece, whatever its case: a name that is neither
+  is refused with the close species and catalog names, and never matched to a piece that only looks
+  like it. Each plant is put at the height of the ground at its place and marked as standing outdoors. Their places come from a grid moved at random, but the
   same points always give the same places. `add_trees` and `scatter` skip the places in a room or
   closer than `min_distance_from_buildings` to a room or a wall of any level, and place 400 pieces at
-  most at a time. The default catalog has no tree, only `Plant` and `Flowers`: add trees with
-  `import_furniture` or a furniture library, and find their names with `search_catalog`.
+  most at a time. The default catalog has no tree, only `Plant` and `Flowers`: use the species, or
+  add trees with `import_furniture` or a furniture library and find their names with `search_catalog`.
 
 ![A picket fence with its gate opening, a hedge, stepping stones and a planting bed around the demo house](images/garden.jpg)
 
@@ -1079,7 +1082,8 @@ A gate is given in `openings` when the fence is built, or added later by `add_ga
 `add_tree` and `add_shrub` build a plant from its **species**: a trunk, branches and masses of
 leaves with the silhouette of the species, light enough to plant hundreds of them. A plant stands on
 the ground built by `set_terrain`, keeps its description, and has the tags `tree` or `shrub` and
-the name of its species. The catalog pieces placed by `add_trees` with `names` still work as before.
+the name of its species. `add_trees` and `add_planting_bed` with `names` plant the same generated
+plants when a name is a species, and catalog pieces when it is the exact name of one.
 
 | Command | What it does |
 | --- | --- |
@@ -1121,7 +1125,7 @@ Sizes are in cm. What isn't given is the usual size of the species, in proportio
 | `height` | Its height |
 | `crown_radius`, or `crown_w` and `crown_d` | The width of its crown |
 | `crown_base` | The height under its crown |
-| `trunk_dbh` | The diameter of its trunk |
+| `trunk_dbh` | The diameter of its trunk. Grasses and groundcover plants (muhly grass, liriope, mondo grass...) are a clump without a trunk |
 | `trunk_lean` | `{"angle":N,"dir":N}`: degrees from upright, towards a direction of the plan (0 is up the plan, 90 its right) |
 | `multi_trunk` | The number of its trunks |
 | `season` | `spring`, `summer`, `autumn` or `winter`. By default the season of the home |
@@ -1164,9 +1168,14 @@ United States. `list_species` gives them all.
 - `update_trees` takes a `tag` and a new list (`trees`, `csv`, `geojson` or `path`). A tree of the
   list with no tree of the home within `tolerance` cm (150) is added; a tree that is much higher
   in the list takes its new sizes; a tree of the home that isn't in the list is deleted, or with
-  `"removed_since":"2018"` kept as a pale ghost with the tag `removed`.
+  `"mark_removed":true` or `"removed_since":"2018"` kept as a pale ghost with the tag `removed`
+  and that mark (the date of the day for `mark_removed`).
 - `forest_fill` plants `density` trees per 100 m2, or one every `spacing` cm, on a grid moved at
-  random. `species` and `understory` are a name, a list, or weights like `{"loblolly_pine":3,"sweetgum":1}`.
+  random. A density of 4 is a tree every 5 m, 0.5 a tree every 14 m: 80 m2 at 0.5 get one tree.
+  The answer gives the number planted beside the number the density expects for the area.
+  `species` and `understory` are a name, a list, or weights like `{"loblolly_pine":3,"sweetgum":1}`.
+  The understory has its own grid, with as many plants as trees, or its own density or spacing:
+  `"understory":{"species":["azalea","flowering_dogwood"],"density":8}`.
   Heights vary by `variation` (0.25). The same `seed` gives the same forest. Places in a room, or
   closer than `min_distance_from_buildings` (150) to one, are skipped. 3000 plants at most per call.
 
@@ -1177,8 +1186,10 @@ United States. `list_species` gives them all.
   green in spring, and the ones that bloom carry their flowers in spring or in summer. The season is
   kept with the home for the plants added later. `"lod":"low"` changes their detail the same way.
 - `grow_trees` adds `years` (negative: takes them away): each tree grows at the rate of its
-  species, slower as it gets close to the size the species reaches, and its crown and its trunk
-  follow. `where` or `ids` limits it.
+  species - about 35 cm a year for a black gum, 75 for a tulip poplar or a loblolly pine - and
+  slower only once it passes three quarters of the largest size of the species, which it doesn't
+  pass. Its crown and its trunk follow. The answer gives the average growth by species. `where` or
+  `ids` limits it.
 
 ### Limits
 
@@ -1207,7 +1218,7 @@ they are. All have the tag `site`, and a key that a command doesn't read is repo
 | `add_firepit`, `add_outdoor_kitchen` | A ring of stone with a seat wall; a counter with a grill |
 | `add_driveway`, `add_sidewalk`, `add_curb` | A strip laid on the ground along a center line, or a polygon |
 | `add_retaining_wall` | A step cut in the ground along a line, and the wall that holds it |
-| `add_steps_on_slope` | Steps from a point to another one, as many as the ground asks for |
+| `add_steps_on_slope` | Steps between two points (`points`, or `from` and `to`), as many as the ground asks for |
 | `add_drainage` | A downspout extension, a French drain, a catch basin, a dry creek bed or a culvert |
 | `add_utility` | An AC condenser, a generator, a meter, a propane tank, septic and well markers, a utility pole, a transformer box, a mailbox, a street light, a street sign or a fire hydrant |
 | `add_raised_bed`, `add_garden_enclosure` | A frame filled with soil; rows of them inside a fence with a gate |
@@ -1235,14 +1246,24 @@ Details:
   `decking` is `wood` or `composite`, `skirting` is `lattice`, `horizontal_slat`, `solid` or
   `none`. `railing` is a style of fence or `{"style","height",...}`: it is built as a fence around
   the deck, open at the stairs, and has its own id. `stairs` is `{"edge","width","at"}`, the edge 1
-  going from the first point to the second one and `at` from 0 to 1 along it. `benches` lists edges.
+  going from the first point to the second one and `at` from 0 to 1 along it. The stairs are treads
+  on closed risers between two stringers, the first riser against the rim of the deck, down to a pad
+  on the ground: `run` is the depth of a tread (28), and `"handrails":true|false` adds a rail on each
+  side (by default when the deck has a railing). `benches` lists edges.
 - **`add_patio`**: `pattern` is `running_bond`, `herringbone`, `basket`, `random_ashlar`,
   `flagstone` or `concrete`. It is laid level on the highest ground under it; the answer tells when
   the ground falls under it.
 - **`add_shed`**: its doors are on its front, the side of the positive y at the angle 0. `doors`
-  is 0, 1 or 2; `window`, `roof_color` and `trim_color` are optional.
+  is 0, 1 or 2: each one is a leaf of `door_color` (darker than the walls by default) with its
+  rails, hinges and handle, in a frame of `trim_color`. `"open":90` (or `true`) shows them open by
+  that angle. `window` and `roof_color` are optional.
 - **`add_pool`**: `points`, or `x`, `y` with `width` and `depth`, or `diameter` for a round one.
-  `type` is `in_ground` or `above_ground`. The ground isn't dug under it: `add_pad` lowers it.
+  `type` is `in_ground` or `above_ground` (or `"above_ground":true`). In the ground, the ground
+  of the home is cut flat under the pool, its coping and its paving, as `add_pad` does: at the mean
+  height of the ground there or at `elevation`, joined to the ground around over `blend_distance`
+  (150), and the answer gives the volumes cut and filled. `"excavate":false` leaves the ground as it
+  is, as does a home without a ground of `set_terrain`. Above the ground, the pool stands in a wall
+  `height` (130) cm high with a ladder over its first side.
 - **`add_driveway`**: `material` is `concrete`, `asphalt`, `gravel` or `pavers`. `apron` widens it
   at its last point, where it meets the street. `"grade":true` shapes the ground under it first.
   `polygon` builds any shape as a slab.
@@ -1250,8 +1271,8 @@ Details:
   its first point) goes down by `height`, level over `terrace_width` (300), then comes back to what
   it was. The wall is a fence of the style `retaining_wall`, with `stone` and `color`. Without a
   terrain the wall is built alone.
-- **`add_steps_on_slope`**: the count of steps comes from the climb of the ground between the two
-  points, each one `rise` cm high at most (17). `material` is `stone`, `wood` or `concrete`.
+- **`add_steps_on_slope`**: `"points":[[x,y],[x,y]]`, or `"from":[x,y]` and `"to":[x,y]`. The count
+  of steps comes from the climb of the ground between the two points, each one `rise` cm high at most (17). `material` is `stone`, `wood` or `concrete`.
 - **`add_utility`**: a mailbox has `"style":"post|brick|cluster"`. The wires of a utility pole and
   the text of a street sign aren't drawn.
 
@@ -1261,7 +1282,7 @@ Details:
 | --- | --- |
 | `add_context_building` | A neighbor's house as a simple mass with a roof |
 | `add_context_vehicle`, `add_context_person` | A car, an SUV, a pickup or a van, and a standing figure, for the scale |
-| `set_context_detail` | How much is drawn for the buildings added afterwards: `massing`, `textured` or `detailed` |
+| `set_context_detail` | How much is drawn for the buildings of the home, the ones that exist and the ones added later: `massing`, `textured` or `detailed` |
 
 ```json
 {"action":"add_context_building","points":[[3000,-800],[4300,-800],[4300,200],[3000,200]],
@@ -1271,9 +1292,13 @@ Details:
 
 - Its walls are `stories` x 280 cm high, or `height`, from the lowest ground under it. `roof` is
   `hip`, `gable`, `shed` or `flat` with a `pitch`; `siding` is `siding`, `brick` or `stucco` with a
-  `color`, and `roof_color` colors the roof. The roof is the one `add_roof` builds, as a second piece.
+  `color`, and `roof_color` colors the roof. The roof is the one `add_roof` builds, as a second piece:
+  its bottom is on the top of the walls, unless `"overhang":N` gives it eaves, which hang lower
+  than the top of the walls as eaves do.
 - `massing` draws plain walls under a flat roof, `textured` (the default) siding or bricks under
-  a roof, `detailed` adds a window every 3 m on each floor.
+  a roof, `detailed` adds a window every 3 m on each floor. `set_context_detail` draws again the
+  buildings that exist, with the same ids, takes away their roofs for `massing` and gives them back
+  otherwise. A building given its own `detail` keeps it, unless `"all":true`.
 - Buildings, cars and figures have the tags `neighbor` or `context`:
   `{"action":"hide_layer","tag":"neighbor"}` hides every neighbor at once, and `get_3d_image` with
   `"exclude_tags":["neighbor"]` leaves them out of one picture. `owner` is kept with the building.
