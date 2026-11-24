@@ -244,6 +244,11 @@ public class AssistantDesignCommands {
 
   // ---- Replacing furniture ----
 
+  /** The properties that describe the model built for a piece, which a piece of the catalog doesn't take. */
+  private static final List<String> MODEL_PROPERTIES = java.util.Arrays.asList("assistantPlant", "assistantPlantLod",
+      "assistantFence", "assistantFenceGround", "assistantGarden", AssistantCommandExecutor.STRUCTURE_PROPERTY,
+      AssistantCommandExecutor.AUTO_ROOF_PROPERTY, "assistantShape", "assistantModel");
+
   /**
    * Replaces pieces of furniture by a piece of the catalog, at the same
    * place, angle, elevation and level, with the same tags and visibility.
@@ -297,9 +302,18 @@ public class AssistantDesignCommands {
       piece.setVisible(oldPiece.isVisible());
       // The new piece takes the place of the old one, with its id
       piece.setProperty(HomeItemIds.ID_PROPERTY, oldPiece.getProperty(HomeItemIds.ID_PROPERTY));
-      String tags = oldPiece.getProperty(HomeItemTags.TAGS_PROPERTY);
-      if (tags != null) {
-        piece.setProperty(HomeItemTags.TAGS_PROPERTY, tags);
+      // With what was told about it, except what describes the model it had
+      boolean outdoor = oldPiece.getProperty(AssistantCommandExecutor.OUTDOOR_PROPERTY) != null
+          || AssistantPlantCommands.getSpec(oldPiece) != null;
+      for (String key : oldPiece.getPropertyNames()) {
+        if (!MODEL_PROPERTIES.contains(key) && !key.equals(AssistantCommandExecutor.OUTDOOR_PROPERTY)
+            && !key.startsWith("assistantTerrain") && !key.startsWith("assistantContext")) {
+          piece.setProperty(key, oldPiece.getProperty(key));
+        }
+      }
+      if (outdoor) {
+        // What stood outdoors on the ground still does
+        piece.setProperty(AssistantCommandExecutor.OUTDOOR_PROPERTY, "true");
       }
       added.add(piece);
     }

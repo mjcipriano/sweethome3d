@@ -169,6 +169,90 @@ public class AssistantChecksAndIdsTest {
   }
 
   /**
+   * A piece that replaces one standing on the ground outdoors stands outdoors too.
+   */
+  @Test
+  public void testReplacedPieceStaysOutdoors() {
+    run("{\"action\":\"set_terrain\",\"grid\":{\"x\":-1000,\"y\":-1000,\"width\":3000,\"depth\":3000,\"heights\":[[-50,-50],[-50,-50]]}}");
+    run("{\"action\":\"add_furniture\",\"name\":\"Chair\",\"x\":1500,\"y\":-500,\"width\":300,\"depth\":300,\"height\":900,"
+        + "\"on_terrain\":true,\"tags\":[\"tree\"],\"name_override\":\"Tall one\"}");
+    HomePieceOfFurniture piece = getPiece("Tall one");
+    piece.setProperty("price", "12");
+    String id = HomeItemIds.getId(piece);
+    String summary = run("{\"action\":\"check_home\"}");
+    assertFalse(summary, summary.contains("below_floor") || summary.contains("above_ceiling"));
+    run("{\"action\":\"replace_furniture\",\"ids\":[\"" + id + "\"],\"name\":\"Table\",\"keep_size\":true}");
+    HomePieceOfFurniture replaced = null;
+    for (HomePieceOfFurniture other : this.home.getFurniture()) {
+      if (id.equals(HomeItemIds.getId(other))) {
+        replaced = other;
+      }
+    }
+    assertTrue(replaced != null && replaced != piece);
+    assertEquals("true", replaced.getProperty(AssistantCommandExecutor.OUTDOOR_PROPERTY));
+    assertEquals("12", replaced.getProperty("price"));
+    summary = run("{\"action\":\"check_home\"}");
+    assertFalse(summary, summary.contains("below_floor") || summary.contains("above_ceiling"));
+    // A generated tree replaced by a piece of the catalog
+    run("{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":500,\"y\":500,\"height\":1500}");
+    HomePieceOfFurniture tree = this.home.getFurniture().get(this.home.getFurniture().size() - 1);
+    String treeId = HomeItemIds.getId(tree);
+    run("{\"action\":\"replace_furniture\",\"ids\":[\"" + treeId + "\"],\"name\":\"Table\",\"keep_size\":true}");
+    for (HomePieceOfFurniture other : this.home.getFurniture()) {
+      if (treeId.equals(HomeItemIds.getId(other))) {
+        assertEquals("true", other.getProperty(AssistantCommandExecutor.OUTDOOR_PROPERTY));
+        assertTrue(other.getProperty("assistantPlant") == null);
+      }
+    }
+    summary = run("{\"action\":\"check_home\"}");
+    assertFalse(summary, summary.contains("below_floor") || summary.contains("above_ceiling"));
+    // What stands on the ground without having been told outdoors isn't under the floor either
+    replaced.setProperty(AssistantCommandExecutor.OUTDOOR_PROPERTY, null);
+    summary = run("{\"action\":\"check_home\"}");
+    assertFalse(summary, summary.contains("below_floor") || summary.contains("above_ceiling"));
+  }
+
+  /**
+   * A gate of a closed fence opens in to what the fence encloses, whatever the way its points turn,
+   * and a tree of the catalog stops it by its trunk only.
+   */
+  @Test
+  public void testGateSwingsToTheInsideAndUnderTrees() {
+    String [] pens = {"[[0,0],[1000,0],[1000,1000],[0,1000]]", "[[0,0],[0,1000],[1000,1000],[1000,0]]"};
+    for (String pen : pens) {
+      run("{\"action\":\"add_fence\",\"name\":\"Pen\",\"points\":" + pen + ",\"closed\":true,\"style\":\"chain_link\",\"height\":120},"
+          + "{\"action\":\"add_gate\",\"fence\":\"last\",\"near\":[200,0],\"width\":100,\"type\":\"single_swing\",\"swing\":\"in\"}");
+      String fence = HomeItemIds.getId(this.home.getFurniture().get(this.home.getFurniture().size() - 1));
+      // A piece inside the pen, behind the gate
+      run("{\"action\":\"add_furniture\",\"name\":\"Table\",\"x\":200,\"y\":70,\"width\":100,\"depth\":60,\"height\":70}");
+      String table = HomeItemIds.getId(this.home.getFurniture().get(this.home.getFurniture().size() - 1));
+      String summary = run("{\"action\":\"check_home\"}");
+      assertTrue(pen + summary, summary.contains("gate_blocked") && summary.contains("swings in"));
+      run("{\"action\":\"modify_gate\",\"fence\":\"" + fence + "\",\"gate\":1,\"swing\":\"out\"}");
+      summary = run("{\"action\":\"check_home\"}");
+      assertFalse(pen + summary, summary.contains("gate_blocked"));
+      run("{\"action\":\"delete\",\"ids\":[\"" + table + "\"]}");
+      // A tree of the catalog 4 m out of the gate, with leaves above it
+      run("{\"action\":\"add_furniture\",\"name\":\"Chair\",\"x\":200,\"y\":-400,\"width\":800,\"depth\":800,\"height\":1400,"
+          + "\"tags\":[\"tree\"]}");
+      String tree = HomeItemIds.getId(this.home.getFurniture().get(this.home.getFurniture().size() - 1));
+      summary = run("{\"action\":\"check_home\"}");
+      assertFalse(pen + summary, summary.contains("gate_blocked"));
+      // Its trunk where the leaf goes
+      run("{\"action\":\"move\",\"id\":\"" + tree + "\",\"x\":200,\"y\":-60}");
+      summary = run("{\"action\":\"check_home\"}");
+      assertTrue(pen + summary, summary.contains("gate_blocked") && summary.contains("swings out"));
+      run("{\"action\":\"delete\",\"ids\":[\"" + tree + "\",\"" + fence + "\"]}");
+    }
+    // An open fence opens in to its side
+    run("{\"action\":\"add_fence\",\"points\":[[0,0],[1000,0]],\"style\":\"chain_link\",\"height\":120,\"side\":\"right\"},"
+        + "{\"action\":\"add_gate\",\"fence\":\"last\",\"near\":[200,0],\"width\":100,\"type\":\"single_swing\",\"swing\":\"in\"}");
+    run("{\"action\":\"add_furniture\",\"name\":\"Table\",\"x\":200,\"y\":70,\"width\":100,\"depth\":60,\"height\":70}");
+    String summary = run("{\"action\":\"check_home\"}");
+    assertTrue(summary, summary.contains("gate_blocked"));
+  }
+
+  /**
    * The help tells a tool from a command.
    */
   @Test
