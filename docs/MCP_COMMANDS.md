@@ -1163,8 +1163,9 @@ it needs a run of fence as long as itself there, and 40 % more for the tail of a
 
 ## Trees and plants
 
-`add_tree` and `add_shrub` build a plant from its **species**: a trunk, branches and masses of
-leaves with the silhouette of the species, light enough to plant hundreds of them. A plant stands on
+`add_tree` and `add_shrub` build a plant from its **species**: a trunk that divides into limbs
+and twigs grown in the shape of the crown of the species, bark, and clusters of leaves one sees
+through, light enough to plant hundreds of them. A plant stands on
 the ground built by `set_terrain`, keeps its description, and has the tags `tree` or `shrub` and
 the name of its species. `add_trees` and `add_planting_bed` with `names` plant the same generated
 plants when a name is a species, and catalog pieces when it is the exact name of one.
@@ -1181,6 +1182,7 @@ plants when a name is a species, and catalog pieces when it is the exact name of
 | `relabel_trees` | Another species for generated trees, at the same place and with the same sizes |
 | `grow_trees` | Makes the trees older or younger by `years` |
 | `set_season` | The season, or the detail, of every generated plant of the home |
+| `set_plant_style` | What shows the plants: generated models or trees of the furniture catalog, natural or simple |
 | `replace_furniture` with `species` | Replaces pieces of furniture by plants of a species, at their places and with their sizes |
 | `list_species` | The species, with their common name, whether they keep their leaves, and their usual height |
 
@@ -1217,10 +1219,90 @@ Sizes are in cm. What isn't given is the usual size of the species, in proportio
 | `seed` | A number that gives another shape of the same species. Without it, the place of the tree chooses among 5 shapes |
 | `pruned_shape` | `natural`, `ball`, `box`, `cone` or `hedge_section`, for a clipped shrub |
 | `offset` | Raises it above the ground |
+| `style` | `natural` (the default: branches and clusters of leaves) or `simple` (plain masses of leaves, as before 7.31) |
+| `profile` | Values that change how it grows, see [How a tree grows](#how-a-tree-grows) |
+| `model` | `generated` (the default) or `catalog`: a tree of the furniture catalog at the size of the plant |
+| `catalog_name` | The exact name of the piece of the catalog that shows it |
+| `angle` | Its angle in degrees. Without it a tree is turned its own way, from its place |
 | `name`, `tags`, `level` | Its name (the common name of the species by default), more tags, its level |
 
 Plants of the same species, season and proportions share one model, so a forest stays light.
 A key that isn't one of these is reported in a warning.
+
+### How a tree grows
+
+![A white oak at the high detail](images/tree-natural.jpg)
+
+A generated tree is grown, not assembled from shapes:
+
+- **Branches.** Points are scattered in the measured shape of the crown - its height, its base,
+  its width - and the branches grow step by step toward the points closest to them until each
+  point is reached (space colonization). The outline of the crown goes in and out, and a few holes
+  are left in it, so that no tree is symmetric. Conifers keep a trunk up to their top; an old pine
+  has a bare trunk under separate masses of needles; a crape myrtle starts from several trunks.
+- **Limbs.** Each limb is as thick as what it carries (the sum of the sections of its branches,
+  with an exponent of 2.4), from the measured diameter of the trunk down to the twigs, and the
+  trunk widens at the ground.
+- **Leaves.** Each end of a branch carries a cluster of leaves: crossed cards with a picture of a
+  twig and its leaves, cut out so that the sky shows between them. The picture is drawn for the
+  species - lobed leaves of oaks, pointed ones of maples, tufts of needles of pines, sprays of
+  spruces, flat scales of cedars - in three tones: darker in the heart of the crown, lighter at
+  its top. The cards are lit as parts of the round mass of the crown.
+- **Bark.** Plates for pines, furrows for oaks, paper for birches, patches for crape myrtles.
+- **Seasons.** In autumn the leaves mix the colors of the species with some that didn't turn
+  yet. In winter a deciduous tree shows its branches and twigs, with the dead leaves oaks and
+  beeches keep. In spring the trees that bloom carry their flowers, before their leaves for some.
+- **Detail.** `low` keeps the trunk, the main limbs and a few large clusters (about 1 000
+  triangles), `medium` about 6 000 to 8 000, `high` 15 000 to 30 000 with twigs and small clusters.
+- The same species, sizes and `seed` give the same tree. Its height and the width of its crown
+  are the ones asked.
+
+The values of each form of crown and of each species are in the file
+`AssistantPlantProfiles.properties` of the program, and `profile` replaces them for one plant:
+
+| Value | Meaning |
+| --- | --- |
+| `excurrent` | 1 for a trunk that goes up to the top, 0 for a trunk that divides |
+| `trunk_top` | Where a trunk that divides ends, as a share of the height of the crown |
+| `shell` | How much the ends of the branches go to the outside of the crown (1 fills it evenly) |
+| `irregularity` | How far the outline goes in and out of the measured shape (share of the radius) |
+| `gaps` | The share of the crown left as holes |
+| `clumps` | The count of separate masses of the crown (0 for one mass) |
+| `up`, `droop` | How much the branches turn upward, and how much they hang away from the trunk |
+| `pipe` | The exponent that gives the thickness of a limb from the ones it carries (2 to 3) |
+| `leaf` | The picture of the clusters: `ovate`, `lance`, `lobed`, `palmate`, `round`, `broad`, `small`, `compound`, `tuft`, `spray`, `scale` |
+| `card`, `lift`, `along` | The size of a cluster (share of the radius of the crown), how much it points up, and 1 to put clusters along the branches |
+| `density` | Multiplies the count of branch ends and of clusters |
+| `bark` | `bark`, `bark_plated`, `bark_furrowed`, `bark_birch` or `bark_smooth` |
+| `marcescent` | The share of dead leaves kept in winter |
+| `autumn` | More colors of the leaves in autumn, as hex numbers separated by `/` |
+
+```json
+{"action":"add_tree","species":"river_birch","x":900,"y":200,"height":1100,
+ "profile":{"droop":0.6,"gaps":0.3,"card":0.2}}
+```
+
+### Trees of the catalog
+
+`"model":"catalog"` shows a plant by a tree of the furniture catalog, scaled to its height and to
+its crown, turned and mirrored its own way and a little wider or narrower than its neighbors, so
+that repeated models don't look cloned. The piece is the first one the catalog has among the names
+kept for the kind of species - `Pine`, `Ponderosa` for pines, `Sycamore maple` for oaks and maples,
+`Poplar` for tall narrow trees, `BirchTree` for small ones, listed in
+`AssistantPlantProfiles.properties` - or the one named by `catalog_name`. When the catalog has
+none, the plant is generated and the answer tells it. Such a plant is still a plant: it keeps its
+species, its tags and its sizes for `relabel_trees`, `grow_trees`, `update_trees` and the checks.
+It shows the leaves of its model in every season.
+
+```json
+{"commands":[
+  {"action":"set_plant_style","model":"catalog"},
+  {"action":"set_plant_style","ids":["F12","F13"],"model":"generated","style":"natural"}
+]}
+```
+
+`set_plant_style` without `ids` or `where` changes every plant of the home and the ones added
+later; `"style":"simple"` goes back to the plain masses of leaves of the first versions.
 
 ### Species
 
@@ -1239,7 +1321,7 @@ United States. `list_species` gives them all.
 | Shrubs | `azalea`, `native_azalea`, `boxwood`, `hydrangea`, `oakleaf_hydrangea`, `panicle_hydrangea`, `gardenia`, `loropetalum`, `indian_hawthorn`, `abelia`, `nandina`, `dwarf_yaupon`, `japanese_holly`, `inkberry`, `spreading_juniper`, `upright_juniper`, `yew`, `shrub_rose`, `knockout_rose`, `climbing_rose`, `forsythia`, `spirea`, `viburnum`, `rhododendron`, `fothergilla`, `ninebark`, `butterfly_bush`, `distylium`, `sasanqua`, `blueberry` |
 | Grasses and groundcovers | `muhly_grass`, `miscanthus`, `fountain_grass`, `liriope`, `mondo_grass` |
 
-![The conifers, the broadleaf evergreens and the first oaks](images/tree-species.jpg)
+![The conifers, the broadleaf evergreens and the oaks](images/tree-species.jpg)
 
 ### Lists of trees
 
@@ -1283,6 +1365,11 @@ United States. `list_species` gives them all.
 - `trees_from_lidar` finds trees in a LAS point cloud, as generic conifers or deciduous trees: the
   species isn't guessed, `relabel_trees` gives it.
 - The detail doesn't change with the distance of the camera: `set_season` with `lod` sets it for all.
+- The pictures of leaves and of bark are drawn by the program, not photographs, and a `low` tree
+  isn't a picture of the tree seen from a few sides (an impostor): it is fewer, larger clusters.
+- Palms, grasses, stumps, clipped shrubs and the ghosts of removed trees keep their simple shapes.
+- A tree built before 7.31 keeps its model until a command builds it again (`set_season`,
+  `grow_trees`, `set_plant_style`).
 
 ## Outdoor structures and site items
 

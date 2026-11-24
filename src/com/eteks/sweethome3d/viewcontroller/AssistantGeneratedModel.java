@@ -66,6 +66,16 @@ public class AssistantGeneratedModel {
     return this.planIcon;
   }
 
+  /**
+   * Returns a model that exists already, as the one of a piece of the catalog, at the given size.
+   */
+  static AssistantGeneratedModel of(Content model, Content icon, Content planIcon, float width, float depth, float height) {
+    AssistantGeneratedModel generated = new AssistantGeneratedModel(model, icon, width, depth, height);
+    generated.planIcon = planIcon;
+    generated.bounds = new float [] {-width / 2, 0, -depth / 2, width / 2, height, depth / 2};
+    return generated;
+  }
+
   private AssistantGeneratedModel(Content model, Content icon, float width, float depth, float height) {
     this.model = model;
     this.icon = icon;
@@ -792,7 +802,7 @@ public class AssistantGeneratedModel {
     deflater.end();
     ByteArrayOutputStream png = new ByteArrayOutputStream();
     png.write(new byte [] {(byte)0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'});
-    writeChunk(png, "IHDR", new byte [] {0, 0, 0, (byte)size, 0, 0, 0, (byte)size, 8, 6, 0, 0, 0});
+    writeChunk(png, "IHDR", new byte [] {0, 0, (byte)(size >> 8), (byte)size, 0, 0, (byte)(size >> 8), (byte)size, 8, 6, 0, 0, 0});
     writeChunk(png, "IDAT", compressed.toByteArray());
     writeChunk(png, "IEND", new byte [0]);
     return png.toByteArray();

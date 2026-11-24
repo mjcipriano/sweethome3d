@@ -1491,6 +1491,38 @@ class AssistantFenceCommands {
     return count >= 3;
   }
 
+  private static final java.util.regex.Pattern TREE_NAMES = java.util.regex.Pattern.compile(
+      "\\b(tree|pine|oak|maple|poplar|birch|ponderosa|palm|cedar|magnolia|fir|spruce|elm|beech|willow|cypress|sycamore|hickory|ash)\\b|"
+      + "tree$|pine$", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+  /**
+   * Returns <code>true</code> if a piece of the catalog is a tree: by its tags, its name, or its size outdoors.
+   */
+  static boolean isTree(HomePieceOfFurniture piece) {
+    if (piece.getHeight() < 250 || HomeItemTags.getTags(piece).contains("shrub")) {
+      return false;
+    }
+    String names = (piece.getName() != null ? piece.getName() : "") + " " + (piece.getCatalogId() != null ? piece.getCatalogId() : "");
+    return HomeItemTags.getTags(piece).contains("tree")
+        || TREE_NAMES.matcher(names.replace('_', ' ').replace('#', ' ').replace('-', ' ')).find()
+        || "true".equals(piece.getProperty(AssistantCommandExecutor.OUTDOOR_PROPERTY))
+            && piece.getHeight() > 600 && Math.min(piece.getWidth(), piece.getDepth()) > 200;
+  }
+
+  /**
+   * Returns the way a leaf turns from the line of a closed fence to what it encloses: 1 when the inside is at
+   * the right of someone who walks along its points, -1 when it is at the left.
+   */
+  static float getInsideTurn(float [][] points) {
+    double area = 0;
+    for (int i = 0; i < points.length; i++) {
+      float [] point = points [i];
+      float [] next = points [(i + 1) % points.length];
+      area += point [0] * next [1] - next [0] * point [1];
+    }
+    return area >= 0 ? 1 : -1;
+  }
+
   /**
    * Returns <code>true</code> if a piece stands where the leaf of a gate goes through the point (x, y): the trunk of a tree
    * and not the leaves above the gate, a shrub where its leaves are, and any other piece between the ground and the top of the gate.
@@ -1515,6 +1547,11 @@ class AssistantFenceCommands {
       // Leaves that start above the gate let it open under them
       float radius = crownBase >= gateHeight - 20 ? trunk / 2 + 5 : Math.min(crownWidth, crownDepth) / 2 * 0.85f;
       return Math.hypot(x - plantX, y - plantY) <= radius;
+    }
+    if (isTree(other)) {
+      // A tree of the catalog stops a gate by its trunk, not by the leaves above it
+      float trunkRadius = Math.max(15, 0.06f * Math.min(other.getWidth(), other.getDepth()));
+      return Math.hypot(x - other.getX(), y - other.getY()) <= trunkRadius + 5;
     }
     // What lies on the ground or hangs above the gate doesn't stop it
     float bottom = other.getElevation();
@@ -1689,7 +1726,9 @@ class AssistantFenceCommands {
           float dx = (float)((end [0] - start [0]) / gateLength);
           float dy = (float)((end [1] - start [1]) / gateLength);
           String swing = opening.get("swing") != null ? opening.get("swing").toString().toLowerCase(Locale.ENGLISH) : "in";
-          float turn = (swing.startsWith("out") ? 1 : -1) * side;
+          // A closed fence opens in to what it encloses, an open one to its "side"
+          float inward = result.closed ? getInsideTurn(points) : -side;
+          float turn = swing.startsWith("out") ? -inward : inward;
           boolean hingeAtEnd = "end".equals(String.valueOf(opening.get("hinge")));
           float leaf = (float)(twoLeaves ? gateLength / 2 : gateLength);
           Selectable obstacle = null;

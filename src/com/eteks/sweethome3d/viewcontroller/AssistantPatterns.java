@@ -208,6 +208,49 @@ final class AssistantPatterns {
     } else if (pattern.equals("wattle")) {
       double wave = Math.sin(x * Math.PI * 4 / SIZE + (y * 8 / SIZE) * Math.PI);
       return wrap(y, SIZE / 8f) < 1 ? shade(color2, 1) : shade(color, 0.85f + 0.2f * (float)wave);
+    } else if (pattern.equals("bark_plated")) {
+      // Plates between dark cracks, longer than wide, as on old pines
+      float nearest = Float.MAX_VALUE;
+      float second = Float.MAX_VALUE;
+      int plate = 0;
+      for (int i = 0; i < seeds.length; i++) {
+        float dx = wrap(x - seeds [i][0], SIZE);
+        float dy = wrap(y - seeds [i][1], SIZE) * 0.45f;
+        float distance = dx * dx + dy * dy;
+        if (distance < nearest) {
+          second = nearest;
+          nearest = distance;
+          plate = i;
+        } else if (distance < second) {
+          second = distance;
+        }
+      }
+      return Math.sqrt(second) - Math.sqrt(nearest) < 1.6f ? shade(color2, 0.8f + 0.2f * noise(x, y))
+          : shade(color, 0.82f + 0.3f * noise(plate, 7) + 0.1f * noise(x, y / 3));
+    } else if (pattern.equals("bark_furrowed")) {
+      // Ridges that run up the trunk and join here and there
+      double wave = x + 5 * Math.sin(y * Math.PI * 2 / SIZE) + 3 * Math.sin(y * Math.PI * 6 / SIZE + 1.3);
+      double ridge = 0.5 + 0.5 * Math.sin(wave * Math.PI * 2 * 9 / SIZE);
+      return ridge < 0.22 && noise(x / 3, y / 20) > 0.25f ? shade(color2, 0.85f + 0.2f * noise(x, y / 4))
+          : shade(color, 0.86f + 0.16f * (float)ridge + 0.12f * noise(x, y / 5));
+    } else if (pattern.equals("bark_birch")) {
+      // A pale bark with dark marks across and curls of peeling paper
+      boolean mark = noise(x / 9, y / 2) > 0.86f && noise(x / 9 + 3, y / 2) > 0.3f;
+      boolean curl = noise(x / 14, y / 5) > 0.9f;
+      return mark ? shade(color2, 0.8f + 0.3f * noise(x, y)) : shade(color, (curl ? 0.84f : 0.95f) + 0.1f * noise(x / 2, y));
+    } else if (pattern.equals("bark_smooth")) {
+      // Patches of a few tones, as on a crape myrtle or a sycamore
+      float nearest = Float.MAX_VALUE;
+      int patch = 0;
+      for (int i = 0; i < seeds.length; i++) {
+        float dx = wrap(x - seeds [i][0], SIZE);
+        float dy = wrap(y - seeds [i][1], SIZE) * 0.6f;
+        if (dx * dx + dy * dy < nearest) {
+          nearest = dx * dx + dy * dy;
+          patch = i;
+        }
+      }
+      return shade(patch % 3 == 0 ? color2 : color, (patch % 3 == 1 ? 0.88f : 1) + 0.08f * noise(x / 2, y / 2));
     } else if (pattern.equals("bark")) {
       return shade(noise(x / 3, y / 12) > 0.6f ? color2 : color, 0.85f + 0.3f * noise(x, y / 6));
     }

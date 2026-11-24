@@ -33,6 +33,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
 
+import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Level;
@@ -51,18 +52,24 @@ class AssistantPlantCommands {
   static final String SEASON_PROPERTY = "assistantSeason";
   /** The property of a home that keeps the level of detail of its new plants. */
   static final String LOD_PROPERTY = "assistantPlantLod";
+  /** In the home: <code>natural</code> or <code>simple</code>, the way its generated plants are built. */
+  static final String STYLE_PROPERTY = "assistantPlantStyle";
+  /** In the home: <code>generated</code> or <code>catalog</code>, the models that show its plants. */
+  static final String MODEL_PROPERTY = "assistantPlantModel";
 
   private static final int          MAX_PLANTS = 3000;
   private static final long         MAX_FILE_LENGTH = 20L * 1024 * 1024;
   private static final List<String> SEASONS = Arrays.asList("spring", "summer", "autumn", "winter");
   private static final List<String> TREE_KEYS = Arrays.asList("action", "species", "x", "y", "height", "crown_radius", "crown_w",
       "crown_d", "crown_base", "trunk_dbh", "trunk_lean", "multi_trunk", "season", "lod", "seed", "name", "tags", "tag", "level",
-      "pruned_shape", "angle", "offset", "removed_since", "lat", "lon", "id");
+      "pruned_shape", "angle", "offset", "removed_since", "lat", "lon", "id", "style", "profile", "model", "catalog_name");
 
   private final Home                     home;
   private final HomeController           homeController;
   private final AssistantCommandExecutor executor;
   private final Map<String, Object []>   models = new LinkedHashMap<String, Object []>();
+  private final Map<String, CatalogPieceOfFurniture> catalogTrees = new LinkedHashMap<String, CatalogPieceOfFurniture>();
+  private final Set<String>              missingCatalogSpecies = new LinkedHashSet<String>();
 
   AssistantPlantCommands(Home home, HomeController homeController, AssistantCommandExecutor executor) {
     this.home = home;
@@ -75,13 +82,18 @@ class AssistantPlantCommands {
    */
   static String getReference() {
     return "  {\"action\":\"add_tree\",\"species\":\"red_maple\",\"x\":N,\"y\":N,\"height\":N}  "
-        + "(a tree built from its species, standing on the ground: a trunk, branches and masses of leaves with the silhouette of the "
-        + "species. Sizes in cm, the usual ones of the species by default: \"height\", \"crown_radius\" (or \"crown_w\" and \"crown_d\"), "
+        + "(a tree built from its species, standing on the ground: a trunk that divides into limbs and twigs grown in the shape of the "
+        + "crown of the species, bark, and clusters of leaves one sees through. Sizes in cm, the usual ones of the species by default: \"height\", \"crown_radius\" (or \"crown_w\" and \"crown_d\"), "
         + "\"crown_base\" (the height under the crown), \"trunk_dbh\" (the diameter of the trunk), "
         + "\"trunk_lean\":{\"angle\":N,\"dir\":N} (degrees from upright, towards a compass direction of the plan: 0 = up the plan), "
         + "\"multi_trunk\":N, \"season\":\"spring|summer|autumn|winter\" (the season of the home by default: a deciduous tree is bare in "
         + "winter, colored in autumn, in flower in spring if it blooms), \"lod\":\"low|medium|high\" (at most 2000, 10000 and more "
         + "triangles), \"seed\":N for another shape of the same species, \"name\", \"tags\", \"level\". "
+        + "\"style\":\"simple\" builds plain masses of leaves instead of branches and clusters (\"natural\", the default); "
+        + "\"profile\":{\"droop\":0.4,\"gaps\":0.3,\"leaf\":\"lance\"} changes how it grows (" + AssistantTreeBuilder.getProfileKeys()
+        + "); \"model\":\"catalog\" shows it by a tree of the furniture catalog at its size, turned and mirrored its own way - the "
+        + "first one the catalog has among the names kept for its kind of species, or \"catalog_name\":\"<exact name>\" - and it stays "
+        + "a plant for relabel_trees, grow_trees and update_trees. "
         + "{\"action\":\"list_species\"} gives the species: " + AssistantPlantBuilder.describeSpecies(false, false) + ")\n"
         + "  {\"action\":\"add_shrub\",\"species\":\"boxwood\",\"x\":N,\"y\":N,\"pruned_shape\":\"natural|ball|box|cone|hedge_section\"}  "
         + "(a shrub, an ornamental grass or a groundcover plant, with the keys of add_tree. The species: "
@@ -107,6 +119,10 @@ class AssistantPlantCommands {
         + "  {\"action\":\"set_season\",\"season\":\"autumn\"}  "
         + "(the season of every generated plant of the home, and of the ones added later; or \"date\":\"2026-10-20\", read with the "
         + "hemisphere of the home. \"lod\":\"low|medium|high\" changes their detail the same way)\n"
+        + "  {\"action\":\"set_plant_style\",\"model\":\"catalog\"}  "
+        + "(what shows the plants of the home and the ones added later: \"model\":\"catalog|generated\" - trees of the furniture "
+        + "catalog, or generated ones - and \"style\":\"natural|simple\" for the generated ones; \"ids\" or \"where\" changes "
+        + "only some plants, \"catalog_name\" gives the piece of the catalog)\n"
         + "  {\"action\":\"forest_fill\",\"area\":[[x,y],...],\"species\":{\"loblolly_pine\":3,\"sweetgum\":1},\"density\":4}  "
         + "(fills a polygon with trees: \"density\" is the number of trees per 100 m2 - 4 is a tree every 5 m, 0.5 a tree every 14 m, "
         + "and 80 m2 at 0.5 get one tree - or \"spacing\" in cm; \"species\" is a name, a list, or weights; "
@@ -142,7 +158,8 @@ class AssistantPlantCommands {
         relabelTrees(command, tally, notes);
       } else if ("grow_trees".equals(action)) {
         growTrees(command, tally, notes);
-      } else if ("set_season".equals(action) || "set_date".equals(action) && command.has("date") && !command.has("time")) {
+      } else if ("set_season".equals(action) || "set_plant_style".equals(action)
+                 || "set_date".equals(action) && command.has("date") && !command.has("time")) {
         setSeason(command, tally, notes);
       } else if ("replace_furniture".equals(action) && command.has("species")) {
         replaceWithPlants(command, tally, notes);
@@ -158,6 +175,7 @@ class AssistantPlantCommands {
     } catch (RuntimeException ex) {
       notes.add("Couldn't run " + action + " (" + (ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName()) + ")");
     }
+    noteMissingCatalogTrees(notes);
     return true;
   }
 
@@ -260,6 +278,33 @@ class AssistantPlantCommands {
     plant.prunedShape = pruned;
     plant.seed = (long)number(spec, "seed", 0);
     plant.ghost = spec.get("removed_since") != null;
+    String style = spec.get("style") != null ? spec.get("style").toString().trim().toLowerCase(Locale.ENGLISH)
+        : this.home.getProperty(STYLE_PROPERTY) != null ? this.home.getProperty(STYLE_PROPERTY) : "natural";
+    if (!style.equals("natural") && !style.equals("simple")) {
+      throw new IOException("\"style\" is natural (branches and clusters of leaves) or simple (plain masses)");
+    }
+    plant.style = style;
+    if (spec.get("profile") instanceof Map) {
+      Map<String, Object> profile = new LinkedHashMap<String, Object>();
+      for (Map.Entry<?, ?> entry : ((Map<?, ?>)spec.get("profile")).entrySet()) {
+        if (!AssistantTreeBuilder.getProfileKeys().contains(String.valueOf(entry.getKey()))) {
+          throw new IOException("\"profile\" has no \"" + entry.getKey() + "\": its values are " + AssistantTreeBuilder.getProfileKeys());
+        }
+        profile.put(String.valueOf(entry.getKey()), entry.getValue());
+      }
+      plant.profile = profile;
+    } else if (spec.get("profile") != null) {
+      throw new IOException("\"profile\" is an object as {\"droop\":0.3,\"leaf\":\"lance\"}: its values are "
+          + AssistantTreeBuilder.getProfileKeys());
+    }
+    String model = spec.get("model") != null ? spec.get("model").toString().trim().toLowerCase(Locale.ENGLISH)
+        : spec.get("catalog_name") != null ? "catalog"
+        : this.home.getProperty(MODEL_PROPERTY) != null ? this.home.getProperty(MODEL_PROPERTY) : "generated";
+    if (!model.equals("generated") && !model.equals("catalog")) {
+      throw new IOException("\"model\" is generated or catalog (a tree of the furniture catalog at the size of the plant)");
+    }
+    plant.catalog = model.equals("catalog");
+    plant.catalogName = spec.get("catalog_name") != null ? spec.get("catalog_name").toString().trim() : null;
     return plant;
   }
 
@@ -274,9 +319,22 @@ class AssistantPlantCommands {
     float depthRatio = Math.max(0.05f, Math.round(plant.crownDepth / plant.height * 20) / 20f);
     float baseRatio = Math.round(plant.crownBase / plant.height * 20) / 20f;
     float trunkRatio = Math.max(0.005f, Math.round(plant.trunkDiameter / plant.height * 200) / 200f);
+    if (plant.catalog && !plant.ghost) {
+      // A tree of the catalog at the size of the plant, a little wider or narrower than its neighbor
+      CatalogPieceOfFurniture catalogPiece = getCatalogTree(plant);
+      if (catalogPiece != null) {
+        Random random = new Random(plant.seed * 977 + Math.round(plant.height) * 31 + Math.round(plant.crownWidth));
+        float width = plant.crownWidth * (0.92f + random.nextFloat() * 0.16f);
+        float depth = plant.crownDepth * (0.92f + random.nextFloat() * 0.16f);
+        return new Object [] {AssistantGeneratedModel.of(catalogPiece.getModel(), catalogPiece.getIcon(), catalogPiece.getPlanIcon(),
+            width, depth, plant.height), Float.valueOf(width), Float.valueOf(depth), Float.valueOf(plant.height),
+            Float.valueOf(0), Float.valueOf(0), catalogPiece};
+      }
+      this.missingCatalogSpecies.add(plant.species.name);
+    }
     String key = plant.species.name + "|" + plant.season + "|" + plant.lod + "|" + plant.seed + "|" + plant.trunks + "|"
         + Math.round(plant.leanAngle) + "|" + Math.round(plant.leanDirection) + "|" + plant.prunedShape + "|" + plant.ghost + "|"
-        + widthRatio + "|" + depthRatio + "|" + baseRatio + "|" + trunkRatio;
+        + widthRatio + "|" + depthRatio + "|" + baseRatio + "|" + trunkRatio + "|" + plant.style + "|" + plant.profile;
     Object [] cached = this.models.get(key);
     if (cached == null) {
       AssistantPlantBuilder.Plant shape = new AssistantPlantBuilder.Plant();
@@ -294,6 +352,8 @@ class AssistantPlantCommands {
       shape.prunedShape = plant.prunedShape;
       shape.seed = plant.seed;
       shape.ghost = plant.ghost;
+      shape.style = plant.style;
+      shape.profile = plant.profile;
       AssistantGeneratedModel model = AssistantPlantBuilder.build(shape).store("plant");
       if (this.models.size() > 400) {
         this.models.clear();
@@ -306,6 +366,14 @@ class AssistantPlantCommands {
     float scaleX = plant.crownWidth / ((Float)cached [1]).floatValue();
     float scaleZ = plant.crownDepth / ((Float)cached [2]).floatValue();
     float scaleY = plant.height / nominal;
+    if ("natural".equals(plant.style) && "natural".equals(plant.prunedShape) && !plant.ghost
+        && AssistantTreeBuilder.builds(plant.species.form)) {
+      // The leaves at the ends of the branches go a little out of the shape the branches grew in:
+      // the plant has the height and the crown that were measured all the same
+      scaleX *= ((Float)cached [1]).floatValue() / Math.max(1, model.getWidth());
+      scaleZ *= ((Float)cached [2]).floatValue() / Math.max(1, model.getDepth());
+      scaleY *= nominal / Math.max(1, model.getHeight());
+    }
     return new Object [] {model, Float.valueOf(model.getWidth() * scaleX), Float.valueOf(model.getDepth() * scaleZ),
         Float.valueOf(model.getHeight() * scaleY), Float.valueOf((bounds [0] + bounds [3]) / 2 * scaleX),
         Float.valueOf((bounds [2] + bounds [5]) / 2 * scaleZ)};
@@ -314,6 +382,60 @@ class AssistantPlantCommands {
   /**
    * Returns the description kept with a plant: what the command gave and the sizes it got.
    */
+  /**
+   * Returns the piece of the catalog that shows a plant, or <code>null</code> if the catalog has none for it.
+   */
+  private CatalogPieceOfFurniture getCatalogTree(AssistantPlantBuilder.Plant plant) throws IOException {
+    List<String> names = plant.catalogName != null ? Collections.singletonList(plant.catalogName)
+        : AssistantTreeBuilder.getCatalogNames(plant.species);
+    for (String name : names) {
+      String key = name.toLowerCase(Locale.ENGLISH);
+      if (!this.catalogTrees.containsKey(key)) {
+        CatalogPieceOfFurniture found = null;
+        for (AssistantCommandExecutor.CatalogMatch match : this.executor.searchCatalog(name, false, 12)) {
+          if (found == null && !match.piece.isDoorOrWindow() && match.piece.getName() != null
+              && match.piece.getName().trim().equalsIgnoreCase(name)) {
+            found = match.piece;
+          }
+        }
+        this.catalogTrees.put(key, found);
+      }
+      if (this.catalogTrees.get(key) != null) {
+        return this.catalogTrees.get(key);
+      }
+    }
+    if (plant.catalogName != null) {
+      throw new IOException("no piece of the catalog is named exactly \"" + plant.catalogName
+          + "\": {\"action\":\"search_catalog\",\"query\":\"tree\"} lists the trees it has");
+    }
+    return null;
+  }
+
+  /**
+   * Tells once the species the catalog had no tree for.
+   */
+  private void noteMissingCatalogTrees(List<String> notes) {
+    if (!this.missingCatalogSpecies.isEmpty()) {
+      notes.add("The furniture catalog has no tree for " + this.missingCatalogSpecies + " (looked for "
+          + AssistantTreeBuilder.getCatalogNames(AssistantPlantBuilder.getSpecies(this.missingCatalogSpecies.iterator().next()))
+          + "...): these plants are generated. \"catalog_name\":\"<exact name>\" gives the piece to use, and a furniture library "
+          + "adds trees to the catalog");
+      this.missingCatalogSpecies.clear();
+    }
+  }
+
+  /**
+   * Returns the place of the center of the piece of a plant whose trunk stands at (x, y): the center of its
+   * model isn't always its trunk, and the piece may be turned.
+   */
+  private static float [] getCenter(float x, float y, Object [] model, float angle) {
+    float offsetX = ((Float)model [4]).floatValue();
+    float offsetY = ((Float)model [5]).floatValue();
+    double cos = Math.cos(angle);
+    double sin = Math.sin(angle);
+    return new float [] {x + (float)(offsetX * cos - offsetY * sin), y + (float)(offsetX * sin + offsetY * cos)};
+  }
+
   private static Map<String, Object> getStoredSpec(Map<String, Object> spec, AssistantPlantBuilder.Plant plant, float x, float y) {
     Map<String, Object> stored = new LinkedHashMap<String, Object>();
     stored.put("species", plant.species.name);
@@ -332,12 +454,16 @@ class AssistantPlantCommands {
     }
     stored.put("multi_trunk", Double.valueOf(plant.trunks));
     // The season and the detail of the home, unless the plant was given its own
-    for (String key : new String [] {"season", "lod", "pruned_shape", "removed_since", "offset"}) {
+    for (String key : new String [] {"season", "lod", "pruned_shape", "removed_since", "offset", "style", "profile", "model",
+                                     "catalog_name", "angle"}) {
       if (spec.get(key) != null) {
         stored.put(key, spec.get(key));
       }
     }
     stored.put("seed", Double.valueOf(plant.seed));
+    if (plant.catalog) {
+      stored.put("model", "catalog");
+    }
     return stored;
   }
 
@@ -384,8 +510,21 @@ class AssistantPlantCommands {
     piece.setWidth(((Float)model [1]).floatValue());
     piece.setDepth(((Float)model [2]).floatValue());
     piece.setHeight(((Float)model [3]).floatValue());
-    piece.setX(x + ((Float)model [4]).floatValue());
-    piece.setY(y + ((Float)model [5]).floatValue());
+    // Turned its own way, so that two plants with the same model don't look the same
+    long turn = Math.abs(Math.round(x) * 7919L + Math.round(y) * 104729L);
+    boolean natural = plant.catalog || "natural".equals(plant.style) && "natural".equals(plant.prunedShape);
+    float angle = spec.get("angle") instanceof Number ? (float)Math.toRadians(((Number)spec.get("angle")).doubleValue())
+        : natural && plant.leanAngle == 0 ? (float)Math.toRadians(turn % 360) : 0;
+    piece.setAngle(angle);
+    if (model.length > 6) {
+      CatalogPieceOfFurniture catalogPiece = (CatalogPieceOfFurniture)model [6];
+      piece.setModelRotation(catalogPiece.getModelRotation());
+      piece.setModelMirrored(turn % 2 == 1);
+      piece.setBackFaceShown(catalogPiece.isBackFaceShown());
+    }
+    float [] center = getCenter(x, y, model, angle);
+    piece.setX(center [0]);
+    piece.setY(center [1]);
     piece.setElevation(getGround(x, y, level) + number(spec, "offset", 0));
     piece.setProperty(AssistantCommandExecutor.OUTDOOR_PROPERTY, "true");
     piece.setProperty(PLANT_PROPERTY, AssistantShapeCommands.toJson(getStoredSpec(spec, plant, x, y)));
@@ -1021,9 +1160,17 @@ class AssistantPlantCommands {
       properties.put(HomeItemTags.TAGS_PROPERTY, HomeItemTags.formatTags(tags));
     }
     String name = rename && oldSpecies != null && oldSpecies.commonName.equals(piece.getName()) ? plant.species.commonName : null;
-    this.executor.getShapeCommands().replaceModel(piece, (AssistantGeneratedModel)model [0], x + ((Float)model [4]).floatValue(),
-        y + ((Float)model [5]).floatValue(), piece.getElevation(), ((Float)model [1]).floatValue(), ((Float)model [2]).floatValue(),
+    float [] center = getCenter(x, y, model, piece.getAngle());
+    this.executor.getShapeCommands().replaceModel(piece, (AssistantGeneratedModel)model [0], center [0], center [1],
+        piece.getElevation(), ((Float)model [1]).floatValue(), ((Float)model [2]).floatValue(),
         ((Float)model [3]).floatValue(), name, properties);
+    if (model.length > 6) {
+      piece.setModelRotation(((CatalogPieceOfFurniture)model [6]).getModelRotation());
+      piece.setBackFaceShown(((CatalogPieceOfFurniture)model [6]).isBackFaceShown());
+    } else {
+      piece.setModelRotation(new float [][] {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}});
+      piece.setModelMirrored(false);
+    }
   }
 
   private void relabelTrees(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
@@ -1145,8 +1292,23 @@ class AssistantPlantCommands {
         throw new IOException("\"lod\" is low, medium or high");
       }
     }
-    if (season == null && lod == null) {
-      throw new IOException("give \"season\":\"spring|summer|autumn|winter\", a \"date\", or \"lod\":\"low|medium|high\"");
+    String style = command.getString("style");
+    String model = command.getString("model");
+    if (style != null) {
+      style = style.trim().toLowerCase(Locale.ENGLISH);
+      if (!style.equals("natural") && !style.equals("simple")) {
+        throw new IOException("\"style\" is natural or simple");
+      }
+    }
+    if (model != null) {
+      model = model.trim().toLowerCase(Locale.ENGLISH);
+      if (!model.equals("generated") && !model.equals("catalog")) {
+        throw new IOException("\"model\" is generated or catalog");
+      }
+    }
+    if (season == null && lod == null && style == null && model == null) {
+      throw new IOException("give \"season\":\"spring|summer|autumn|winter\", a \"date\", \"lod\":\"low|medium|high\", "
+          + "\"style\":\"natural|simple\" or \"model\":\"generated|catalog\"");
     }
     List<HomePieceOfFurniture> plants = getPlants(command, true);
     int changed = 0;
@@ -1156,8 +1318,24 @@ class AssistantPlantCommands {
         continue;
       }
       // The plants follow the home from now on
-      spec.remove(season != null ? "season" : "lod");
+      if (season != null) {
+        spec.remove("season");
+      }
+      if (lod != null) {
+        spec.remove("lod");
+      }
       Map<String, Object> rebuilt = new LinkedHashMap<String, Object>(spec);
+      if (style != null) {
+        rebuilt.put("style", style);
+      }
+      if (model != null) {
+        rebuilt.put("model", model);
+        if (model.equals("generated")) {
+          rebuilt.remove("catalog_name");
+        } else if (command.getString("catalog_name") != null) {
+          rebuilt.put("catalog_name", command.getString("catalog_name"));
+        }
+      }
       if (season != null) {
         rebuilt.put("season", season);
       }
@@ -1175,10 +1353,28 @@ class AssistantPlantCommands {
       if (lod != null) {
         this.home.setProperty(LOD_PROPERTY, lod);
       }
+      if (style != null) {
+        this.home.setProperty(STYLE_PROPERTY, style);
+      }
+      if (model != null) {
+        this.home.setProperty(MODEL_PROPERTY, model);
+      }
     }
     tally [4] += changed;
-    notes.add("Set " + (season != null ? "the season to " + season : "") + (season != null && lod != null ? " and " : "")
-        + (lod != null ? "the detail to " + lod : "") + " for " + changed + (changed == 1 ? " generated plant" : " generated plants")
+    List<String> what = new ArrayList<String>();
+    if (season != null) {
+      what.add("the season to " + season);
+    }
+    if (lod != null) {
+      what.add("the detail to " + lod);
+    }
+    if (style != null) {
+      what.add("the style to " + style);
+    }
+    if (model != null) {
+      what.add("the models to " + (model.equals("catalog") ? "the trees of the catalog" : "generated ones"));
+    }
+    notes.add("Set " + what.toString().replace("[", "").replace("]", "").replace(", ", " and ") + " for " + changed + (changed == 1 ? " generated plant" : " generated plants")
         + (wholeHome ? ", and for the ones added later" : "")
         + (season != null ? ". Catalog pieces and hedges don't change with the season" : ""));
   }
@@ -1367,7 +1563,8 @@ class AssistantPlantCommands {
    */
   com.eteks.sweethome3d.model.Content getPictureModel(HomePieceOfFurniture piece, boolean xray, String season) {
     Map<String, Object> spec = getSpec(piece);
-    if (spec == null) {
+    if (spec == null || !xray && "catalog".equals(spec.get("model"))) {
+      // A tree of the catalog has the leaves of its model in every season
       return null;
     }
     try {

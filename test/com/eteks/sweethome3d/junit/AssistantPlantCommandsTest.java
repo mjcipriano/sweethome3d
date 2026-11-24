@@ -133,6 +133,149 @@ public class AssistantPlantCommandsTest {
     }
   }
 
+  /**
+   * Returns the OBJ file of the model of a piece, without what names it.
+   */
+  private static String getObj(HomePieceOfFurniture piece) throws java.io.IOException {
+    java.io.InputStream in = piece.getModel().openStream();
+    try {
+      java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+      byte [] buffer = new byte [8192];
+      int count;
+      while ((count = in.read(buffer)) != -1) {
+        out.write(buffer, 0, count);
+      }
+      return out.toString("ISO-8859-1").replaceAll("_[0-9a-f]{6,}", "");
+    } finally {
+      in.close();
+    }
+  }
+
+  private static int count(String text, String start) {
+    int count = 0;
+    for (String line : text.split("\n")) {
+      if (line.startsWith(start)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Trees grow branches and carry clusters of leaves, the same ones for the same seed.
+   */
+  @Test
+  public void testNaturalTrees() throws Exception {
+    run("{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":0,\"y\":0,\"height\":1500,\"seed\":1}");
+    HomePieceOfFurniture oak = getPlants().get(0);
+    String obj = getObj(oak);
+    // Limbs with their bark, and cards with the normal that lights them as a part of the crown
+    assertTrue(count(obj, "usemtl ") + " materials", count(obj, "usemtl ") >= 3);
+    assertTrue(count(obj, "vn ") + " cards", count(obj, "vn ") >= 300);
+    assertTrue(count(obj, "f ") + " faces", count(obj, "f ") >= 1500 && count(obj, "f ") <= 6000);
+    assertTrue(count(obj, "vt ") > 0);
+    // The crown has the size that was asked: 0.95 of its height for this species
+    assertEquals(1500, oak.getHeight(), 0.5f);
+    assertEquals(1425, oak.getWidth(), 0.5f);
+
+    // The same tree in another home is the same one
+    Home otherHome = new Home(250);
+    HomeController otherController = new HomeController(otherHome, this.preferences, new SwingViewFactory());
+    otherController.getView();
+    AssistantCommandExecutor otherExecutor = new AssistantCommandExecutor(otherHome, this.preferences, otherController);
+    otherExecutor.execute(AssistantCommandParser.parse(
+        "{\"commands\":[{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":0,\"y\":0,\"height\":1500,\"seed\":1}]}").getCommands());
+    assertEquals(obj, getObj(otherHome.getFurniture().get(0)));
+
+    // Another seed, another tree, and no two outlines alike
+    run("{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":3000,\"y\":0,\"height\":1500,\"seed\":2}");
+    HomePieceOfFurniture oak2 = getPlants().get(1);
+    assertFalse(obj.equals(getObj(oak2)));
+    assertTrue(oak.getAngle() != oak2.getAngle());
+
+    // In winter its branches show, with the dead leaves an oak keeps
+    run("{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":6000,\"y\":0,\"height\":1500,\"seed\":1,\"season\":\"winter\"}");
+    String winter = getObj(getPlants().get(2));
+    assertTrue(count(winter, "vn ") > 0);
+    assertFalse(winter.equals(obj));
+
+    // The plain masses of the first versions are still there
+    run("{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":9000,\"y\":0,\"height\":1500,\"style\":\"simple\"}");
+    HomePieceOfFurniture simple = getPlants().get(3);
+    assertEquals(0, count(getObj(simple), "vn "));
+    assertEquals(0, simple.getAngle(), 0);
+    assertTrue(simple.getProperty("assistantPlant"), simple.getProperty("assistantPlant").contains("\"style\":\"simple\""));
+
+    // A species grows another way
+    String summary = run("{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":12000,\"y\":0,\"height\":1500,\"seed\":1,"
+        + "\"profile\":{\"droop\":0.9,\"leaf\":\"lance\",\"card\":0.2}}");
+    assertFalse(summary, summary.contains("Couldn't"));
+    assertFalse(obj.equals(getObj(getPlants().get(4))));
+    summary = run("{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":15000,\"y\":0,\"profile\":{\"wind\":3}}");
+    assertTrue(summary, summary.contains("\"profile\" has no \"wind\"") && summary.contains("gaps"));
+    assertEquals(5, getPlants().size());
+
+    // All the detail stays within its count of triangles
+    for (String species : new String [] {"white_oak", "loblolly_pine", "norway_spruce", "eastern_red_cedar", "crape_myrtle", "azalea"}) {
+      for (String season : new String [] {"summer", "winter"}) {
+        int high = HomeAssistantContext.getPlantTriangleCount(species, "high", season);
+        assertTrue(species + " " + season + " high " + high, high > 2000 && high <= 40000);
+      }
+    }
+
+    // The whole home goes back to plain masses, and the plants added later too
+    summary = run("{\"action\":\"set_plant_style\",\"style\":\"simple\"}");
+    assertTrue(summary, summary.contains("the style to simple for 5 generated plants"));
+    assertEquals(0, count(getObj(oak), "vn "));
+    run("{\"action\":\"add_tree\",\"species\":\"red_maple\",\"x\":18000,\"y\":0}");
+    assertEquals(0, count(getObj(getPlants().get(5)), "vn "));
+  }
+
+  /**
+   * A plant shown by a piece of the catalog keeps what a plant has.
+   */
+  @Test
+  public void testTreesOfTheCatalog() throws Exception {
+    // No tree in this catalog: the plant is generated and the answer tells it
+    String summary = run("{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":0,\"y\":0,\"height\":1500,\"model\":\"catalog\"}");
+    assertTrue(summary, summary.contains("The furniture catalog has no tree for [white_oak]") && summary.contains("Sycamore maple"));
+    HomePieceOfFurniture oak = getPlants().get(0);
+    assertTrue(count(getObj(oak), "vn ") > 0);
+
+    // A piece of the catalog by its name
+    summary = run("{\"action\":\"add_tree\",\"species\":\"red_maple\",\"x\":3000,\"y\":0,\"height\":1200,\"crown_radius\":400,"
+        + "\"catalog_name\":\"Table\"}");
+    assertFalse(summary, summary.contains("Couldn't") || summary.contains("no tree for"));
+    HomePieceOfFurniture maple = getPlants().get(1);
+    assertEquals(1200, maple.getHeight(), 0.5f);
+    assertEquals(800, maple.getWidth(), 65);
+    assertEquals(800, maple.getDepth(), 65);
+    assertEquals(3000, maple.getX(), 0.5f);
+    assertEquals("true", maple.getProperty(AssistantCommandExecutor.OUTDOOR_PROPERTY));
+    assertTrue(maple.getProperty("assistantPlant"), maple.getProperty("assistantPlant").contains("\"model\":\"catalog\"")
+        && maple.getProperty("assistantPlant").contains("\"catalog_name\":\"Table\""));
+    assertTrue(com.eteks.sweethome3d.viewcontroller.HomeItemTags.getTags(maple).contains("red_maple"));
+    Object model = maple.getModel();
+    summary = run("{\"action\":\"add_tree\",\"species\":\"red_maple\",\"x\":4000,\"y\":0,\"catalog_name\":\"No such tree\"}");
+    assertTrue(summary, summary.contains("no piece of the catalog is named exactly"));
+
+    // It grows and changes species as a plant
+    String id = HomeItemIds.getId(maple);
+    summary = run("{\"action\":\"grow_trees\",\"ids\":[\"" + id + "\"],\"years\":5}");
+    assertTrue(summary, maple.getHeight() > 1250);
+    assertTrue(maple.getModel() == model);
+    // In another season it keeps the leaves of its model
+    summary = run("{\"action\":\"set_season\",\"season\":\"winter\"}");
+    assertTrue(maple.getModel() == model);
+
+    // Generated again
+    summary = run("{\"action\":\"set_plant_style\",\"ids\":[\"" + id + "\"],\"model\":\"generated\"}");
+    assertTrue(summary, summary.contains("the models to generated ones for 1 generated plant"));
+    assertTrue(maple.getModel() != model);
+    assertFalse(maple.getProperty("assistantPlant"), maple.getProperty("assistantPlant").contains("catalog_name"));
+    assertTrue(getObj(maple).contains("usemtl "));
+  }
+
   @Test
   public void testTreeSizesSeasonsAndGround() {
     run("{\"action\":\"set_terrain\",\"points\":[[-1000,-1000,100],[3000,-1000,100],[3000,3000,100],[-1000,3000,100]]}");

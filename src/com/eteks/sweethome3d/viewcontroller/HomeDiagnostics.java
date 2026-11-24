@@ -433,6 +433,7 @@ public class HomeDiagnostics {
                                      List<Wall> walls, List<Room> rooms, List<Issue> issues) {
     List<Wall> homeWalls = new ArrayList<Wall>(home.getWalls());
     int [] counts = new int [Type.values().length];
+    List<float [][]> terrainTriangles = null;
     for (int i = 0; i < furniture.size(); i++) {
       HomePieceOfFurniture piece = furniture.get(i);
       if (!home.getFurniture().contains(piece) || piece instanceof HomeFurnitureGroup) {
@@ -444,6 +445,19 @@ public class HomeDiagnostics {
       // What stands on the ground outdoors or is a part of the building isn't furniture out of its place
       boolean placedOnPurpose = structure
           || "true".equals(piece.getProperty(AssistantCommandExecutor.OUTDOOR_PROPERTY));
+      if (!placedOnPurpose && !piece.isDoorOrWindow()
+          && (piece.getElevation() < -0.5f || level == null || level.getHeight() <= 0
+              || piece.getElevation() + piece.getHeight() > level.getHeight() + 5)) {
+        // What stands on the ground built around the home is outdoors, whatever was told about it
+        if (terrainTriangles == null) {
+          terrainTriangles = HomeTerrain.getTriangles(home);
+        }
+        if (!terrainTriangles.isEmpty()) {
+          float bottom = piece.getElevation() + (level != null ? level.getElevation() : 0);
+          Float ground = getHeight(terrainTriangles, piece.getX(), piece.getY());
+          placedOnPurpose = ground != null && Math.abs(bottom - ground.floatValue()) <= 5;
+        }
+      }
       if (piece.getElevation() < -0.5f) {
         // A piece put under the floor on purpose (a sunken slab, the ground around a house) is no defect
         if (!placedOnPurpose && !"true".equals(piece.getProperty(AssistantCommandExecutor.BELOW_FLOOR_PROPERTY)))
@@ -631,5 +645,31 @@ public class HomeDiagnostics {
           .append(" can be fixed with {\"action\":\"fix_home\"}.");
     }
     return text.toString().trim();
+  }
+
+  /**
+   * Returns the height of the ground at a point, or <code>null</code> if no triangle is under it.
+   */
+  private static Float getHeight(List<float [][]> triangles, float x, float y) {
+    for (float [][] triangle : triangles) {
+      float [] a = triangle [0];
+      float [] b = triangle [1];
+      float [] c = triangle [2];
+      if (x < Math.min(a [0], Math.min(b [0], c [0])) || x > Math.max(a [0], Math.max(b [0], c [0]))
+          || y < Math.min(a [1], Math.min(b [1], c [1])) || y > Math.max(a [1], Math.max(b [1], c [1]))) {
+        continue;
+      }
+      double determinant = (b [1] - c [1]) * (a [0] - c [0]) + (c [0] - b [0]) * (a [1] - c [1]);
+      if (Math.abs(determinant) < 1E-9) {
+        continue;
+      }
+      double weightA = ((b [1] - c [1]) * (x - c [0]) + (c [0] - b [0]) * (y - c [1])) / determinant;
+      double weightB = ((c [1] - a [1]) * (x - c [0]) + (a [0] - c [0]) * (y - c [1])) / determinant;
+      double weightC = 1 - weightA - weightB;
+      if (weightA >= -1E-4 && weightB >= -1E-4 && weightC >= -1E-4) {
+        return Float.valueOf((float)(weightA * a [2] + weightB * b [2] + weightC * c [2]));
+      }
+    }
+    return null;
   }
 }
