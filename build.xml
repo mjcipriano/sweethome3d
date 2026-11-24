@@ -23,8 +23,6 @@
      - viewerInstaller            : Builds SweetHome3DViewer-version.zip file in install directory
      - sourceArchive              : Builds SweetHome3D-version-src.zip file in install directory
      - javadoc                    : Builds SweetHome3D-version-javadoc.zip file install directory
-
-     - jdepend : Launchs a JDepend graphical UI to help update dependencies in PackageDependenciesTest
 -->
 <project basedir="." default="jarExecutable" name="SweetHome3D">
   <!-- Current version of Sweet Home 3D -->
@@ -1094,22 +1092,4 @@
     <echo message="install/SweetHome3D-${version}-javadoc.zip ready for ftp"/>
   </target>
 
-  <!-- Launchs a JDepend graphical UI to help update dependencies in PackageDependenciesTest test -->
-  <target name="jdepend" depends="build"
-          description="Launchs a JDepend graphical UI">
-    <!-- Create jdepend.properties file in build directory that specifies ignored Java packages -->
-    <concat destfile="build/jdepend.properties">ignore.java=java.*</concat>
-
-    <!-- Run JDepend UI -->
-    <java classname="jdepend.swingui.JDepend" fork="true">
-      <classpath>
-        <pathelement location="libtest/jdepend-2.9.jar"/>
-        <pathelement location="build"/>
-      </classpath>
-      <arg value="build"/>
-    </java>
-
-    <!-- Clean build directory -->
-    <delete dir="build"/>
-  </target>
 </project>

@@ -40,9 +40,9 @@ import javax.swing.JToolBar;
 import javax.swing.undo.UndoManager;
 import javax.swing.undo.UndoableEditSupport;
 
-import junit.extensions.abbot.ComponentTestFixture;
-import abbot.tester.ComponentLocation;
-import abbot.tester.JComponentTester;
+import com.eteks.sweethome3d.testing.SwingTestCase;
+import com.eteks.sweethome3d.testing.ComponentPoint;
+import com.eteks.sweethome3d.testing.SwingRobot;
 
 import com.eteks.sweethome3d.io.DefaultUserPreferences;
 import com.eteks.sweethome3d.model.CollectionEvent;
@@ -63,7 +63,7 @@ import com.eteks.sweethome3d.viewcontroller.ViewFactory;
  * its {@link com.eteks.sweethome3d.viewcontroller.PlanController controller}.
  * @author Emmanuel Puybaret
  */
-public class PlanComponentTest extends ComponentTestFixture {
+public class PlanComponentTest extends SwingTestCase {
   protected void setUp() throws Exception {
     TestUtilities.assume3DIsAvailable();
     super.setUp();
@@ -90,7 +90,7 @@ public class PlanComponentTest extends ComponentTestFixture {
     });
 
     // 2. Use WALL_CREATION mode
-    JComponentTester tester = new JComponentTester();
+    SwingRobot tester = new SwingRobot();
     tester.actionClick(frame.modeButton);
     assertEquals("Current mode isn't " + PlanController.Mode.WALL_CREATION,
         PlanController.Mode.WALL_CREATION, frame.planController.getMode());
@@ -155,9 +155,9 @@ public class PlanComponentTest extends ComponentTestFixture {
     tester.actionClick(frame.modeButton);
     // Drag and drop cursor from (200, 100) to (300, 180)
     tester.actionMousePress(planComponent,
-        new ComponentLocation(new Point(200, 100)));
+        new ComponentPoint(new Point(200, 100)));
     tester.actionMouseMove(planComponent,
-        new ComponentLocation(new Point(300, 180)));
+        new ComponentPoint(new Point(300, 180)));
     tester.actionMouseRelease();
     // Check the selected walls are the second and third ones
     assertSelectionContains(frame.home, wall2, wall3);
@@ -180,9 +180,9 @@ public class PlanComponentTest extends ComponentTestFixture {
 
      // 9. Drag cursor from (50, 30) to (50, 50)
     tester.actionMousePress(planComponent,
-        new ComponentLocation(new Point(50, 30)));
+        new ComponentPoint(new Point(50, 30)));
     tester.actionMouseMove(planComponent,
-        new ComponentLocation(new Point(50, 50)));
+        new ComponentPoint(new Point(50, 50)));
     // Check first wall is selected and that it moved
     assertSelectionContains(frame.home, wall1);
     assertCoordinatesEqualWallPoints(20, 60, 504, 60, wall1);
@@ -245,9 +245,9 @@ public class PlanComponentTest extends ComponentTestFixture {
     tester.actionClick(planComponent, 40, 30);
     // Drag cursor from (30, 30) to (50, 50) without magnetism
     tester.actionMousePress(planComponent,
-        new ComponentLocation(new Point(30, 30)));
+        new ComponentPoint(new Point(30, 30)));
     tester.actionMouseMove(planComponent,
-        new ComponentLocation(new Point(50, 50)));
+        new ComponentPoint(new Point(50, 50)));
     tester.actionKeyPress(TestUtilities.getMagnetismToggleKey());
     tester.waitForIdle();
     tester.actionMouseRelease();
@@ -305,7 +305,7 @@ public class PlanComponentTest extends ComponentTestFixture {
     assertEquals("Current mode isn't " + PlanController.Mode.WALL_CREATION,
         PlanController.Mode.WALL_CREATION, frame.planController.getMode());
     planComponent.requestFocus();
-    JComponentTester tester = new JComponentTester();
+    SwingRobot tester = new SwingRobot();
     tester.waitForIdle();
     assertTrue("Plan component doesn't have focus", planComponent.hasFocus());
     tester.actionKeyStroke(KeyEvent.VK_ENTER);
@@ -348,7 +348,7 @@ public class PlanComponentTest extends ComponentTestFixture {
     // 3. Mix mouse and keyboard to create other walls
     tester.actionClick(planComponent, 300, 200);
     tester.actionMouseMove(planComponent,
-        new ComponentLocation(new Point(310, 200)));
+        new ComponentPoint(new Point(310, 200)));
     tester.actionKeyStroke(KeyEvent.VK_ENTER);
     // Enter the length and the angle of the wall
     tester.actionKeyString("100");
@@ -362,7 +362,7 @@ public class PlanComponentTest extends ComponentTestFixture {
     tester.actionKeyStroke(KeyEvent.VK_ENTER);
     // Take control with mouse
     tester.actionMouseMove(planComponent,
-        new ComponentLocation(new Point(200, 200)));
+        new ComponentPoint(new Point(200, 200)));
     tester.actionKeyPress(TestUtilities.getMagnetismToggleKey());
     Wall wall7 = orderedWalls.get(7);
     assertCoordinatesEqualWallPoints(wall7.getXStart(), wall7.getYStart(),

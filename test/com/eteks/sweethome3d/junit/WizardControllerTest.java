@@ -32,8 +32,8 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 
 import junit.framework.TestCase;
-import abbot.finder.ComponentSearchException;
-import abbot.tester.JComponentTester;
+import com.eteks.sweethome3d.testing.ComponentLookupException;
+import com.eteks.sweethome3d.testing.SwingRobot;
 
 import com.eteks.sweethome3d.io.DefaultUserPreferences;
 import com.eteks.sweethome3d.model.UserPreferences;
@@ -49,7 +49,7 @@ import com.eteks.sweethome3d.viewcontroller.WizardController;
  */
 public class WizardControllerTest extends TestCase {
   public void testWizardController() 
-      throws NoSuchFieldException, IllegalAccessException, ComponentSearchException {
+      throws NoSuchFieldException, IllegalAccessException, ComponentLookupException {
     // 1. Create a wizard controller test waiting for finish call
     final boolean [] finished = {false};
     WizardController controller = new ControllerTest(new DefaultUserPreferences(), new SwingViewFactory()) {
@@ -72,7 +72,7 @@ public class WizardControllerTest extends TestCase {
     assertTrue("Next button isn't enabled", nextFinishOptionButton.isEnabled());
     
     // 2. Click on nextFinishButton
-    JComponentTester tester = new JComponentTester();
+    SwingRobot tester = new SwingRobot();
     tester.invokeAndWait(new Runnable() {
         public void run() {
           nextFinishOptionButton.doClick();

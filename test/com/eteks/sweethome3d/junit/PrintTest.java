@@ -37,13 +37,11 @@ import javax.swing.JFrame;
 import javax.swing.JOptionPane;
 import javax.swing.JToolBar;
 
-import junit.extensions.abbot.ComponentTestFixture;
-import abbot.finder.AWTHierarchy;
-import abbot.finder.BasicFinder;
-import abbot.finder.ComponentSearchException;
-import abbot.finder.matchers.ClassMatcher;
-import abbot.tester.JComponentTester;
-import abbot.tester.JFileChooserTester;
+import com.eteks.sweethome3d.testing.SwingTestCase;
+import com.eteks.sweethome3d.testing.ComponentFinder;
+import com.eteks.sweethome3d.testing.ComponentLookupException;
+import com.eteks.sweethome3d.testing.ClassComponentMatcher;
+import com.eteks.sweethome3d.testing.SwingRobot;
 
 import com.eteks.sweethome3d.io.DefaultUserPreferences;
 import com.eteks.sweethome3d.model.CatalogPieceOfFurniture;
@@ -66,13 +64,13 @@ import com.eteks.sweethome3d.viewcontroller.ViewFactory;
  * Tests page setup and print preview panes in home.
  * @author Emmanuel Puybaret
  */
-public class PrintTest extends ComponentTestFixture {
+public class PrintTest extends SwingTestCase {
   protected void setUp() throws Exception {
     TestUtilities.assume3DIsAvailable();
     super.setUp();
   }
 
-  public void testPageSetupAndPrintPreview() throws ComponentSearchException, InterruptedException, 
+  public void testPageSetupAndPrintPreview() throws ComponentLookupException, InterruptedException, 
       NoSuchFieldException, IllegalAccessException, InvocationTargetException, IOException {
     UserPreferences preferences = new DefaultUserPreferences();
     ViewFactory viewFactory = new SwingViewFactory();
@@ -102,7 +100,7 @@ public class PrintTest extends ComponentTestFixture {
 
     // Show home frame
     showWindow(frame);
-    JComponentTester tester = new JComponentTester();
+    SwingRobot tester = new SwingRobot();
     tester.waitForIdle();
     // Add a piece of furniture to home
     List<CatalogPieceOfFurniture> selectedPieces = Arrays.asList(
@@ -124,7 +122,7 @@ public class PrintTest extends ComponentTestFixture {
         }
       });
     // Wait for page setup to be shown
-    tester.waitForFrameShowing(new AWTHierarchy(), preferences.getLocalizedString(
+    tester.waitForWindowShowing(preferences.getLocalizedString(
         PageSetupPanel.class, "pageSetup.title"));
     // Check dialog box is displayed
     JDialog pageSetupDialog = (JDialog)TestUtilities.findComponent(
@@ -177,11 +175,11 @@ public class PrintTest extends ComponentTestFixture {
         }
       });
     // Wait for print preview to be shown
-    tester.waitForFrameShowing(new AWTHierarchy(), preferences.getLocalizedString(
+    tester.waitForWindowShowing(preferences.getLocalizedString(
         PrintPreviewPanel.class, "printPreview.title"));
     // Check dialog box is displayed
-    JDialog printPreviewDialog = (JDialog)new BasicFinder().find(frame, 
-        new ClassMatcher (JDialog.class, true));
+    JDialog printPreviewDialog = (JDialog)new ComponentFinder().find(frame, 
+        new ClassComponentMatcher (JDialog.class, true));
     assertTrue("Print preview dialog not showing", printPreviewDialog.isShowing());
     // Retrieve PageSetupPanel components
     PrintPreviewPanel printPreviewPanel = (PrintPreviewPanel)TestUtilities.findComponent(
@@ -233,16 +231,16 @@ public class PrintTest extends ComponentTestFixture {
         }
       });
     // Wait for print to PDF file chooser to be shown
-    tester.waitForFrameShowing(new AWTHierarchy(), preferences.getLocalizedString(
+    tester.waitForWindowShowing(preferences.getLocalizedString(
         HomePane.class, "printToPDFDialog.title"));
     // Check dialog box is displayed
-    final Dialog printToPdfDialog = (Dialog)new BasicFinder().find(frame, 
-        new ClassMatcher (Dialog.class, true));
+    final Dialog printToPdfDialog = (Dialog)new ComponentFinder().find(frame, 
+        new ClassComponentMatcher (Dialog.class, true));
     assertTrue("Print to pdf dialog not showing", printToPdfDialog.isShowing());
     // Change file in print to PDF file chooser 
-    final JFileChooserTester fileChooserTester = new JFileChooserTester();
-    final JFileChooser fileChooser = (JFileChooser)new BasicFinder().find(printToPdfDialog, 
-        new ClassMatcher(JFileChooser.class));
+    final SwingRobot fileChooserTester = new SwingRobot();
+    final JFileChooser fileChooser = (JFileChooser)new ComponentFinder().find(printToPdfDialog, 
+        new ClassComponentMatcher(JFileChooser.class));
     fileChooserTester.actionSetDirectory(fileChooser, tmpDirectory.getAbsolutePath());
     fileChooserTester.actionSetFilename(fileChooser, pdfFileBase);
     // Select Ok option to hide dialog box

@@ -29,9 +29,9 @@ import org.junit.Assume;
 
 import com.eteks.sweethome3d.tools.OperatingSystem;
 
-import abbot.finder.BasicFinder;
-import abbot.finder.ComponentSearchException;
-import abbot.finder.Matcher;
+import com.eteks.sweethome3d.testing.ComponentFinder;
+import com.eteks.sweethome3d.testing.ComponentLookupException;
+import com.eteks.sweethome3d.testing.ComponentMatcher;
 
 /**
  * Gathers tools used by tests.
@@ -69,8 +69,8 @@ public final class TestUtilities {
    */
   public static Component findComponent(Container container,
                                         final Class componentClass)
-      throws ComponentSearchException {
-    return new BasicFinder().find(container, new Matcher () {
+      throws ComponentLookupException {
+    return new ComponentFinder().find(container, new ComponentMatcher() {
         public boolean matches(Component component) {
           return componentClass.isInstance(component);
         }

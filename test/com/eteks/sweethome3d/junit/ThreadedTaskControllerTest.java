@@ -35,7 +35,7 @@ import java.util.concurrent.TimeoutException;
 import javax.swing.JButton;
 
 import junit.framework.TestCase;
-import abbot.finder.ComponentSearchException;
+import com.eteks.sweethome3d.testing.ComponentLookupException;
 
 import com.eteks.sweethome3d.io.DefaultUserPreferences;
 import com.eteks.sweethome3d.swing.SwingViewFactory;
@@ -125,7 +125,7 @@ public class ThreadedTaskControllerTest extends TestCase {
             if (ev.getID() == WindowEvent.WINDOW_OPENED) {
               try {
                 ((JButton)TestUtilities.findComponent(((WindowEvent)ev).getWindow(), JButton.class)).doClick();
-              } catch (ComponentSearchException ex) {
+              } catch (ComponentLookupException ex) {
                 // Not the waiting dialog
               }
             }

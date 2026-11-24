@@ -36,10 +36,10 @@ import javax.swing.Action;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
 
-import junit.extensions.abbot.ComponentTestFixture;
-import abbot.finder.ComponentSearchException;
-import abbot.tester.ComponentLocation;
-import abbot.tester.JComponentTester;
+import com.eteks.sweethome3d.testing.SwingTestCase;
+import com.eteks.sweethome3d.testing.ComponentLookupException;
+import com.eteks.sweethome3d.testing.ComponentPoint;
+import com.eteks.sweethome3d.testing.SwingRobot;
 
 import com.eteks.sweethome3d.io.DefaultUserPreferences;
 import com.eteks.sweethome3d.model.DimensionLine;
@@ -61,13 +61,13 @@ import com.eteks.sweethome3d.viewcontroller.ViewFactory;
  * Tests drag and drop, and cut / copy / paste.
  * @author Emmanuel Puybaret
  */
-public class TransferHandlerTest extends ComponentTestFixture {
+public class TransferHandlerTest extends SwingTestCase {
   protected void setUp() throws Exception {
     TestUtilities.assume3DIsAvailable();
     super.setUp();
   }
 
-  public void testTransferHandler() throws ComponentSearchException, UnsupportedFlavorException,
+  public void testTransferHandler() throws ComponentLookupException, UnsupportedFlavorException,
                                            IOException, InterruptedException, InvocationTargetException {
     UserPreferences preferences = new DefaultUserPreferences();
     preferences.setFurnitureCatalogViewedInTree(true);
@@ -92,7 +92,7 @@ public class TransferHandlerTest extends ComponentTestFixture {
 
     // Show home plan frame
     showWindow(frame);
-    final JComponentTester tester = new JComponentTester();
+    final SwingRobot tester = new SwingRobot();
     tester.waitForIdle();
     // Check catalog tree has default focus
     assertTrue("Tree doesn't have the focus", catalogTree.isFocusOwner());
@@ -111,9 +111,9 @@ public class TransferHandlerTest extends ComponentTestFixture {
 
     // 3. Drag and drop selected piece in tree to point (120, 120) in plan component
     Rectangle selectedRowBounds = catalogTree.getRowBounds(1);
-    tester.actionDrag(catalogTree, new ComponentLocation(
+    tester.actionDrag(catalogTree, new ComponentPoint(
         new Point(selectedRowBounds.x, selectedRowBounds.y)));
-    tester.actionDrop(planComponent, new ComponentLocation(
+    tester.actionDrop(planComponent, new ComponentPoint(
         new Point(120, 120)));
     tester.waitForIdle();
     // Check a piece was added to home
@@ -234,7 +234,7 @@ public class TransferHandlerTest extends ComponentTestFixture {
    * Runs <code>actionPerformed</code> method matching <code>actionType</code>
    * in <code>HomePane</code>.
    */
-  private void runAction(JComponentTester tester, final HomeController controller,
+  private void runAction(SwingRobot tester, final HomeController controller,
                          final HomePane.ActionType actionType) {
     tester.invokeAndWait(new Runnable() {
         public void run() {

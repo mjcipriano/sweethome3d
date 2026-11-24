@@ -61,31 +61,24 @@ import com.eteks.sweethome3d.viewcontroller.PlanView;
 import com.eteks.sweethome3d.viewcontroller.View;
 import com.eteks.sweethome3d.viewcontroller.ViewFactory;
 
-import abbot.finder.AWTHierarchy;
-import abbot.finder.BasicFinder;
-import abbot.finder.ComponentNotFoundException;
-import abbot.finder.ComponentSearchException;
-import abbot.finder.MultipleComponentsFoundException;
-import abbot.finder.matchers.ClassMatcher;
-import abbot.tester.ComponentLocation;
-import abbot.tester.JComponentTester;
-import abbot.tester.JSpinnerTester;
-import abbot.tester.JSplitPaneTester;
-import abbot.tester.JTabbedPaneLocation;
-import abbot.tester.JTabbedPaneTester;
-import junit.extensions.abbot.ComponentTestFixture;
+import com.eteks.sweethome3d.testing.ComponentFinder;
+import com.eteks.sweethome3d.testing.ComponentLookupException;
+import com.eteks.sweethome3d.testing.ClassComponentMatcher;
+import com.eteks.sweethome3d.testing.ComponentPoint;
+import com.eteks.sweethome3d.testing.SwingRobot;
+import com.eteks.sweethome3d.testing.SwingTestCase;
 
 /**
  * Tests levels.
  * @author Emmanuel Puybaret
  */
-public class LevelTest extends ComponentTestFixture {
+public class LevelTest extends SwingTestCase {
   protected void setUp() throws Exception {
     TestUtilities.assume3DIsAvailable();
     super.setUp();
   }
 
-  public void testLevels() throws RecorderException, NoSuchFieldException, IllegalAccessException, InterruptedException, ComponentSearchException, URISyntaxException {
+  public void testLevels() throws RecorderException, NoSuchFieldException, IllegalAccessException, InterruptedException, ComponentLookupException, URISyntaxException {
     UserPreferences preferences = new DefaultUserPreferences() {
         @Override
         public void write() throws RecorderException {
@@ -104,12 +97,12 @@ public class LevelTest extends ComponentTestFixture {
     frame.add(view);
 
     showWindow(frame);
-    JComponentTester tester = new JComponentTester();
+    SwingRobot tester = new SwingRobot();
     tester.waitForIdle();
     // Enlarge plan view size
     PlanView planView = homeController.getPlanController().getView();
     JComponent planViewComponent = (JComponent)planView;
-    new JSplitPaneTester().actionMoveDivider(planViewComponent.getParent(), 0.75f);
+    new SwingRobot().actionMoveDivider(planViewComponent.getParent(), 0.75f);
 
     // Give focus to plan view
     tester.actionClick(planViewComponent, 50, 50);
@@ -126,7 +119,7 @@ public class LevelTest extends ComponentTestFixture {
     // Select wall at left
     Point p = new Point(planView.convertXModelToScreen(0), planView.convertYModelToScreen(50));
     SwingUtilities.convertPointFromScreen(p, planViewComponent);
-    tester.actionClick(planViewComponent, new ComponentLocation(p));
+    tester.actionClick(planViewComponent, new ComponentPoint(p));
     List<Selectable> selectedItems = home.getSelectedItems();
     assertEquals("No wall selected", 1, selectedItems.size());
     assertTrue("No wall selected", selectedItems.get(0) instanceof Wall);
@@ -135,15 +128,15 @@ public class LevelTest extends ComponentTestFixture {
     // Modify wall
     runAction(homeController, HomeView.ActionType.MODIFY_WALL, tester);
     // Wait for wall view to be shown
-    tester.waitForFrameShowing(new AWTHierarchy(), preferences.getLocalizedString(
+    tester.waitForWindowShowing(preferences.getLocalizedString(
         WallPanel.class, "wall.title"));
     // Check dialog box is displayed
-    JDialog wallModificationDialog = (JDialog)new BasicFinder().find(frame, new ClassMatcher (JDialog.class, true));
+    JDialog wallModificationDialog = (JDialog)new ComponentFinder().find(frame, new ClassComponentMatcher (JDialog.class, true));
     assertTrue("Wall modification dialog not showing", wallModificationDialog.isShowing());
     WallPanel wallPanel = (WallPanel)TestUtilities.findComponent(wallModificationDialog, WallPanel.class);
     JSpinner heightSpinner = (JSpinner)TestUtilities.getField(wallPanel, "rectangularWallHeightSpinner");
     // Increase its height
-    JSpinnerTester spinnerTester = new JSpinnerTester();
+    SwingRobot spinnerTester = new SwingRobot();
     spinnerTester.actionIncrement(heightSpinner);
     spinnerTester.actionIncrement(heightSpinner);
     heightSpinner.setValue(((Number)heightSpinner.getValue()).floatValue() + 21.5f);
@@ -198,24 +191,24 @@ public class LevelTest extends ComponentTestFixture {
     // Check visibility of first wall
     assertTrue("High wall not visible", firstWall.isAtLevel(home.getSelectedLevel()));
     // Select first level
-    JTabbedPane tabbedPane = (JTabbedPane)new BasicFinder().find(planViewComponent, new ClassMatcher (JTabbedPane.class, true));
-    JTabbedPaneTester tabbedPaneTester = new JTabbedPaneTester();
-    tabbedPaneTester.actionSelectTab(tabbedPane, new JTabbedPaneLocation(0));
+    JTabbedPane tabbedPane = (JTabbedPane)new ComponentFinder().find(planViewComponent, new ClassComponentMatcher (JTabbedPane.class, true));
+    SwingRobot tabbedPaneTester = new SwingRobot();
+    tabbedPaneTester.actionSelectTab(tabbedPane, 0);
     assertEquals("First level not selected", home.getSelectedLevel(), home.getLevels().get(0));
     // Change elevation of first level
     decreaseLevelElevation(home, homeController, preferences, frame, tester);
     // Select second level
-    tabbedPaneTester.actionSelectTab(tabbedPane, new JTabbedPaneLocation(1));
+    tabbedPaneTester.actionSelectTab(tabbedPane, 1);
     assertEquals("Second level not selected", home.getSelectedLevel(), home.getLevels().get(1));
 
     // Create a wall checking magnetism with 1st level works
     runAction(homeController, HomeView.ActionType.CREATE_WALLS, tester);
     p = new Point(planView.convertXModelToScreen(firstWall.getXStart()) + 2, planView.convertYModelToScreen(firstWall.getYStart()) - 1);
     SwingUtilities.convertPointFromScreen(p, planViewComponent);
-    tester.actionClick(planViewComponent, new ComponentLocation(p));
+    tester.actionClick(planViewComponent, new ComponentPoint(p));
     p = new Point(planView.convertXModelToScreen(firstWall.getXEnd()) - 1, planView.convertYModelToScreen(firstWall.getYEnd()) + 2);
     SwingUtilities.convertPointFromScreen(p, planViewComponent);
-    tester.actionClick(planViewComponent, new ComponentLocation(p), InputEvent.BUTTON1_MASK, 2);
+    tester.actionClick(planViewComponent, new ComponentPoint(p), InputEvent.BUTTON1_MASK, 2);
     assertEquals("No new wall", walls.size() + 1, home.getWalls().size());
     Wall newWall = (Wall)home.getWalls().toArray() [walls.size()];
     assertTrue("Incorrect X start " + firstWall.getXStart() + " " + newWall.getXStart(),
@@ -235,9 +228,9 @@ public class LevelTest extends ComponentTestFixture {
     for (float [] point : firstRoomPoints) {
       p = new Point(planView.convertXModelToScreen(point [0]) + 1, planView.convertYModelToScreen(point [1]) + 1);
       SwingUtilities.convertPointFromScreen(p, planViewComponent);
-      tester.actionClick(planViewComponent, new ComponentLocation(p));
+      tester.actionClick(planViewComponent, new ComponentPoint(p));
     }
-    tester.actionMouseMove(planViewComponent, new ComponentLocation(new Point(0, 0)));
+    tester.actionMouseMove(planViewComponent, new ComponentPoint(new Point(0, 0)));
     tester.actionKeyStroke(KeyEvent.VK_ESCAPE);
     assertEquals("No new room", rooms.size() + 1, home.getRooms().size());
     Room newRoom = home.getRooms().get(rooms.size());
@@ -257,7 +250,7 @@ public class LevelTest extends ComponentTestFixture {
     // Check unselecting one item with shift key pressed doesn't remove flag
     runAction(homeController, HomeView.ActionType.SELECT, tester);
     tester.actionKeyPress(KeyEvent.VK_SHIFT);
-    tester.actionClick(planViewComponent, new ComponentLocation(p));
+    tester.actionClick(planViewComponent, new ComponentPoint(p));
     tester.actionKeyRelease(KeyEvent.VK_SHIFT);
     assertEquals("Wrong selected items count", selectedItemsCount + 1, home.getSelectedItems().size());
     assertTrue("All levels selection flag not set", home.isAllLevelsSelection());
@@ -302,20 +295,19 @@ public class LevelTest extends ComponentTestFixture {
   }
 
   private void decreaseLevelElevation(Home home, HomeController homeController, UserPreferences preferences,
-                                      JFrame frame, JComponentTester tester) throws ComponentNotFoundException,
-            MultipleComponentsFoundException, ComponentSearchException, NoSuchFieldException, IllegalAccessException {
-    JSpinnerTester spinnerTester;
+                                      JFrame frame, SwingRobot tester) throws ComponentLookupException, NoSuchFieldException, IllegalAccessException {
+    SwingRobot spinnerTester;
     runAction(homeController, HomeView.ActionType.MODIFY_LEVEL, tester);
     // Wait for level view to be shown
-    tester.waitForFrameShowing(new AWTHierarchy(), preferences.getLocalizedString(
+    tester.waitForWindowShowing(preferences.getLocalizedString(
         LevelPanel.class, "level.title"));
     // Check dialog box is displayed
-    final JDialog levelModificationDialog = (JDialog)new BasicFinder().find(frame, new ClassMatcher (JDialog.class, true));
+    final JDialog levelModificationDialog = (JDialog)new ComponentFinder().find(frame, new ClassComponentMatcher (JDialog.class, true));
     assertTrue(" Level modification dialog not showing", levelModificationDialog.isShowing());
     LevelPanel levelPanel = ( LevelPanel)TestUtilities.findComponent(levelModificationDialog, LevelPanel.class);
     JSpinner elevationSpinner = (JSpinner)TestUtilities.getField(levelPanel, "elevationSpinner");
     // Reduce its elevation at a level where walls of 1st level will be visible
-    spinnerTester = new JSpinnerTester();
+    spinnerTester = new SwingRobot();
     spinnerTester.actionDecrement(elevationSpinner);
     elevationSpinner.setValue(((Number)elevationSpinner.getValue()).floatValue() - 22f);
     float newElevation = ((Number)elevationSpinner.getValue()).floatValue();
@@ -380,7 +372,7 @@ public class LevelTest extends ComponentTestFixture {
    * in <code>controller</code> view.
    */
   private void runAction(final HomeController controller,
-                         final HomePane.ActionType actionType, JComponentTester tester) {
+                         final HomePane.ActionType actionType, SwingRobot tester) {
     tester.invokeLater(new Runnable() {
         public void run() {
           ((JComponent)controller.getView()).getActionMap().get(actionType).actionPerformed(null);

@@ -30,10 +30,9 @@ import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JSpinner;
 
-import junit.extensions.abbot.ComponentTestFixture;
-import abbot.finder.AWTHierarchy;
-import abbot.finder.ComponentSearchException;
-import abbot.tester.JComponentTester;
+import com.eteks.sweethome3d.testing.SwingTestCase;
+import com.eteks.sweethome3d.testing.ComponentLookupException;
+import com.eteks.sweethome3d.testing.SwingRobot;
 
 import com.eteks.sweethome3d.io.DefaultUserPreferences;
 import com.eteks.sweethome3d.model.BackgroundImage;
@@ -58,13 +57,13 @@ import com.eteks.sweethome3d.viewcontroller.ViewFactory;
  * Tests background image wizard.
  * @author Emmanuel Puybaret
  */
-public class BackgroundImageWizardTest extends ComponentTestFixture {
+public class BackgroundImageWizardTest extends SwingTestCase {
   protected void setUp() throws Exception {
     TestUtilities.assume3DIsAvailable();
     super.setUp();
   }
 
-  public void testBackgroundImageWizard() throws ComponentSearchException, InterruptedException, 
+  public void testBackgroundImageWizard() throws ComponentLookupException, InterruptedException, 
       NoSuchFieldException, IllegalAccessException, InvocationTargetException {
     final UserPreferences preferences = new DefaultUserPreferences();
     // Ensure we use centimeter unit
@@ -111,7 +110,7 @@ public class BackgroundImageWizardTest extends ComponentTestFixture {
 
     // Show home plan frame
     showWindow(frame);
-    JComponentTester tester = new JComponentTester();
+    SwingRobot tester = new SwingRobot();
     tester.waitForIdle();    
     // Check home background image is empty
     assertEquals("Home background image isn't empty", null, home.getBackgroundImage());
@@ -119,7 +118,7 @@ public class BackgroundImageWizardTest extends ComponentTestFixture {
     // 2. Open wizard to import a background image
     runAction(controller, HomeView.ActionType.IMPORT_BACKGROUND_IMAGE, tester);
     // Wait for import furniture view to be shown
-    tester.waitForFrameShowing(new AWTHierarchy(), preferences.getLocalizedString(
+    tester.waitForWindowShowing(preferences.getLocalizedString(
         BackgroundImageWizardController.class, "wizard.title"));
     // Check dialog box is displayed
     JDialog wizardDialog = (JDialog)TestUtilities.findComponent(frame, JDialog.class);
@@ -223,7 +222,7 @@ public class BackgroundImageWizardTest extends ComponentTestFixture {
    */
   private void runAction(final HomeController controller, 
                          final HomePane.ActionType actionType,
-                         JComponentTester tester) {
+                         SwingRobot tester) {
     tester.invokeLater(new Runnable() {
         public void run() {
           ((JComponent)controller.getView()).getActionMap().get(actionType).actionPerformed(null);
