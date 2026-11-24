@@ -51,6 +51,7 @@ public final class AssistantHelp {
       {"Outdoor structures and site items", "add_deck add_patio add_pergola add_shed add_playset add_pool add_driveway "
           + "add_retaining_wall add_steps_on_slope add_drainage add_utility add_raised_bed add_callout"},
       {"Neighbors and context", "add_context_building add_context_vehicle"},
+      {"GIS files and web sources", "import_geojson import_buildings import_osm import_parcels fetch_elevation set_basemap web_sources"},
       {"Trees and plants", "add_tree add_shrub add_trees import_trees update_trees relabel_trees grow_trees set_season forest_fill"},
       {"Labels, dimensions and plan", "add_label add_dimension auto_dimensions set_background_image"},
       {"Lights, sun, doors and camera", "set_light set_sun set_environment open_door set_camera store_point_of_view"},
@@ -290,8 +291,9 @@ public final class AssistantHelp {
         + "grade_path, add_berm, add_swale, flatten_area and smooth_area; measured by cut_fill_report, contours, spot_elevations and "
         + "slope_map. No elevation is fetched from a web service and no GeoTIFF, LAS or LAZ file is read."
         + "\nGeoreference: one point with a north angle; coordinate systems EPSG:4326, 4269, 3857, the UTM zones (326xx, 327xx, 269xx) "
-        + "and the State Plane zones of Georgia (2240, 2239, 26967, 26966). Lot lines are read from GeoJSON and Esri JSON by import_parcel; "
-        + "no shapefile, KML, DXF or OpenStreetMap import, no aerial imagery, no geotagged photos."
+        + "and the State Plane zones of Georgia (2240, 2239, 26967, 26966). GIS files read: GeoJSON, Esri JSON, KML, shapefiles, "
+        + "text DXF and OpenStreetMap data. Web services, when the user allows them: USGS 3DEP heights, Overpass, ArcGIS parcel "
+        + "layers, Esri, USGS and OpenStreetMap tiles. No point cloud, no Bing or Google pictures."
         + "\nPlants: " + HomeAssistantContext.getPlantSpecies(false).size() + " species of trees and "
         + HomeAssistantContext.getPlantSpecies(true).size() + " of shrubs built by add_tree and add_shrub (list_species), with seasons, "
         + "growth, and 3 levels of detail (2000, 10000 and more triangles at most); 3000 plants per call. Catalog pieces are placed by "

@@ -31,6 +31,7 @@ The text Claude receives is produced by
 - [Trees and plants](#trees-and-plants)
 - [Outdoor structures and site items](#outdoor-structures-and-site-items)
 - [Neighbors and context](#neighbors-and-context)
+- [GIS files and web sources](#gis-files-and-web-sources)
 - [Furnishing a room by itself](#furnishing-a-room-by-itself)
 - [Lights, sun, doors and materials](#lights-sun-doors-and-materials)
 - [Camera](#camera)
@@ -1261,6 +1262,99 @@ Details:
   `"exclude_tags":["neighbor"]` leaves them out of one picture. `owner` is kept with the building.
 
 ![Two neighbor houses, cars and a figure for the scale](images/context-buildings.jpg)
+
+## GIS files and web sources
+
+These commands draw in the plan what a GIS file describes, placed with the georeference of the
+home (`set_georeference`). Four of them can also ask a web service, when the user allows it.
+
+| Command | What it does |
+| --- | --- |
+| `import_geojson`, `import_kml`, `import_shapefile`, `import_dxf` | Draws the points, the lines and the polygons of a file, each kind as the rules say |
+| `import_buildings` | The polygons of a file as neighbor buildings |
+| `import_roads` | The lines of a file as roads with their names |
+| `import_parcels` | The polygons of a file, or of a county parcel service, as property lines with labels |
+| `import_osm` | OpenStreetMap data from a file, or from the Overpass service around the home |
+| `fetch_elevation` | The terrain from the heights of the USGS 3DEP service |
+| `set_basemap` | An aerial picture or a map behind the plan |
+| `web_sources` | Tells whether web services are allowed and what each command sends |
+
+```json
+{"commands":[
+  {"action":"import_geojson","path":"/home/me/site.geojson","rules":[
+    {"where":{"type":"fence"},"as":"fence","style":"chain_link","height":180},
+    {"geometry":"polygon","as":"building","height_from":"HEIGHT","roof":"hip"},
+    {"geometry":"point","as":"tree","species_from":"SPECIES","height_from":"HT"}]},
+  {"action":"import_dxf","path":"/home/me/survey.dxf","units":"ft","x":0,"y":0,"rules":[
+    {"where":{"layer":"PROP-LINE"},"as":"property_line"},
+    {"where":{"layer":"FENCE"},"as":"fence","style":"privacy_solid"}]},
+  {"action":"import_parcels","path":"/home/me/parcels.geojson","subject":{"PARCEL_ID":"18 106 03 045"}},
+  {"action":"import_osm","buffer_m":150,"only":["buildings","roads"]},
+  {"action":"fetch_elevation","buffer_m":60,"resolution_cm":300,"pin":{"x":250,"y":900,"height":-15}},
+  {"action":"set_basemap","source":"esri_world_imagery","buffer_m":80}
+]}
+```
+
+### Files
+
+- **Formats.** GeoJSON (and Esri JSON), KML (not KMZ: extract its `doc.kml`), shapefiles (`.shp`
+  with the `.dbf` beside it), text DXF drawings, and OpenStreetMap data as an `.osm` file or the
+  JSON of Overpass. `"geojson":{...}` gives GeoJSON in the command.
+- **Place.** GeoJSON, KML and OSM are in longitude and latitude. `"srs":"EPSG:2240"` reads any
+  file in one of the [coordinate systems](#north-and-georeference). A DXF or a shapefile without
+  `srs` is placed by `x`, `y`, the place in the plan of its origin, and `units` (`m`, `ft`, `cm`,
+  `mm`, `in`), its north up the plan.
+- **Rules.** Each rule chooses features by `"geometry":"point|line|polygon"` and / or
+  `"where":{"<attribute>":"<value>"}` (`"*"` for any value; the layer of a DXF is the attribute
+  `layer`), and tells what they become with `as`. The first rule that fits is used, and with rules
+  the features that none chooses are left out.
+
+| A feature | `as` |
+| --- | --- |
+| polygon | `property_line`, `polyline`, `room`, `slab`, `patio`, `planting_bed`, `building`, `pond`, `pool`, `deck`, `driveway`, `fence`, `hedge` |
+| line | `polyline`, `fence`, `hedge`, `path`, `driveway`, `sidewalk`, `curb` |
+| point | `tree`, `shrub`, `label`, `utility`, `furniture` |
+| any | `skip` |
+
+- The other keys of a rule are the ones of the command that builds it: `style` for a fence,
+  `roof` for a building, `type` for a utility. `name_from`, `height_from`, `width_from`,
+  `species_from` and `tag_from` name the attributes to read; heights and widths read from
+  attributes are in meters unless `"attribute_units":"ft"` or `"cm"`.
+- Without rule a polygon and a line are drawn as lines of the plan and a named point as a label.
+- What is built has the tag `imported`. 3000 features at most are drawn by a call, and a feature
+  more than 10 km from the plan is refused: the georeference, `srs` or `units` is then wrong.
+- **`import_parcels`** labels each lot with its owner, its address or its parcel id
+  (`"label_from":["OWNER","SITUS"]` names the attributes) and its acres. With
+  `"subject":{"<attribute>":"<value>"}` that lot is the property line of the home and the others
+  are drawn as grey dashed lines.
+- **`import_osm`** draws buildings with their levels and their roof shape, roads at the width of
+  their class with their names, footways, trees, fences with their `fence_type`, hedges, walls,
+  water and swimming pools. `only` limits it to `buildings`, `roads`, `paths`, `trees`, `fences`
+  or `water`.
+
+### Web services
+
+They are **off** until the user ticks **Allow web services** in Tools > Claude MCP server. Each
+command then sends the corners of the area it asks for to one service, and nothing else of the home.
+
+| Command | Service | What it gets |
+| --- | --- | --- |
+| `fetch_elevation` | USGS 3DEP (`elevation.nationalmap.gov`) | The heights around the home every `resolution_cm` (300), 12 000 at most, then the terrain as `set_terrain` builds it, with `pin`, `datum_offset_cm` and `max_points`. The United States only. Heights are above the sea: the lowest one is taken for the height 0 unless `pin` says otherwise |
+| `import_osm` without `path` | Overpass (`overpass-api.de`) | What OpenStreetMap has within `buffer_m` meters (150) of the home |
+| `import_parcels` with `url` | The ArcGIS REST layer given | The lots within `buffer_m` meters of the home |
+| `set_basemap` | Esri World Imagery, USGS imagery, OpenStreetMap, or `xyz:<template>` | The tiles around the home at `zoom` (19), turned to the plan and shown as its background image |
+
+`buffer_m` is measured around the walls, the rooms and the property lines of the home;
+`"area":[[x,y],...]` gives another zone. `set_basemap` replaces the background image of the
+level, and `remove_background_image` takes it away.
+
+### Limits
+
+- Point clouds (LAS, LAZ, the Entwine service of the USGS) aren't read, so trees aren't found or
+  classified from LiDAR: `import_trees` takes the treetops a LiDAR tool extracts.
+- Bing and Google pictures, WMS servers and the dates of pictures aren't available.
+- Only the outer ring of a polygon is drawn.
+- The coordinate systems are the built-in ones, not every EPSG code.
 
 ## Furnishing a room by itself
 

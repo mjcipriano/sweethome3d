@@ -142,7 +142,16 @@ check its work with a picture.
 | `add_note` | Pins a review note to an item or a place |
 | `start_visit` | Opens the game mode or the walk-through in your browser |
 
-The tools can't reach the network. They write the file of the home only if
+The tools don't reach the network unless you tick **Allow web services
+(elevation, parcels, OpenStreetMap, aerial pictures)** in the dialog. With it,
+`fetch_elevation`, `import_osm`, `import_parcels` with a `url` and
+`set_basemap` ask the USGS, OpenStreetMap, a county parcel server or a map
+server for data around the home: the corners of the area asked are sent to
+that service, and nothing else of the home
+([GIS files and web sources](MCP_COMMANDS.md#gis-files-and-web-sources)). The
+box is unticked each time the application starts.
+
+They write the file of the home only if
 you tick **Allow saving this home in its file, and replacing files** in the
 dialog; without it, saving stays your decision (**File > Save**) and Claude
 can only keep versions and write copies in new files.

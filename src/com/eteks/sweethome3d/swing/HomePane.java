@@ -5413,6 +5413,11 @@ public class HomePane extends JRootPane implements HomeView {
             return composeImages(image, reference, overlay, opacity);
           }
         });
+      this.mcpHandler.setTileComposer(new com.eteks.sweethome3d.viewcontroller.AssistantGisCommands.TileComposer() {
+          public byte [] compose(byte [][] tiles, int columns, int rows, int tileSize, int [] crop, double rotation) throws IOException {
+            return composeTiles(tiles, columns, rows, tileSize, crop, rotation);
+          }
+        });
       this.mcpHandler.setModelSizeProvider(new AssistantModelSizeProvider());
       this.mcpHandler.setModelInspector(new AssistantModelInspector());
       this.mcpHandler.setImageAnnotator(new HomeMCPHandler.ImageAnnotator() {
@@ -5709,6 +5714,7 @@ public class HomePane extends JRootPane implements HomeView {
     HomeMCPHandler otherHandler = otherPane.getMCPHandler();
     otherHandler.setEditingAllowed(this.mcpHandler.isEditingAllowed());
     otherHandler.setSavingAllowed(this.mcpHandler.isSavingAllowed());
+    otherHandler.setWebAccessAllowed(this.mcpHandler.isWebAccessAllowed());
     if (otherPane.mcpServer == null || !otherPane.mcpServer.isRunning()) {
       otherPane.startMCPServer();
     } else {
@@ -5754,6 +5760,16 @@ public class HomePane extends JRootPane implements HomeView {
     editingCheckBox.addActionListener(new ActionListener() {
         public void actionPerformed(ActionEvent ev) {
           savingCheckBox.setEnabled(editingCheckBox.isSelected());
+        }
+      });
+    final JCheckBox webCheckBox = new JCheckBox("Allow web services (elevation, parcels, OpenStreetMap, aerial pictures)",
+        mcpHandler.isWebAccessAllowed());
+    webCheckBox.setToolTipText("<html>With it, Claude can ask the USGS, OpenStreetMap, a county parcel server or a map server<br>"
+        + "for data around this home: the place of the home is sent to the service asked, and nothing else.<br>"
+        + "Without it, Claude reads only the files you give it.</html>");
+    webCheckBox.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent ev) {
+          mcpHandler.setWebAccessAllowed(webCheckBox.isSelected());
         }
       });
     final Runnable updater = new Runnable() {
@@ -5884,6 +5900,7 @@ public class HomePane extends JRootPane implements HomeView {
     JPanel checkBoxesPanel = new JPanel(new java.awt.GridLayout(0, 1));
     checkBoxesPanel.add(editingCheckBox);
     checkBoxesPanel.add(savingCheckBox);
+    checkBoxesPanel.add(webCheckBox);
     checkBoxesPanel.add(autoStartCheckBox);
     checkBoxesPanel.add(new JLabel("Connect Claude once with a button below, or with this command for Claude Code:"));
     northPanel.add(checkBoxesPanel, BorderLayout.SOUTH);
@@ -6154,6 +6171,55 @@ public class HomePane extends JRootPane implements HomeView {
     } catch (IOException ex) {
       return null;
     }
+  }
+
+  /**
+   * Returns the JPEG picture of the tiles of a map put side by side, cut, then turned around its middle.
+   */
+  static byte [] composeTiles(byte [][] tiles, int columns, int rows, int tileSize, int [] crop, double rotation) throws IOException {
+    BufferedImage mosaic = new BufferedImage(columns * tileSize, rows * tileSize, BufferedImage.TYPE_INT_RGB);
+    Graphics2D g2D = mosaic.createGraphics();
+    g2D.setColor(new Color(0xE8E6E0));
+    g2D.fillRect(0, 0, mosaic.getWidth(), mosaic.getHeight());
+    int drawn = 0;
+    for (int row = 0; row < rows; row++) {
+      for (int column = 0; column < columns; column++) {
+        byte [] tile = tiles [row * columns + column];
+        BufferedImage image = tile != null ? ImageIO.read(new java.io.ByteArrayInputStream(tile)) : null;
+        if (image != null) {
+          g2D.drawImage(image, column * tileSize, row * tileSize, tileSize, tileSize, null);
+          drawn++;
+        }
+      }
+    }
+    g2D.dispose();
+    if (drawn == 0) {
+      return null;
+    }
+    int x = Math.max(0, Math.min(mosaic.getWidth() - 1, crop [0]));
+    int y = Math.max(0, Math.min(mosaic.getHeight() - 1, crop [1]));
+    int width = Math.max(1, Math.min(mosaic.getWidth() - x, crop [2]));
+    int height = Math.max(1, Math.min(mosaic.getHeight() - y, crop [3]));
+    BufferedImage picture = mosaic.getSubimage(x, y, width, height);
+    if (Math.abs(rotation) > 0.01) {
+      // Turned in a picture large enough for its corners
+      double radians = Math.toRadians(rotation);
+      int turnedWidth = (int)Math.ceil(Math.abs(width * Math.cos(radians)) + Math.abs(height * Math.sin(radians)));
+      int turnedHeight = (int)Math.ceil(Math.abs(width * Math.sin(radians)) + Math.abs(height * Math.cos(radians)));
+      BufferedImage turned = new BufferedImage(turnedWidth, turnedHeight, BufferedImage.TYPE_INT_RGB);
+      Graphics2D turnedG2D = turned.createGraphics();
+      turnedG2D.setColor(new Color(0xE8E6E0));
+      turnedG2D.fillRect(0, 0, turnedWidth, turnedHeight);
+      turnedG2D.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+      turnedG2D.translate(turnedWidth / 2., turnedHeight / 2.);
+      turnedG2D.rotate(radians);
+      turnedG2D.drawImage(picture, -width / 2, -height / 2, null);
+      turnedG2D.dispose();
+      picture = turned;
+    }
+    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+    ImageIO.write(picture, "jpg", out);
+    return out.toByteArray();
   }
 
   /**

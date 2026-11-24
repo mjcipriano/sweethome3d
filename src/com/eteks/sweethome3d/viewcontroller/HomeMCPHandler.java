@@ -414,6 +414,24 @@ public class HomeMCPHandler {
   /**
    * Returns whether clients may save the home in its own file.
    */
+  /**
+   * Returns <code>true</code> if commands may ask web services for data about the place of the home.
+   */
+  public boolean isWebAccessAllowed() {
+    return this.commandExecutor.isWebAccessAllowed();
+  }
+
+  public void setWebAccessAllowed(boolean webAccessAllowed) {
+    this.commandExecutor.setWebAccessAllowed(webAccessAllowed);
+  }
+
+  /**
+   * Sets what puts the tiles of a map together in one picture.
+   */
+  public void setTileComposer(AssistantGisCommands.TileComposer tileComposer) {
+    this.commandExecutor.setTileComposer(tileComposer);
+  }
+
   public boolean isSavingAllowed() {
     return this.savingAllowed && isEditingAllowed();
   }
@@ -736,7 +754,9 @@ public class HomeMCPHandler {
         + "set_season, grow_trees and relabel_trees change them all; set_terrain also reads a raster or a file of heights, "
         + "add_pad, grade_path, add_berm, add_swale and flatten_area grade the ground, cut_fill_report, contours, spot_elevations "
         + "and slope_map measure it; add_deck, add_patio, add_pergola, add_shed, add_pool, add_driveway, add_retaining_wall, "
-        + "add_utility and the other outdoor commands build what stands around a house, add_context_building the houses of neighbors; furnish_room places the furniture of a kind of room by rules, as a starting point; "
+        + "add_utility and the other outdoor commands build what stands around a house, add_context_building the houses of neighbors; "
+        + "import_geojson, import_kml, import_shapefile, import_dxf and import_osm draw GIS files in the plan, and with the "
+        + "permission of the user fetch_elevation, import_osm, import_parcels and set_basemap ask web services (web_sources); furnish_room places the furniture of a kind of room by rules, as a starting point; "
         + "schedule, add_symbol, add_symbols and framing_estimate list doors, windows and rooms, add electrical and plumbing "
         + "symbols and estimate framing; set_unit_prices also takes a room or a wall.");
     return result;

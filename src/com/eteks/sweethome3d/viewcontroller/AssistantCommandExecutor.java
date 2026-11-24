@@ -96,6 +96,7 @@ public class AssistantCommandExecutor {
   private final AssistantPlantCommands  plantCommands;
   private final AssistantTerrainCommands terrainCommands;
   private final AssistantOutdoorCommands outdoorCommands;
+  private final AssistantGisCommands     gisCommands;
   private boolean                       stopOnError;
   private String                        groupName;
   private final AssistantScheduleCommands scheduleCommands;
@@ -187,6 +188,7 @@ public class AssistantCommandExecutor {
     this.plantCommands = new AssistantPlantCommands(home, homeController, this);
     this.terrainCommands = new AssistantTerrainCommands(home, homeController, this);
     this.outdoorCommands = new AssistantOutdoorCommands(home, homeController, this);
+    this.gisCommands = new AssistantGisCommands(home, this);
     this.scheduleCommands = new AssistantScheduleCommands(home, preferences, homeController, this);
     this.sceneCommands = new AssistantSceneCommands(home, preferences, homeController, this);
     this.layerCommands = new AssistantLayerCommands(home, homeController, this);
@@ -372,6 +374,24 @@ public class AssistantCommandExecutor {
 
   AssistantSceneCommands getSceneCommands() {
     return this.sceneCommands;
+  }
+
+  /**
+   * Sets whether commands may ask web services for data about the place of the home.
+   */
+  public void setWebAccessAllowed(boolean webAccessAllowed) {
+    this.gisCommands.setWebAccessAllowed(webAccessAllowed);
+  }
+
+  public boolean isWebAccessAllowed() {
+    return this.gisCommands.isWebAccessAllowed();
+  }
+
+  /**
+   * Sets what puts the tiles of a map together in one picture.
+   */
+  public void setTileComposer(AssistantGisCommands.TileComposer tileComposer) {
+    this.gisCommands.setTileComposer(tileComposer);
   }
 
   AssistantTerrainCommands getTerrainCommands() {
@@ -916,6 +936,7 @@ public class AssistantCommandExecutor {
     } else if (!this.plantCommands.apply(action, command, tally, notes)
                && !this.terrainCommands.apply(action, command, tally, notes)
                && !this.outdoorCommands.apply(action, command, tally, notes)
+               && !this.gisCommands.apply(action, command, tally, notes)
                && !this.structureCommands.apply(action, command, tally, notes)
                && !this.shapeCommands.apply(action, command, tally, notes)
                && !this.buildingCommands.apply(action, command, tally, notes)
