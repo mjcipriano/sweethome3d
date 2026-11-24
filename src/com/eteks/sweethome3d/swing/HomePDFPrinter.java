@@ -26,20 +26,15 @@ import java.awt.print.PrinterException;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
+import java.util.Date;
 
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.viewcontroller.ContentManager;
 import com.eteks.sweethome3d.viewcontroller.HomeController;
-import com.lowagie.text.Document;
-import com.lowagie.text.DocumentException;
-import com.lowagie.text.Rectangle;
-import com.lowagie.text.pdf.PdfContentByte;
-import com.lowagie.text.pdf.PdfTemplate;
-import com.lowagie.text.pdf.PdfWriter;
 
 /**
- * Home PDF printer. PDF creation is implemented with iText. 
+ * Home PDF printer. PDF creation is implemented with {@link PDFDocumentWriter}.
  * @author Emmanuel Puybaret
  */
 public class HomePDFPrinter {
@@ -66,26 +61,22 @@ public class HomePDFPrinter {
    */
   public void write(OutputStream outputStream) throws IOException {
     PageFormat pageFormat = HomePrintableComponent.getPageFormat(this.home.getPrint());
-    Document pdfDocument = new Document(new Rectangle((float)pageFormat.getWidth(), (float)pageFormat.getHeight()));
     try {
-      // Get a PDF writer that will write to the given PDF output stream
-      PdfWriter pdfWriter = PdfWriter.getInstance(pdfDocument, outputStream);
-      pdfDocument.open();
-      
+      PDFDocumentWriter pdfWriter = new PDFDocumentWriter(outputStream);
+
       // Set PDF document description
-      pdfDocument.addAuthor(System.getProperty("user.name", ""));
+      pdfWriter.setAuthor(System.getProperty("user.name", ""));
       String pdfDocumentCreator = this.preferences.getLocalizedString(
-          HomePDFPrinter.class, "pdfDocument.creator");    
-      pdfDocument.addCreator(pdfDocumentCreator);
-      pdfDocument.addCreationDate();
+          HomePDFPrinter.class, "pdfDocument.creator");
+      pdfWriter.setCreator(pdfDocumentCreator);
+      pdfWriter.setCreationDate(new Date());
       String homeName = this.home.getName();
       if (homeName != null) {
-        pdfDocument.addTitle(this.controller.getContentManager().getPresentationName(
+        pdfWriter.setTitle(this.controller.getContentManager().getPresentationName(
             homeName, ContentManager.ContentType.PDF));
       }
-      
-      PdfContentByte pdfContent = pdfWriter.getDirectContent();
-      HomePrintableComponent printableComponent = 
+
+      HomePrintableComponent printableComponent =
           new HomePrintableComponent(this.home, this.controller, this.defaultFont);
       // Print each page
       for (int page = 0, pageCount = printableComponent.getPageCount(); page < pageCount; page++) {
@@ -93,25 +84,14 @@ public class HomePDFPrinter {
         if (Thread.interrupted()) {
           throw new InterruptedIOException();
         }
-        PdfTemplate pdfTemplate = pdfContent.createTemplate((float)pageFormat.getWidth(), 
+        Graphics g = pdfWriter.createPage((float)pageFormat.getWidth(),
             (float)pageFormat.getHeight());
-        Graphics g = pdfTemplate.createGraphicsShapes((float)pageFormat.getWidth(), 
-            (float)pageFormat.getHeight());        
-        
+
         printableComponent.print(g, pageFormat, page);
-        
-        pdfContent.addTemplate(pdfTemplate, 0, 0);
+
         g.dispose();
-        
-        if (page != pageCount - 1) {
-          pdfDocument.newPage();
-        }
       }
-      pdfDocument.close();
-    } catch (DocumentException ex) {
-      IOException exception = new IOException("Couldn't print to PDF");
-      exception.initCause(ex);
-      throw exception;
+      pdfWriter.close();
     } catch (InterruptedPrinterException ex) {
       throw new InterruptedIOException("Print to PDF interrupted");
     } catch (PrinterException ex) {

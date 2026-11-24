@@ -155,7 +155,7 @@ display-list and antialiasing work.
    example `cp`-ing into `/mnt/c/sh3d-bench`: the `build/*.jar` dev jars,
    `build/performance-classes`, the Java 3D 1.6 jars `lib/java3d-1.6/*.jar` (not
    the legacy `lib/j3dcore.jar`/`vecmath.jar`), the non-3D `lib/*.jar` (batik,
-   jeksparser, iText, freehep, sunflow, jmf), the
+   jeksparser, sunflow, jmf), the
    `lib/java3d-1.6/windows/amd64/*.dll` JOGL natives,
    `lib/windows/x64/j3dcore-ogl.dll`, and the `.sh3d` home.
 3. Run a Windows JDK with the natives on `-Djava.library.path` (Java 8 needs no

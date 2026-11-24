@@ -116,13 +116,6 @@ public class PackageDependenciesTest extends TestCase {
     JavaPackage sunflowMath = constraint.addPackage("org.sunflow.math");
     JavaPackage sunflowSystem = constraint.addPackage("org.sunflow.system");
     JavaPackage sunflowSystemUI = constraint.addPackage("org.sunflow.system.ui");
-    // iText for PDF
-    JavaPackage iText = constraint.addPackage("com.lowagie.text");
-    JavaPackage iTextPdf = constraint.addPackage("com.lowagie.text.pdf");
-    // FreeHEP Vector Graphics for SVG
-    JavaPackage vectorGraphicsUtil = constraint.addPackage("org.freehep.util");
-    JavaPackage vectorGraphics = constraint.addPackage("org.freehep.graphicsio");
-    JavaPackage vectorGraphicsSvg = constraint.addPackage("org.freehep.graphicsio.svg");
     // Batik for SVG path parsing
     JavaPackage orgApacheBatikParser = constraint.addPackage("org.apache.batik.parser");
     // Jeks Parser
@@ -217,11 +210,6 @@ public class PackageDependenciesTest extends TestCase {
     sweetHome3DSwing.dependsUpon(jmfDataSink);
     sweetHome3DSwing.dependsUpon(jmfFormat);
     sweetHome3DSwing.dependsUpon(jmfProtocol);
-    sweetHome3DSwing.dependsUpon(iText);
-    sweetHome3DSwing.dependsUpon(iTextPdf);
-    sweetHome3DSwing.dependsUpon(vectorGraphicsUtil);
-    sweetHome3DSwing.dependsUpon(vectorGraphics);
-    sweetHome3DSwing.dependsUpon(vectorGraphicsSvg);
     sweetHome3DSwing.dependsUpon(jnlp);
 
     sweetHome3DIO.dependsUpon(sweetHome3DModel);
