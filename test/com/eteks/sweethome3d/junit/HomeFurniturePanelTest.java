@@ -30,12 +30,11 @@ import javax.swing.JSpinner;
 import javax.swing.JSpinner.DefaultEditor;
 import javax.swing.JTextField;
 
-import junit.extensions.abbot.ComponentTestFixture;
-import abbot.finder.AWTHierarchy;
-import abbot.finder.BasicFinder;
-import abbot.finder.ComponentSearchException;
-import abbot.finder.matchers.ClassMatcher;
-import abbot.tester.JComponentTester;
+import com.eteks.sweethome3d.testing.SwingTestCase;
+import com.eteks.sweethome3d.testing.ComponentFinder;
+import com.eteks.sweethome3d.testing.ComponentLookupException;
+import com.eteks.sweethome3d.testing.ClassComponentMatcher;
+import com.eteks.sweethome3d.testing.SwingRobot;
 
 import com.eteks.sweethome3d.io.DefaultUserPreferences;
 import com.eteks.sweethome3d.model.Home;
@@ -52,13 +51,13 @@ import com.eteks.sweethome3d.viewcontroller.HomeFurnitureController;
  * Tests {@link com.eteks.sweethome3d.swing.HomeFurniturePanel home piece of furniture panel}.
  * @author Emmanuel Puybaret
  */
-public class HomeFurniturePanelTest extends ComponentTestFixture {
+public class HomeFurniturePanelTest extends SwingTestCase {
   protected void setUp() throws Exception {
     TestUtilities.assume3DIsAvailable();
     super.setUp();
   }
 
-  public void testHomePieceOfFurniturePanel() throws ComponentSearchException, NoSuchFieldException, IllegalAccessException {
+  public void testHomePieceOfFurniturePanel() throws ComponentLookupException, NoSuchFieldException, IllegalAccessException {
     // 1. Create default preferences for a user that uses centimeter
     Locale.setDefault(Locale.FRANCE);
     UserPreferences preferences = new DefaultUserPreferences();
@@ -101,7 +100,7 @@ public class HomeFurniturePanelTest extends ComponentTestFixture {
         piece1.getWidth(), null, null, null, null, null, controller);
     
     // 4. Display furniture dialog
-    JComponentTester tester = new JComponentTester();
+    SwingRobot tester = new SwingRobot();
     JDialog furnitureDialog = showHomeFurniturePanel(preferences, controller, tester);
     // Retrieve HomeFurniturePanel components
     HomeFurniturePanel panel = (HomeFurniturePanel)TestUtilities.findComponent(
@@ -184,7 +183,7 @@ public class HomeFurniturePanelTest extends ComponentTestFixture {
    */
   private JDialog showHomeFurniturePanel(UserPreferences preferences,
                                          final HomeFurnitureController controller,
-                                         JComponentTester tester) throws ComponentSearchException {
+                                         SwingRobot tester) throws ComponentLookupException {
     tester.invokeLater(new Runnable() { 
         public void run() {
           // Display dialog box later in Event Dispatch Thread to avoid blocking test thread
@@ -192,11 +191,11 @@ public class HomeFurniturePanelTest extends ComponentTestFixture {
         }
       });
     // Wait for 3D view to be shown
-    tester.waitForFrameShowing(new AWTHierarchy(), preferences.getLocalizedString(
+    tester.waitForWindowShowing(preferences.getLocalizedString(
         HomeFurniturePanel.class, "homeFurniture.title"));
     // Check dialog box is displayed
-    JDialog homeFurnitureDialog = (JDialog)new BasicFinder().find(null, 
-        new ClassMatcher (JDialog.class, true));
+    JDialog homeFurnitureDialog = (JDialog)new ComponentFinder().find(null, 
+        new ClassComponentMatcher (JDialog.class, true));
     assertTrue("Furniture dialog not showing", homeFurnitureDialog.isShowing());
     return homeFurnitureDialog;
   }
@@ -204,7 +203,7 @@ public class HomeFurniturePanelTest extends ComponentTestFixture {
   /**
    * Cliks on OK in dialog to close it.
    */
-  private void doClickOnOkInDialog(JDialog dialog, JComponentTester tester) throws ComponentSearchException {
+  private void doClickOnOkInDialog(JDialog dialog, SwingRobot tester) throws ComponentLookupException {
     final JOptionPane attributesOptionPane = (JOptionPane)TestUtilities.findComponent(
         dialog, JOptionPane.class);
     tester.invokeAndWait(new Runnable() {

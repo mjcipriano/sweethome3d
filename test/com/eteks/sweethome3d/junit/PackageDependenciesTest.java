@@ -19,13 +19,17 @@
  */
 package com.eteks.sweethome3d.junit;
 
+import java.io.DataInputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
-import java.util.Collection;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
 
-import jdepend.framework.DependencyConstraint;
-import jdepend.framework.JDepend;
-import jdepend.framework.JavaPackage;
-import jdepend.framework.PackageFilter;
 import junit.framework.TestCase;
 
 /**
@@ -37,21 +41,20 @@ public class PackageDependenciesTest extends TestCase {
    * Tests that the package dependencies constraint is met for the analyzed packages.
    */
   public void testPackageDependencies() throws IOException {
-    PackageFilter packageFilter = new PackageFilter();
+    List<String> packageFilter = new ArrayList<String>();
     // Ignore Java packages
-    packageFilter.addPackage("java.*");
+    packageFilter.add("java.*");
     // JDK HTTP server used by the local MCP server
-    packageFilter.addPackage("com.sun.net.httpserver");
+    packageFilter.add("com.sun.net.httpserver");
     // Ignore JUnit tests
-    packageFilter.addPackage("com.eteks.sweethome3d.junit");
+    packageFilter.add("com.eteks.sweethome3d.junit");
     // The VR preview is packaged as a plugin and may use the public application API.
-    packageFilter.addPackage("com.eteks.sweethome3d.plugin.vr");
+    packageFilter.add("com.eteks.sweethome3d.plugin.vr");
     // The WebXR preview is a plug-in built in the application jar: nothing depends on it
     // (PluginManager finds it by the name of its resource) and it uses the public application API.
-    packageFilter.addPackage("com.eteks.sweethome3d.plugin.webxr");
+    packageFilter.add("com.eteks.sweethome3d.plugin.webxr");
 
-    JDepend jdepend = new JDepend(packageFilter);
-    jdepend.addDirectory(System.getProperty("sweethome3d.testClasses", "classes"));
+    File classesDirectory = new File(System.getProperty("sweethome3d.testClasses", "classes"));
 
     DependencyConstraint constraint = new DependencyConstraint();
     // Sweet Home 3D packages
@@ -260,50 +263,257 @@ public class PackageDependenciesTest extends TestCase {
     sweetHome3DApplet.dependsUpon(swingTable);
     sweetHome3DApplet.dependsUpon(jnlp);
 
-    jdepend.analyze();
+    Map<String, Set<String>> actualDependencies = getPackageDependencies(classesDirectory, packageFilter);
+    assertFalse("No class in " + classesDirectory, actualDependencies.isEmpty());
+    Map<String, Set<String>> expectedDependencies = constraint.getDependencies();
 
-    assertTrue(getDependencyMismatchMessage(jdepend, constraint),
-        jdepend.dependencyMatch(constraint));
+    assertTrue(getDependencyMismatchMessage(expectedDependencies, actualDependencies),
+        expectedDependencies.equals(actualDependencies));
   }
 
-  private String getDependencyMismatchMessage(JDepend jdepend, DependencyConstraint constraint) {
+  private String getDependencyMismatchMessage(Map<String, Set<String>> expectedDependencies,
+                                              Map<String, Set<String>> actualDependencies) {
     StringBuilder message = new StringBuilder("Dependency mismatch");
-    if (jdepend.getPackages().size() != constraint.getPackages().size()) {
-      message.append("\nExpected packages: ").append(getPackageNames(constraint.getPackages()));
-      message.append("\nActual packages: ").append(getPackageNames(jdepend.getPackages()));
+    if (!expectedDependencies.keySet().equals(actualDependencies.keySet())) {
+      message.append("\nExpected packages: ").append(expectedDependencies.keySet());
+      message.append("\nActual packages: ").append(actualDependencies.keySet());
     }
-    for (Object expectedObject : constraint.getPackages()) {
-      JavaPackage expected = (JavaPackage)expectedObject;
-      JavaPackage actual = jdepend.getPackage(expected.getName());
+    for (Map.Entry<String, Set<String>> expected : expectedDependencies.entrySet()) {
+      Set<String> actual = actualDependencies.get(expected.getKey());
       if (actual == null) {
-        message.append("\nMissing package: ").append(expected.getName());
-      } else {
-        appendDifference(message, expected.getName(), "outgoing",
-            expected.getEfferents(), actual.getEfferents());
-        appendDifference(message, expected.getName(), "incoming",
-            expected.getAfferents(), actual.getAfferents());
+        message.append("\nMissing package: ").append(expected.getKey());
+      } else if (!expected.getValue().equals(actual)) {
+        message.append("\n").append(expected.getKey()).append(" outgoing");
+        message.append("\n  expected: ").append(expected.getValue());
+        message.append("\n  actual:   ").append(actual);
       }
     }
     return message.toString();
   }
 
-  private void appendDifference(StringBuilder message, String packageName, String direction,
-                                Collection expected, Collection actual) {
-    if (!expected.containsAll(actual) || !actual.containsAll(expected)) {
-      message.append("\n").append(packageName).append(" ").append(direction);
-      message.append("\n  expected: ").append(getPackageNames(expected));
-      message.append("\n  actual:   ").append(getPackageNames(actual));
+  /**
+   * Returns the packages of the classes found in <code>directory</code> and the ones they use,
+   * each one with the other packages its classes use. The packages which match
+   * <code>packageFilter</code> are ignored, the ones used as well as the ones found.
+   */
+  private Map<String, Set<String>> getPackageDependencies(File directory,
+                                                          List<String> packageFilter) throws IOException {
+    Map<String, Set<String>> dependencies = new TreeMap<String, Set<String>>();
+    List<File> classFiles = new ArrayList<File>();
+    addClassFiles(directory, classFiles);
+    for (File classFile : classFiles) {
+      List<String> classNames = new ArrayList<String>();
+      String className = readClassNames(classFile, classNames);
+      String packageName = getPackageName(className);
+      if (isFiltered(packageName, packageFilter)) {
+        continue;
+      }
+      Set<String> packageDependencies = dependencies.get(packageName);
+      if (packageDependencies == null) {
+        packageDependencies = new TreeSet<String>();
+        dependencies.put(packageName, packageDependencies);
+      }
+      for (String usedClassName : classNames) {
+        String usedPackageName = getPackageName(usedClassName);
+        if (!usedPackageName.equals(packageName)
+            && !isFiltered(usedPackageName, packageFilter)) {
+          packageDependencies.add(usedPackageName);
+          if (!dependencies.containsKey(usedPackageName)) {
+            dependencies.put(usedPackageName, new TreeSet<String>());
+          }
+        }
+      }
+    }
+    return dependencies;
+  }
+
+  private void addClassFiles(File directory, List<File> classFiles) {
+    File [] files = directory.listFiles();
+    if (files != null) {
+      for (File file : files) {
+        if (file.isDirectory()) {
+          addClassFiles(file, classFiles);
+        } else if (file.getName().endsWith(".class")) {
+          classFiles.add(file);
+        }
+      }
     }
   }
 
-  private String getPackageNames(Collection packages) {
-    StringBuilder names = new StringBuilder("[");
-    for (Object packageObject : packages) {
-      if (names.length() > 1) {
-        names.append(", ");
+  /**
+   * Returns <code>true</code> if a package is ignored: a filter that ends with
+   * <code>*</code> matches the packages whose name starts with what precedes it.
+   */
+  private boolean isFiltered(String packageName, List<String> packageFilter) {
+    for (String filter : packageFilter) {
+      if (filter.endsWith("*")
+            ? packageName.startsWith(filter.substring(0, filter.length() - 1))
+            : packageName.equals(filter)) {
+        return true;
       }
-      names.append(((JavaPackage)packageObject).getName());
     }
-    return names.append("]").toString();
+    return false;
+  }
+
+  private String getPackageName(String className) {
+    int index = className.lastIndexOf('/');
+    return index == -1 ? "" : className.substring(0, index).replace('/', '.');
+  }
+
+  /**
+   * Reads the constant pool, the fields and the methods of a compiled class, as the Java
+   * Virtual Machine Specification describes them, and adds to <code>classNames</code> the
+   * names of the classes cited there: the classes it calls, extends, implements, throws,
+   * creates or casts to, and the types of the fields and of the methods it declares.
+   * The types that appear only in the descriptors of the members of other classes it uses
+   * aren't counted: the class doesn't name them.
+   * @return the name of the class with <code>/</code> between its packages
+   */
+  private String readClassNames(File classFile, List<String> classNames) throws IOException {
+    DataInputStream in = new DataInputStream(new java.io.BufferedInputStream(new FileInputStream(classFile)));
+    try {
+      if (in.readInt() != 0xCAFEBABE) {
+        throw new IOException(classFile + " isn't a class file");
+      }
+      in.readUnsignedShort(); // Minor version
+      in.readUnsignedShort(); // Major version
+      int constantCount = in.readUnsignedShort();
+      String [] texts = new String [constantCount];
+      int [] classNameIndices = new int [constantCount];
+      for (int i = 1; i < constantCount; i++) {
+        int tag = in.readUnsignedByte();
+        switch (tag) {
+          case 1 : // Utf8
+            texts [i] = in.readUTF();
+            break;
+          case 3 : // Integer
+          case 4 : // Float
+            in.readInt();
+            break;
+          case 5 : // Long
+          case 6 : // Double
+            in.readLong();
+            // Takes two entries
+            i++;
+            break;
+          case 7 : // Class
+            classNameIndices [i] = in.readUnsignedShort();
+            break;
+          case 8 : // String
+          case 19 : // Module
+          case 20 : // Package
+            in.readUnsignedShort();
+            break;
+          case 9 : // Fieldref
+          case 10 : // Methodref
+          case 11 : // InterfaceMethodref
+          case 17 : // Dynamic
+          case 18 : // InvokeDynamic
+            in.readUnsignedShort();
+            in.readUnsignedShort();
+            break;
+          case 12 : // NameAndType
+            in.readUnsignedShort();
+            in.readUnsignedShort();
+            break;
+          case 15 : // MethodHandle
+            in.readUnsignedByte();
+            in.readUnsignedShort();
+            break;
+          case 16 : // MethodType
+            in.readUnsignedShort();
+            break;
+          default :
+            throw new IOException("Unknown constant " + tag + " in " + classFile);
+        }
+      }
+      in.readUnsignedShort(); // Access flags
+      String className = texts [classNameIndices [in.readUnsignedShort()]];
+      in.readUnsignedShort(); // Super class, cited among the constants
+      int interfaceCount = in.readUnsignedShort();
+      for (int i = 0; i < interfaceCount; i++) {
+        in.readUnsignedShort();
+      }
+      // Fields then methods
+      for (int members = 0; members < 2; members++) {
+        int memberCount = in.readUnsignedShort();
+        for (int i = 0; i < memberCount; i++) {
+          in.readUnsignedShort(); // Access flags
+          in.readUnsignedShort(); // Name
+          addDescriptorClassNames(texts [in.readUnsignedShort()], classNames);
+          int attributeCount = in.readUnsignedShort();
+          for (int j = 0; j < attributeCount; j++) {
+            in.readUnsignedShort(); // Name
+            int length = in.readInt();
+            while (length > 0) {
+              int skipped = in.skipBytes(length);
+              if (skipped <= 0) {
+                throw new IOException(classFile + " is truncated");
+              }
+              length -= skipped;
+            }
+          }
+        }
+      }
+      for (int i = 1; i < constantCount; i++) {
+        if (classNameIndices [i] != 0) {
+          String name = texts [classNameIndices [i]];
+          if (name.startsWith("[")) {
+            // The class of an array is named by the descriptor of its type
+            addDescriptorClassNames(name, classNames);
+          } else {
+            classNames.add(name);
+          }
+        }
+      }
+      return className;
+    } finally {
+      in.close();
+    }
+  }
+
+  /**
+   * Adds to <code>classNames</code> the classes named between <code>L</code> and <code>;</code>
+   * in the descriptor of a field or of a method.
+   */
+  private void addDescriptorClassNames(String descriptor, List<String> classNames) {
+    for (int i = 0; i < descriptor.length(); i++) {
+      if (descriptor.charAt(i) == 'L') {
+        int end = descriptor.indexOf(';', i);
+        classNames.add(descriptor.substring(i + 1, end));
+        i = end;
+      }
+    }
+  }
+
+  /**
+   * The packages expected and the ones each of them may use.
+   */
+  private static class DependencyConstraint {
+    private final Map<String, Set<String>> dependencies = new TreeMap<String, Set<String>>();
+
+    public JavaPackage addPackage(String name) {
+      Set<String> packageDependencies = new TreeSet<String>();
+      this.dependencies.put(name, packageDependencies);
+      return new JavaPackage(name, packageDependencies);
+    }
+
+    public Map<String, Set<String>> getDependencies() {
+      return this.dependencies;
+    }
+  }
+
+  private static class JavaPackage {
+    private final String      name;
+    private final Set<String> dependencies;
+
+    public JavaPackage(String name, Set<String> dependencies) {
+      this.name = name;
+      this.dependencies = dependencies;
+    }
+
+    public void dependsUpon(JavaPackage usedPackage) {
+      this.dependencies.add(usedPackage.name);
+    }
   }
 }

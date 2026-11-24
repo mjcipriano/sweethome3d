@@ -40,16 +40,11 @@ import javax.swing.JProgressBar;
 import javax.swing.JSlider;
 import javax.swing.JSpinner;
 
-import junit.extensions.abbot.ComponentTestFixture;
-import abbot.finder.AWTHierarchy;
-import abbot.finder.BasicFinder;
-import abbot.finder.ComponentNotFoundException;
-import abbot.finder.ComponentSearchException;
-import abbot.finder.MultipleComponentsFoundException;
-import abbot.finder.matchers.ClassMatcher;
-import abbot.tester.JComponentTester;
-import abbot.tester.JFileChooserTester;
-import abbot.tester.JSliderTester;
+import com.eteks.sweethome3d.testing.SwingTestCase;
+import com.eteks.sweethome3d.testing.ComponentFinder;
+import com.eteks.sweethome3d.testing.ComponentLookupException;
+import com.eteks.sweethome3d.testing.ClassComponentMatcher;
+import com.eteks.sweethome3d.testing.SwingRobot;
 
 import com.eteks.sweethome3d.io.DefaultUserPreferences;
 import com.eteks.sweethome3d.io.HomeFileRecorder;
@@ -76,7 +71,7 @@ import com.eteks.sweethome3d.viewcontroller.View;
  * Tests photo creation dialog.
  * @author Emmanuel Puybaret
  */
-public class PhotoCreationTest extends ComponentTestFixture {
+public class PhotoCreationTest extends SwingTestCase {
   private UserPreferences preferences;
   private HomeController homeController;
 
@@ -156,7 +151,7 @@ public class PhotoCreationTest extends ComponentTestFixture {
     assertEquals("Incorrect elevation", 0.389530f, compass.getSunElevation(calendar.getTimeInMillis()), 1E-4f);
   }
   
-  public void testPhotoCreation() throws InterruptedException, ComponentSearchException, NoSuchFieldException, IllegalAccessException, InvocationTargetException, IOException {
+  public void testPhotoCreation() throws InterruptedException, ComponentLookupException, NoSuchFieldException, IllegalAccessException, InvocationTargetException, IOException {
     final JComponent view = (JComponent)this.homeController.getView();
     
     // Create a frame that displays a home view 
@@ -165,7 +160,7 @@ public class PhotoCreationTest extends ComponentTestFixture {
     frame.pack();
 
     showWindow(frame);
-    JComponentTester tester = new JComponentTester();
+    SwingRobot tester = new SwingRobot();
     tester.waitForIdle();
 
     JDialog photoCreationDialog = showPhotoCreationPanel(this.preferences, this.homeController, frame, tester);
@@ -187,7 +182,7 @@ public class PhotoCreationTest extends ComponentTestFixture {
         }
       });
     assertEquals("Height spinner has wrong value", 200, ((Number)heightSpinner.getValue()).intValue());
-    JSliderTester sliderTester = new JSliderTester();
+    SwingRobot sliderTester = new SwingRobot();
     createButton.addActionListener(new ActionListener() {
         public void actionPerformed(ActionEvent ev) {
           assertFalse("Rendering didn't start", saveButton.isEnabled());
@@ -210,7 +205,7 @@ public class PhotoCreationTest extends ComponentTestFixture {
     tester.close(frame);
   }
 
-  public void testVideoCreation() throws InterruptedException, ComponentSearchException, NoSuchFieldException, IllegalAccessException, IOException {
+  public void testVideoCreation() throws InterruptedException, ComponentLookupException, NoSuchFieldException, IllegalAccessException, IOException {
     final JComponent view = (JComponent)this.homeController.getView();
     
     // Create a frame that displays a home view 
@@ -219,7 +214,7 @@ public class PhotoCreationTest extends ComponentTestFixture {
     frame.pack();
 
     showWindow(frame);
-    JComponentTester tester = new JComponentTester();
+    SwingRobot tester = new SwingRobot();
     tester.waitForIdle();
 
     JDialog videoCreationDialog = showVideoCreationPanel(this.preferences, this.homeController, frame, tester);
@@ -230,7 +225,7 @@ public class PhotoCreationTest extends ComponentTestFixture {
     JButton createButton = (JButton)TestUtilities.getField(panel, "createButton");
     JButton saveButton = (JButton)TestUtilities.getField(panel, "saveButton");
     JButton closeButton = (JButton)TestUtilities.getField(panel, "closeButton");
-    JSliderTester sliderTester = new JSliderTester();
+    SwingRobot sliderTester = new SwingRobot();
     for (int i = qualitySlider.getMinimum(); i < qualitySlider.getMaximum(); i += 2) {
       sliderTester.actionSlide(qualitySlider, i);
       // Test image creation at quality 1 and 3 
@@ -255,7 +250,7 @@ public class PhotoCreationTest extends ComponentTestFixture {
    */
   private JDialog showPhotoCreationPanel(UserPreferences preferences,
                                         final HomeController controller, 
-                                        JFrame parent, JComponentTester tester) throws ComponentSearchException {
+                                        JFrame parent, SwingRobot tester) throws ComponentLookupException {
     tester.invokeLater(new Runnable() { 
         public void run() {
           // Display dialog box later in Event Dispatch Thread to avoid blocking test thread
@@ -263,10 +258,10 @@ public class PhotoCreationTest extends ComponentTestFixture {
         }
       });
     // Wait for 3D view to be shown
-    tester.waitForFrameShowing(new AWTHierarchy(), preferences.getLocalizedString(
+    tester.waitForWindowShowing(preferences.getLocalizedString(
         PhotoPanel.class, "createPhoto.title"));
     // Check dialog box is displayed
-    JDialog photoCreationDialog = (JDialog)new BasicFinder().find(parent, new ClassMatcher (JDialog.class, true));
+    JDialog photoCreationDialog = (JDialog)new ComponentFinder().find(parent, new ClassComponentMatcher (JDialog.class, true));
     assertTrue("Photo creation dialog not showing", photoCreationDialog.isShowing());
     return photoCreationDialog;
   }
@@ -276,7 +271,7 @@ public class PhotoCreationTest extends ComponentTestFixture {
    */
   private JDialog showVideoCreationPanel(UserPreferences preferences,
                                         final HomeController controller, 
-                                        JFrame parent, JComponentTester tester) throws ComponentSearchException {
+                                        JFrame parent, SwingRobot tester) throws ComponentLookupException {
     tester.invokeLater(new Runnable() { 
         public void run() {
           // Display dialog box later in Event Dispatch Thread to avoid blocking test thread
@@ -284,10 +279,10 @@ public class PhotoCreationTest extends ComponentTestFixture {
         }
       });
     // Wait for 3D view to be shown
-    tester.waitForFrameShowing(new AWTHierarchy(), preferences.getLocalizedString(
+    tester.waitForWindowShowing(preferences.getLocalizedString(
         VideoPanel.class, "createVideo.title"));
     // Check dialog box is displayed
-    JDialog photoCreationDialog = (JDialog)new BasicFinder().find(parent, new ClassMatcher (JDialog.class, true));
+    JDialog photoCreationDialog = (JDialog)new ComponentFinder().find(parent, new ClassComponentMatcher (JDialog.class, true));
     assertTrue("Video creation dialog not showing", photoCreationDialog.isShowing());
     return photoCreationDialog;
   }
@@ -299,7 +294,7 @@ public class PhotoCreationTest extends ComponentTestFixture {
                                   ContentManager.ContentType contentType,
                                   final String fileDialogTitle, 
                                   JDialog parent, 
-                                  JComponentTester tester) throws ComponentNotFoundException, MultipleComponentsFoundException, InterruptedException, IOException {
+                                  SwingRobot tester) throws ComponentLookupException, InterruptedException, IOException {
     File tmpDirectory = File.createTempFile("media", "dir");
     tmpDirectory.delete();    
     assertTrue("Couldn't create tmp directory", tmpDirectory.mkdir());
@@ -307,10 +302,10 @@ public class PhotoCreationTest extends ComponentTestFixture {
     // Show save dialog box
     tester.actionClick(saveButton);
     // Wait for file chooser to be shown
-    tester.waitForFrameShowing(new AWTHierarchy(), fileDialogTitle);
+    tester.waitForWindowShowing(fileDialogTitle);
     // Check dialog box is displayed
-    final Dialog saveDialog = (Dialog)new BasicFinder().find(parent, 
-        new ClassMatcher (Dialog.class, true) {
+    final Dialog saveDialog = (Dialog)new ComponentFinder().find(parent, 
+        new ClassComponentMatcher (Dialog.class, true) {
           @Override
           public boolean matches(Component c) {
             if (super.matches(c)) {
@@ -322,9 +317,9 @@ public class PhotoCreationTest extends ComponentTestFixture {
         });
     assertTrue("Save dialog not showing", saveDialog.isShowing());
     // Change file in print to PDF file chooser 
-    final JFileChooserTester fileChooserTester = new JFileChooserTester();
-    final JFileChooser fileChooser = (JFileChooser)new BasicFinder().find(saveDialog, 
-        new ClassMatcher(JFileChooser.class));
+    final SwingRobot fileChooserTester = new SwingRobot();
+    final JFileChooser fileChooser = (JFileChooser)new ComponentFinder().find(saveDialog, 
+        new ClassComponentMatcher(JFileChooser.class));
     fileChooserTester.actionSetDirectory(fileChooser, tmpDirectory.getAbsolutePath());
     fileChooserTester.actionSetFilename(fileChooser, mediaBaseName);
     // Select Ok option to hide dialog box
