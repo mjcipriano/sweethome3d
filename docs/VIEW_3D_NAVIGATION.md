@@ -55,6 +55,76 @@ camera away. **3D fit** (key `0`) shows the whole home with its garden. With
 what is selected. They use the aerial view; store one with **3D view > Store
 point of view...** to come back to it.
 
+## Moving in the 3D view
+
+Since 7.33 the 3D view moves the way most 3D programs do.
+
+### Aerial view
+
+| Action | Effect |
+|---|---|
+| Drag with the left button | Turn around the point the camera looks at (Shift: faster) |
+| Drag with the middle or the right button | Move the view sideways and up or down: what is shown follows the mouse. The point the camera turns around moves with it |
+| Mouse wheel | Zoom at the mouse: what is under the pointer stays under it, so pointing at a part of the home and turning the wheel goes to it |
+| Ctrl + drag with the middle or the right button | Zoom |
+| `W` / `S`, up / down arrows | Closer / farther |
+| `A` / `D`, Alt + left / right arrows | Move left / right |
+| `Q` / `E`, End / Home | Move down / up |
+| Left / right arrows, Page up / Page down | Turn around the home, look from lower or from higher |
+| Shift with these keys | Three times faster |
+
+A click of the right button without moving the mouse still shows the menu of the 3D view.
+
+What changed in the limits of the camera:
+
+- It comes as close as 25 cm to the point it turns around. Before, it stayed outside of a
+  sphere around the whole home, so a part of a large home could not be looked at from close.
+- It goes farther away (30 times the size of the home, 500 m at least).
+- Once the point it turns around was moved up, the camera goes under the horizon of this
+  point, down to 10 cm above the ground, to look at a ceiling or under a roof.
+
+### Virtual visit
+
+| Action | Effect |
+|---|---|
+| `W` / `S`, up / down arrows | Walk forward / backward |
+| `A` / `D`, Alt + left / right arrows | Step left / right |
+| `Q` / `E`, End / Home | Go down / up |
+| Left / right arrows | Turn |
+| Page up / Page down | Look up / down |
+| Shift with these keys | Three times faster |
+| Drag with the left button | Turn and look up or down |
+| Drag with the middle or the right button | Step sideways and go up or down |
+| Mouse wheel | Walk forward / backward |
+| `M` | Mouse look: the mouse turns the visitor without any button, its pointer hidden. `M`, Escape or a click ends it |
+
+The keys move the visitor at each frame, at a speed that starts and stops smoothly (2.6 m per
+second forward, 110 degrees per second to turn), instead of one step each time the system
+repeats the key. `A` and `D` step sideways as in games; they turned the visitor before 7.33,
+and `Q` and `E` stepped sideways.
+
+Mouse look brings the pointer back to the middle of the view to turn without end. Where the
+system doesn't let a program move the pointer (some Wayland sessions), the visitor turns as
+far as the pointer can go.
+
+### Why the virtual visit was slow
+
+Each step of the visitor changed its place in the plan, and the plan was laid out and drawn
+again entirely for each change of x, of y and of angle, with its rulers; the visitor was
+also selected again at each step, which told every view that the selection changed. On Linux
+each thing drawn in the plan waits for the 3D view to finish its frame, so the keys felt slow
+even with an empty plan. Now:
+
+- the plan is drawn once in a picture kept while only the visitor moves, and the visitor is
+  drawn over it, a dozen times per second at most, in memory then on the screen at once;
+- the visitor isn't selected again when it is selected already;
+- the 3D view shows the camera where it is at each frame while keys or the mouse move it,
+  without the 150 ms animation between two steps.
+
+Measured by holding `W` for 3 seconds in a home of 60 trees under WSLg, the wait of an event
+in the queue of the user interface went from 6.5 ms on average (and 41 ms with moves at each
+frame before these changes) to 0.7 ms, against 0.1 ms in the aerial view.
+
 ## Moving sideways
 
 Turning goes around the center of the home. To look at something off
@@ -62,7 +132,7 @@ center, move the camera sideways (what games call strafing):
 
 | Control | Action |
 | --- | --- |
-| `Q` / `E` in the 3D view | Move left / right (Shift: faster) |
+| `A` / `D` in the 3D view | Move left / right (Shift: faster). `Q` / `E` did it before 7.33 |
 | Alt + left / right arrow | Same |
 | Alt + drag the mouse left or right | The home follows the mouse (Shift: faster); dragging up or down moves forward and back as before |
 | Home / End | Move up / down |

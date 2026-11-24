@@ -315,6 +315,17 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
 
   private Rectangle2D                       planBoundsCache;
   private boolean                           planBoundsCacheValid = false;
+  private Rectangle                         observerCameraPaintedBounds;
+  // The plan drawn without the observer camera, kept while only this camera moves:
+  // the plan of a large home is long to draw, and the visitor moves at each frame
+  private BufferedImage                     planWithoutCameraImage;
+  private BufferedImage                     planWithCameraImage;
+  private Rectangle                         planWithoutCameraBounds;
+  private boolean                           planWithoutCameraValid;
+  private boolean                           observerCameraRepainted;
+  private boolean                           observerCameraHidden;
+  private Rectangle                         observerCameraDirtyBounds;
+  private javax.swing.Timer                 observerCameraRepaintTimer;
   private Rectangle2D                       invalidPlanBounds;
   private BufferedImage                     backgroundImageCache;
   private Map<TextureImage, BufferedImage>  patternImagesCache;
@@ -1083,8 +1094,10 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
           String propertyName = ev.getPropertyName();
           if (Camera.Property.X.name().equals(propertyName)
               || Camera.Property.Y.name().equals(propertyName)
-              || Camera.Property.FIELD_OF_VIEW.name().equals(propertyName)
-              || Camera.Property.YAW.name().equals(propertyName)
+              || Camera.Property.YAW.name().equals(propertyName)) {
+            // The visitor walks or turns: only the part of the plan it leaves and the one it comes to are drawn again
+            repaintObserverCamera();
+          } else if (Camera.Property.FIELD_OF_VIEW.name().equals(propertyName)
               || ObserverCamera.Property.WIDTH.name().equals(propertyName)
               || ObserverCamera.Property.DEPTH.name().equals(propertyName)
               || ObserverCamera.Property.HEIGHT.name().equals(propertyName)) {
@@ -1213,6 +1226,87 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
   /**
    * Revalidates and repaints this component and its rulers.
    */
+  /**
+   * Repaints the part of the plan where the observer camera was and the one where it is now,
+   * or the whole plan if the camera goes out of what the plan shows.
+   */
+  private void repaintObserverCamera() {
+    ObserverCamera camera = this.home.getObserverCamera();
+    if (camera != this.home.getCamera()) {
+      // Not drawn in the plan
+      this.observerCameraPaintedBounds = null;
+      return;
+    }
+    float [][] points = camera.getPoints();
+    boolean inPlan = this.planBoundsCacheValid && this.planBoundsCache != null && isValid() && isShowing();
+    Rectangle2D cameraBounds = null;
+    for (int i = 0; inPlan && i < points.length; i++) {
+      inPlan = this.planBoundsCache.contains(points [i][0], points [i][1]);
+      if (cameraBounds == null) {
+        cameraBounds = new Rectangle2D.Float(points [i][0], points [i][1], 0, 0);
+      } else {
+        cameraBounds.add(points [i][0], points [i][1]);
+      }
+    }
+    if (!inPlan || cameraBounds == null) {
+      this.observerCameraPaintedBounds = null;
+      revalidate();
+    } else {
+      Rectangle bounds = getShapePixelBounds(cameraBounds);
+      // With its outline when it's selected and the handles that turn and move it
+      bounds.grow(70, 70);
+      Rectangle paintedBounds = this.observerCameraPaintedBounds;
+      this.observerCameraPaintedBounds = bounds;
+      if (paintedBounds == null) {
+        repaint();
+      } else {
+        // The rest of the plan didn't change. The visitor is drawn a dozen times per second at most
+        // while it moves: drawing the plan waits for the 3D view on some systems, and slows it down
+        this.observerCameraDirtyBounds = this.observerCameraDirtyBounds != null
+            ? this.observerCameraDirtyBounds.union(bounds.union(paintedBounds))
+            : bounds.union(paintedBounds);
+        if (this.observerCameraRepaintTimer == null) {
+          this.observerCameraRepaintTimer = new javax.swing.Timer(80, new java.awt.event.ActionListener() {
+              public void actionPerformed(ActionEvent ev) {
+                repaintObserverCameraDirtyBounds();
+              }
+            });
+          this.observerCameraRepaintTimer.setRepeats(false);
+        }
+        if (!this.observerCameraRepaintTimer.isRunning()) {
+          repaintObserverCameraDirtyBounds();
+          this.observerCameraRepaintTimer.start();
+        }
+      }
+    }
+  }
+
+  private void repaintObserverCameraDirtyBounds() {
+    Rectangle dirtyBounds = this.observerCameraDirtyBounds;
+    if (dirtyBounds != null) {
+      this.observerCameraDirtyBounds = null;
+      this.observerCameraRepainted = true;
+      try {
+        repaint(dirtyBounds);
+      } finally {
+        this.observerCameraRepainted = false;
+      }
+      this.observerCameraRepaintTimer.restart();
+    }
+  }
+
+  /**
+   * Repaints a part of this component, and forgets the picture of the plan kept while the
+   * observer camera moves if something else than this camera asked for it.
+   */
+  @Override
+  public void repaint(long time, int x, int y, int width, int height) {
+    if (!this.observerCameraRepainted) {
+      this.planWithoutCameraValid = false;
+    }
+    super.repaint(time, x, y, width, height);
+  }
+
   @Override
   public void revalidate() {
     // Revalidate and repaint
@@ -2197,6 +2291,97 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
    */
   @Override
   protected void paintComponent(Graphics g) {
+    Rectangle visibleBounds = getVisibleRect();
+    if (this.home.getCamera() == this.home.getObserverCamera()
+        && this.backgroundPainted
+        && this.observerCameraPaintedBounds != null
+        && visibleBounds.width > 0 && visibleBounds.height > 0
+        && (long)visibleBounds.width * visibleBounds.height < 40000000L) {
+      // During a virtual visit, the plan is drawn once in a picture and the visitor over it
+      Graphics2D g2D = (Graphics2D)g.create();
+      double deviceScale = Math.max(1, Math.min(4, g2D.getTransform().getScaleX()));
+      int imageWidth = (int)Math.ceil(visibleBounds.width * deviceScale);
+      int imageHeight = (int)Math.ceil(visibleBounds.height * deviceScale);
+      if (!this.planWithoutCameraValid
+          || this.planWithoutCameraImage == null
+          || !visibleBounds.equals(this.planWithoutCameraBounds)
+          || this.planWithoutCameraImage.getWidth() != imageWidth
+          || this.planWithoutCameraImage.getHeight() != imageHeight) {
+        if (this.planWithoutCameraImage == null
+            || this.planWithoutCameraImage.getWidth() != imageWidth
+            || this.planWithoutCameraImage.getHeight() != imageHeight) {
+          this.planWithoutCameraImage = new BufferedImage(imageWidth, imageHeight, BufferedImage.TYPE_INT_RGB);
+        }
+        Graphics2D imageG2D = this.planWithoutCameraImage.createGraphics();
+        imageG2D.scale(deviceScale, deviceScale);
+        imageG2D.translate(-visibleBounds.x, -visibleBounds.y);
+        imageG2D.setClip(visibleBounds);
+        imageG2D.setFont(g.getFont());
+        this.observerCameraHidden = true;
+        try {
+          paintPlan(imageG2D);
+        } finally {
+          this.observerCameraHidden = false;
+          imageG2D.dispose();
+        }
+        this.planWithoutCameraBounds = visibleBounds;
+        this.planWithoutCameraValid = true;
+      }
+      // The plan and the visitor are drawn in a picture in memory, sent to the screen at once:
+      // each thing drawn straight on the screen may wait for the 3D view
+      Rectangle paintedBounds = g.getClipBounds();
+      paintedBounds = paintedBounds != null ? paintedBounds.intersection(visibleBounds) : visibleBounds;
+      if (paintedBounds.isEmpty()) {
+        g2D.dispose();
+        return;
+      }
+      int paintedWidth = (int)Math.ceil(paintedBounds.width * deviceScale);
+      int paintedHeight = (int)Math.ceil(paintedBounds.height * deviceScale);
+      if (this.planWithCameraImage == null
+          || this.planWithCameraImage.getWidth() < paintedWidth
+          || this.planWithCameraImage.getHeight() < paintedHeight) {
+        this.planWithCameraImage = new BufferedImage(paintedWidth, paintedHeight, BufferedImage.TYPE_INT_RGB);
+      }
+      Graphics2D screenG2D = g2D;
+      g2D = this.planWithCameraImage.createGraphics();
+      g2D.scale(deviceScale, deviceScale);
+      g2D.translate(-paintedBounds.x, -paintedBounds.y);
+      g2D.setClip(paintedBounds);
+      g2D.setFont(g.getFont());
+      g2D.drawImage(this.planWithoutCameraImage, visibleBounds.x, visibleBounds.y, visibleBounds.width, visibleBounds.height, null);
+      // The visitor
+      Insets insets = getInsets();
+      g2D.clipRect(insets.left, insets.top,
+          getWidth() - insets.left - insets.right,
+          getHeight() - insets.top - insets.bottom);
+      Rectangle2D planBounds = getPlanBounds();
+      float scale = getScale() * this.resolutionScale;
+      g2D.translate(insets.left + (MARGIN - planBounds.getMinX()) * scale,
+          insets.top + (MARGIN - planBounds.getMinY()) * scale);
+      g2D.scale(scale, scale);
+      setRenderingHints(g2D);
+      float planScale = getScale();
+      Color selectionColor = getSelectionColor();
+      Paint selectionOutlinePaint = new Color(selectionColor.getRed(), selectionColor.getGreen(),
+          selectionColor.getBlue(), 128);
+      Stroke selectionOutlineStroke = new BasicStroke(6 / planScale,
+          BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+      paintCamera(g2D, this.home.getSelectedItems(), selectionOutlinePaint, selectionOutlineStroke, selectionColor,
+          planScale, getBackgroundColor(PaintMode.PAINT), getForegroundColor(PaintMode.PAINT));
+      g2D.dispose();
+      screenG2D.drawImage(this.planWithCameraImage,
+          paintedBounds.x, paintedBounds.y, paintedBounds.x + paintedBounds.width, paintedBounds.y + paintedBounds.height,
+          0, 0, paintedWidth, paintedHeight, null);
+      screenG2D.dispose();
+    } else {
+      paintPlan(g);
+    }
+  }
+
+  /**
+   * Paints the plan in this component.
+   */
+  private void paintPlan(Graphics g) {
     Graphics2D g2D = (Graphics2D)g.create();
     if (this.backgroundPainted) {
       paintBackground(g2D, getBackgroundColor(PaintMode.PAINT));
@@ -2934,8 +3119,10 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
           1 / planScale, BasicStroke.CAP_SQUARE, BasicStroke.JOIN_BEVEL, 0,
           new float [] {20 / planScale, 5 / planScale, 5 / planScale, 5 / planScale}, 4 / planScale);
 
-      paintCamera(g2D, selectedItems, selectionOutlinePaint, selectionOutlineStroke, selectionColor,
-          planScale, backgroundColor, foregroundColor);
+      if (!this.observerCameraHidden) {
+        paintCamera(g2D, selectedItems, selectionOutlinePaint, selectionOutlineStroke, selectionColor,
+            planScale, backgroundColor, foregroundColor);
+      }
 
       // Paint alignment feedback depending on aligned object class
       if (this.alignedObjectClass != null) {

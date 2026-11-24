@@ -333,6 +333,32 @@ public class HomeController3D implements Controller {
   }
 
   /**
+   * Zooms the 3D view at a point of it: in the aerial view, what is under this
+   * point stays under it while the distance to the home changes, as in most 3D
+   * programs; in the virtual visit, the visitor walks forward or backward.
+   * @param steps the count of zoom steps, positive to get closer, negative to move away
+   * @param x     the abscissa in pixels of the point from the center of the view, to its right
+   * @param y     the ordinate in pixels of the point from the center of the view, to its bottom
+   * @param viewHeight the height of the view in pixels
+   */
+  public void zoomCameraAt(float steps, float x, float y, float viewHeight) {
+    this.cameraState.zoomCameraAt(steps, x, y, viewHeight);
+  }
+
+  /**
+   * Moves the camera in the plane of the view, as if the mouse dragged what is shown:
+   * in the aerial view, the point the camera turns around moves with it, and what is
+   * at its distance follows the mouse exactly; in the virtual visit, the visitor
+   * steps sideways and goes up or down.
+   * @param dx the move of the mouse to the right in pixels
+   * @param dy the move of the mouse to the bottom in pixels
+   * @param viewHeight the height of the view in pixels
+   */
+  public void panCamera(float dx, float dy, float viewHeight) {
+    this.cameraState.panCamera(dx, dy, viewHeight);
+  }
+
+  /**
    * Shows the home in the aerial view from the given direction, at the
    * distance where it's entirely in sight.
    * @param yaw   the angle of the camera around the home in radians: 0 to look
@@ -531,6 +557,15 @@ public class HomeController3D implements Controller {
 
     public void zoomCamera(float steps) {
       moveCamera(steps * 25);
+    }
+
+    public void zoomCameraAt(float steps, float x, float y, float viewHeight) {
+      zoomCamera(steps);
+    }
+
+    public void panCamera(float dx, float dy, float viewHeight) {
+      moveCameraSideways(-dx * 0.5f);
+      elevateCamera(dy * 0.5f);
     }
 
     public void zoomCameraToFit() {
@@ -915,6 +950,8 @@ public class HomeController3D implements Controller {
     private final float MIN_WIDTH  = 100;
     private final float MIN_DEPTH  = MIN_WIDTH;
     private final float MIN_HEIGHT = 20;
+    private final float MIN_DISTANCE_TO_CENTER = 25;
+    private final float MIN_CAMERA_ELEVATION = 10;
 
     private Camera      topCamera;
     // Furniture farther than this from the walls isn't a part of the building
@@ -1428,7 +1465,7 @@ public class HomeController3D implements Controller {
           + homeBoundsHeight * homeBoundsHeight) / 2;
       this.minDistanceToAerialViewCenter = halfDiagonal * 1.05f;
       // Far enough to see the home with its surroundings
-      this.maxDistanceToAerialViewCenter = Math.max(12 * this.minDistanceToAerialViewCenter, 10000);
+      this.maxDistanceToAerialViewCenter = Math.max(30 * this.minDistanceToAerialViewCenter, 50000);
     }
 
     @Override
@@ -1451,6 +1488,51 @@ public class HomeController3D implements Controller {
         newDistanceToCenter = distanceToCenter - Math.signum(steps) * minimumChange;
       }
       placeCameraAt(newDistanceToCenter, false);
+    }
+
+    /**
+     * Returns the size in the scene of a pixel of the view, at the distance of the point the camera turns around.
+     */
+    private float getPixelSize(float viewHeight) {
+      double tanHalfWidth = Math.tan(Math.max(Math.toRadians(10),
+          Math.min(this.topCamera.getFieldOfView() / 2, Math.PI / 2 - 0.05)));
+      double tanHalfHeight = tanHalfWidth / viewAspectRatio;
+      return (float)(2 * getCameraToAerialViewCenterDistance() * tanHalfHeight / Math.max(1, viewHeight));
+    }
+
+    /**
+     * Moves the camera and the point it turns around in the plane of the view.
+     * @param right  the distance to the right of the view
+     * @param up     the distance to its top
+     */
+    private void panInView(float right, float up) {
+      double yaw = this.topCamera.getYaw();
+      double pitch = this.topCamera.getPitch();
+      // The right and the top of the view, with z upward
+      pan((float)(-Math.cos(yaw) * right - Math.sin(yaw) * Math.sin(pitch) * up),
+          (float)(-Math.sin(yaw) * right + Math.cos(yaw) * Math.sin(pitch) * up),
+          (float)(Math.cos(pitch) * up));
+    }
+
+    @Override
+    public void panCamera(float dx, float dy, float viewHeight) {
+      super.moveCamera(0);
+      float pixelSize = getPixelSize(viewHeight);
+      // What is shown follows the mouse: the camera goes the other way
+      panInView(-dx * pixelSize, dy * pixelSize);
+    }
+
+    @Override
+    public void zoomCameraAt(float steps, float x, float y, float viewHeight) {
+      float pixelSize = getPixelSize(viewHeight);
+      float distanceToCenter = getCameraToAerialViewCenterDistance();
+      zoomCamera(steps);
+      float newDistanceToCenter = getCameraToAerialViewCenterDistance();
+      if (distanceToCenter > 0 && newDistanceToCenter != distanceToCenter) {
+        // The point under the mouse stays under it
+        float share = 1 - newDistanceToCenter / distanceToCenter;
+        panInView(x * pixelSize * share, -y * pixelSize * share);
+      }
     }
 
     @Override
@@ -1495,8 +1577,9 @@ public class HomeController3D implements Controller {
     }
 
     public void placeCameraAt(float distanceToCenter, boolean firstPieceOfFurnitureAddedToEmptyHome) {
-      // Check camera is always outside the sphere centered in home center and with a radius equal to minimum distance
-      distanceToCenter = Math.max(distanceToCenter, this.minDistanceToAerialViewCenter);
+      // The camera may come close to the point it turns around, in the home too:
+      // the user looks at a part of it after moving this point there
+      distanceToCenter = Math.max(distanceToCenter, MIN_DISTANCE_TO_CENTER);
       // Check camera isn't too far
       distanceToCenter = Math.min(distanceToCenter, this.maxDistanceToAerialViewCenter);
       if (firstPieceOfFurnitureAddedToEmptyHome) {
@@ -1529,11 +1612,14 @@ public class HomeController3D implements Controller {
     public void rotateCameraPitch(float delta) {
       super.rotateCameraPitch(delta);
       float newPitch = this.topCamera.getPitch() + delta;
-      // Check new pitch is between 0 and PI / 2
-      newPitch = Math.max(newPitch, (float)0);
-      newPitch = Math.min(newPitch, (float)Math.PI / 2);
       // Compute new z to keep the same distance to view center
       double distanceToCenter = getCameraToAerialViewCenterDistance();
+      // The camera goes from the top of the point it turns around down to the ground: under the
+      // horizon of this point when it was moved up, to look at a ceiling or under a roof
+      float centerElevation = (this.aerialViewBoundsLowerPoint [2] + this.aerialViewBoundsUpperPoint [2]) / 2;
+      float minPitch = (float)Math.asin(Math.max(-0.996, Math.min(0, (MIN_CAMERA_ELEVATION - centerElevation) / Math.max(1, distanceToCenter))));
+      newPitch = Math.max(newPitch, Math.min(minPitch, this.topCamera.getPitch()));
+      newPitch = Math.min(newPitch, (float)Math.PI / 2);
       double distanceToCenterAtGroundLevel = distanceToCenter * Math.cos(newPitch);
       // Change camera pitch
       this.topCamera.setPitch(newPitch);
@@ -1660,10 +1746,11 @@ public class HomeController3D implements Controller {
     private void selectCamera() {
       if (preferences.isObserverCameraSelectedAtChange()) {
         List<Selectable> selectedItems = home.getSelectedItems();
-        if (!preferences.isEditingIn3DViewEnabled()
-            || selectedItems.isEmpty()
-            || selectedItems.size() == 1
-                && selectedItems.get(0) == this.observerCamera) {
+        if (selectedItems.size() == 1
+            && selectedItems.get(0) == this.observerCamera) {
+          // Selected already: nothing to tell at each step of the visitor
+        } else if (!preferences.isEditingIn3DViewEnabled()
+            || selectedItems.isEmpty()) {
           // Select observer camera for user feedback
           home.setSelectedItems(Arrays.asList(new Selectable [] {this.observerCamera}));
         }

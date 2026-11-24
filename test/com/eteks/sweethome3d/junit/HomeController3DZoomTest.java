@@ -85,12 +85,12 @@ public class HomeController3DZoomTest {
     assertEquals(fitDistance / Math.pow(0.88, 10), farDistance, fitDistance * 0.05);
     assertTrue(farDistance > 3 * fitDistance);
 
-    // And back, to the closest point allowed, without ever crossing the home
+    // And back, then as close as 25 cm to the point the camera turns around, to look at a part of the home
     this.controller.zoomCamera(10);
     assertEquals(fitDistance, getDistanceToHomeCenter(), fitDistance * 0.05);
     this.controller.zoomCamera(200);
     double closestDistance = getDistanceToHomeCenter();
-    assertTrue("closest distance " + closestDistance, closestDistance > 600 && closestDistance < fitDistance);
+    assertTrue("closest distance " + closestDistance, closestDistance > 24.9 && closestDistance < 50);
     // Far away, the distance is limited
     this.controller.zoomCamera(-200);
     assertTrue(getDistanceToHomeCenter() >= 10000);
