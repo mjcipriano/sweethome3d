@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.32.0](https://github.com/mjcipriano/sweethome3d/compare/v7.31.0...v7.32.0) (2026-11-24)
+
+
+### Features
+
+* tree impostors, generated models kept on disk, plants drawn from the top in the plan ([2e58258](https://github.com/mjcipriano/sweethome3d/commit/2e5825827238845fbb9d484448b44649d163bcac))
+* tree impostors, generated models kept on disk, plants drawn from the top in the plan ([c554fd0](https://github.com/mjcipriano/sweethome3d/commit/c554fd0867ea43e012a0ddd8bb73746208a565ec))
+
 ## [7.31.0](https://github.com/mjcipriano/sweethome3d/compare/v7.30.1...v7.31.0) (2026-11-24)
 
 
