@@ -1,5 +1,22 @@
 # Changelog
 
+## [7.30.0](https://github.com/mjcipriano/sweethome3d/compare/v7.29.0...v7.30.0) (2026-11-24)
+
+
+### Features
+
+* fence style library with gates, placement helpers, checks and quantities, and built-in help ([31b92e9](https://github.com/mjcipriano/sweethome3d/commit/31b92e9e01e6c6c1ae5761810f9e7b9c25a6b8a0))
+* geotagged photos placed in the plan, viewpoints from photos, and places found from two photos ([90352f6](https://github.com/mjcipriano/sweethome3d/commit/90352f6dfe51c8bec8d96cadc457084969235382))
+* GeoTIFF and LAS files for the ground, trees found in a point cloud, terrain patches and slope alignment ([bbc415f](https://github.com/mjcipriano/sweethome3d/commit/bbc415fb011de83f465de5c4219663beb32c7c8b))
+* GIS file imports, OpenStreetMap, and web sources for elevation, parcels and aerial pictures ([be99e58](https://github.com/mjcipriano/sweethome3d/commit/be99e581b6fe6fb29cf3760ff36a304104665644))
+* ground from a raster or a file, up to 100000 points, grading commands and terrain measures ([68145da](https://github.com/mjcipriano/sweethome3d/commit/68145da2afdab8d9bf85e68ab575497ddf1223c6))
+* modify_furniture, results by command, find_duplicates, find_floating and more criteria for where ([2c3dbb4](https://github.com/mjcipriano/sweethome3d/commit/2c3dbb4329e79c057f0e39030ec67c9b91143a40))
+* outdoor structures, site items, retaining walls that cut the ground, and neighbor buildings ([2a2aec4](https://github.com/mjcipriano/sweethome3d/commit/2a2aec45b158376a70434ff2e228eeaa56496afb))
+* pictures without trees or tagged items, site report, GeoJSON export of the site and geo_to_plan ([dc1b54f](https://github.com/mjcipriano/sweethome3d/commit/dc1b54f5b47f363b2d2ab1bced98a3c570f7aacd))
+* plan pictures with layers, glTF export, sun date for 3D pictures, site diff of versions and optimize_models ([d5ca228](https://github.com/mjcipriano/sweethome3d/commit/d5ca2284d03fde83e096adea0e8ad48286ea54a1))
+* site and landscape commands from the connector spec ([bfe24ab](https://github.com/mjcipriano/sweethome3d/commit/bfe24ab0da3a6bbae37e9e46b172c11dcab29f32))
+* trees and shrubs built from a species, with seasons, growth, lists and forests ([8b3031b](https://github.com/mjcipriano/sweethome3d/commit/8b3031b6f1233b2ce2dd34f7e258c8a168e1ccdc))
+
 ## [7.29.0](https://github.com/mjcipriano/sweethome3d/compare/v7.28.2...v7.29.0) (2026-11-23)
 
 
