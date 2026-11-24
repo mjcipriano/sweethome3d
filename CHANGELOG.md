@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.33.0](https://github.com/mjcipriano/sweethome3d/compare/v7.32.1...v7.33.0) (2026-11-24)
+
+
+### Features
+
+* 3D view moved as in other 3D programs, and a smooth virtual visit with mouse look ([88c8062](https://github.com/mjcipriano/sweethome3d/commit/88c80628159312d15c820bf47422081c2b4644ca))
+* 3D view moved as in other 3D programs, and a smooth virtual visit with mouse look ([299aa68](https://github.com/mjcipriano/sweethome3d/commit/299aa6808e60f1d0dd56429c9a911b0db1428c33))
+
 ## [7.32.1](https://github.com/mjcipriano/sweethome3d/compare/v7.32.0...v7.32.1) (2026-11-24)
 
 
