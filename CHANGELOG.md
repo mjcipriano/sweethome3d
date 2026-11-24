@@ -1,5 +1,18 @@
 # Changelog
 
+## [7.31.0](https://github.com/mjcipriano/sweethome3d/compare/v7.30.1...v7.31.0) (2026-11-24)
+
+
+### Features
+
+* natural generated trees with branches, leaf cards, bark and catalog models ([718d8d3](https://github.com/mjcipriano/sweethome3d/commit/718d8d3603adad66f26b8b763198599e7daa7115)), closes [#181](https://github.com/mjcipriano/sweethome3d/issues/181)
+* natural generated trees, and fixes for replaced furniture and gate checks ([2c58ea3](https://github.com/mjcipriano/sweethome3d/commit/2c58ea3cad62c508ab6679c96cfb5f2f347caff5))
+
+
+### Bug Fixes
+
+* replaced furniture stays outdoors, gates open in to what a fence encloses, catalog trees block by their trunk ([a775047](https://github.com/mjcipriano/sweethome3d/commit/a775047ffd0cde54b516fd18fcd6678646bb4fc8)), closes [#179](https://github.com/mjcipriano/sweethome3d/issues/179) [#180](https://github.com/mjcipriano/sweethome3d/issues/180)
+
 ## [7.30.1](https://github.com/mjcipriano/sweethome3d/compare/v7.30.0...v7.30.1) (2026-11-24)
 
 
