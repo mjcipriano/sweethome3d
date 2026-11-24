@@ -48,6 +48,9 @@ public final class AssistantHelp {
       {"Fences, walls and gates", "add_fence add_gate modify_fence extend_fence join_fences split_fence trim_fence offset_fence "
           + "convert_to_fence fence_report"},
       {"Garden", "add_hedge add_path add_planting_bed"},
+      {"Outdoor structures and site items", "add_deck add_patio add_pergola add_shed add_playset add_pool add_driveway "
+          + "add_retaining_wall add_steps_on_slope add_drainage add_utility add_raised_bed add_callout"},
+      {"Neighbors and context", "add_context_building add_context_vehicle"},
       {"Trees and plants", "add_tree add_shrub add_trees import_trees update_trees relabel_trees grow_trees set_season forest_fill"},
       {"Labels, dimensions and plan", "add_label add_dimension auto_dimensions set_background_image"},
       {"Lights, sun, doors and camera", "set_light set_sun set_environment open_door set_camera store_point_of_view"},

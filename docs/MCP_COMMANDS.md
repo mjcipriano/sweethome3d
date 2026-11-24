@@ -29,6 +29,8 @@ The text Claude receives is produced by
 - [Garden](#garden)
 - [Fences, walls and gates](#fences-walls-and-gates)
 - [Trees and plants](#trees-and-plants)
+- [Outdoor structures and site items](#outdoor-structures-and-site-items)
+- [Neighbors and context](#neighbors-and-context)
 - [Furnishing a room by itself](#furnishing-a-room-by-itself)
 - [Lights, sun, doors and materials](#lights-sun-doors-and-materials)
 - [Camera](#camera)
@@ -1168,6 +1170,97 @@ United States. `list_species` gives them all.
 - The sun study uses the leaves the plants show: run `set_season` for the date studied.
 - No tree is read from LiDAR points, and no species is guessed from them.
 - The detail doesn't change with the distance of the camera: `set_season` with `lod` sets it for all.
+
+## Outdoor structures and site items
+
+What stands around a house, each built as one piece on the ground at its place. The pieces placed
+by `x`, `y` and `angle` can be moved and turned afterwards; the ones drawn over `points` stay where
+they are. All have the tag `site`, and a key that a command doesn't read is reported in a warning.
+
+| Command | What it builds |
+| --- | --- |
+| `add_deck` | A deck over a polygon or a rectangle, on posts, with skirting, a railing, stairs and benches |
+| `add_patio`, `add_pavers` | A paved surface with a pattern and a border |
+| `add_pergola`, `add_arbor`, `add_carport` | Posts, beams and rafters; an arbor has lattice sides, a carport a roof |
+| `add_gazebo` | A floor, posts, a railing and a pointed roof, with 6 or 8 sides |
+| `add_shed`, `add_greenhouse` | Walls, a gable, lean-to or gambrel roof and doors; in glass for a greenhouse |
+| `add_playset`, `add_trampoline` | A fort with a slide and swings; a trampoline with its net |
+| `add_pool`, `add_pond` | Water with a coping and paving around it, in the ground or above it; a pond with an edge of stones |
+| `add_firepit`, `add_outdoor_kitchen` | A ring of stone with a seat wall; a counter with a grill |
+| `add_driveway`, `add_sidewalk`, `add_curb` | A strip laid on the ground along a center line, or a polygon |
+| `add_retaining_wall` | A step cut in the ground along a line, and the wall that holds it |
+| `add_steps_on_slope` | Steps from a point to another one, as many as the ground asks for |
+| `add_drainage` | A downspout extension, a French drain, a catch basin, a dry creek bed or a culvert |
+| `add_utility` | An AC condenser, a generator, a meter, a propane tank, septic and well markers, a utility pole, a transformer box, a mailbox, a street light, a street sign or a fire hydrant |
+| `add_raised_bed`, `add_garden_enclosure` | A frame filled with soil; rows of them inside a fence with a gate |
+| `add_callout` | A label in the plan with a line to what it names |
+
+```json
+{"commands":[
+  {"action":"add_deck","points":[[0,-400],[500,-400],[500,0],[0,0]],"height":80,
+   "skirting":"lattice","railing":{"style":"cable_rail","height":100},"stairs":{"edge":2,"width":140}},
+  {"action":"add_patio","x":900,"y":-200,"width":500,"depth":400,"pattern":"herringbone","border":{"width":25}},
+  {"action":"add_shed","x":-900,"y":-600,"angle":90,"width":300,"depth":240,"roof":"gambrel","doors":2},
+  {"action":"add_pool","x":1800,"y":-900,"width":800,"depth":400,"deck_width":150},
+  {"action":"add_driveway","points":[[2600,0],[2600,1400]],"width":350,"material":"concrete","apron":120,"grade":true},
+  {"action":"add_garden_enclosure","x":-900,"y":900,"beds":{"rows":2,"columns":3},
+   "fence":{"style":"garden_wire_tpost","height":150}},
+  {"action":"add_utility","type":"ac_condenser","x":620,"y":40}
+]}
+```
+
+![A deck, a patio under a pergola, an arbor, a gazebo, sheds, a greenhouse, a playset, a trampoline and a pool](images/outdoor-structures.jpg)
+
+Details:
+
+- **`add_deck`**: `height` is the height of its boards above the highest ground under it.
+  `decking` is `wood` or `composite`, `skirting` is `lattice`, `horizontal_slat`, `solid` or
+  `none`. `railing` is a style of fence or `{"style","height",...}`: it is built as a fence around
+  the deck, open at the stairs, and has its own id. `stairs` is `{"edge","width","at"}`, the edge 1
+  going from the first point to the second one and `at` from 0 to 1 along it. `benches` lists edges.
+- **`add_patio`**: `pattern` is `running_bond`, `herringbone`, `basket`, `random_ashlar`,
+  `flagstone` or `concrete`. It is laid level on the highest ground under it; the answer tells when
+  the ground falls under it.
+- **`add_shed`**: its doors are on its front, the side of the positive y at the angle 0. `doors`
+  is 0, 1 or 2; `window`, `roof_color` and `trim_color` are optional.
+- **`add_pool`**: `points`, or `x`, `y` with `width` and `depth`, or `diameter` for a round one.
+  `type` is `in_ground` or `above_ground`. The ground isn't dug under it: `add_pad` lowers it.
+- **`add_driveway`**: `material` is `concrete`, `asphalt`, `gravel` or `pavers`. `apron` widens it
+  at its last point, where it meets the street. `"grade":true` shapes the ground under it first.
+  `polygon` builds any shape as a slab.
+- **`add_retaining_wall`**: the ground of the `low_side` (`left` or `right` of the line walked from
+  its first point) goes down by `height`, level over `terrace_width` (300), then comes back to what
+  it was. The wall is a fence of the style `retaining_wall`, with `stone` and `color`. Without a
+  terrain the wall is built alone.
+- **`add_steps_on_slope`**: the count of steps comes from the climb of the ground between the two
+  points, each one `rise` cm high at most (17). `material` is `stone`, `wood` or `concrete`.
+- **`add_utility`**: a mailbox has `"style":"post|brick|cluster"`. The wires of a utility pole and
+  the text of a street sign aren't drawn.
+
+## Neighbors and context
+
+| Command | What it builds |
+| --- | --- |
+| `add_context_building` | A neighbor's house as a simple mass with a roof |
+| `add_context_vehicle`, `add_context_person` | A car, an SUV, a pickup or a van, and a standing figure, for the scale |
+| `set_context_detail` | How much is drawn for the buildings added afterwards: `massing`, `textured` or `detailed` |
+
+```json
+{"action":"add_context_building","points":[[3000,-800],[4300,-800],[4300,200],[3000,200]],
+ "stories":2,"roof":"hip","siding":"brick","owner":"1232 Fernwood",
+ "garage_doors":[{"edge":3,"at":0.3,"width":480}]}
+```
+
+- Its walls are `stories` x 280 cm high, or `height`, from the lowest ground under it. `roof` is
+  `hip`, `gable`, `shed` or `flat` with a `pitch`; `siding` is `siding`, `brick` or `stucco` with a
+  `color`, and `roof_color` colors the roof. The roof is the one `add_roof` builds, as a second piece.
+- `massing` draws plain walls under a flat roof, `textured` (the default) siding or bricks under
+  a roof, `detailed` adds a window every 3 m on each floor.
+- Buildings, cars and figures have the tags `neighbor` or `context`:
+  `{"action":"hide_layer","tag":"neighbor"}` hides every neighbor at once, and `get_3d_image` with
+  `"exclude_tags":["neighbor"]` leaves them out of one picture. `owner` is kept with the building.
+
+![Two neighbor houses, cars and a figure for the scale](images/context-buildings.jpg)
 
 ## Furnishing a room by itself
 

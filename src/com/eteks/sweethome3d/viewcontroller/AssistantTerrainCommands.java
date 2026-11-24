@@ -1102,6 +1102,29 @@ class AssistantTerrainCommands {
         + "), with " + added + " points at the height of its closest edge - no height is fetched for the new part: " + result);
   }
 
+  /**
+   * Cuts the ground into a step along a line: the ground of one side goes down by <code>height</code>,
+   * level over <code>terrace</code> cm, then comes back to what it was.
+   * @param left <code>true</code> if the low side is the left one, walking along the line
+   */
+  void cutStep(float [][] line, boolean left, float height, float terrace, int [] tally, List<String> notes) throws IOException {
+    HomePieceOfFurniture terrain = getTerrain();
+    float blend = 150;
+    float sign = left ? 1 : -1;
+    float step = Math.max(50, Math.min(300, terrace / 2));
+    List<float []> points = keepPoints(getPoints(terrain.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY)), line, false,
+        terrace + blend + 1);
+    // Rows of points along the line: {distance to the low side, share of the height taken away}
+    for (float [] row : new float [][] {{-(terrace + blend), 0}, {-terrace / 2, 0}, {-5, 0}, {5, 1}, {terrace / 2, 1}, {terrace, 1},
+                                        {terrace + blend, 0}}) {
+      for (float [] point : densify(AssistantFenceCommands.offsetLine(line, false, row [0] * sign), false, step)) {
+        points.add(new float [] {point [0], point [1], getHeight(point [0], point [1]) - height * row [1]});
+      }
+    }
+    String result = regradeAround(terrain, points, line, terrace + blend, tally, notes);
+    notes.add("Cut a step of " + format(height) + " cm along the line: " + result);
+  }
+
   // ---- Measures ----
 
   private void cutFillReport(AssistantCommand command, List<String> notes) throws IOException {

@@ -211,6 +211,36 @@ final class AssistantPatterns {
     } else if (pattern.equals("bark")) {
       return shade(noise(x / 3, y / 12) > 0.6f ? color2 : color, 0.85f + 0.3f * noise(x, y / 6));
     }
+    if (pattern.equals("basket")) {
+      // Pairs of pavers, turned from a square to the next one
+      boolean across = ((x * 2 / SIZE) + (y * 2 / SIZE)) % 2 == 0;
+      boolean joint = wrap(x, SIZE / 2f) < 1.2f || wrap(y, SIZE / 2f) < 1.2f || wrap(across ? y : x, SIZE / 4f) < 1;
+      return joint ? shade(color2, 1) : shade(color, 0.86f + 0.22f * noise(x * 4 / SIZE + (across ? 7 : 0), y * 4 / SIZE));
+    } else if (pattern.equals("herringbone")) {
+      int fold = y % (SIZE / 2) < SIZE / 4 ? y % (SIZE / 4) : SIZE / 4 - 1 - y % (SIZE / 4);
+      boolean joint = (x + fold) % (SIZE / 4) < 2 || y % (SIZE / 4) < 1;
+      return joint ? shade(color2, 1) : shade(color, 0.86f + 0.22f * noise((x + fold) * 4 / SIZE, y * 4 / SIZE));
+    } else if (pattern.equals("gravel") || pattern.equals("asphalt") || pattern.equals("mulch")) {
+      float grain = pattern.equals("asphalt") ? 0.1f : 0.4f;
+      return shade(noise(x / 2, y / 2) > 0.8f ? color2 : color, 1 - grain / 2 + grain * noise(x, y));
+    } else if (pattern.equals("siding") || pattern.equals("windows")) {
+      float lap = (y % (SIZE / 4)) / (float)(SIZE / 4);
+      int siding = shade(color, 1.04f - 0.14f * lap);
+      if (pattern.equals("windows")) {
+        // A window in the middle of each tile
+        boolean frame = x >= SIZE * 0.3f && x < SIZE * 0.7f && y >= SIZE * 0.22f && y < SIZE * 0.7f;
+        boolean glass = x >= SIZE * 0.33f && x < SIZE * 0.67f && y >= SIZE * 0.25f && y < SIZE * 0.67f
+            && Math.abs(x - SIZE / 2) > 0 && Math.abs(y - SIZE * 0.46f) > 0.6f;
+        return glass ? shade(color2, 0.9f + 0.2f * (1 - y / (float)SIZE)) : frame ? 0xFFF2F2EE : siding;
+      }
+      return siding;
+    } else if (pattern.equals("shingles")) {
+      int row = y * 4 / SIZE;
+      boolean joint = y % (SIZE / 4) < 1 || (x + row * 9) % (SIZE / 4) < 1;
+      return joint ? shade(color2, 1) : shade(color, 0.85f + 0.22f * noise((x + row * 9) * 4 / SIZE, row));
+    } else if (pattern.equals("water")) {
+      return shade(color, 0.92f + 0.14f * (float)Math.sin((x + y * 0.5) * Math.PI * 4 / SIZE) * noise(x / 4, y / 4));
+    }
     // Stucco, concrete: a slight grain
     return shade(color, 0.94f + 0.12f * noise(x, y));
   }

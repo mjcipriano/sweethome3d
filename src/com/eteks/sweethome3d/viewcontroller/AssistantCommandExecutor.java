@@ -95,6 +95,7 @@ public class AssistantCommandExecutor {
   private final AssistantFenceCommands  fenceCommands;
   private final AssistantPlantCommands  plantCommands;
   private final AssistantTerrainCommands terrainCommands;
+  private final AssistantOutdoorCommands outdoorCommands;
   private boolean                       stopOnError;
   private String                        groupName;
   private final AssistantScheduleCommands scheduleCommands;
@@ -185,6 +186,7 @@ public class AssistantCommandExecutor {
     this.fenceCommands = new AssistantFenceCommands(home, homeController, this);
     this.plantCommands = new AssistantPlantCommands(home, homeController, this);
     this.terrainCommands = new AssistantTerrainCommands(home, homeController, this);
+    this.outdoorCommands = new AssistantOutdoorCommands(home, homeController, this);
     this.scheduleCommands = new AssistantScheduleCommands(home, preferences, homeController, this);
     this.sceneCommands = new AssistantSceneCommands(home, preferences, homeController, this);
     this.layerCommands = new AssistantLayerCommands(home, homeController, this);
@@ -370,6 +372,21 @@ public class AssistantCommandExecutor {
 
   AssistantSceneCommands getSceneCommands() {
     return this.sceneCommands;
+  }
+
+  AssistantTerrainCommands getTerrainCommands() {
+    return this.terrainCommands;
+  }
+
+  /**
+   * Runs a command for another one, its notes going to <code>notes</code>.
+   */
+  void applySubCommand(AssistantCommand command, int [] tally, List<String> notes) {
+    List<String> notFound = new ArrayList<String>();
+    applyCommand(command, tally, notFound, notes);
+    for (String name : notFound) {
+      notes.add("Couldn't find furniture named (" + name + ")");
+    }
   }
 
   AssistantSiteCommands getSiteCommands() {
@@ -898,6 +915,7 @@ public class AssistantCommandExecutor {
       delete(command, tally);
     } else if (!this.plantCommands.apply(action, command, tally, notes)
                && !this.terrainCommands.apply(action, command, tally, notes)
+               && !this.outdoorCommands.apply(action, command, tally, notes)
                && !this.structureCommands.apply(action, command, tally, notes)
                && !this.shapeCommands.apply(action, command, tally, notes)
                && !this.buildingCommands.apply(action, command, tally, notes)

@@ -735,7 +735,8 @@ public class HomeMCPHandler {
         + "a species (list_species) with seasons, add_trees with \"trees\", import_trees, update_trees and forest_fill plant many, "
         + "set_season, grow_trees and relabel_trees change them all; set_terrain also reads a raster or a file of heights, "
         + "add_pad, grade_path, add_berm, add_swale and flatten_area grade the ground, cut_fill_report, contours, spot_elevations "
-        + "and slope_map measure it; furnish_room places the furniture of a kind of room by rules, as a starting point; "
+        + "and slope_map measure it; add_deck, add_patio, add_pergola, add_shed, add_pool, add_driveway, add_retaining_wall, "
+        + "add_utility and the other outdoor commands build what stands around a house, add_context_building the houses of neighbors; furnish_room places the furniture of a kind of room by rules, as a starting point; "
         + "schedule, add_symbol, add_symbols and framing_estimate list doors, windows and rooms, add electrical and plumbing "
         + "symbols and estimate framing; set_unit_prices also takes a room or a wall.");
     return result;
