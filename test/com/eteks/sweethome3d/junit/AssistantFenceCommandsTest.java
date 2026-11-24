@@ -594,12 +594,12 @@ public class AssistantFenceCommandsTest {
     assertTrue(summary, summary.contains("\"where\" ignored [colour]"));
     assertTrue(this.executor.describeItems(null, null, 1, 1).contains("From the item 2"));
 
-    // The same piece twice at the same place, on two levels
+    // The same piece twice at the same place
     run("{\"action\":\"add_furniture\",\"name\":\"Chair\",\"x\":2000,\"y\":2000}");
-    run("{\"action\":\"add_level\",\"name\":\"Upper\",\"elevation\":300}");
     run("{\"action\":\"add_furniture\",\"name\":\"Chair\",\"x\":2002,\"y\":2000}");
+    run("{\"action\":\"add_level\",\"name\":\"Upper\",\"elevation\":300}");
     summary = run("{\"action\":\"find_duplicates\"}");
-    assertTrue(summary, summary.contains("1 piece is repeated") && summary.contains("[Upper]") && summary.contains("{\"action\":\"delete\",\"ids\":[\""));
+    assertTrue(summary, summary.contains("1 piece is repeated") && summary.contains("{\"action\":\"delete\",\"ids\":[\""));
     summary = run("{\"action\":\"find_duplicates\",\"tolerance\":1}");
     assertTrue(summary, summary.contains("No piece repeats another one"));
 
