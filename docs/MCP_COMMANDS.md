@@ -95,6 +95,11 @@ Every item has an id: `F12` for furniture, doors and windows, `W3` for walls,
 items are added or deleted, and it isn't given again after its item is
 deleted. `get_home` lists the ids.
 
+In a call with several commands, `"last"` stands for the last item created by the commands
+before it: `{"action":"add_fence",...},{"action":"add_gate","fence":"last",...}`. It is read
+in the fields that name items (`id`, `ids`, `fence`, `target`, `item`, `on`, `around`...), and
+`"$last"` in any field, also before a part as in `"$last:end"`.
+
 A command that changes items takes one of:
 
 | Field | Designates |
@@ -233,8 +238,8 @@ each one of these changes.
 
 | Command | What it does |
 | --- | --- |
-| `find_duplicates` | The pieces that repeat another one: same model and size, within `tolerance` cm (5) and at the same angle, on any level. The answer ends with the `delete` command that keeps one of each |
-| `find_floating` | The pieces outdoors whose bottom is more than `tolerance` cm (10) above or under the ground built by `set_terrain`. The answer ends with the `set_elevation` command that puts them on it |
+| `find_duplicates` | The pieces that repeat another one: same model and size, within `tolerance` cm (5) in the plan and in height above the ground, and at the same angle: two windows one above the other aren't duplicates. The answer ends with the `delete` command that keeps one of each |
+| `find_floating` | The pieces outdoors whose bottom is more than `tolerance` cm (10) above or under the ground built by `set_terrain`; what stands in a room or within the outline of the walls is indoors and left alone. The answer ends with the `set_elevation` command that puts them on it |
 | `set_site_defaults` | `"on_terrain":false` leaves the pieces added outdoors at the elevation 0 of their level; kept with the home |
 | `optimize_models` | Shows the reduced version of every 3D model of `min_kb` KB (500) or more in the 3D view, and tells the ones that have none yet |
 

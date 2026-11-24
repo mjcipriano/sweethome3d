@@ -160,6 +160,13 @@ public final class AssistantHelp {
    * @param search  a word to look for, or <code>null</code>
    * @param style   a style of fence, or <code>null</code>
    */
+  /** The tools of the MCP server, which <code>help</code> tells from the commands. */
+  private static final List<String> TOOLS = java.util.Arrays.asList("get_home", "list_catalog", "search_catalog", "search_textures",
+      "check_home", "get_report", "get_notes", "update_note", "get_plan_image", "get_3d_image", "get_3d_info", "get_capabilities",
+      "get_sun_study_image", "sun_study", "get_catalog_image", "export_blender", "apply_commands", "get_elevation_image", "undo", "redo",
+      "get_history", "get_changes", "save_version", "list_versions", "compare_versions", "restore_version", "save_home", "list_homes",
+      "open_home", "new_home", "switch_home", "export_home", "add_note", "start_visit");
+
   public static String getHelp(String command, String search, String style) {
     List<Entry> entries = getEntries();
     if (search != null && search.trim().length() > 0) {
@@ -208,6 +215,11 @@ public final class AssistantHelp {
     if (found == null) {
       // A command told about in the description of another one
       String result = search(entries, command);
+      if (TOOLS.contains(command)) {
+        return "\"" + command + "\" is a tool of the MCP server, beside apply_commands, and not one of its commands: call the tool "
+            + command + " itself, its parameters are in the list of tools."
+            + (result.startsWith("Nothing") ? "" : " Among the commands: " + result);
+      }
       return result.startsWith("Nothing") ? "No command \"" + command + "\". {\"action\":\"help\"} lists the commands."
           : "\"" + command + "\" has no entry of its own. " + result;
     }
