@@ -31,7 +31,6 @@
     <cp>lib/Examples.jar</cp>
     <cp>lib/Help.jar</cp>
     <cp>lib/sunflow-0.07.3i.jar</cp>
-    <cp>lib/jmf.jar</cp>
     <cp>lib/java3d-1.6/j3dcore.jar</cp>
     <cp>lib/java3d-1.6/j3dutils.jar</cp>
     <cp>lib/java3d-1.6/vecmath.jar</cp>

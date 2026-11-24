@@ -84,7 +84,6 @@ Source: "build\lib\Textures.jar"; DestDir: "{app}\lib"; Flags: ignoreversion
 Source: "build\lib\Examples.jar"; DestDir: "{app}\lib"; Flags: ignoreversion
 Source: "build\lib\Help.jar"; DestDir: "{app}\lib"; Flags: ignoreversion
 Source: "build\lib\sunflow-*.jar"; DestDir: "{app}\lib"; Flags: ignoreversion
-Source: "build\lib\jmf.jar"; DestDir: "{app}\lib"; Flags: ignoreversion
 Source: "build\lib\jnlp.jar"; DestDir: "{app}\lib"; Flags: ignoreversion
 ; Install Java 3D 1.5.2 Jars
 Source: "build\lib\j3d*.jar"; DestDir: "{app}\lib"; Flags: ignoreversion; Check: IsJava3D152Installed

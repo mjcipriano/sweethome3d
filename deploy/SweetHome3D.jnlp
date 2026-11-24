@@ -68,7 +68,6 @@
     <j2se version="1.5+" max-heap-size="640m"/>
     <jar href="lib/SweetHome3DJavaWebStart.jar"/>
     <jar href="lib/sunflow-0.07.3i.jar"/>    
-    <jar href="lib/jmf.jar"/>    
     <property name="com.eteks.sweethome3d.applicationId" value="SweetHome3D#JavaWebStart"/>
     <property name="com.eteks.sweethome3d.deploymentInformation" value="Java Web Start"/>
   </resources>

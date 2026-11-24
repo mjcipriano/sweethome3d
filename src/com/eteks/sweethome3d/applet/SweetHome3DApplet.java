@@ -367,9 +367,6 @@ public class SweetHome3DApplet extends JApplet {
           "jogamp",
           "javax.media.opengl",
           "javax.media.nativewindow",
-          "com.sun.media",
-          "com.ibm.media",
-          "jmpapps.util",
           "org.sunflow"}));
       applicationPackages.addAll(getPluginsPackages());
 

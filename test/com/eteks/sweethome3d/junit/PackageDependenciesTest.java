@@ -101,12 +101,6 @@ public class PackageDependenciesTest extends TestCase {
     JavaPackage xmlSaxHelpers = constraint.addPackage("org.xml.sax.helpers");
     // Accessibility
     JavaPackage accessibility = constraint.addPackage("javax.accessibility");
-    // JMF
-    JavaPackage jmf = constraint.addPackage("javax.media");
-    JavaPackage jmfControl = constraint.addPackage("javax.media.control");
-    JavaPackage jmfDataSink = constraint.addPackage("javax.media.datasink");
-    JavaPackage jmfFormat = constraint.addPackage("javax.media.format");
-    JavaPackage jmfProtocol = constraint.addPackage("javax.media.protocol");
     // SunFlow
     JavaPackage sunflow = constraint.addPackage("org.sunflow");
     JavaPackage sunflowCore = constraint.addPackage("org.sunflow.core");
@@ -199,11 +193,6 @@ public class PackageDependenciesTest extends TestCase {
     sweetHome3DSwing.dependsUpon(joglFixedFunc);
     sweetHome3DSwing.dependsUpon(joglAwt);
     sweetHome3DSwing.dependsUpon(joglUtilAwt);
-    sweetHome3DSwing.dependsUpon(jmf);
-    sweetHome3DSwing.dependsUpon(jmfControl);
-    sweetHome3DSwing.dependsUpon(jmfDataSink);
-    sweetHome3DSwing.dependsUpon(jmfFormat);
-    sweetHome3DSwing.dependsUpon(jmfProtocol);
     sweetHome3DSwing.dependsUpon(jnlp);
 
     sweetHome3DIO.dependsUpon(sweetHome3DModel);

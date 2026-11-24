@@ -57,7 +57,6 @@ public class SweetHome3DBootstrap {
     List<String> extensionJarsAndDlls = new ArrayList<String>(Arrays.asList(new String [] {
         "sunflow-0.07.3i.jar",
         "flatlaf-3.5.4.jar", // Modern Swing look and feel
-        "jmf.jar",
         "jnlp.jar"}));
     String yafarayPluginsFolder = null;
     List<String> yafarayWindowsDlls = new ArrayList<String>();
@@ -244,9 +243,6 @@ public class SweetHome3DBootstrap {
         "jogamp",
         "javax.media.opengl",
         "javax.media.nativewindow",
-        "com.sun.media",
-        "com.ibm.media",
-        "jmpapps.util",
         "org.sunflow",
         "com.formdev.flatlaf"};
     String applicationClassName = "com.eteks.sweethome3d.SweetHome3D";
