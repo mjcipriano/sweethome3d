@@ -94,6 +94,10 @@ final class AssistantMeshBuilder {
     private final int []   indices;
     private final Material material;
     private final boolean  smooth;
+    /** The texture coordinates of its vertices, or <code>null</code> if they come from its plane. */
+    private float [][]     textureCoordinates;
+    /** The normal given to all its vertices, or <code>null</code>. */
+    private float []       normal;
 
     Face(int [] indices, Material material, boolean smooth) {
       this.indices = indices;
@@ -168,6 +172,35 @@ final class AssistantMeshBuilder {
       this.materials.put(key, material);
     }
     return material;
+  }
+
+  /**
+   * Returns the material showing a PNG image built for this model, laid by the texture coordinates of the faces.
+   * @param key    what tells this image from the other ones of the model
+   * @param image  the PNG image
+   * @param color  the color used for the icon of the model
+   */
+  Material getImageMaterial(String key, byte [] image, int color) {
+    Material material = this.materials.get("image_" + key);
+    if (material == null) {
+      String imageName = "texture" + this.imageNames.size() + "_" + this.suffix + ".png";
+      this.imageNames.put("image_" + key, imageName);
+      material = new Material("texture" + this.materials.size() + "_" + this.suffix, color & 0xFFFFFF, image, imageName, 1, 1, 0, 0, 0);
+      this.materials.put("image_" + key, material);
+    }
+    return material;
+  }
+
+  /**
+   * Adds a polygon with the texture coordinates of its vertices, and the normal they share if it isn't <code>null</code>.
+   */
+  void addFace(int [] indices, Material material, boolean smooth, float [][] textureCoordinates, float [] normal) {
+    if (indices.length >= 3 && getNormal(indices) != null) {
+      Face face = new Face(indices, material, smooth);
+      face.textureCoordinates = textureCoordinates;
+      face.normal = normal;
+      this.faces.add(face);
+    }
   }
 
   /**
@@ -621,6 +654,7 @@ final class AssistantMeshBuilder {
       obj.append(String.format(Locale.US, "v %.3f %.3f %.3f\n", vertex [0], vertex [1], vertex [2]));
     }
     int textureVertexCount = 0;
+    int normalCount = 0;
     for (Material material : usedMaterials) {
       obj.append("g ").append(material.name).append("\nusemtl ").append(material.name).append('\n');
       for (int pass = 0; pass < 2; pass++) {
@@ -635,13 +669,23 @@ final class AssistantMeshBuilder {
             started = true;
           }
           if (material.isTextured()) {
-            float [][] coordinates = getTextureCoordinates(face);
+            float [][] coordinates = face.textureCoordinates != null ? face.textureCoordinates : getTextureCoordinates(face);
             for (float [] coordinate : coordinates) {
-              obj.append(String.format(Locale.US, "vt %.4f %.4f\n", coordinate [0], coordinate [1]));
+              obj.append("vt ").append(Math.round(coordinate [0] * 10000) / 10000f).append(' ')
+                  .append(Math.round(coordinate [1] * 10000) / 10000f).append('\n');
+            }
+            if (face.normal != null) {
+              obj.append("vn ").append(Math.round(face.normal [0] * 1000) / 1000f).append(' ')
+                  .append(Math.round(face.normal [1] * 1000) / 1000f).append(' ')
+                  .append(Math.round(face.normal [2] * 1000) / 1000f).append('\n');
+              normalCount++;
             }
             obj.append('f');
             for (int i = 0; i < face.indices.length; i++) {
               obj.append(' ').append(face.indices [i] + 1).append('/').append(++textureVertexCount);
+              if (face.normal != null) {
+                obj.append('/').append(normalCount);
+              }
             }
           } else {
             obj.append('f');

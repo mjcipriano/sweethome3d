@@ -314,6 +314,14 @@ final class AssistantPlantBuilder {
     long    seed;
     /** Shows a tree that isn't there anymore: a pale mass one sees through. */
     boolean ghost;
+    /** <code>natural</code> for branches and clusters of leaves, <code>simple</code> for plain masses. */
+    String  style = "natural";
+    /** Values that replace the ones of the profile of the species, or <code>null</code>. */
+    Map<String, Object> profile;
+    /** Shown by a model of the catalog rather than by a generated one. */
+    boolean catalog;
+    /** The name of the piece of the catalog to show, or <code>null</code> for the one of its species. */
+    String  catalogName;
   }
 
   private final AssistantMeshBuilder mesh = new AssistantMeshBuilder();
@@ -346,7 +354,7 @@ final class AssistantPlantBuilder {
     return builder.triangles;
   }
 
-  private static int shade(int color, float factor) {
+  static int shade(int color, float factor) {
     int red = Math.max(0, Math.min(255, Math.round(((color >> 16) & 0xFF) * factor)));
     int green = Math.max(0, Math.min(255, Math.round(((color >> 8) & 0xFF) * factor)));
     int blue = Math.max(0, Math.min(255, Math.round((color & 0xFF) * factor)));
@@ -568,6 +576,12 @@ final class AssistantPlantBuilder {
       } else {
         blob(0, middle, 0, radiusX, crownHeight / 2, radiusZ, 0, 0.03f, clipped, Math.max(1, this.detail));
       }
+      return;
+    }
+
+    if (!plant.ghost && !"simple".equals(plant.style) && AssistantTreeBuilder.builds(form)) {
+      // Branches that divide, and leaves one sees through
+      this.triangles += AssistantTreeBuilder.build(this.mesh, plant, this.random, this.detail);
       return;
     }
 
