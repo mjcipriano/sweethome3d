@@ -205,6 +205,30 @@ public class AssistantOutdoorCommandsTest {
     float floor = shed.getLevel() != null ? shed.getLevel().getElevation() : 0;
     assertEquals(150, shed.getElevation() + floor, 2);
 
+    // A bench tilted as the slope under it: 5 % towards the east, its front to the west at the angle 90
+    run("{\"action\":\"add_furniture\",\"name\":\"Table\",\"x\":1000,\"y\":3000,\"angle\":90,\"name_override\":\"Bench\"}");
+    HomePieceOfFurniture bench = getPiece("Bench");
+    summary = run("{\"action\":\"set_elevation\",\"id\":\"" + HomeItemIds.getId(bench) + "\",\"on_terrain\":true,\"align_to_slope\":true}");
+    // Its front looks down the slope: it goes down by atan(0.05)
+    assertEquals(360 - 2.86, (Math.toDegrees(bench.getPitch()) + 360) % 360, 0.2);
+    assertEquals(0, bench.getRoll(), 0.001f);
+    this.homeController.undo();
+    assertEquals(0, bench.getPitch(), 0.001f);
+    // A finer part of the ground
+    summary = run("{\"action\":\"add_terrain_patch\",\"points\":[[3000,200,150],[3400,200,170],[3400,600,170],[3000,600,150],[3200,400,260]]}");
+    assertTrue(summary, summary.contains("Refined the ground") && summary.contains("5 points in place of 0"));
+    summary = run("{\"action\":\"spot_elevations\",\"points\":[[3200,400]],\"labels\":false}");
+    assertTrue(summary, summary.contains("(3200, 400) 260"));
+    assertTrue(run("{\"action\":\"cut_fill_report\"}").contains("m3 cut"));
+    // A hedge of a species, and a bed of mulch with an edging
+    summary = run("{\"action\":\"add_hedge\",\"points\":[[0,3800],[800,3800]],\"species\":\"boxwood\",\"pruned_shape\":\"box\",\"height\":90}");
+    assertTrue(summary, summary.contains("Added the hedge") && !summary.contains("Warning"));
+    summary = run("{\"action\":\"add_groundcover\",\"points\":[[0,3500],[600,3500],[600,3700],[0,3700]],\"material\":\"pine_straw\","
+        + "\"edging\":\"steel\"}");
+    assertTrue(summary, summary.contains("Added") && !summary.contains("Couldn't"));
+    summary = run("{\"action\":\"add_groundcover\",\"points\":[[0,3500],[600,3500],[600,3700]],\"material\":\"lava\"}");
+    assertTrue(summary, summary.contains("\"material\" is pine_straw"));
+
     // The house of a neighbor, hidden with the others by its tag
     summary = run("{\"action\":\"add_context_building\",\"points\":[[5000,0],[6200,0],[6200,900],[5000,900]],\"stories\":2,"
         + "\"roof\":\"hip\",\"siding\":\"brick\",\"owner\":\"1232 Fernwood\",\"garage_doors\":[{\"edge\":3,\"at\":0.3}]}");

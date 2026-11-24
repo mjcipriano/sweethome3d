@@ -73,7 +73,15 @@ class AssistantTerrainCommands {
         + "\"max_points\" (20000, up to " + AssistantShapeCommands.getMaxTerrainPoints() + "), keeping more of them where the ground "
         + "changes: \"max_error_cm\" (5) is the error accepted. \"datum_offset_cm\":N is added to every height, or "
         + "\"pin\":{\"x\":N,\"y\":N,\"height\":N} moves the ground up or down for it to be at that height at that place, "
-        + "like a doorstep. GeoTIFF, LAS and LAZ files aren't read: convert them with gdal_translate -of AAIGrid)\n"
+        + "like a doorstep. A GeoTIFF (.tif, one band, not compressed or Deflate or LZW) and a LAS point cloud (.las, its ground "
+        + "points) are read too; LAZ isn't: laszip writes a LAS file)\n"
+        + "  {\"action\":\"trees_from_lidar\",\"file\":\"<absolute path>.las\",\"srs\":\"EPSG:2240\",\"units\":\"ft\"}  "
+        + "(finds the treetops of a LAS point cloud - what stands more than \"min_height\" cm (300) above the ground and is the "
+        + "highest within \"window_m\" meters (3) - and plants a generated tree at each one with its height and its crown, "
+        + "narrow crowns as conifers; \"tag\" (lidar) names them for update_trees and relabel_trees)\n"
+        + "  {\"action\":\"add_terrain_patch\",\"points\":[[x,y,z],...]}  (refines a part of the ground without sending it all again: "
+        + "the points given replace the ones of the ground inside the box around them, the rest staying as it is; "
+        + "\"raster\" and \"file\" are read as by set_terrain)\n"
         + "  {\"action\":\"shift_terrain\",\"pin\":{\"x\":N,\"y\":N,\"height\":N}}  (moves the whole ground up or down: \"offset\":N cm, "
         + "or \"pin\" for it to be at a height at a place)\n"
         + "  {\"action\":\"add_pad\",\"points\":[[x,y],...],\"height\":N,\"blend_distance\":200}  "
@@ -121,6 +129,8 @@ class AssistantTerrainCommands {
           return false;
         }
         setTerrainFromHeights(command, tally, notes);
+      } else if ("add_terrain_patch".equals(action)) {
+        addTerrainPatch(command, tally, notes);
       } else if ("shift_terrain".equals(action)) {
         shiftTerrain(command, tally, notes);
       } else if ("add_pad".equals(action) || "flatten_area".equals(action)) {
@@ -141,6 +151,8 @@ class AssistantTerrainCommands {
         spotElevations(command, tally, notes);
       } else if ("slope_map".equals(action)) {
         slopeMap(command, notes);
+      } else if ("trees_from_lidar".equals(action) || "classify_trees_from_lidar".equals(action)) {
+        treesFromLidar(command, tally, notes);
       } else if ("site_report".equals(action)) {
         siteReport(command, tally, notes);
       } else if ("export_site".equals(action)) {
@@ -513,11 +525,10 @@ class AssistantTerrainCommands {
         throw new IOException("\"file\" must be the absolute path of a file that exists");
       }
       String lowerName = file.getName().toLowerCase(Locale.ENGLISH);
-      if (lowerName.endsWith(".tif") || lowerName.endsWith(".tiff") || lowerName.endsWith(".las") || lowerName.endsWith(".laz")
-          || lowerName.endsWith(".img")) {
-        throw new IOException("GeoTIFF, LAS and LAZ files aren't read. Convert the raster with "
-            + "\"gdal_translate -of AAIGrid in.tif out.asc\" (or \"gdal_translate -of XYZ\"), and a point cloud with a tool that "
-            + "writes its ground points as x y z lines, then give that file");
+      if (lowerName.endsWith(".laz") || lowerName.endsWith(".img") || lowerName.endsWith(".copc.laz")) {
+        throw new IOException(lowerName.endsWith(".img") ? "ERDAS .img rasters aren't read: \"gdal_translate in.img out.tif\" writes a GeoTIFF"
+            : "compressed LAZ point clouds aren't read: \"laszip -i in.laz -o out.las\" or \"pdal translate in.laz out.las\" "
+                + "writes a LAS file");
       }
       points = readFile(file, command, maxPoints, maxError);
       source = file.getName();
@@ -668,7 +679,6 @@ class AssistantTerrainCommands {
    * Returns the points read from an Esri ASCII grid or from a text of x y z lines, in the plan.
    */
   private List<float []> readFile(File file, AssistantCommand command, int maxPoints, float maxError) throws IOException {
-    String text = new String(AssistantGeneratedModel.readFile(file, MAX_FILE_LENGTH), "ISO-8859-1");
     String units = command.getString("units") != null ? command.getString("units").trim().toLowerCase(Locale.ENGLISH) : "m";
     String zUnits = command.getString("z_units") != null ? command.getString("z_units").trim().toLowerCase(Locale.ENGLISH) : units;
     final double scale = units.startsWith("cm") ? 1 : units.startsWith("f") || units.startsWith("us") ? 30.48 : 100;
@@ -685,6 +695,59 @@ class AssistantTerrainCommands {
     }
     double originX = command.getDouble("x", 0);
     double originY = command.getDouble("y", 0);
+    String lowerName = file.getName().toLowerCase(Locale.ENGLISH);
+    if (lowerName.endsWith(".tif") || lowerName.endsWith(".tiff")) {
+      // A GeoTIFF: its rows go from the north to the south
+      AssistantRasterReaders.Grid grid = AssistantRasterReaders.readGeoTiff(AssistantGeneratedModel.readFile(file, MAX_FILE_LENGTH));
+      for (int i = 0; i < grid.heights.length; i++) {
+        grid.heights [i] *= zScale;
+      }
+      List<float []> gridPoints = decimate(grid.heights, grid.columns, grid.rows, 0, 0, 1, 1, maxPoints, maxError);
+      List<float []> points = new ArrayList<float []>(gridPoints.size());
+      double bottom = grid.top - (grid.rows - 1) * grid.cellHeight;
+      for (float [] point : gridPoints) {
+        if (!Float.isNaN(point [2])) {
+          points.add(toPlan(grid.left + point [0] * grid.cellWidth, grid.top - point [1] * grid.cellHeight, point [2], projection,
+              georeference, scale, originX, originY, grid.left - grid.cellWidth / 2, bottom - grid.cellHeight / 2));
+        }
+      }
+      return points;
+    } else if (lowerName.endsWith(".las")) {
+      AssistantRasterReaders.Cloud cloud = AssistantRasterReaders.readLas(AssistantGeneratedModel.readFile(file, MAX_FILE_LENGTH), 4000000);
+      double [] cloudBounds = getCloudBounds(cloud);
+      // The ground: the points of the class 2, or without classes the lowest point of each cell
+      int side = (int)Math.max(2, Math.sqrt(maxPoints));
+      double [][] cells = new double [side * side][];
+      for (int i = 0; i < cloud.count; i++) {
+        if (cloud.classified && cloud.classes [i] != 2) {
+          continue;
+        }
+        int column = (int)Math.min(side - 1, (cloud.x [i] - cloudBounds [0]) / Math.max(1E-9, cloudBounds [2] - cloudBounds [0]) * side);
+        int row = (int)Math.min(side - 1, (cloud.y [i] - cloudBounds [1]) / Math.max(1E-9, cloudBounds [3] - cloudBounds [1]) * side);
+        double [] cell = cells [row * side + column];
+        if (cell == null) {
+          cells [row * side + column] = new double [] {cloud.x [i], cloud.y [i], cloud.z [i], 1};
+        } else if (cloud.classified) {
+          cell [0] += cloud.x [i];
+          cell [1] += cloud.y [i];
+          cell [2] += cloud.z [i];
+          cell [3]++;
+        } else if (cloud.z [i] < cell [2]) {
+          cell [0] = cloud.x [i];
+          cell [1] = cloud.y [i];
+          cell [2] = cloud.z [i];
+        }
+      }
+      List<float []> points = new ArrayList<float []>();
+      for (double [] cell : cells) {
+        if (cell != null) {
+          points.add(toPlan(cell [0] / cell [3], cell [1] / cell [3], (float)(cell [2] / cell [3] * zScale), projection, georeference,
+              scale, originX, originY, cloudBounds [0], cloudBounds [1]));
+        }
+      }
+      return points;
+    }
+    String text = new String(AssistantGeneratedModel.readFile(file, MAX_FILE_LENGTH), "ISO-8859-1");
     String start = text.substring(0, Math.min(200, text.length())).trim().toLowerCase(Locale.ENGLISH);
     if (start.startsWith("ncols")) {
       // Esri ASCII grid: a header then the rows from the north to the south
@@ -794,6 +857,232 @@ class AssistantTerrainCommands {
     }
     // The north of a file is up the plan
     return new float [] {(float)(originX + (east - left) * scale), (float)(originY - (north - bottom) * scale), height};
+  }
+
+  private static double [] getCloudBounds(AssistantRasterReaders.Cloud cloud) {
+    double [] bounds = {Double.MAX_VALUE, Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE};
+    for (int i = 0; i < cloud.count; i++) {
+      bounds [0] = Math.min(bounds [0], cloud.x [i]);
+      bounds [1] = Math.min(bounds [1], cloud.y [i]);
+      bounds [2] = Math.max(bounds [2], cloud.x [i]);
+      bounds [3] = Math.max(bounds [3], cloud.y [i]);
+    }
+    return bounds;
+  }
+
+  /**
+   * Finds the trees of a LAS point cloud: the tops of what stands above the ground, each one with its height
+   * and the radius of its crown, and plants them.
+   */
+  private void treesFromLidar(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
+    String path = command.getString("file") != null ? command.getString("file") : command.getString("path");
+    if (path == null) {
+      throw new IOException("give the absolute path of the LAS point cloud: \"file\"");
+    }
+    File file = new File(path.trim());
+    if (!file.isAbsolute() || !file.isFile()) {
+      throw new IOException("\"file\" must be the absolute path of a file that exists");
+    } else if (file.getName().toLowerCase(Locale.ENGLISH).endsWith(".laz")) {
+      throw new IOException("compressed LAZ point clouds aren't read: \"laszip -i in.laz -o out.las\" writes a LAS file");
+    }
+    AssistantRasterReaders.Cloud cloud = AssistantRasterReaders.readLas(AssistantGeneratedModel.readFile(file, MAX_FILE_LENGTH), 6000000);
+    String units = command.getString("units") != null ? command.getString("units").trim().toLowerCase(Locale.ENGLISH) : "m";
+    String zUnits = command.getString("z_units") != null ? command.getString("z_units").trim().toLowerCase(Locale.ENGLISH) : units;
+    double scale = units.startsWith("cm") ? 1 : units.startsWith("f") || units.startsWith("us") ? 30.48 : 100;
+    double zScale = zUnits.startsWith("cm") ? 1 : zUnits.startsWith("f") || zUnits.startsWith("us") ? 30.48 : 100;
+    HomeGeoreference.Projection projection = null;
+    HomeGeoreference georeference = null;
+    if (command.getString("srs") != null) {
+      projection = HomeGeoreference.Projection.get(command.getString("srs"));
+      georeference = HomeGeoreference.get(this.home);
+      if (georeference == null) {
+        throw new IOException("\"srs\" needs the georeference of the home: set_georeference gives it");
+      }
+    }
+    double [] bounds = getCloudBounds(cloud);
+    // Cells of one meter: the ground and the highest thing above it
+    double cell = 100 / scale;
+    int columns = (int)Math.max(1, Math.ceil((bounds [2] - bounds [0]) / cell));
+    int rows = (int)Math.max(1, Math.ceil((bounds [3] - bounds [1]) / cell));
+    if ((long)columns * rows > 16000000L) {
+      throw new IOException("the point cloud covers " + columns + " x " + rows + " m: 16 km2 at most");
+    }
+    float [] ground = new float [columns * rows];
+    float [] top = new float [columns * rows];
+    java.util.Arrays.fill(ground, Float.NaN);
+    java.util.Arrays.fill(top, Float.NaN);
+    for (int i = 0; i < cloud.count; i++) {
+      int index = (int)Math.min(rows - 1, (cloud.y [i] - bounds [1]) / cell) * columns + (int)Math.min(columns - 1, (cloud.x [i] - bounds [0]) / cell);
+      float z = (float)(cloud.z [i] * zScale);
+      int pointClass = cloud.classes [i];
+      if ((!cloud.classified || pointClass == 2) && !(z >= ground [index])) {
+        ground [index] = z;
+      }
+      // Buildings, water and noise aren't trees
+      if ((!cloud.classified || pointClass == 1 || pointClass >= 3 && pointClass <= 5) && !(z <= top [index])) {
+        top [index] = z;
+      }
+    }
+    // The ground of a cell without ground point is the lowest one around it
+    float [] heights = new float [columns * rows];
+    for (int row = 0; row < rows; row++) {
+      for (int column = 0; column < columns; column++) {
+        int index = row * columns + column;
+        float base = ground [index];
+        for (int reach = 1; Float.isNaN(base) && reach <= 6; reach++) {
+          for (int dy = -reach; dy <= reach; dy++) {
+            for (int dx = -reach; dx <= reach; dx++) {
+              int r = row + dy;
+              int c = column + dx;
+              if (r >= 0 && r < rows && c >= 0 && c < columns && !Float.isNaN(ground [r * columns + c])
+                  && !(ground [r * columns + c] >= base)) {
+                base = ground [r * columns + c];
+              }
+            }
+          }
+        }
+        heights [index] = Float.isNaN(top [index]) || Float.isNaN(base) ? 0 : Math.max(0, top [index] - base);
+      }
+    }
+    float minHeight = (float)Math.max(100, command.getDouble("min_height", 300));
+    int window = (int)Math.max(1, Math.min(10, Math.round(command.getDouble("window_m", 3))));
+    List<Object> trees = new ArrayList<Object>();
+    int conifers = 0;
+    for (int row = 0; row < rows && trees.size() < 3000; row++) {
+      for (int column = 0; column < columns && trees.size() < 3000; column++) {
+        float height = heights [row * columns + column];
+        if (height < minHeight || height > 9000) {
+          continue;
+        }
+        boolean highest = true;
+        for (int dy = -window; dy <= window && highest; dy++) {
+          for (int dx = -window; dx <= window && highest; dx++) {
+            int r = row + dy;
+            int c = column + dx;
+            if ((dx != 0 || dy != 0) && r >= 0 && r < rows && c >= 0 && c < columns) {
+              float other = heights [r * columns + c];
+              highest = other < height || other == height && (dy > 0 || dy == 0 && dx > 0);
+            }
+          }
+        }
+        if (!highest) {
+          continue;
+        }
+        // Its crown: how far the canopy stays above half its height, in 8 directions
+        float sum = 0;
+        for (int direction = 0; direction < 8; direction++) {
+          double angle = Math.PI * 2 * direction / 8;
+          int reach = 1;
+          while (reach < 12) {
+            int r = row + (int)Math.round(Math.sin(angle) * reach);
+            int c = column + (int)Math.round(Math.cos(angle) * reach);
+            if (r < 0 || r >= rows || c < 0 || c >= columns || heights [r * columns + c] < height * 0.5f) {
+              break;
+            }
+            reach++;
+          }
+          sum += reach - 0.5f;
+        }
+        float crownRadius = Math.max(50, sum / 8 * 100);
+        double east = bounds [0] + (column + 0.5) * cell;
+        double north = bounds [1] + (row + 0.5) * cell;
+        float [] place = toPlan(east, north, 0, projection, georeference, scale, command.getDouble("x", 0), command.getDouble("y", 0),
+            bounds [0], bounds [1]);
+        if (!AssistantCommandExecutor.coordinateSane(place [0]) || !AssistantCommandExecutor.coordinateSane(place [1])) {
+          throw new IOException("the trees are more than 10 km from the plan: the georeference, \"srs\" or \"units\" is wrong");
+        }
+        Map<String, Object> tree = new LinkedHashMap<String, Object>();
+        tree.put("x", Double.valueOf(Math.round(place [0])));
+        tree.put("y", Double.valueOf(Math.round(place [1])));
+        tree.put("height", Double.valueOf(Math.round(height)));
+        tree.put("crown_radius", Double.valueOf(Math.round(crownRadius)));
+        // A narrow crown for its height is the one of a conifer
+        boolean conifer = crownRadius * 2 < height * 0.33f;
+        tree.put("species", conifer ? "generic_conifer" : "generic_deciduous");
+        conifers += conifer ? 1 : 0;
+        trees.add(tree);
+      }
+    }
+    if (trees.isEmpty()) {
+      throw new IOException("nothing stands more than " + format(minHeight) + " cm above the ground in the " + cloud.count
+          + " points read" + (cloud.classified ? "" : " (the cloud has no ground class: the lowest points were taken for the ground)"));
+    }
+    Map<String, Object> parameters = new LinkedHashMap<String, Object>();
+    parameters.put("trees", trees);
+    parameters.put("tag", command.getString("tag") != null ? command.getString("tag") : "lidar");
+    for (String key : new String [] {"lod", "season", "level"}) {
+      if (command.getParameters().get(key) != null) {
+        parameters.put(key, command.getParameters().get(key));
+      }
+    }
+    List<String> treeNotes = new ArrayList<String>();
+    this.executor.applySubCommand(new AssistantCommand("add_trees", parameters), tally, treeNotes);
+    for (String note : treeNotes) {
+      if (note.startsWith("Couldn't")) {
+        throw new IOException(note);
+      }
+    }
+    notes.add("Found " + trees.size() + " treetops in " + cloud.count + " points of " + file.getName() + " and planted them with the tag \""
+        + parameters.get("tag") + "\": " + conifers + " with a narrow crown as conifers, " + (trees.size() - conifers)
+        + " as deciduous trees. " + (cloud.classified ? "" : "The cloud has no ground class: the lowest points were taken for the ground. ")
+        + "Buildings count as trees when the cloud doesn't class them. relabel_trees gives the species you know, and update_trees "
+        + "compares a later survey");
+  }
+
+  /**
+   * Replaces the points of a part of the ground by finer ones.
+   */
+  private void addTerrainPatch(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
+    HomePieceOfFurniture terrain = getTerrain();
+    List<float []> patch;
+    int maxPoints = (int)Math.max(100, Math.min(AssistantShapeCommands.getMaxTerrainPoints(), command.getDouble("max_points", DEFAULT_POINTS)));
+    float maxError = (float)Math.max(0, command.getDouble("max_error_cm", 5));
+    if (command.getParameters().get("file") != null) {
+      File file = new File(command.getParameters().get("file").toString());
+      if (!file.isAbsolute() || !file.isFile()) {
+        throw new IOException("\"file\" must be the absolute path of a file that exists");
+      }
+      patch = readFile(file, command, maxPoints, maxError);
+    } else if (command.getParameters().get("raster") instanceof Map) {
+      Map<?, ?> raster = (Map<?, ?>)command.getParameters().get("raster");
+      int columns = Math.round(AssistantFurnitureBuilder.getNumber(raster, "cols", 0));
+      int rows = Math.round(AssistantFurnitureBuilder.getNumber(raster, "rows", 0));
+      float cell = AssistantFurnitureBuilder.getNumber(raster, "cell", Float.NaN);
+      List<?> values = raster.get("heights") instanceof List ? (List<?>)raster.get("heights") : null;
+      if (values == null || columns < 2 || rows < 2 || !(cell > 0) || values.size() < columns * rows) {
+        throw new IOException("\"raster\" needs x0, y0, cell, cols, rows and cols x rows \"heights\"");
+      }
+      float [] heights = new float [columns * rows];
+      for (int i = 0; i < heights.length; i++) {
+        heights [i] = values.get(i) instanceof Number ? ((Number)values.get(i)).floatValue() : Float.NaN;
+      }
+      patch = decimate(heights, columns, rows, AssistantFurnitureBuilder.getNumber(raster, "x0", 0),
+          AssistantFurnitureBuilder.getNumber(raster, "y0", 0), cell, cell, maxPoints, maxError);
+    } else {
+      patch = AssistantFurnitureBuilder.getPoints(command.getParameters(), "points", 3);
+    }
+    if (patch.size() < 3) {
+      throw new IOException("give 3 points [x,y,z] at least of the part to refine, or a \"raster\" or a \"file\"");
+    }
+    float [] bounds = getBounds(patch.toArray(new float [patch.size()][]));
+    List<float []> points = new ArrayList<float []>();
+    int replaced = 0;
+    for (float [] point : getPoints(terrain.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY))) {
+      if (point [0] >= bounds [0] && point [0] <= bounds [2] && point [1] >= bounds [1] && point [1] <= bounds [3]) {
+        replaced++;
+      } else {
+        points.add(point);
+      }
+    }
+    points.addAll(patch);
+    // A finer survey is the ground as it is, not earth moved
+    String baseline = this.home.getProperty(BASELINE_PROPERTY);
+    String result = regrade(terrain, points, tally, notes);
+    if (baseline == null) {
+      this.home.setProperty(BASELINE_PROPERTY, null);
+    }
+    notes.add("Refined the ground from (" + format(bounds [0]) + ", " + format(bounds [1]) + ") to (" + format(bounds [2]) + ", "
+        + format(bounds [3]) + "): " + patch.size() + " points in place of " + replaced + "; " + result);
   }
 
   // ---- Grading ----

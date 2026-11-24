@@ -41,8 +41,8 @@ public final class AssistantHelp {
           + "reduce_detail restore_detail group align distribute mirror lock add_tags hide_layer"},
       {"Colors, textures and materials", "set_color set_texture apply_style import_texture list_materials set_material"},
       {"Roofs", "add_roof add_dormer modify_dormer remove_dormer modify_roof fit_walls_to_roof headroom auto_roof"},
-      {"Grading and terrain measures", "shift_terrain add_pad flatten_area smooth_area add_berm grade_path extend_terrain "
-          + "cut_fill_report contours spot_elevations slope_map site_report export_site"},
+      {"Grading and terrain measures", "add_terrain_patch shift_terrain add_pad flatten_area smooth_area add_berm grade_path extend_terrain "
+          + "cut_fill_report contours spot_elevations slope_map site_report export_site trees_from_lidar"},
       {"Ground and site", "add_slab set_terrain set_site_defaults add_polyline add_property_line add_setback modify_polyline set_compass "
           + "set_georeference import_parcel get_coordinates geo_to_plan"},
       {"Fences, walls and gates", "add_fence add_gate modify_fence extend_fence join_fences split_fence trim_fence offset_fence "
@@ -290,7 +290,7 @@ public final class AssistantHelp {
         + "\nTerrain: points of known height given to set_terrain, " + AssistantShapeCommands.getMaxTerrainPoints()
         + " at most, or a raster, an Esri ASCII grid or a text of x y z lines thinned to that count; graded by add_pad, "
         + "grade_path, add_berm, add_swale, flatten_area and smooth_area; measured by cut_fill_report, contours, spot_elevations and "
-        + "slope_map. No elevation is fetched from a web service and no GeoTIFF, LAS or LAZ file is read."
+        + "slope_map. GeoTIFF (classic, not compressed or Deflate or LZW) and LAS files are read; BigTIFF and LAZ aren't."
         + "\nGeoreference: one point with a north angle; coordinate systems EPSG:4326, 4269, 3857, the UTM zones (326xx, 327xx, 269xx) "
         + "and the State Plane zones of Georgia (2240, 2239, 26967, 26966). GIS files read: GeoJSON, Esri JSON, KML, shapefiles, "
         + "text DXF and OpenStreetMap data. Web services, when the user allows them: USGS 3DEP heights, Overpass, ArcGIS parcel "
@@ -298,7 +298,7 @@ public final class AssistantHelp {
         + "\nPlants: " + HomeAssistantContext.getPlantSpecies(false).size() + " species of trees and "
         + HomeAssistantContext.getPlantSpecies(true).size() + " of shrubs built by add_tree and add_shrub (list_species), with seasons, "
         + "growth, and 3 levels of detail (2000, 10000 and more triangles at most); 3000 plants per call. Catalog pieces are placed by "
-        + "add_trees with names. No tree is read from LiDAR points."
+        + "add_trees with names. trees_from_lidar finds trees in a LAS point cloud."
         + "\nModels read: OBJ, DAE, 3DS, KMZ, ZIP. Written by export_home: PDF, SVG, OBJ, CSV, a 3D web page, a panorama."
         + "\nLimits: " + AssistantCommandExecutor.MAX_COMMANDS_PER_TURN + " commands per call (" + AssistantCommandExecutor.MAX_COMMANDS_PER_FILE
         + " from a file); coordinates up to " + (int)AssistantCommandExecutor.MAX_COORDINATE_CM + " cm and sizes up to "

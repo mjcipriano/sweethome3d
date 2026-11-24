@@ -295,7 +295,7 @@ public class AssistantGisCommandsTest {
     String summary = run("{\"action\":\"web_sources\"}");
     assertTrue(summary, summary.contains("Web services aren't allowed") && summary.contains("elevation.nationalmap.gov"));
     summary = run("{\"action\":\"fetch_point_cloud\"}");
-    assertTrue(summary, summary.contains("point clouds aren't read"));
+    assertTrue(summary, summary.contains("point clouds aren't downloaded"));
     summary = run("{\"action\":\"set_basemap\",\"source\":\"google\"}");
     assertTrue(summary, summary.contains("Bing and Google"));
   }

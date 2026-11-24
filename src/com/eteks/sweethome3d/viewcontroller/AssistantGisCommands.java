@@ -168,11 +168,11 @@ public class AssistantGisCommands {
             + "import_osm without path sends them to the Overpass service of OpenStreetMap (overpass-api.de); import_parcels with "
             + "\"url\" sends them to that server; set_basemap asks the tiles around the home to Esri (server.arcgisonline.com), the "
             + "USGS (basemap.nationalmap.gov), OpenStreetMap (tile.openstreetmap.org) or the server of an xyz template. Nothing "
-            + "else of the home is sent. fetch_point_cloud, Bing and Google sources aren't available.");
-      } else if ("fetch_point_cloud".equals(action) || "classify_trees_from_lidar".equals(action)) {
-        throw new IOException("point clouds aren't read: LAS and LAZ files and the Entwine service of the USGS need a decoder "
-            + "this program doesn't have. Extract the ground with a LiDAR tool (PDAL, lidR, CloudCompare) as x y z lines for "
-            + "set_terrain \"file\", and the treetops as a CSV with x, y, height, crown_radius for import_trees");
+            + "else of the home is sent. Point clouds aren't downloaded, and Bing and Google sources aren't available.");
+      } else if ("fetch_point_cloud".equals(action)) {
+        throw new IOException("point clouds aren't downloaded: the USGS serves them compressed (LAZ, Entwine), which this program "
+            + "doesn't decode. Download the tile from apps.nationalmap.gov/lidar-explorer, decompress it with "
+            + "\"laszip -i in.laz -o out.las\", then set_terrain with \"file\" reads its ground and trees_from_lidar its trees");
       } else {
         return false;
       }

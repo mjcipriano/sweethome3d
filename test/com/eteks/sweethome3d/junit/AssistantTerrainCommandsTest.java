@@ -180,10 +180,10 @@ public class AssistantTerrainCommandsTest {
     assertEquals(3048, getTerrain().getWidth(), 1);
     summary = run("{\"action\":\"set_terrain\",\"file\":\"/tmp/nothing.tif\"}");
     assertTrue(summary, summary.contains("Couldn't run set_terrain"));
-    file = java.io.File.createTempFile("ground", ".tif");
+    file = java.io.File.createTempFile("ground", ".laz");
     file.deleteOnExit();
     summary = run("{\"action\":\"set_terrain\",\"file\":\"" + file.getPath().replace("\\", "\\\\") + "\"}");
-    assertTrue(summary, summary.contains("gdal_translate"));
+    assertTrue(summary, summary.contains("laszip"));
   }
 
   @Test
@@ -334,6 +334,145 @@ public class AssistantTerrainCommandsTest {
         && geojson.contains("[-84.38"));
     summary = run("{\"action\":\"export_site\",\"path\":\"" + file.getPath().replace("\\", "\\\\") + "\"}");
     assertTrue(summary, summary.contains("exists"));
+  }
+
+  /**
+   * Returns a GeoTIFF of 32 bit floats, 2 m by pixel, its top left corner at (500000, 3700000 + 2 x rows).
+   * @param compressed <code>true</code> for Deflate with the predictor of floats
+   */
+  private static byte [] createGeoTiff(int columns, int rows, float [] heights, boolean compressed) throws Exception {
+    byte [] samples = new byte [columns * rows * 4];
+    java.nio.ByteBuffer.wrap(samples).order(java.nio.ByteOrder.LITTLE_ENDIAN).asFloatBuffer().put(heights);
+    if (compressed) {
+      // The bytes of each row, the most significant ones first, then their differences
+      byte [] predicted = new byte [samples.length];
+      for (int row = 0; row < rows; row++) {
+        int start = row * columns * 4;
+        for (int column = 0; column < columns; column++) {
+          for (int b = 0; b < 4; b++) {
+            predicted [start + b * columns + column] = samples [start + column * 4 + 3 - b];
+          }
+        }
+        for (int i = columns * 4 - 1; i >= 1; i--) {
+          predicted [start + i] -= predicted [start + i - 1];
+        }
+      }
+      java.util.zip.Deflater deflater = new java.util.zip.Deflater();
+      deflater.setInput(predicted);
+      deflater.finish();
+      byte [] buffer = new byte [samples.length + 64];
+      samples = java.util.Arrays.copyOf(buffer, deflater.deflate(buffer));
+      deflater.end();
+    }
+    int entries = 12;
+    int directoryLength = 2 + entries * 12 + 4;
+    java.nio.ByteBuffer tiff = java.nio.ByteBuffer.allocate(8 + directoryLength + 24 + 48 + samples.length)
+        .order(java.nio.ByteOrder.LITTLE_ENDIAN);
+    tiff.put((byte)'I').put((byte)'I').putShort((short)42).putInt(8);
+    int scaleOffset = 8 + directoryLength;
+    int tieOffset = scaleOffset + 24;
+    int dataOffset = tieOffset + 48;
+    tiff.putShort((short)entries);
+    int [][] tags = {{256, 4, 1, columns}, {257, 4, 1, rows}, {258, 3, 1, 32}, {259, 3, 1, compressed ? 8 : 1}, {273, 4, 1, dataOffset},
+                     {277, 3, 1, 1}, {278, 4, 1, rows}, {279, 4, 1, samples.length}, {317, 3, 1, compressed ? 3 : 1}, {339, 3, 1, 3},
+                     {33550, 12, 3, scaleOffset}, {33922, 12, 6, tieOffset}};
+    for (int [] tag : tags) {
+      tiff.putShort((short)tag [0]).putShort((short)tag [1]).putInt(tag [2]);
+      if (tag [1] == 3) {
+        tiff.putShort((short)tag [3]).putShort((short)0);
+      } else {
+        tiff.putInt(tag [3]);
+      }
+    }
+    tiff.putInt(0);
+    tiff.putDouble(2).putDouble(2).putDouble(0);
+    tiff.putDouble(0).putDouble(0).putDouble(0).putDouble(500000).putDouble(3700000 + 2 * rows).putDouble(0);
+    tiff.put(samples);
+    return tiff.array();
+  }
+
+  @Test
+  public void testGeoTiffAndLas() throws Exception {
+    // 20 x 10 heights in meters: 1 m more by column
+    float [] heights = new float [200];
+    for (int i = 0; i < heights.length; i++) {
+      heights [i] = i % 20 + (i / 20) * 0.5f;
+    }
+    for (boolean compressed : new boolean [] {false, true}) {
+      java.io.File file = java.io.File.createTempFile("dem", ".tif");
+      file.deleteOnExit();
+      java.nio.file.Files.write(file.toPath(), createGeoTiff(20, 10, heights, compressed));
+      String summary = run("{\"action\":\"set_terrain\",\"file\":\"" + file.getPath().replace("\\", "\\\\") + "\",\"x\":0,\"y\":2000,"
+          + "\"max_error_cm\":1}");
+      assertTrue(compressed + ": " + summary, summary.contains("Read from " + file.getName()) && summary.contains("heights from 0 to 2350"));
+      // 40 x 20 m, the first height in the middle of its pixel at the top left
+      assertEquals(3800, getTerrain().getWidth(), 1);
+      assertEquals(0, getHeight(100, 100), 2);
+      assertEquals(1900, getHeight(3900, 100), 2);
+      assertEquals(450, getHeight(100, 1900), 2);
+    }
+
+    // A point cloud: a ground that rises to the east, and a tree 12 m high at (20, 30) m
+    java.util.List<double []> points = new java.util.ArrayList<double []>();
+    for (int y = 0; y <= 60; y += 2) {
+      for (int x = 0; x <= 80; x += 2) {
+        points.add(new double [] {x, y, x * 0.05, 2});
+      }
+    }
+    for (int i = 0; i < 300; i++) {
+      double angle = i * 0.7;
+      double radius = (i % 10) * 0.35;
+      double height = 12 - radius * radius * 0.4;
+      points.add(new double [] {20 + Math.cos(angle) * radius, 30 + Math.sin(angle) * radius, 1 + height * (0.6 + 0.4 * ((i * 7) % 10) / 10.), 5});
+      points.add(new double [] {20 + Math.cos(angle) * radius, 30 + Math.sin(angle) * radius, 1 + height, 5});
+    }
+    java.nio.ByteBuffer las = java.nio.ByteBuffer.allocate(227 + points.size() * 20).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+    las.put((byte)'L').put((byte)'A').put((byte)'S').put((byte)'F');
+    las.put(24, (byte)1).put(25, (byte)2);
+    las.putShort(94, (short)227);
+    las.putInt(96, 227);
+    las.put(104, (byte)0);
+    las.putShort(105, (short)20);
+    las.putInt(107, points.size());
+    las.putDouble(131, 0.01).putDouble(139, 0.01).putDouble(147, 0.01);
+    las.putDouble(155, 500000).putDouble(163, 3700000).putDouble(171, 300);
+    for (int i = 0; i < points.size(); i++) {
+      int at = 227 + i * 20;
+      las.putInt(at, (int)Math.round(points.get(i) [0] * 100));
+      las.putInt(at + 4, (int)Math.round(points.get(i) [1] * 100));
+      las.putInt(at + 8, (int)Math.round(points.get(i) [2] * 100));
+      las.put(at + 15, (byte)points.get(i) [3]);
+    }
+    java.io.File file = java.io.File.createTempFile("cloud", ".las");
+    file.deleteOnExit();
+    java.nio.file.Files.write(file.toPath(), las.array());
+    String path = file.getPath().replace("\\", "\\\\");
+    // Its ground, without the tree
+    String summary = run("{\"action\":\"set_terrain\",\"file\":\"" + path + "\",\"x\":0,\"y\":6000,\"pin\":{\"x\":100,\"y\":3000,\"height\":0}}");
+    assertTrue(summary, summary.contains("Read from " + file.getName()));
+    assertEquals(8000, getTerrain().getWidth(), 250);
+    assertEquals(0, getHeight(100, 3000), 12);
+    assertEquals(200, getHeight(4000, 3000), 25);
+    // The ground under the tree isn't raised by it
+    assertEquals(100, getHeight(2000, 3000), 25);
+    // Its tree, 12 m high, at 20 m to the east and 30 m to the north of the corner of the file
+    summary = run("{\"action\":\"trees_from_lidar\",\"file\":\"" + path + "\",\"x\":0,\"y\":6000}");
+    assertTrue(summary, summary.contains("Found 1 treetops") && summary.contains("planted them with the tag \"lidar\""));
+    HomePieceOfFurniture tree = null;
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      if (piece.getProperty("assistantPlant") != null) {
+        tree = piece;
+      }
+    }
+    assertNotNull(summary, tree);
+    assertEquals(2000, tree.getX(), 120);
+    assertEquals(3000, tree.getY(), 120);
+    assertEquals(1200, tree.getHeight(), 120);
+    assertTrue(tree.getProperty("tags"), tree.getProperty("tags").contains("lidar"));
+    java.io.File laz = java.io.File.createTempFile("cloud", ".laz");
+    laz.deleteOnExit();
+    summary = run("{\"action\":\"trees_from_lidar\",\"file\":\"" + laz.getPath().replace("\\", "\\\\") + "\"}");
+    assertTrue(summary, summary.contains("laszip"));
   }
 
   @Test

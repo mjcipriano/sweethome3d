@@ -56,6 +56,7 @@ public class AssistantCommandExecutor {
       "depth", "height", "elevation", "on_terrain", "offset", "color", "tags", "level", "name_override", "display_name", "mirrored");
   private static final List<String> MODIFY_FURNITURE_KEYS = java.util.Arrays.asList("action", "id", "ids", "target", "names", "where",
       "x", "y", "dx", "dy", "angle", "by", "pitch", "roll", "width", "depth", "height", "elevation", "on_terrain", "offset",
+      "align_to_slope", "max_tilt",
       "color", "texture", "visible", "name", "tags", "add_tags", "remove_tags", "level");
   /** The most commands a file of commands may hold. */
   public static final int MAX_COMMANDS_PER_FILE = 2000;
@@ -1118,6 +1119,35 @@ public class AssistantCommandExecutor {
         double offset = command.getDouble("offset", 0);
         height = height + (float)(sizeSane(offset) ? offset : 0);
         piece.setElevation(height - (piece.getLevel() != null ? piece.getLevel().getElevation() : 0));
+        if (command.getBoolean("align_to_slope", false)) {
+          // Tilted as the ground under it, around one of its axes
+          double angle = piece.getAngle();
+          float halfDepth = Math.max(10, piece.getDepth() / 2);
+          float halfWidth = Math.max(10, piece.getWidth() / 2);
+          Float front = this.shapeCommands.getTerrainHeight(piece.getX() - (float)Math.sin(angle) * halfDepth, piece.getY() + (float)Math.cos(angle) * halfDepth);
+          Float back = this.shapeCommands.getTerrainHeight(piece.getX() + (float)Math.sin(angle) * halfDepth, piece.getY() - (float)Math.cos(angle) * halfDepth);
+          Float right = this.shapeCommands.getTerrainHeight(piece.getX() + (float)Math.cos(angle) * halfWidth, piece.getY() + (float)Math.sin(angle) * halfWidth);
+          Float left = this.shapeCommands.getTerrainHeight(piece.getX() - (float)Math.cos(angle) * halfWidth, piece.getY() - (float)Math.sin(angle) * halfWidth);
+          if (!piece.isHorizontallyRotatable()) {
+            warn(getId(piece) + " can't be tilted: it stays upright");
+          } else if (front != null && back != null && right != null && left != null) {
+            double limit = Math.toRadians(Math.max(0, Math.min(45, command.getDouble("max_tilt", 20))));
+            double pitch = Math.atan2(front - back, halfDepth * 2);
+            double roll = -Math.atan2(right - left, halfWidth * 2);
+            if (Math.abs(pitch) >= Math.abs(roll)) {
+              piece.setPitch((float)Math.max(-limit, Math.min(limit, pitch)));
+              piece.setRoll(0);
+            } else {
+              piece.setRoll((float)Math.max(-limit, Math.min(limit, roll)));
+              piece.setPitch(0);
+            }
+            if (Math.max(Math.abs(pitch), Math.abs(roll)) > limit) {
+              warn(getId(piece) + " stands on a slope of " + AssistantStructureCommands.format((float)Math.toDegrees(
+                  Math.max(Math.abs(pitch), Math.abs(roll)))) + " degrees: it is tilted by " + AssistantStructureCommands.format(
+                  (float)Math.toDegrees(limit)) + " degrees at most (\"max_tilt\")");
+            }
+          }
+        }
         // A tree or a car on the ground isn't furniture out of its room
         piece.setProperty(OUTDOOR_PROPERTY, "true");
         return true;
@@ -1757,7 +1787,7 @@ public class AssistantCommandExecutor {
     // Each kind of change is the command that already makes it
     String [][] changes = {
         {"move_to_level", "level"}, {"resize", "width", "depth", "height"}, {"move", "x", "y"}, {"move", "dx", "dy"},
-        {"rotate", "angle", "by", "pitch", "roll"}, {"set_elevation", "elevation", "on_terrain", "offset"},
+        {"rotate", "angle", "by", "pitch", "roll"}, {"set_elevation", "elevation", "on_terrain", "offset", "align_to_slope", "max_tilt"},
         {"set_color", "color"}, {"set_texture", "texture"}, {"set_visible", "visible"}, {"rename", "name"},
         {"set_tags", "tags"}, {"add_tags", "add_tags"}, {"remove_tags", "remove_tags"}};
     List<String> ids = new ArrayList<String>();

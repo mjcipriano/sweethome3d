@@ -195,7 +195,7 @@ and `list_catalog` tools find one, and `get_catalog_image` shows it.
 | `move` | `dx`,`dy` (relative) or `x`,`y` (absolute) |
 | `rotate` | `angle` (absolute) or `by` (added); `pitch` or `roll` tilts a piece, and both at 0 set it upright |
 | `resize` | `width`, `depth`, `height` |
-| `set_elevation` | `elevation` above the floor of the level (negative: under it), or `"on_terrain":true` (with `"offset":N` cm above it) to put the piece on the ground built by `set_terrain` |
+| `set_elevation` | `elevation` above the floor of the level (negative: under it), or `"on_terrain":true` (with `"offset":N` cm above it, and `"align_to_slope":true` to tilt a bench or a shed as the ground under it, by `max_tilt` degrees (20) at most) to put the piece on the ground built by `set_terrain` |
 | `set_visible` | `"visible":true\|false` |
 | `rename` | `name` |
 | `delete` | Deletes the items |
@@ -432,7 +432,9 @@ a file, shape it, and measure it. The ground takes up to 100 000 points.
 
 | Command | What it does |
 | --- | --- |
-| `set_terrain` with `raster` or `file` | The ground from a grid of heights, an Esri ASCII grid or a text of x y z lines |
+| `set_terrain` with `raster` or `file` | The ground from a grid of heights, a GeoTIFF, an Esri ASCII grid, x y z lines or a LAS point cloud |
+| `add_terrain_patch` | Refines a part of the ground with finer points, the rest staying as it is |
+| `trees_from_lidar` | Finds the treetops of a LAS point cloud and plants a tree at each one |
 | `shift_terrain` | Moves the whole ground up or down: `offset`, or `pin` |
 | `add_pad` | A flat or sloped pad cut or filled under a polygon, the ground joining it around |
 | `flatten_area` | A pad at the mean height of the ground in a polygon |
@@ -464,8 +466,11 @@ a file, shape it, and measure it. The ground takes up to 100 000 points.
 - `raster` is `{"x0","y0","cell","cols","rows","heights"}`: `x0`, `y0` is the place of the first
   height, at the top left; `cell` the distance between two heights in cm; `heights` the rows from
   the top of the plan to its bottom, one after the other (or a list of rows), in cm.
-- `file` is the absolute path of an **Esri ASCII grid** (`.asc`) or of a text of `x y z` lines
-  (`.xyz`, `.txt`, `.csv`). `units` (`m` by default, `ft`, `cm`) is the unit of its distances and
+- `file` is the absolute path of a **GeoTIFF** (`.tif`: one band of 16 or 32 bit integers or of
+  32 or 64 bit floats, not compressed or compressed by Deflate or LZW, not BigTIFF), of an
+  **Esri ASCII grid** (`.asc`), of a text of `x y z` lines (`.xyz`, `.txt`, `.csv`), or of a
+  **LAS point cloud** (`.las`), of which the points of the ground class are kept, or without
+  classes the lowest point of each cell. `units` (`m` by default, `ft`, `cm`) is the unit of its distances and
   `z_units` the one of its heights. Its place is given by `"srs":"EPSG:2240"` with the
   georeference of the home, or by `x`, `y`, the place in the plan of its lower left corner, its
   north up the plan.
@@ -473,8 +478,14 @@ a file, shape it, and measure it. The ground takes up to 100 000 points.
   changes, and `max_error_cm` (5) is the error accepted.
 - `datum_offset_cm` is added to every height. `"pin":{"x","y","height"}` moves the ground up or
   down for it to be at that height at that place, like the bottom of a doorstep.
-- GeoTIFF, LAS and LAZ files aren't read: `gdal_translate -of AAIGrid in.tif out.asc` converts a
-  raster.
+- Compressed LAZ point clouds aren't read: `laszip -i in.laz -o out.las` writes a LAS file.
+- `add_terrain_patch` takes `points`, a `raster` or a `file` the same way: they replace the points
+  of the ground inside the box around them. It isn't counted as earth moved.
+- `trees_from_lidar` reads a `.las` `file` placed the same way. A treetop is what stands more than
+  `min_height` cm (300) above the ground and is the highest within `window_m` meters (3). Each one
+  becomes a generated tree with its height and the radius of its crown, a conifer when its crown
+  is narrow, with the `tag` `lidar` for `update_trees` and `relabel_trees`. Buildings count as
+  trees when the cloud doesn't class them.
 
 ### Grading
 
@@ -521,8 +532,9 @@ build again, and `find_floating` the pieces to put back on it.
 
 ### Limits
 
-- No elevation is fetched from a web service, and no GeoTIFF or LiDAR file is read.
-- The ground is one surface: there are no patches refined apart.
+- Heights from a web service come through `fetch_elevation`, with the permission of the user.
+- BigTIFF, JPEG or LERC compressed rasters and LAZ point clouds aren't read.
+- The ground is one surface: a patch refines its points, it isn't a ground of its own.
 - `grade_path` builds no curb, and `add_pad` no wall: `add_fence` with `retaining_wall` draws one.
 - A ground of 100 000 points takes about 5 seconds to build and makes a heavy 3D model.
 
@@ -787,9 +799,9 @@ A line whose last point repeats the first one is closed, as with `"closed":true`
 | Command | What it does |
 | --- | --- |
 | `add_fence` | A fence, a garden wall or a barrier along `points`, in one of 63 styles, with its gates. See [Fences, walls and gates](#fences-walls-and-gates) |
-| `add_hedge` | A hedge along `points`, mitred at its corners, with chamfered top edges: `height` (150), `width` (60), `color` (a dark green), `closed`, `name` |
+| `add_hedge` | A hedge along `points`, mitred at its corners, with chamfered top edges: `height` (150), `width` (60), `color` (a dark green), `closed`, `name`. `"species":"boxwood"` gives it the leaves of a species, and `"pruned_shape":"natural\|box\|rounded"` its shape |
 | `add_path` | A paved strip along the center line `points`, mitred at its corners and laid on the ground: `width` (100), `thickness` (4), `color` or `texture` (with `texture_scale`, `texture_angle`), `"edging":true` for a curb on both sides (`edging_color`), `closed`, `name`. `"stepping_stones":{"length":40,"gap":20}` lays separate slabs of `length` x `width` cm instead |
-| `add_planting_bed` | An area of soil over the polygon `points`: `thickness` (6), `color` (dark soil) or `texture`, `"border":{"height":10,"width":5,"color":"#RRGGBB"}` for an edging, `name`. `"plants":{"name":"Plant","spacing":80}` (or `"names":[...]`, or just a list of names) scatters catalog pieces inside it |
+| `add_planting_bed` | An area of soil over the polygon `points`: `thickness` (6), `color` (dark soil) or `texture`, `"border":{"height":10,"width":5,"color":"#RRGGBB"}` for an edging, `name`. `"plants":{"name":"Plant","spacing":80}` (or `"names":[...]`, or just a list of names) scatters catalog pieces inside it. `add_groundcover` is the same command: `material` is `pine_straw`, `hardwood_mulch`, `rubber_mulch`, `gravel`, `river_rock`, `lawn`, `fescue`, `bermuda`, `zoysia`, `centipede`, `st_augustine`, `leaf_litter`, `moss`, `ivy`, `vinca` or `pachysandra`, and `"edging":"steel\|brick\|stone\|liriope"` borders it |
 | `add_trees` / `scatter` | Catalog pieces put on the ground: `"names":[...]` (or `name`), in the polygon `"area":[[x,y],...]` or along the line `"along":[[x,y],...]`, every `spacing` cm (300) or `count` of them. `"min_distance_from_buildings"` (150), `"jitter":N` cm, `"rotate":false` |
 
 ```json
@@ -1169,8 +1181,10 @@ United States. `list_species` gives them all.
 ### Limits
 
 - Seasons don't change catalog pieces, hedges or planting beds.
+- Hedges and planting beds take the color of a species or of a cover, not its shape.
 - The sun study uses the leaves the plants show: run `set_season` for the date studied.
-- No tree is read from LiDAR points, and no species is guessed from them.
+- `trees_from_lidar` finds trees in a LAS point cloud, as generic conifers or deciduous trees: the
+  species isn't guessed, `relabel_trees` gives it.
 - The detail doesn't change with the distance of the camera: `set_season` with `lod` sets it for all.
 
 ## Outdoor structures and site items
@@ -1351,11 +1365,12 @@ level, and `remove_background_image` takes it away.
 
 ### Limits
 
-- Point clouds (LAS, LAZ, the Entwine service of the USGS) aren't read, so trees aren't found or
-  classified from LiDAR: `import_trees` takes the treetops a LiDAR tool extracts.
+- Point clouds aren't downloaded: the USGS serves them compressed. A LAS file on disk is read by
+  `set_terrain` and `trees_from_lidar`.
 - Bing and Google pictures, WMS servers and the dates of pictures aren't available.
 - Only the outer ring of a polygon is drawn.
-- The coordinate systems are the built-in ones, not every EPSG code.
+- An EPSG code that isn't built in is given by its PROJ text in `srs`, like
+  `+proj=lcc +lat_1=... +units=us-ft` (tmerc, utm, lcc, merc and longlat are read).
 
 ## Photos
 

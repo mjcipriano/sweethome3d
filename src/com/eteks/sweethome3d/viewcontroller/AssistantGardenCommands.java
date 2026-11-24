@@ -76,7 +76,8 @@ class AssistantGardenCommands {
   static String getReference() {
     return AssistantFenceCommands.getReference()
         + "  {\"action\":\"add_hedge\",\"points\":[[x,y],[x,y],...],\"height\":150,\"width\":60}  "
-        + "(a hedge with chamfered top edges along the line, mitred at its corners, which follows the ground; \"closed\", \"color\", \"name\")\n"
+        + "(a hedge with chamfered top edges along the line, mitred at its corners, which follows the ground; \"closed\", \"color\", \"name\"; "
+        + "\"species\":\"boxwood\" gives it the leaves of a species of list_species, and \"pruned_shape\":\"natural|box|rounded\" its shape)\n"
         + "  {\"action\":\"add_path\",\"points\":[[x,y],[x,y],...],\"width\":100}  "
         + "(a paved strip along a center line, mitred at its corners and laid on the ground: \"thickness\" (4), \"color\" or \"texture\" "
         + "with texture_scale, \"edging\":true for a curb on both sides, \"closed\", \"name\". "
@@ -84,7 +85,9 @@ class AssistantGardenCommands {
         + "  {\"action\":\"add_planting_bed\",\"points\":[[x,y],[x,y],[x,y],...],\"plants\":{\"name\":\"<catalog name>\",\"spacing\":80}}  "
         + "(an area of soil laid on the ground: \"color\" or \"texture\", \"thickness\" (6), \"border\":{\"height\":10,\"color\":\"#RRGGBB\"} "
         + "for an edging. \"plants\" scatters catalog pieces inside on a jittered grid, the same at each call for the same points: "
-        + "{\"name\" or \"names\":[...],\"spacing\":N}, or a list of names)\n"
+        + "{\"name\" or \"names\":[...],\"spacing\":N}, or a list of names. add_groundcover is the same command: \"material\" is pine_straw, "
+        + "hardwood_mulch, rubber_mulch, gravel, river_rock, lawn, fescue, bermuda, zoysia, centipede, st_augustine, leaf_litter, moss, "
+        + "ivy, vinca or pachysandra, and \"edging\":\"steel|brick|stone|liriope\" borders it)\n"
         + "  {\"action\":\"add_trees\",\"area\":[[x,y],[x,y],[x,y],...],\"names\":[\"<catalog name>\"],\"spacing\":300}  "
         + "(or \"scatter\": catalog pieces put on the ground in an area, or along a line with \"along\":[[x,y],...]; \"spacing\" or \"count\"; "
         + "the places closer than \"min_distance_from_buildings\" (150) to a room or a wall are skipped; \"jitter\":N cm, "
@@ -110,7 +113,7 @@ class AssistantGardenCommands {
         addHedge(command, tally, notes);
       } else if ("add_path".equals(action) || "add_garden_path".equals(action)) {
         addPath(command, tally, notes);
-      } else if ("add_planting_bed".equals(action) || "add_flower_bed".equals(action)) {
+      } else if ("add_planting_bed".equals(action) || "add_flower_bed".equals(action) || "add_groundcover".equals(action)) {
         addPlantingBed(command, tally, notes);
       } else if ("add_trees".equals(action) || "scatter".equals(action)) {
         scatter(action, command, tally, notes);
@@ -591,8 +594,18 @@ class AssistantGardenCommands {
     Level level = this.executor.getShapeCommands().getLevel(command, "add_hedge", notes);
     Ground ground = new Ground(level);
     AssistantMeshBuilder mesh = new AssistantMeshBuilder();
-    AssistantMeshBuilder.Material material = mesh.getMaterial(getColor(command.getString("color"), 0x3F6B35));
-    float chamfer = Math.min(width, height) * 0.25f;
+    // The leaves of its species, and the shape it is clipped to
+    Integer leafColor = command.getString("species") != null ? AssistantPlantCommands.getLeafColor(command.getString("species")) : null;
+    if (command.getString("species") != null && leafColor == null) {
+      notes.add("Warning: add_hedge doesn't know the species \"" + command.getString("species") + "\" (list_species gives the "
+          + "species): the hedge is plain green");
+    }
+    int hedgeColor = getColor(command.getString("color"), leafColor != null ? leafColor : 0x3F6B35);
+    AssistantMeshBuilder.Material material = mesh.getMaterial("leaves", 60, 60, hedgeColor,
+        (hedgeColor & 0xFEFEFE) >> 1 | 0x101010, 0);
+    String shape = command.getString("pruned_shape") != null ? command.getString("pruned_shape").trim().toLowerCase(Locale.ENGLISH) : "natural";
+    float chamfer = Math.min(width, height) * (shape.equals("box") || shape.equals("hedge_section") ? 0.04f
+        : shape.equals("rounded") || shape.equals("ball") ? 0.45f : 0.25f);
     float [][] section = {{-width / 2, -ground.getSink()}, {width / 2, -ground.getSink()}, {width / 2, height - chamfer},
                           {width / 2 - chamfer, height}, {-width / 2 + chamfer, height}, {-width / 2, height - chamfer}};
     addSweep(mesh, getStations(points, closed, GROUND_STEP), closed, section, ground, material);
@@ -681,6 +694,29 @@ class AssistantGardenCommands {
     Ground ground = new Ground(level);
     AssistantMeshBuilder mesh = new AssistantMeshBuilder();
     AssistantMeshBuilder.Material topMaterial = getMaterial(mesh, command.getParameters(), 0x4A3524, notes);
+    String cover = command.getString("material") != null ? command.getString("material").trim().toLowerCase(Locale.ENGLISH).replace(' ', '_') : null;
+    if (cover != null && command.getString("texture") == null) {
+      // A mulch, a lawn or a groundcover, with its usual color
+      String [][] covers = {{"pine_straw", "9A6A3A", "mulch"}, {"hardwood_mulch", "4A3524", "mulch"}, {"mulch", "4A3524", "mulch"},
+          {"rubber_mulch", "3A2A22", "mulch"}, {"gravel", "A8A294", "gravel"}, {"river_rock", "8C8478", "fieldstone"},
+          {"lawn", "5E8A40", "leaves"}, {"fescue", "4F7A3C", "leaves"}, {"bermuda", "6A9448", "leaves"}, {"zoysia", "5E8A40", "leaves"},
+          {"centipede", "7AA050", "leaves"}, {"st_augustine", "3F6E34", "leaves"}, {"leaf_litter", "7A5A3A", "mulch"},
+          {"moss", "4A6A2A", "leaves"}, {"ivy", "2F5A32", "leaves"}, {"vinca", "3A6238", "leaves"}, {"pachysandra", "3F6A34", "leaves"},
+          {"soil", "4A3524", "mulch"}};
+      String [] found = null;
+      for (String [] candidate : covers) {
+        if (candidate [0].equals(cover)) {
+          found = candidate;
+        }
+      }
+      if (found == null) {
+        throw new IOException("\"material\" is pine_straw, hardwood_mulch, rubber_mulch, gravel, river_rock, lawn, fescue, bermuda, "
+            + "zoysia, centipede, st_augustine, leaf_litter, moss, ivy, vinca, pachysandra or soil");
+      }
+      int coverColor = getColor(command.getString("color"), Integer.parseInt(found [1], 16));
+      float size = found [2].equals("fieldstone") ? 40 : found [2].equals("leaves") ? 25 : 30;
+      topMaterial = mesh.getMaterial(found [2], size, size, coverColor, (coverColor & 0xFEFEFE) >> 1 | 0x141414, 0);
+    }
     AssistantMeshBuilder.Material sideMaterial = topMaterial.isTextured() ? mesh.getMaterial(topMaterial.getColor()) : topMaterial;
     float sink = ground.getSink();
     Rectangle2D bounds = area.getBounds2D();
@@ -742,6 +778,16 @@ class AssistantGardenCommands {
     }
     // Its edging
     Object border = command.getParameters().get("border");
+    if (border == null && command.getString("edging") != null && !"none".equalsIgnoreCase(command.getString("edging"))) {
+      // An edging by its name
+      String edging = command.getString("edging").trim().toLowerCase(Locale.ENGLISH);
+      Map<String, Object> preset = new LinkedHashMap<String, Object>();
+      preset.put("height", Double.valueOf(edging.startsWith("steel") ? 10 : edging.startsWith("liriope") ? 25 : 12));
+      preset.put("width", Double.valueOf(edging.startsWith("steel") ? 1 : edging.startsWith("liriope") ? 25 : 10));
+      preset.put("color", edging.startsWith("steel") ? "#4A4F54" : edging.startsWith("brick") ? "#9C4A35"
+          : edging.startsWith("liriope") ? "#3F6A38" : "#8C8478");
+      border = preset;
+    }
     String borderDescription = "";
     if (border instanceof Map || Boolean.TRUE.equals(border)) {
       Map<?, ?> map = border instanceof Map ? (Map<?, ?>)border : Collections.emptyMap();
