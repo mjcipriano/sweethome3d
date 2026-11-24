@@ -69,6 +69,8 @@ class AssistantShapeCommands {
   static final String TERRAIN_PROPERTY = "assistantTerrain";
   static final String TERRAIN_PARAMETERS_PROPERTY = "assistantTerrainParameters";
   static final String TERRAIN_FOOTPRINT_PROPERTY = "assistantTerrainFootprint";
+  /** The property of a ground that keeps what trims its edge: {"max_edge":N,"clip":[[x,y],...]}. */
+  static final String TERRAIN_TRIM_PROPERTY = "assistantTerrainTrim";
   /** Property of a slab storing the id of the room it's the floor of. */
   static final String ROOM_SLAB_PROPERTY = "assistantRoomSlab";
   /** Property of a piece made of parts storing them, in JSON. */
@@ -98,6 +100,7 @@ class AssistantShapeCommands {
   private List<List<float [][]>>         terrainIndex;
   private float []                       terrainIndexBounds;
   private int                            terrainIndexCells;
+  private String                         terrainTrim;
 
   AssistantShapeCommands(Home home, UserPreferences preferences, HomeController homeController,
                          AssistantCommandExecutor executor) {
@@ -464,6 +467,15 @@ class AssistantShapeCommands {
     if (triangles.isEmpty()) {
       throw new IOException("the points are aligned: they give no ground");
     }
+    int triangleCount = triangles.size();
+    String trim = getTerrainTrim(parameters, triangles);
+    if (trim != null) {
+      List<float [][]> trimmed = HomeTerrain.getTriangles(null, trim, triangles);
+      if (trimmed.isEmpty()) {
+        throw new IOException("\"max_edge\" or \"clip\" leaves no triangle of the ground");
+      }
+      triangles = trimmed;
+    }
     float lowest = Float.MAX_VALUE;
     float highest = -Float.MAX_VALUE;
     for (float [] point : points) {
@@ -525,6 +537,7 @@ class AssistantShapeCommands {
     terrain.setProperty(TERRAIN_PROPERTY, spec.append(']').toString());
     // What is needed to build the ground again when the rooms it is open under change
     terrain.setProperty(TERRAIN_PARAMETERS_PROPERTY, toJson(parameters));
+    terrain.setProperty(TERRAIN_TRIM_PROPERTY, trim);
     terrain.setProperty(TERRAIN_FOOTPRINT_PROPERTY, getFootprintSignature(level));
     terrain.setProperty(HomeItemTags.TAGS_PROPERTY, "terrain");
     // One ground at a time, unless told otherwise
@@ -562,6 +575,9 @@ class AssistantShapeCommands {
     notes.add((replaced > 0 ? "Replaced the ground by " : "Added the ground ") + this.executor.getId(terrain) + " \"" + name
         + "\": " + points.size() + " points, " + triangles.size() + " triangles, heights from " + format(lowest) + " to "
         + format(highest) + " cm (0 = the floor of the level at the elevation 0)"
+        + (triangles.size() < triangleCount ? ", " + (triangleCount - triangles.size()) + " long triangles of its edge left out"
+            + (parameters.get("max_edge") instanceof Number ? " (\"max_edge\":" + format(((Number)parameters.get("max_edge")).floatValue())
+                + " cm; \"max_edge\":0 keeps them)" : "") : "")
         + (areaCount == 0 ? "" : ", " + areaCount + (areaCount == 1 ? " area" : " areas") + " with a finish of their own")
         + (level != null ? ", on the level " + this.executor.getId(level) + " \"" + level.getName() + "\" at "
             + format(level.getElevation()) + " cm" + (levelAdded ? ", added for it under the others: the 3D view draws no flat "
@@ -785,7 +801,7 @@ class AssistantShapeCommands {
         }
         Map<String, Object> parameters = (Map<String, Object>)parsed;
         List<float []> points = getTerrainPoints(parameters);
-        List<float [][]> triangles = triangulate(points);
+        List<float [][]> triangles = HomeTerrain.getTriangles(null, piece.getProperty(TERRAIN_TRIM_PROPERTY), triangulate(points));
         if (triangles.isEmpty()) {
           continue;
         }
@@ -820,6 +836,136 @@ class AssistantShapeCommands {
       }
       mesh.addPolygon(points, material, 0, 1, 0);
     }
+  }
+
+  /**
+   * Returns what trims the edge of a ground from the parameters of <code>set_terrain</code>, or <code>null</code>:
+   * <code>max_edge</code> in cm, <code>"auto"</code> for 5 times the median side of its triangles, and
+   * <code>clip</code>, the outline it stays in. An automatic length is written in the parameters.
+   */
+  private static String getTerrainTrim(Map<String, Object> parameters, List<float [][]> triangles) throws IOException {
+    Object maxEdgeParameter = parameters.get("max_edge");
+    float maxEdge = 0;
+    if (maxEdgeParameter instanceof Number) {
+      maxEdge = ((Number)maxEdgeParameter).floatValue();
+    } else if (maxEdgeParameter != null) {
+      if (!"auto".equalsIgnoreCase(maxEdgeParameter.toString().trim())) {
+        throw new IOException("\"max_edge\" is a length in cm, or \"auto\" for 5 times the usual distance between the points");
+      }
+      float [] lengths = new float [triangles.size()];
+      for (int i = 0; i < lengths.length; i++) {
+        float [][] triangle = triangles.get(i);
+        // The shortest side of a triangle tells the distance between the points there
+        lengths [i] = (float)Math.min(Math.hypot(triangle [0][0] - triangle [1][0], triangle [0][1] - triangle [1][1]),
+            Math.min(Math.hypot(triangle [1][0] - triangle [2][0], triangle [1][1] - triangle [2][1]),
+                Math.hypot(triangle [2][0] - triangle [0][0], triangle [2][1] - triangle [0][1])));
+      }
+      java.util.Arrays.sort(lengths);
+      maxEdge = Math.max(100, Math.round(lengths [lengths.length / 2] * 5));
+      parameters.put("max_edge", Double.valueOf(maxEdge));
+    }
+    List<float []> clip = AssistantFurnitureBuilder.getPoints(parameters, "clip", 2);
+    if (parameters.get("clip") != null && clip.size() < 3) {
+      throw new IOException("\"clip\" is the outline the ground stays in: 3 points [x,y] at least");
+    }
+    if (!(maxEdge > 0) && clip.size() < 3) {
+      return null;
+    }
+    Map<String, Object> trim = new LinkedHashMap<String, Object>();
+    if (maxEdge > 0) {
+      trim.put("max_edge", Double.valueOf(maxEdge));
+    }
+    if (clip.size() >= 3) {
+      trim.put("clip", parameters.get("clip"));
+    }
+    return toJson(trim);
+  }
+
+  /**
+   * Returns the given triangles without the ones whose center is out of <code>clip</code>, then without the ones
+   * of the edge that have a side along it longer than <code>maxEdge</code>: the long slivers that join
+   * the far points of a ragged edge. The triangles inside the ground are kept whatever their size.
+   */
+  static List<float [][]> trimTriangles(List<float [][]> triangles, float maxEdge, float [][] clip) {
+    List<float [][]> kept = triangles;
+    if (clip != null) {
+      kept = new ArrayList<float [][]>();
+      for (float [][] triangle : triangles) {
+        if (AssistantRoomFurnisher.contains(clip, (triangle [0][0] + triangle [1][0] + triangle [2][0]) / 3,
+                (triangle [0][1] + triangle [1][1] + triangle [2][1]) / 3)) {
+          kept.add(triangle);
+        }
+      }
+    }
+    if (!(maxEdge > 0) || kept.isEmpty()) {
+      return kept;
+    }
+    // The triangles at each side
+    int count = kept.size();
+    Map<Long, Integer> corners = new HashMap<Long, Integer>();
+    long [][] sides = new long [count][3];
+    Map<Long, int []> sideTriangles = new HashMap<Long, int []>();
+    for (int i = 0; i < count; i++) {
+      float [][] triangle = kept.get(i);
+      int [] indices = new int [3];
+      for (int j = 0; j < 3; j++) {
+        Long place = Long.valueOf(((long)Float.floatToIntBits(triangle [j][0]) << 32) | (Float.floatToIntBits(triangle [j][1]) & 0xFFFFFFFFL));
+        Integer index = corners.get(place);
+        if (index == null) {
+          corners.put(place, index = Integer.valueOf(corners.size()));
+        }
+        indices [j] = index.intValue();
+      }
+      for (int j = 0; j < 3; j++) {
+        int a = indices [j];
+        int b = indices [(j + 1) % 3];
+        sides [i][j] = (long)Math.min(a, b) * 4000000L + Math.max(a, b);
+        int [] pair = sideTriangles.get(Long.valueOf(sides [i][j]));
+        if (pair == null) {
+          sideTriangles.put(Long.valueOf(sides [i][j]), new int [] {i, -1});
+        } else {
+          pair [1] = i;
+        }
+      }
+    }
+    boolean [] removed = new boolean [count];
+    List<Integer> stack = new ArrayList<Integer>();
+    for (int i = 0; i < count; i++) {
+      stack.add(Integer.valueOf(i));
+    }
+    while (!stack.isEmpty()) {
+      int i = stack.remove(stack.size() - 1).intValue();
+      if (removed [i]) {
+        continue;
+      }
+      float [][] triangle = kept.get(i);
+      for (int j = 0; j < 3; j++) {
+        int [] pair = sideTriangles.get(Long.valueOf(sides [i][j]));
+        int other = pair [0] == i ? pair [1] : pair [0];
+        if ((other < 0 || removed [other])
+            && Math.hypot(triangle [j][0] - triangle [(j + 1) % 3][0], triangle [j][1] - triangle [(j + 1) % 3][1]) > maxEdge) {
+          removed [i] = true;
+          break;
+        }
+      }
+      if (removed [i]) {
+        // Its neighbors are at the edge now
+        for (int j = 0; j < 3; j++) {
+          int [] pair = sideTriangles.get(Long.valueOf(sides [i][j]));
+          int other = pair [0] == i ? pair [1] : pair [0];
+          if (other >= 0 && !removed [other]) {
+            stack.add(Integer.valueOf(other));
+          }
+        }
+      }
+    }
+    List<float [][]> result = new ArrayList<float [][]>();
+    for (int i = 0; i < count; i++) {
+      if (!removed [i]) {
+        result.add(kept.get(i));
+      }
+    }
+    return result;
   }
 
   /**
@@ -1132,9 +1278,11 @@ class AssistantShapeCommands {
       if (spec == null) {
         continue;
       }
-      if (!spec.equals(this.terrainSpec)) {
-        this.terrainTriangles = HomeTerrain.getTriangles(spec);
+      String trim = piece.getProperty(TERRAIN_TRIM_PROPERTY);
+      if (!spec.equals(this.terrainSpec) || (trim == null ? this.terrainTrim != null : !trim.equals(this.terrainTrim))) {
+        this.terrainTriangles = HomeTerrain.getTriangles(spec, trim);
         this.terrainSpec = spec;
+        this.terrainTrim = trim;
         this.terrainIndex = null;
         if (this.terrainTriangles.size() > 2000) {
           // The triangles over each cell of a grid, in their order

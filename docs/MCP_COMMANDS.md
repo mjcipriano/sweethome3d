@@ -436,7 +436,8 @@ a file, shape it, and measure it. The ground takes up to 100 000 points.
 | `set_terrain` with `raster` or `file` | The ground from a grid of heights, a GeoTIFF, an Esri ASCII grid, x y z lines or a LAS point cloud |
 | `add_terrain_patch` | Refines a part of the ground with finer points, the rest staying as it is |
 | `trees_from_lidar` | Finds the treetops of a LAS point cloud and plants a tree at each one |
-| `shift_terrain` | Moves the whole ground up or down: `offset`, or `pin` |
+| `shift_terrain` | Moves the whole ground up by `offset` cm (down if negative), or puts it at a height at a place with `pin` |
+| `reseat_all` | Puts the plants and the pieces back on the ground, and builds the fences again on it |
 | `add_pad` | A flat or sloped pad cut or filled under a polygon, the ground joining it around |
 | `flatten_area` | A pad at the mean height of the ground in a polygon |
 | `smooth_area` | Softens the bumps of the ground in a polygon |
@@ -480,25 +481,61 @@ a file, shape it, and measure it. The ground takes up to 100 000 points.
 - `datum_offset_cm` is added to every height. `"pin":{"x","y","height"}` moves the ground up or
   down for it to be at that height at that place, like the bottom of a doorstep.
 - Compressed LAZ point clouds aren't read: `laszip -i in.laz -o out.las` writes a LAS file.
+- **The edge of scattered points.** Points that don't fill a rectangle have a ragged edge, and the
+  triangles that join them would close it with long thin slivers, whose slopes don't exist.
+  `"max_edge":N` leaves out the triangles of the edge that have a side along it longer than N cm,
+  one after the other from the outside: the triangles inside the ground are kept whatever their
+  size, so the ground under a house without ground points stays. `"max_edge":"auto"` takes 5 times
+  the usual distance between the points, and it is the default for the points of a `.xyz` or
+  `.las` file; `"max_edge":0` keeps every triangle. The answer tells how many were left out.
+  `"clip":[[x,y],...]` keeps only the ground inside an outline, as the one of the lot with a
+  margin. Both are kept with the ground: grading it doesn't bring the slivers back.
+- `"resample_cm":N` grids the points before they are joined: the mean height of the points of
+  each square of N cm, at its center.
+- **A ground that replaces another one** keeps the `areas` of the old one - the finishes of the
+  lawn, the street, the driveway - unless `areas` is given, `[]` for none. This is true of
+  `set_terrain` in all its forms and of `fetch_elevation`.
 - `add_terrain_patch` takes `points`, a `raster` or a `file` the same way: they replace the points
   of the ground inside the box around them. It isn't counted as earth moved.
 - `trees_from_lidar` reads a `.las` `file` placed the same way. A treetop is what stands more than
   `min_height` cm (300) above the ground and is the highest within `window_m` meters (3). Each one
   becomes a generated tree with its height and the radius of its crown, a conifer when its crown
-  is narrow, with the `tag` `lidar` for `update_trees` and `relabel_trees`. Buildings count as
-  trees when the cloud doesn't class them.
+  is narrow, with the `tag` `lidar` for `update_trees` and `relabel_trees`.
+  - A classified cloud gives its trees by its vegetation points only (classes 3 to 5). With a
+    ground class and no vegetation class, the unclassified points are taken, poles and cars among
+    them; without any class, the lowest points are the ground and a building counts as trees.
+  - The tops over the building points of the cloud (class 6, and the cells around them for the
+    edge of a roof) are left out, as the ones over the rooms of the house, its roofs and the
+    neighbor buildings of the home.
+  - A lower top under the crown of a higher tree is merged with it, so a wide crown isn't cut
+    into several trees. The crown of a tree stops where the canopy falls under half its height or
+    rises again towards the next tree.
+  - The trees stand on the ground, and the answer tells how many tops were left out or merged.
 
 ### Grading
 
 Each grading command builds the ground again with its finishes, as one step of undo, and tells the
-earth it moved. What stands on the ground keeps its height: `check_home` reports the fences to
-build again, and `find_floating` the pieces to put back on it.
+earth it moved.
+
+**What stands on the ground follows it.** After a grading command, and after a `set_terrain` or a
+`fetch_elevation` that replaces the ground, the generated plants, the pieces put on the terrain
+(`on_terrain`), the outdoor structures and the neighbor buildings go up or down by what the ground
+changed under them, keeping the offset they had above it, and the fences whose ground changed are
+built again. The answer tells how many. A structure built for a slope - a deck, a path - is moved
+by the change at its center and named in the answer when the ground didn't change the same way
+under all of it. What stands on the floor of a room, or out of the ground, isn't moved.
+
+- `"reseat":false` on any of these commands leaves everything at its height.
+- `{"action":"reseat_all"}` puts things back later, without the ground as it was: the generated
+  plants at their `offset`, the pieces put on the terrain on it, and every fence built again. The
+  structures that aren't at the height of the ground at their center, as a pool that is dug, are
+  listed and keep their height.
 
 | Command | Parameters |
 | --- | --- |
 | `add_pad` | `points` of the polygon, `height` in cm (the mean of the ground there by default), `"slope":{"percent":2,"dir":180}` for a pad that drains (`dir` is the downhill direction: 0 up the plan, 90 its right), `blend_distance` (200) over which the ground joins it, `"blend_curve":"linear\|smoothstep"` |
 | `flatten_area` | `points`, `blend_distance` |
-| `smooth_area` | `points`, `radius` (300), `strength` from 0 to 1 |
+| `smooth_area` | `points`, `radius` (300), `strength` from 0 to 1. Only heights change: the part of the polygon out of the ground adds nothing to it |
 | `add_berm` | `points` of the line, `height` (60), `width` (300) |
 | `add_swale` | `points`, `depth` (30), `width` (200) |
 | `grade_path` | `points` of the center line, `width` (300); the ground goes straight from the height of a point to the next one, or through `"heights":[one per point]`; `cross_slope` in % towards the right of the direction walked, `crown` in cm, `"ditch":{"depth":30,"width":100}`, `blend_distance` (150). It shapes the ground only: `add_path` or `add_slab` lays the surface |
@@ -522,14 +559,31 @@ build again, and `find_floating` the pieces to put back on it.
 ### Site report and export
 
 - `site_report` gives the area of the lot (its property lines), what is built or paved with its
-  share of the lot, the lawn left, the planting beds, the generated trees by species with the
-  share of the lot under their crowns, the fences by style and by owner, the earth cut and filled
-  and the slopes. Slabs and paths are counted by the rectangle around them, and crowns that
-  overlap are counted twice.
+  share of the lot, the lawn left, the planting beds, the generated trees by species, the fences
+  by style and by owner, the earth cut and filled and the slopes.
+  - **Driveways, patios and paths** are the slabs, the paths, the rooms outdoors and the `areas`
+    of the ground that their name, their texture or a tag tells: a room named Driveway, an area
+    `{"name":"Street"}` or `{"surface":"patio"}`, an asphalt texture. Names with drive, road,
+    street, parking or asphalt count as driveways; patio, terrace, deck, porch or pool as patios;
+    walk or path as paths; concrete, paver, stone, brick or gravel as other paved places; lawn,
+    grass, mulch or garden aren't paved. With a lot, only their part on the lot is counted, and a
+    place under two of them is counted once in the total. Slabs and paths are counted by the
+    rectangle around them.
+  - **Crowns** are given in all, crowns that overlap counted twice, then over the lot only, each
+    place counted once, with the count of trees that stand on the lot.
+  - The lots of the neighbors aren't the lot: only the property lines are.
 - `export_site` writes `path`, a `.geojson` file, with the lot lines and the other lines, the
   fences (style, height, owner, length, gates), the generated trees and shrubs (species, height,
-  crown radius, trunk diameter, tags), the rooms, the slabs, the roofs and the garden pieces. It
-  needs the georeference of the home, and `"replace":true` to overwrite a file.
+  crown radius, trunk diameter, tags), the rooms outdoors, the slabs, the roofs and the garden
+  pieces. It needs the georeference of the home, and `"replace":true` to overwrite a file.
+  - A lot line has a `role`: `subject` for a property line, `neighbor` for the lot of a neighbor
+    and for a line drawn by `add_polyline` whose `name` tells a neighbor, a parcel, a lot line, a
+    property or a boundary.
+  - The rooms of the house are left out, and the answer tells how many:
+    `"interior_rooms":true` adds them with the kind `room_interior`. A room is outdoors when its
+    name is the one of a driveway, a patio, a deck, a porch, a path, a lawn, a yard, a garden or a
+    pool, when it has the tag `site` or `outdoor`, or when walls run along less than half of its
+    outline; the tag `interior` keeps a room in the house.
 
 ### Limits
 

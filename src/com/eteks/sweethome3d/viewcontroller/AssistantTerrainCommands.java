@@ -53,6 +53,10 @@ class AssistantTerrainCommands {
   private final Home                     home;
   private final HomeController           homeController;
   private final AssistantCommandExecutor executor;
+  /** <code>false</code> while a command leaves what stands on the ground at its height. */
+  private boolean                        reseat = true;
+  /** <code>true</code> once a file of scattered points was read, rather than a grid. */
+  private boolean                        scatteredFile;
 
   AssistantTerrainCommands(Home home, HomeController homeController, AssistantCommandExecutor executor) {
     this.home = home;
@@ -74,16 +78,29 @@ class AssistantTerrainCommands {
         + "changes: \"max_error_cm\" (5) is the error accepted. \"datum_offset_cm\":N is added to every height, or "
         + "\"pin\":{\"x\":N,\"y\":N,\"height\":N} moves the ground up or down for it to be at that height at that place, "
         + "like a doorstep. A GeoTIFF (.tif, one band, not compressed or Deflate or LZW) and a LAS point cloud (.las, its ground "
-        + "points) are read too; LAZ isn't: laszip writes a LAS file)\n"
+        + "points) are read too; LAZ isn't: laszip writes a LAS file. Scattered points have a ragged edge that long thin "
+        + "triangles would close, with slopes that don't exist: \"max_edge\":N cm leaves out the triangles of the edge with a "
+        + "side along it longer than that - \"auto\", 5 times the usual distance between the points, is the default for the "
+        + "points of a .xyz or .las file, and 0 keeps every triangle; \"clip\":[[x,y],...] keeps the ground inside an outline; "
+        + "\"resample_cm\":N grids the points first, the mean height of each square of N cm at its center. A ground that "
+        + "replaces another one keeps its \"areas\" unless \"areas\" is given ([] for none), and what stood on the old ground "
+        + "- generated plants, pieces put on the terrain, outdoor structures, fences - follows the new one: \"reseat\":false "
+        + "leaves it at its height, for this command as for the grading ones)\n"
+        + "  {\"action\":\"reseat_all\"}  (puts back on the ground the generated plants and the pieces put on the terrain that "
+        + "aren't at its height any more, and builds every fence again on it; the structures built for a slope, as a pool or a "
+        + "deck, are listed and keep their height)\n"
         + "  {\"action\":\"trees_from_lidar\",\"file\":\"<absolute path>.las\",\"srs\":\"EPSG:2240\",\"units\":\"ft\"}  "
         + "(finds the treetops of a LAS point cloud - what stands more than \"min_height\" cm (300) above the ground and is the "
         + "highest within \"window_m\" meters (3) - and plants a generated tree at each one with its height and its crown, "
-        + "narrow crowns as conifers; \"tag\" (lidar) names them for update_trees and relabel_trees)\n"
+        + "narrow crowns as conifers; \"tag\" (lidar) names them for update_trees and relabel_trees. A classified cloud "
+        + "gives its trees by its vegetation points (classes 3 to 5) only; the tops over its building points (class 6) or over "
+        + "the rooms, the roofs and the neighbor buildings of the home are left out, and a lower top under the crown of a "
+        + "higher tree is merged with it)\n"
         + "  {\"action\":\"add_terrain_patch\",\"points\":[[x,y,z],...]}  (refines a part of the ground without sending it all again: "
         + "the points given replace the ones of the ground inside the box around them, the rest staying as it is; "
         + "\"raster\" and \"file\" are read as by set_terrain)\n"
-        + "  {\"action\":\"shift_terrain\",\"pin\":{\"x\":N,\"y\":N,\"height\":N}}  (moves the whole ground up or down: \"offset\":N cm, "
-        + "or \"pin\" for it to be at a height at a place)\n"
+        + "  {\"action\":\"shift_terrain\",\"offset\":N}  (moves the whole ground up by N cm, down if negative; or "
+        + "\"pin\":{\"x\":N,\"y\":N,\"height\":N} in place of \"offset\" for it to be at a height at a place)\n"
         + "  {\"action\":\"add_pad\",\"points\":[[x,y],...],\"height\":N,\"blend_distance\":200}  "
         + "(a flat pad cut or filled in the ground under a polygon, for a house or a driveway: \"height\" in cm (the mean height of "
         + "the ground there by default), \"slope\":{\"percent\":2,\"dir\":180} for a pad that drains (dir = the downhill direction, "
@@ -91,7 +108,8 @@ class AssistantTerrainCommands {
         + "\"blend_curve\":\"linear|smoothstep\". The answer gives the volumes cut and filled)\n"
         + "  {\"action\":\"flatten_area\",\"points\":[[x,y],...]}  (the same as add_pad at the mean height of the ground in the polygon)\n"
         + "  {\"action\":\"smooth_area\",\"points\":[[x,y],...],\"radius\":300}  (softens the bumps of the ground in a polygon: each "
-        + "height becomes the mean of the heights around it; \"strength\" from 0 to 1)\n"
+        + "height becomes the mean of the heights around it; \"strength\" from 0 to 1. Only heights change: the part of the "
+        + "polygon out of the ground adds nothing to it)\n"
         + "  {\"action\":\"add_berm\",\"points\":[[x,y],[x,y],...],\"height\":60,\"width\":300}  (a rounded mound along a line; "
         + "add_swale digs a shallow channel the same way, with \"depth\")\n"
         + "  {\"action\":\"grade_path\",\"points\":[[x,y],[x,y],...],\"width\":300}  (the ground of a road, a driveway or a path "
@@ -110,25 +128,37 @@ class AssistantTerrainCommands {
         + "and the places steeper than \"threshold\" % in \"area\":[[x,y],...] or the whole ground. A table: no overlay is drawn)\n"
         + "  {\"action\":\"site_report\"}  (the site in figures: the area of the lot, what is built or paved on it, the lawn left, "
         + "the fences by style and by owner, the generated trees by species with the share of the lot under their crowns, the "
-        + "planting beds, the earth cut and filled, and the slopes)\n"
+        + "planting beds, the earth cut and filled, and the slopes. Driveways, patios and paths are the slabs, the rooms "
+        + "outdoors and the \"areas\" of the ground whose name, texture or tag tells it - a room named Driveway, an area "
+        + "{\"name\":\"Street\"} or {\"surface\":\"patio\"}, an asphalt texture - clipped to the lot; the crowns are "
+        + "given in all and over the lot only, with the count of trees that stand on it)\n"
         + "  {\"action\":\"export_site\",\"path\":\"<absolute path>.geojson\"}  (writes the lot lines, the fences with their style and "
-        + "owner, the generated trees with their species and sizes, the rooms, the slabs and the paths as GeoJSON in longitude and "
-        + "latitude, for a GIS or a contractor; it needs the georeference of the home; \"replace\":true overwrites the file)\n";
+        + "owner, the generated trees with their species and sizes, the rooms outdoors, the slabs and the paths as GeoJSON in "
+        + "longitude and latitude, for a GIS or a contractor; it needs the georeference of the home; \"replace\":true overwrites "
+        + "the file. The lot lines have a \"role\": subject for the property lines, neighbor for the lots of the neighbors "
+        + "and for the lines named after a neighbor, a parcel or a boundary. The rooms of the house - the ones with walls along "
+        + "half of their outline at least and a name that isn't the one of a driveway, a patio, a lawn... - are left out: "
+        + "\"interior_rooms\":true adds them with the kind room_interior)\n";
   }
 
   /**
    * Runs <code>command</code> if it's one of the commands of this class and returns <code>true</code> in that case.
    */
   boolean apply(String action, AssistantCommand command, int [] tally, List<String> notes) {
+    this.reseat = command.getBoolean("reseat", true);
     try {
       if ("set_terrain".equals(action) || "add_terrain".equals(action)) {
-        // A new ground is the one to compare the next grading with
         if (command.getParameters().get("raster") == null && command.getParameters().get("file") == null
             && command.getParameters().get("pin") == null && command.getParameters().get("datum_offset_cm") == null) {
+          // A new ground is the one to compare the next grading with
           this.home.setProperty(BASELINE_PROPERTY, null);
-          return false;
+          replaceGround(new LinkedHashMap<String, Object>(command.getParameters()), "", tally, notes);
+        } else {
+          setTerrainFromHeights(command, tally, notes);
         }
-        setTerrainFromHeights(command, tally, notes);
+      } else if ("reseat_all".equals(action) || "reseat".equals(action)) {
+        getTerrain();
+        notes.add(reseat(null, true, tally));
       } else if ("add_terrain_patch".equals(action)) {
         addTerrainPatch(command, tally, notes);
       } else if ("shift_terrain".equals(action)) {
@@ -285,8 +315,13 @@ class AssistantTerrainCommands {
   /**
    * Builds the ground again from new points, with the finishes it had.
    */
-  @SuppressWarnings("unchecked")
   private String regrade(HomePieceOfFurniture terrain, List<float []> points, int [] tally, List<String> notes) throws IOException {
+    return regrade(terrain, points, tally, notes, this.reseat ? new Surface(HomeTerrain.getTriangles(terrain)) : null);
+  }
+
+  @SuppressWarnings("unchecked")
+  private String regrade(HomePieceOfFurniture terrain, List<float []> points, int [] tally, List<String> notes,
+                         Surface before) throws IOException {
     if (points.size() > AssistantShapeCommands.getMaxTerrainPoints()) {
       throw new IOException("the ground would have " + points.size() + " points, more than "
           + AssistantShapeCommands.getMaxTerrainPoints());
@@ -305,7 +340,7 @@ class AssistantTerrainCommands {
       // Built with its defaults
     }
     for (String key : new String [] {"action", "points", "grid", "raster", "file", "pin", "datum_offset_cm", "max_points",
-                                     "max_error_cm", "units", "z_units", "srs", "x", "y"}) {
+                                     "max_error_cm", "units", "z_units", "srs", "x", "y", "reseat", "resample_cm"}) {
       parameters.remove(key);
     }
     List<Object> list = new ArrayList<Object>(points.size());
@@ -337,8 +372,265 @@ class AssistantTerrainCommands {
         id = this.executor.getId(piece);
       }
     }
-    return "the ground " + (id != null ? id + " " : "") + "now has " + points.size() + " points. Fences, trees and what stands "
-        + "on it keep their heights: check_home and find_floating tell which ones to put back on the ground";
+    return "the ground " + (id != null ? id + " " : "") + "now has " + points.size() + " points. "
+        + (this.reseat ? reseat(before, false, tally) : KEPT_HEIGHTS);
+  }
+
+  private static final String KEPT_HEIGHTS = "Fences, trees and what stands on it keep their heights (\"reseat\":false): "
+      + "{\"action\":\"reseat_all\"} puts them back on the ground, and find_floating tells which ones aren't on it";
+
+  /**
+   * Builds the ground from the parameters of <code>set_terrain</code> with its points: the finishes of the areas of
+   * the ground it replaces are kept, its points may be gridded, and what stood on the old ground follows the new one.
+   * <code>source</code> is added to the note that tells the ground.
+   */
+  @SuppressWarnings("unchecked")
+  private void replaceGround(Map<String, Object> parameters, String source, int [] tally, List<String> notes) throws IOException {
+    HomePieceOfFurniture old = null;
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      if (HomeTerrain.isTerrain(piece)) {
+        old = piece;
+      }
+    }
+    boolean replace = !Boolean.FALSE.equals(parameters.get("replace"));
+    Surface before = old != null && this.reseat ? new Surface(HomeTerrain.getTriangles(old)) : null;
+    StringBuilder extra = new StringBuilder();
+    if (old != null && replace && !parameters.containsKey("areas")) {
+      // The areas of the ground are places of the plan: the heights change under them
+      try {
+        Object parsed = JSONParser.parse(old.getProperty(AssistantShapeCommands.TERRAIN_PARAMETERS_PROPERTY));
+        Object areas = parsed instanceof Map ? ((Map<String, Object>)parsed).get("areas") : null;
+        if (areas instanceof List && !((List<?>)areas).isEmpty()) {
+          parameters.put("areas", areas);
+          extra.append(". The ").append(((List<?>)areas).size()).append(((List<?>)areas).size() == 1 ? " area" : " areas")
+              .append(" of the ground replaced ").append(((List<?>)areas).size() == 1 ? "was" : "were")
+              .append(" kept with their finish (\"areas\":[] drops them)");
+        }
+      } catch (RuntimeException ex) {
+        // No area to keep
+      }
+    }
+    if (parameters.get("resample_cm") != null) {
+      if (!(parameters.get("resample_cm") instanceof Number) || !(((Number)parameters.get("resample_cm")).floatValue() >= 10)
+          || ((Number)parameters.get("resample_cm")).floatValue() > 10000) {
+        throw new IOException("\"resample_cm\" is the side of the squares the points are gridded in, from 10 to 10000 cm");
+      }
+      float cell = ((Number)parameters.get("resample_cm")).floatValue();
+      List<float []> points = AssistantFurnitureBuilder.getPoints(parameters, "points", 3);
+      if (points.size() >= 3) {
+        // The mean height of the points of each square, at its center
+        Map<Long, double []> cells = new LinkedHashMap<Long, double []>();
+        for (float [] point : points) {
+          long column = (long)Math.floor(point [0] / cell);
+          long row = (long)Math.floor(point [1] / cell);
+          Long key = Long.valueOf(row * 4000000L + column);
+          double [] sum = cells.get(key);
+          if (sum == null) {
+            cells.put(key, sum = new double [] {(column + 0.5) * cell, (row + 0.5) * cell, 0, 0});
+          }
+          sum [2] += point [2];
+          sum [3]++;
+        }
+        List<Object> list = new ArrayList<Object>(cells.size());
+        for (double [] sum : cells.values()) {
+          List<Object> coordinates = new ArrayList<Object>(3);
+          coordinates.add(Double.valueOf(Math.round(sum [0] * 10) / 10.));
+          coordinates.add(Double.valueOf(Math.round(sum [1] * 10) / 10.));
+          coordinates.add(Double.valueOf(Math.round(sum [2] / sum [3] * 10) / 10.));
+          list.add(coordinates);
+        }
+        parameters.put("points", list);
+        extra.append(". Its ").append(points.size()).append(" points were gridded every ").append(format(cell)).append(" cm: ")
+            .append(list.size()).append(" points");
+      }
+    }
+    parameters.remove("resample_cm");
+    parameters.remove("reseat");
+    int noteCount = notes.size();
+    this.executor.getShapeCommands().apply("set_terrain", new AssistantCommand("set_terrain", parameters), tally, notes);
+    for (int i = noteCount; i < notes.size(); i++) {
+      if (notes.get(i).startsWith("Replaced the ground") || notes.get(i).startsWith("Added the ground")) {
+        String seated = "";
+        if (old == null || replace) {
+          seated = ". " + (this.reseat ? reseat(before, false, tally) : KEPT_HEIGHTS);
+        }
+        notes.set(i, notes.get(i) + source + extra + seated);
+      }
+    }
+  }
+
+  /**
+   * Tells if the ground changed along a line.
+   */
+  private boolean isGroundChanged(Surface before, float [][] line, boolean closed) {
+    for (float [] point : densify(line, closed, 100)) {
+      Float ground = this.executor.getShapeCommands().getTerrainHeight(point [0], point [1]);
+      float oldGround = before != null ? before.getHeight(point [0], point [1]) : 0;
+      if (ground != null && !Float.isNaN(oldGround) && Math.abs(ground - oldGround) > 0.5f) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Puts back on the ground what stood on it: the generated plants, the pieces put on the terrain and the outdoor
+   * structures go up or down as the ground under them, and the fences are built again.
+   * @param before the ground as it was, or <code>null</code> for a flat ground at the height 0
+   * @param all    <code>true</code> to put everything on the ground as it is, whatever it stood on
+   * @return what was done
+   */
+  private String reseat(Surface before, boolean all, int [] tally) {
+    AssistantShapeCommands shapeCommands = this.executor.getShapeCommands();
+    Map<Integer, List<Object>> idsByOffset = new java.util.TreeMap<Integer, List<Object>>();
+    List<HomePieceOfFurniture> fences = new ArrayList<HomePieceOfFurniture>();
+    List<String> shaped = new ArrayList<String>();
+    List<String> structures = new ArrayList<String>();
+    int moved = 0;
+    for (HomePieceOfFurniture piece : new ArrayList<HomePieceOfFurniture>(this.home.getFurniture())) {
+      if (HomeTerrain.isTerrain(piece) || piece.isDoorOrWindow()) {
+        continue;
+      }
+      Map<String, Object> fence = AssistantFenceCommands.getSpec(piece);
+      if (fence != null) {
+        try {
+          float [][] line = AssistantFenceBuilder.getPoints(fence);
+          if (line.length >= 2 && (all || isGroundChanged(before, line, AssistantFenceBuilder.isClosed(fence, line)))) {
+            fences.add(piece);
+          }
+        } catch (IOException ex) {
+          // A fence without line stays as it is
+        }
+        continue;
+      }
+      Map<String, Object> plant = AssistantPlantCommands.getSpec(piece);
+      String outdoor = piece.getProperty(AssistantCommandExecutor.OUTDOOR_PROPERTY);
+      String garden = piece.getProperty(AssistantGardenCommands.GARDEN_PROPERTY);
+      if (plant == null && outdoor == null && garden == null) {
+        continue;
+      }
+      float x = piece.getX();
+      float y = piece.getY();
+      Float ground = shapeCommands.getTerrainHeight(x, y);
+      if (ground == null || Math.abs(shapeCommands.getStandingHeight(x, y) - ground) > 0.5f) {
+        // Out of the ground, or on the floor of a porch
+        continue;
+      }
+      // A piece built on slopes took their shape
+      boolean generated = plant == null && (garden != null || !"true".equals(outdoor));
+      float bottom = piece.getElevation() + (piece.getLevel() != null ? piece.getLevel().getElevation() : 0);
+      float offset;
+      if (all) {
+        if (plant != null) {
+          offset = AssistantFurnitureBuilder.getNumber(plant, "offset", 0);
+        } else if (!generated) {
+          offset = 0;
+        } else {
+          if (Math.abs(bottom - ground) > 10) {
+            structures.add(this.executor.getId(piece));
+          }
+          continue;
+        }
+        if (Math.abs(bottom - ground - offset) <= 0.5f) {
+          continue;
+        }
+      } else {
+        float oldGround = before != null ? before.getHeight(x, y) : 0;
+        if (Float.isNaN(oldGround)) {
+          continue;
+        }
+        float change = ground - oldGround;
+        boolean uneven = false;
+        if (generated) {
+          for (float [] corner : piece.getPoints()) {
+            Float cornerGround = shapeCommands.getTerrainHeight(corner [0], corner [1]);
+            float oldCornerGround = before != null ? before.getHeight(corner [0], corner [1]) : 0;
+            uneven |= cornerGround != null && !Float.isNaN(oldCornerGround) && Math.abs(cornerGround - oldCornerGround - change) > 10;
+          }
+        }
+        if (uneven) {
+          shaped.add(this.executor.getId(piece));
+        }
+        if (Math.abs(change) <= 0.5f) {
+          continue;
+        }
+        offset = bottom - oldGround;
+      }
+      Integer key = Integer.valueOf(Math.round(offset * 10));
+      List<Object> ids = idsByOffset.get(key);
+      if (ids == null) {
+        idsByOffset.put(key, ids = new ArrayList<Object>());
+      }
+      ids.add(this.executor.getId(piece));
+      moved++;
+    }
+    int [] subTally = new int [tally.length];
+    List<String> subNotes = new ArrayList<String>();
+    for (Map.Entry<Integer, List<Object>> entry : idsByOffset.entrySet()) {
+      Map<String, Object> parameters = new LinkedHashMap<String, Object>();
+      parameters.put("ids", entry.getValue());
+      parameters.put("on_terrain", Boolean.TRUE);
+      parameters.put("offset", Double.valueOf(entry.getKey().intValue() / 10.));
+      this.executor.applySubCommand(new AssistantCommand("set_elevation", parameters), subTally, subNotes);
+    }
+    int rebuilt = 0;
+    List<String> failed = new ArrayList<String>();
+    for (HomePieceOfFurniture fence : fences) {
+      Map<String, Object> parameters = new LinkedHashMap<String, Object>();
+      String id = this.executor.getId(fence);
+      parameters.put("id", id);
+      parameters.put("rebuild", Boolean.TRUE);
+      List<String> fenceNotes = new ArrayList<String>();
+      this.executor.applySubCommand(new AssistantCommand("modify_fence", parameters), subTally, fenceNotes);
+      boolean done = !fenceNotes.isEmpty();
+      for (String note : fenceNotes) {
+        done &= !note.startsWith("Couldn't");
+      }
+      if (done) {
+        rebuilt++;
+      } else {
+        failed.add(id);
+      }
+    }
+    tally [4] += moved + rebuilt;
+    StringBuilder text = new StringBuilder();
+    if (moved == 0 && rebuilt == 0) {
+      text.append(all ? "Every plant, piece and fence that stands on the ground is at its height"
+          : "Nothing that stands on it had to move");
+    } else {
+      text.append("Put back on the ground: ");
+      if (moved > 0) {
+        text.append(moved).append(moved == 1 ? " plant or piece" : " plants and pieces");
+      }
+      if (rebuilt > 0) {
+        text.append(moved > 0 ? ", and " : "").append(rebuilt).append(rebuilt == 1 ? " fence built again" : " fences built again");
+      }
+      if (!all) {
+        text.append(" (\"reseat\":false leaves them)");
+      }
+    }
+    if (!failed.isEmpty()) {
+      text.append("; ").append(failed.size()).append(failed.size() == 1 ? " fence" : " fences").append(" couldn't be built again: ")
+          .append(describeIds(failed));
+    }
+    if (!shaped.isEmpty()) {
+      text.append("; ").append(shaped.size()).append(shaped.size() == 1 ? " piece was" : " pieces were")
+          .append(" built for the slopes of the old ground, which didn't change the same way under all of ")
+          .append(shaped.size() == 1 ? "it" : "them").append(": build ").append(describeIds(shaped)).append(" again if it shows");
+    }
+    if (!structures.isEmpty()) {
+      text.append("; ").append(structures.size()).append(structures.size() == 1 ? " structure isn't" : " structures aren't")
+          .append(" at the height of the ground at ").append(structures.size() == 1 ? "its" : "their")
+          .append(" center, as a pool that is dug or a deck on a slope may be: ").append(describeIds(structures))
+          .append(" kept ").append(structures.size() == 1 ? "its height" : "their heights")
+          .append(" (set_elevation with on_terrain moves one)");
+    }
+    return text.toString();
+  }
+
+  private static String describeIds(List<String> ids) {
+    return ids.size() <= 30 ? ids.toString().replace("[", "").replace("]", "")
+        : ids.subList(0, 30).toString().replace("[", "").replace("]", "") + "... and " + (ids.size() - 30) + " more";
   }
 
   /**
@@ -474,9 +766,9 @@ class AssistantTerrainCommands {
    */
   private String regradeAround(HomePieceOfFurniture terrain, List<float []> newPoints, float [][] shape, float reach, int [] tally,
                                List<String> notes) throws IOException {
-    Surface before = new Surface(HomeTerrain.getTriangles(terrain.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY)));
-    String result = regrade(terrain, newPoints, tally, notes);
-    Surface after = new Surface(HomeTerrain.getTriangles(getTerrain().getProperty(AssistantShapeCommands.TERRAIN_PROPERTY)));
+    Surface before = new Surface(HomeTerrain.getTriangles(terrain));
+    String result = regrade(terrain, newPoints, tally, notes, before);
+    Surface after = new Surface(HomeTerrain.getTriangles(getTerrain()));
     float [] bounds = getBounds(shape);
     bounds = new float [] {bounds [0] - reach, bounds [1] - reach, bounds [2] + reach, bounds [3] + reach};
     return describeVolumes(getVolumes(before, after, bounds, null)) + "; " + result;
@@ -490,6 +782,7 @@ class AssistantTerrainCommands {
     float maxError = (float)Math.max(0, command.getDouble("max_error_cm", 5));
     List<float []> points;
     String source;
+    boolean scattered = false;
     if (parameters.get("raster") instanceof Map) {
       Map<?, ?> raster = (Map<?, ?>)parameters.get("raster");
       int columns = Math.round(AssistantFurnitureBuilder.getNumber(raster, "cols", 0));
@@ -530,7 +823,9 @@ class AssistantTerrainCommands {
             : "compressed LAZ point clouds aren't read: \"laszip -i in.laz -o out.las\" or \"pdal translate in.laz out.las\" "
                 + "writes a LAS file");
       }
+      this.scatteredFile = false;
       points = readFile(file, command, maxPoints, maxError);
+      scattered = this.scatteredFile;
       source = file.getName();
     } else {
       // The ground as it is, moved
@@ -557,20 +852,20 @@ class AssistantTerrainCommands {
       list.add(coordinates);
     }
     parameters.put("points", list);
-    this.home.setProperty(BASELINE_PROPERTY, null);
-    int noteCount = notes.size();
-    this.executor.getShapeCommands().apply("set_terrain", new AssistantCommand("set_terrain", parameters), tally, notes);
-    if (notes.size() > noteCount && !notes.get(noteCount).startsWith("Couldn't")) {
-      notes.set(noteCount, notes.get(noteCount) + ". Read from " + source + ", thinned to " + points.size() + " points"
-          + (offset != 0 ? ", moved by " + format(offset) + " cm" : ""));
+    if (scattered && !parameters.containsKey("max_edge")) {
+      // Scattered points have a ragged edge, that long triangles would close
+      parameters.put("max_edge", "auto");
     }
+    this.home.setProperty(BASELINE_PROPERTY, null);
+    replaceGround(parameters, ". Read from " + source + ", thinned to " + points.size() + " points"
+        + (offset != 0 ? ", moved by " + format(offset) + " cm" : ""), tally, notes);
   }
 
   /**
    * Returns what is added to the heights: an offset, or what puts the ground at a height at a place.
    */
   private float getDatumOffset(AssistantCommand command, List<float []> points) throws IOException {
-    float offset = (float)command.getDouble("datum_offset_cm", command.getDouble("offset", 0));
+    float offset = (float)command.getDouble("datum_offset_cm", command.getDouble("offset", command.getDouble("dz", 0)));
     if (command.getParameters().get("pin") instanceof Map) {
       Map<?, ?> pin = (Map<?, ?>)command.getParameters().get("pin");
       float x = AssistantFurnitureBuilder.getNumber(pin, "x", Float.NaN);
@@ -738,6 +1033,7 @@ class AssistantTerrainCommands {
           cell [2] = cloud.z [i];
         }
       }
+      this.scatteredFile = true;
       List<float []> points = new ArrayList<float []>();
       for (double [] cell : cells) {
         if (cell != null) {
@@ -820,6 +1116,7 @@ class AssistantTerrainCommands {
     if (values.size() < 3) {
       throw new IOException("the file isn't an Esri ASCII grid (it doesn't start with ncols) and has no line of three numbers x y z");
     }
+    this.scatteredFile = true;
     // Thinned by the mean height of the points of each cell of a grid
     int side = (int)Math.max(2, Math.sqrt(maxPoints));
     Map<Long, double []> cells = new LinkedHashMap<Long, double []>();
@@ -909,8 +1206,14 @@ class AssistantTerrainCommands {
     }
     float [] ground = new float [columns * rows];
     float [] top = new float [columns * rows];
+    boolean [] building = new boolean [columns * rows];
     java.util.Arrays.fill(ground, Float.NaN);
     java.util.Arrays.fill(top, Float.NaN);
+    // A cloud with vegetation classes tells its trees; one with a ground class only leaves them among the unclassified points
+    boolean vegetation = false;
+    for (int i = 0; i < cloud.count && cloud.classified && !vegetation; i++) {
+      vegetation = cloud.classes [i] >= 3 && cloud.classes [i] <= 5;
+    }
     for (int i = 0; i < cloud.count; i++) {
       int index = (int)Math.min(rows - 1, (cloud.y [i] - bounds [1]) / cell) * columns + (int)Math.min(columns - 1, (cloud.x [i] - bounds [0]) / cell);
       float z = (float)(cloud.z [i] * zScale);
@@ -919,9 +1222,10 @@ class AssistantTerrainCommands {
         ground [index] = z;
       }
       // Buildings, water and noise aren't trees
-      if ((!cloud.classified || pointClass == 1 || pointClass >= 3 && pointClass <= 5) && !(z <= top [index])) {
+      if ((!cloud.classified || (vegetation ? pointClass >= 3 && pointClass <= 5 : pointClass == 1)) && !(z <= top [index])) {
         top [index] = z;
       }
+      building [index] |= cloud.classified && pointClass == 6;
     }
     // The ground of a cell without ground point is the lowest one around it
     float [] heights = new float [columns * rows];
@@ -946,10 +1250,24 @@ class AssistantTerrainCommands {
     }
     float minHeight = (float)Math.max(100, command.getDouble("min_height", 300));
     int window = (int)Math.max(1, Math.min(10, Math.round(command.getDouble("window_m", 3))));
-    List<Object> trees = new ArrayList<Object>();
-    int conifers = 0;
-    for (int row = 0; row < rows && trees.size() < 3000; row++) {
-      for (int column = 0; column < columns && trees.size() < 3000; column++) {
+    // What is built in the home: nothing grows through a roof
+    List<Room> builtRooms = new ArrayList<Room>();
+    for (Room room : this.home.getRooms()) {
+      if (!isOutdoorRoom(room)) {
+        builtRooms.add(room);
+      }
+    }
+    List<HomePieceOfFurniture> builtPieces = new ArrayList<HomePieceOfFurniture>();
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      if (piece.getProperty(AssistantShapeCommands.ROOF_SPEC_PROPERTY) != null
+          || "context_building".equals(piece.getProperty(AssistantGardenCommands.GARDEN_PROPERTY))) {
+        builtPieces.add(piece);
+      }
+    }
+    List<float []> tops = new ArrayList<float []>();
+    int onBuildings = 0;
+    for (int row = 0; row < rows; row++) {
+      for (int column = 0; column < columns; column++) {
         float height = heights [row * columns + column];
         if (height < minHeight || height > 9000) {
           continue;
@@ -973,17 +1291,21 @@ class AssistantTerrainCommands {
         for (int direction = 0; direction < 8; direction++) {
           double angle = Math.PI * 2 * direction / 8;
           int reach = 1;
+          float previous = height;
           while (reach < 12) {
             int r = row + (int)Math.round(Math.sin(angle) * reach);
             int c = column + (int)Math.round(Math.cos(angle) * reach);
-            if (r < 0 || r >= rows || c < 0 || c >= columns || heights [r * columns + c] < height * 0.5f) {
+            // Down to half its height, or to the valley before the crown of the next tree
+            if (r < 0 || r >= rows || c < 0 || c >= columns || heights [r * columns + c] < height * 0.5f
+                || heights [r * columns + c] > previous + 50) {
               break;
             }
+            previous = heights [r * columns + c];
             reach++;
           }
           sum += reach - 0.5f;
         }
-        float crownRadius = Math.max(50, sum / 8 * 100);
+        float crownRadius = Math.max(50, Math.min(height * 0.6f, sum / 8 * 100));
         double east = bounds [0] + (column + 0.5) * cell;
         double north = bounds [1] + (row + 0.5) * cell;
         float [] place = toPlan(east, north, 0, projection, georeference, scale, command.getDouble("x", 0), command.getDouble("y", 0),
@@ -991,6 +1313,57 @@ class AssistantTerrainCommands {
         if (!AssistantCommandExecutor.coordinateSane(place [0]) || !AssistantCommandExecutor.coordinateSane(place [1])) {
           throw new IOException("the trees are more than 10 km from the plan: the georeference, \"srs\" or \"units\" is wrong");
         }
+        // Not over a building of the cloud, with the cells around it for the edge of its roof, nor over one of the home
+        boolean built = false;
+        for (int dy = -1; dy <= 1 && !built; dy++) {
+          for (int dx = -1; dx <= 1 && !built; dx++) {
+            int r = row + dy;
+            int c = column + dx;
+            built = r >= 0 && r < rows && c >= 0 && c < columns && building [r * columns + c];
+          }
+        }
+        for (int i = 0; i < builtRooms.size() && !built; i++) {
+          built = builtRooms.get(i).containsPoint(place [0], place [1], 0);
+        }
+        for (int i = 0; i < builtPieces.size() && !built; i++) {
+          built = builtPieces.get(i).containsPoint(place [0], place [1], 0);
+        }
+        if (built) {
+          onBuildings++;
+          continue;
+        }
+        tops.add(new float [] {place [0], place [1], height, crownRadius});
+      }
+    }
+    // The highest ones first: a lower top under the crown of a tree is a branch of it
+    Collections.sort(tops, new java.util.Comparator<float []>() {
+        public int compare(float [] top1, float [] top2) {
+          return Float.compare(top2 [2], top1 [2]);
+        }
+      });
+    List<Object> trees = new ArrayList<Object>();
+    List<float []> keptTops = new ArrayList<float []>();
+    int conifers = 0;
+    int merged = 0;
+    int ignored = 0;
+    for (float [] treeTop : tops) {
+      boolean branch = false;
+      for (int i = 0; i < keptTops.size() && !branch; i++) {
+        float [] other = keptTops.get(i);
+        branch = Math.hypot(other [0] - treeTop [0], other [1] - treeTop [1]) < other [3];
+      }
+      if (branch) {
+        merged++;
+        continue;
+      } else if (trees.size() >= 3000) {
+        ignored++;
+        continue;
+      }
+      keptTops.add(treeTop);
+      {
+        float [] place = treeTop;
+        float height = treeTop [2];
+        float crownRadius = treeTop [3];
         Map<String, Object> tree = new LinkedHashMap<String, Object>();
         tree.put("x", Double.valueOf(Math.round(place [0])));
         tree.put("y", Double.valueOf(Math.round(place [1])));
@@ -1004,8 +1377,9 @@ class AssistantTerrainCommands {
       }
     }
     if (trees.isEmpty()) {
-      throw new IOException("nothing stands more than " + format(minHeight) + " cm above the ground in the " + cloud.count
-          + " points read" + (cloud.classified ? "" : " (the cloud has no ground class: the lowest points were taken for the ground)"));
+      throw new IOException("no tree stands more than " + format(minHeight) + " cm above the ground in the " + cloud.count
+          + " points read" + (cloud.classified ? "" : " (the cloud has no ground class: the lowest points were taken for the ground)")
+          + (onBuildings > 0 ? "; " + onBuildings + " tops over buildings were left out" : ""));
     }
     Map<String, Object> parameters = new LinkedHashMap<String, Object>();
     parameters.put("trees", trees);
@@ -1024,9 +1398,15 @@ class AssistantTerrainCommands {
     }
     notes.add("Found " + trees.size() + " treetops in " + cloud.count + " points of " + file.getName() + " and planted them with the tag \""
         + parameters.get("tag") + "\": " + conifers + " with a narrow crown as conifers, " + (trees.size() - conifers)
-        + " as deciduous trees. " + (cloud.classified ? "" : "The cloud has no ground class: the lowest points were taken for the ground. ")
-        + "Buildings count as trees when the cloud doesn't class them. relabel_trees gives the species you know, and update_trees "
-        + "compares a later survey");
+        + " as deciduous trees. "
+        + (!cloud.classified ? "The cloud has no class: the lowest points were taken for the ground, and a building it shows "
+              + "counts as trees unless the home has rooms, a roof or a neighbor building there. "
+            : vegetation ? "Only its vegetation points (classes 3 to 5) were taken for trees. "
+            : "The cloud has no vegetation class: its unclassified points were taken for trees, poles and cars among them. ")
+        + (onBuildings > 0 ? onBuildings + " tops over the buildings of the cloud or of the home were left out. " : "")
+        + (merged > 0 ? merged + " lower tops under the crown of a higher tree were merged with it. " : "")
+        + (ignored > 0 ? ignored + " more trees were left out: 3000 at most. " : "")
+        + "The trees stand on the ground. relabel_trees gives the species you know, and update_trees compares a later survey");
   }
 
   /**
@@ -1092,7 +1472,8 @@ class AssistantTerrainCommands {
     List<float []> points = getPoints(terrain.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY));
     float offset = getDatumOffset(command, points);
     if (offset == 0) {
-      throw new IOException("give \"offset\":N cm, or \"pin\":{\"x\":N,\"y\":N,\"height\":N}");
+      throw new IOException("give \"offset\":N, the cm the whole ground goes up (down if negative), or "
+          + "\"pin\":{\"x\":N,\"y\":N,\"height\":N} for it to be at a height at a place");
     }
     for (float [] point : points) {
       point [2] += offset;
@@ -1202,7 +1583,14 @@ class AssistantTerrainCommands {
       }
     }
     for (float [] inner : getInnerPoints(polygon, (float)Math.max(80, Math.min(1000, Math.sqrt(area / 400))))) {
-      changed.add(new float [] {inner [0], inner [1], getHeight(inner [0], inner [1])});
+      // Only where there is ground: smoothing changes heights, not the outline of the ground
+      Float height = this.executor.getShapeCommands().getTerrainHeight(inner [0], inner [1]);
+      if (height != null) {
+        changed.add(new float [] {inner [0], inner [1], height});
+      }
+    }
+    if (changed.isEmpty()) {
+      throw new IOException("the polygon is out of the ground");
     }
     float worst = 0;
     for (float [] point : changed) {
@@ -1430,7 +1818,7 @@ class AssistantTerrainCommands {
       return;
     }
     Surface before = new Surface(HomeTerrain.getTriangles(baseline));
-    Surface after = new Surface(HomeTerrain.getTriangles(terrain.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY)));
+    Surface after = new Surface(HomeTerrain.getTriangles(terrain));
     float [][] polygon = command.getParameters().get("area") instanceof List ? getShape(command, "area", 3) : null;
     float [] bounds = polygon != null ? getBounds(polygon)
         : new float [] {Math.min(before.bounds [0], after.bounds [0]), Math.min(before.bounds [1], after.bounds [1]),
@@ -1463,7 +1851,7 @@ class AssistantTerrainCommands {
       return;
     }
     HomePieceOfFurniture terrain = getTerrain();
-    List<float [][]> triangles = HomeTerrain.getTriangles(terrain.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY));
+    List<float [][]> triangles = HomeTerrain.getTriangles(terrain);
     float lowest = Float.MAX_VALUE;
     float highest = -Float.MAX_VALUE;
     for (float [][] triangle : triangles) {
@@ -1644,12 +2032,20 @@ class AssistantTerrainCommands {
     }
     text.append(lots > 0 ? "\nLot: " + format(lot) + " m2 (" + format(lot / 4046.86) + " acres)" + (lots > 1 ? " in " + lots + " property lines" : "")
         : "\nLot: no property line is drawn (add_property_line or import_parcel): shares of the lot can't be given");
-    // What is built or paved
-    double roofs = 0;
-    double driveways = 0;
-    double patios = 0;
-    double otherSlabs = 0;
-    double paths = 0;
+    // What is built or paved: the slabs, the rooms outdoors and the areas of the ground, each place counted once
+    java.awt.geom.Area lotArea = new java.awt.geom.Area();
+    for (Polyline polyline : this.home.getPolylines()) {
+      if ("property".equals(polyline.getProperty(AssistantSiteCommands.LINE_KIND_PROPERTY)) && polyline.isClosedPath()
+          && polyline.getPointCount() >= 3) {
+        lotArea.add(AssistantMeshBuilder.getArea(polyline.getPoints()));
+      }
+    }
+    // Roofs, driveways, patios, paths, other paved places
+    java.awt.geom.Area [] paved = new java.awt.geom.Area [5];
+    for (int i = 0; i < paved.length; i++) {
+      paved [i] = new java.awt.geom.Area();
+    }
+    int [] sources = new int [3];
     double beds = 0;
     int bedCount = 0;
     for (HomePieceOfFurniture piece : this.home.getFurniture()) {
@@ -1658,38 +2054,83 @@ class AssistantTerrainCommands {
       }
       String structure = piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY);
       String garden = piece.getProperty(AssistantGardenCommands.GARDEN_PROPERTY);
-      String name = piece.getName() != null ? piece.getName().toLowerCase(Locale.ENGLISH) : "";
-      double area = piece.getWidth() * piece.getDepth() / 10000.;
       if (piece.getProperty(AssistantShapeCommands.ROOF_SPEC_PROPERTY) != null) {
-        roofs += area;
+        paved [0].add(AssistantMeshBuilder.getArea(piece.getPoints()));
       } else if ("slab".equals(structure) && piece.getProperty(AssistantShapeCommands.ROOM_SLAB_PROPERTY) == null) {
-        if (name.matches(".*(drive|road|street|parking|apron).*")) {
-          driveways += area;
-        } else if (name.matches(".*(patio|terrace|deck|porch|walk|pool).*")) {
-          patios += area;
-        } else {
-          otherSlabs += area;
-        }
+        int surface = getPavedSurface(piece.getName(), null, piece.getProperty(HomeItemTags.TAGS_PROPERTY));
+        paved [surface > 0 ? surface : 4].add(AssistantMeshBuilder.getArea(piece.getPoints()));
+        sources [0]++;
       } else if ("path".equals(garden)) {
-        paths += area;
+        paved [3].add(AssistantMeshBuilder.getArea(piece.getPoints()));
+        sources [0]++;
       } else if ("planting_bed".equals(garden)) {
-        beds += area;
+        beds += piece.getWidth() * piece.getDepth() / 10000.;
         bedCount++;
       }
     }
-    if (roofs == 0) {
-      // Without roof, the rooms under a ceiling
-      for (Room room : this.home.getRooms()) {
-        if (room.isCeilingVisible() && (room.getLevel() == null || room.getLevel().getElevation() == 0)) {
-          roofs += room.getArea() / 10000.;
+    boolean roofs = !paved [0].isEmpty();
+    for (Room room : this.home.getRooms()) {
+      if (room.getPointCount() < 3 || room.getLevel() != null && room.getLevel().getElevation() != 0) {
+        continue;
+      }
+      if (!isOutdoorRoom(room)) {
+        if (!roofs && room.isCeilingVisible()) {
+          // Without roof, the rooms under a ceiling
+          paved [0].add(AssistantMeshBuilder.getArea(room.getPoints()));
+        }
+        continue;
+      }
+      int surface = getPavedSurface(room.getName(), room.getFloorTexture() != null ? room.getFloorTexture().getName() : null,
+          room.getProperty(HomeItemTags.TAGS_PROPERTY));
+      if (surface > 0) {
+        paved [surface].add(AssistantMeshBuilder.getArea(room.getPoints()));
+        sources [1]++;
+      }
+    }
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      if (piece.isVisible() && HomeTerrain.isTerrain(piece)) {
+        try {
+          Object parsed = JSONParser.parse(piece.getProperty(AssistantShapeCommands.TERRAIN_PARAMETERS_PROPERTY));
+          Object areas = parsed instanceof Map ? ((Map<?, ?>)parsed).get("areas") : null;
+          if (areas instanceof List) {
+            for (Object item : (List<?>)areas) {
+              if (item instanceof Map) {
+                Map<?, ?> area = (Map<?, ?>)item;
+                List<float []> areaPoints = AssistantFurnitureBuilder.getPoints(area, "points", 2);
+                int surface = getPavedSurface(area.get("name") != null ? area.get("name").toString() : null,
+                    area.get("texture") != null ? area.get("texture").toString() : null,
+                    area.get("surface") != null ? area.get("surface").toString() : null);
+                if (surface > 0 && areaPoints.size() >= 3) {
+                  paved [surface].add(AssistantMeshBuilder.getArea(areaPoints.toArray(new float [areaPoints.size()][])));
+                  sources [2]++;
+                }
+              }
+            }
+          }
+        } catch (RuntimeException ex) {
+          // A ground without areas
         }
       }
     }
-    double impervious = roofs + driveways + patios + otherSlabs + paths;
-    text.append("\nBuilt or paved: ").append(format(impervious)).append(" m2").append(lot > 0 ? " (" + format(impervious / lot * 100) + " % of the lot)" : "")
-        .append(": roofs or rooms ").append(format(roofs)).append(" m2, driveways ").append(format(driveways)).append(" m2, patios and decks ")
-        .append(format(patios)).append(" m2, other slabs ").append(format(otherSlabs)).append(" m2, paths ").append(format(paths))
-        .append(" m2 (slabs and paths counted by the rectangle around them)");
+    java.awt.geom.Area allPaved = new java.awt.geom.Area();
+    double [] surfaces = new double [paved.length];
+    for (int i = 0; i < paved.length; i++) {
+      if (lots > 0) {
+        paved [i].intersect(lotArea);
+      }
+      surfaces [i] = getSurface(paved [i]);
+      allPaved.add(paved [i]);
+    }
+    double impervious = getSurface(allPaved);
+    text.append("\nBuilt or paved").append(lots > 0 ? " on the lot" : "").append(": ").append(format(impervious)).append(" m2")
+        .append(lot > 0 ? " (" + format(impervious / lot * 100) + " % of the lot)" : "")
+        .append(": roofs or rooms ").append(format(surfaces [0])).append(" m2, driveways ").append(format(surfaces [1]))
+        .append(" m2, patios and decks ").append(format(surfaces [2])).append(" m2, paths ").append(format(surfaces [3]))
+        .append(" m2, other paved places ").append(format(surfaces [4])).append(" m2 (").append(sources [0])
+        .append(sources [0] == 1 ? " slab or path" : " slabs and paths").append(" counted by the rectangle around each one, ")
+        .append(sources [1]).append(sources [1] == 1 ? " room" : " rooms").append(" outdoors and ").append(sources [2])
+        .append(sources [2] == 1 ? " area" : " areas").append(" of the ground, told by their name, their texture or a tag like "
+            + "driveway, patio, path or paved; a place under two of them is counted once in the total)");
     text.append("\nPlanting beds: ").append(bedCount).append(", ").append(format(beds)).append(" m2");
     if (lot > 0) {
       text.append("\nLawn and open ground left: about ").append(format(Math.max(0, lot - impervious - beds))).append(" m2");
@@ -1700,6 +2141,8 @@ class AssistantTerrainCommands {
     int trees = 0;
     int shrubs = 0;
     int removed = 0;
+    int treesOnLot = 0;
+    List<float []> crowns = new ArrayList<float []>();
     for (HomePieceOfFurniture piece : this.home.getFurniture()) {
       Map<String, Object> spec = AssistantPlantCommands.getSpec(piece);
       if (spec == null) {
@@ -1721,6 +2164,13 @@ class AssistantTerrainCommands {
       double crown = Math.PI * AssistantFurnitureBuilder.getNumber(spec, "crown_w", 0) / 2
           * AssistantFurnitureBuilder.getNumber(spec, "crown_d", 0) / 2 / 10000.;
       canopy += crown;
+      float treeX = AssistantFurnitureBuilder.getNumber(spec, "x", piece.getX());
+      float treeY = AssistantFurnitureBuilder.getNumber(spec, "y", piece.getY());
+      crowns.add(new float [] {treeX, treeY, AssistantFurnitureBuilder.getNumber(spec, "crown_w", 0) / 2,
+                               AssistantFurnitureBuilder.getNumber(spec, "crown_d", 0) / 2});
+      if (lots > 0 && lotArea.contains(treeX, treeY)) {
+        treesOnLot++;
+      }
       double [] values = species.get(plantSpecies.name);
       if (values == null) {
         species.put(plantSpecies.name, values = new double [3]);
@@ -1731,8 +2181,14 @@ class AssistantTerrainCommands {
     }
     text.append("\nGenerated trees: ").append(trees);
     if (trees > 0) {
-      text.append(", their crowns covering ").append(format(canopy)).append(" m2").append(lot > 0 ? " (" + format(Math.min(100, canopy / lot * 100))
-          + " % of the lot, crowns that overlap counted twice)" : "").append(". By species: ");
+      text.append(", their crowns covering ").append(format(canopy)).append(" m2 in all, crowns that overlap counted twice");
+      if (lots > 0) {
+        // The part of the lot under a crown, each place counted once
+        double canopyOnLot = getCanopy(crowns, lotArea);
+        text.append("; ").append(treesOnLot).append(" of them stand on the lot, and the crowns cover ").append(format(canopyOnLot))
+            .append(" m2 of the lot (").append(format(Math.min(100, canopyOnLot / lot * 100))).append(" % of the lot)");
+      }
+      text.append(". By species: ");
       boolean first = true;
       for (Map.Entry<String, double []> entry : species.entrySet()) {
         text.append(first ? "" : ", ").append((int)entry.getValue() [0]).append(' ').append(entry.getKey()).append(" (")
@@ -1758,6 +2214,139 @@ class AssistantTerrainCommands {
       text.append("\n").append(other);
     }
     notes.add(text.toString());
+  }
+
+  /**
+   * Returns the surface in m2 of an area of the plan.
+   */
+  private static double getSurface(java.awt.geom.Area area) {
+    double sum = 0;
+    double [] coordinates = new double [6];
+    double startX = 0;
+    double startY = 0;
+    double x = 0;
+    double y = 0;
+    for (java.awt.geom.PathIterator it = area.getPathIterator(null, 1); !it.isDone(); it.next()) {
+      int type = it.currentSegment(coordinates);
+      if (type == java.awt.geom.PathIterator.SEG_MOVETO) {
+        startX = x = coordinates [0];
+        startY = y = coordinates [1];
+      } else if (type == java.awt.geom.PathIterator.SEG_LINETO) {
+        sum += x * coordinates [1] - coordinates [0] * y;
+        x = coordinates [0];
+        y = coordinates [1];
+      } else if (type == java.awt.geom.PathIterator.SEG_CLOSE) {
+        sum += x * startY - startX * y;
+        x = startX;
+        y = startY;
+      }
+    }
+    return Math.abs(sum) / 2 / 10000;
+  }
+
+  /**
+   * Returns the surface in m2 of the part of <code>lot</code> under crowns {x, y, radius along x, radius along y}.
+   */
+  private static double getCanopy(List<float []> crowns, java.awt.geom.Area lot) {
+    java.awt.geom.Rectangle2D bounds = lot.getBounds2D();
+    if (bounds.isEmpty() || crowns.isEmpty()) {
+      return 0;
+    }
+    double cell = Math.max(10, Math.sqrt(bounds.getWidth() * bounds.getHeight() / 250000));
+    int columns = (int)Math.ceil(bounds.getWidth() / cell);
+    int rows = (int)Math.ceil(bounds.getHeight() / cell);
+    boolean [] covered = new boolean [columns * rows];
+    for (float [] crown : crowns) {
+      if (!(crown [2] > 0) || !(crown [3] > 0)) {
+        continue;
+      }
+      int column1 = (int)Math.max(0, Math.floor((crown [0] - crown [2] - bounds.getX()) / cell));
+      int column2 = (int)Math.min(columns - 1, Math.floor((crown [0] + crown [2] - bounds.getX()) / cell));
+      int row1 = (int)Math.max(0, Math.floor((crown [1] - crown [3] - bounds.getY()) / cell));
+      int row2 = (int)Math.min(rows - 1, Math.floor((crown [1] + crown [3] - bounds.getY()) / cell));
+      for (int row = row1; row <= row2; row++) {
+        for (int column = column1; column <= column2; column++) {
+          double dx = (bounds.getX() + (column + 0.5) * cell - crown [0]) / crown [2];
+          double dy = (bounds.getY() + (row + 0.5) * cell - crown [1]) / crown [3];
+          covered [row * columns + column] |= dx * dx + dy * dy <= 1;
+        }
+      }
+    }
+    int count = 0;
+    for (int row = 0; row < rows; row++) {
+      for (int column = 0; column < columns; column++) {
+        if (covered [row * columns + column]
+            && lot.contains(bounds.getX() + (column + 0.5) * cell, bounds.getY() + (row + 0.5) * cell)) {
+          count++;
+        }
+      }
+    }
+    return count * cell * cell / 10000;
+  }
+
+  /**
+   * Returns what a place of the site is paved as from its name, its texture and its tags:
+   * 1 for a driveway or a street, 2 for a patio or a deck, 3 for a path, 4 for another paved place, 0 if it isn't paved.
+   */
+  private static int getPavedSurface(String name, String texture, String tags) {
+    for (String text : new String [] {tags, name, texture}) {
+      if (text == null) {
+        continue;
+      }
+      String lower = text.toLowerCase(Locale.ENGLISH);
+      if (lower.matches(".*(lawn|grass|turf|meadow|mulch|soil|garden|planting|yard).*")) {
+        return 0;
+      } else if (lower.matches(".*(drive|road|street|parking|apron|asphalt|carport).*")) {
+        return 1;
+      } else if (lower.matches(".*(patio|terrace|deck|porch|pool|veranda).*")) {
+        return 2;
+      } else if (lower.matches(".*(walk|path|sidewalk|stepping).*")) {
+        return 3;
+      } else if (lower.matches(".*(paved|paving|paver|concrete|slab|stone|brick|gravel|tile|cobble|cement).*")) {
+        return 4;
+      }
+    }
+    return 0;
+  }
+
+  private static final String OUTDOOR_ROOM_NAMES = ".*(drive|road|street|parking|apron|carport|patio|terrace|deck|porch|pool|veranda|walk|path"
+      + "|lawn|grass|yard|garden|court|planting|outdoor|exterior).*";
+
+  /**
+   * Tells if a room is a place of the site rather than a room of the house: its name says so, it carries the tag
+   * <code>site</code> or <code>outdoor</code>, or less than half of its outline runs along walls.
+   */
+  boolean isOutdoorRoom(Room room) {
+    String tags = room.getProperty(HomeItemTags.TAGS_PROPERTY);
+    if (tags != null) {
+      List<String> list = new ArrayList<String>(HomeItemTags.parseTags(tags));
+      if (list.contains("interior") || list.contains("indoor")) {
+        return false;
+      } else if (list.contains("site") || list.contains("outdoor") || getPavedSurface(null, null, tags) > 0) {
+        return true;
+      }
+    }
+    if (room.getName() != null && room.getName().toLowerCase(Locale.ENGLISH).matches(OUTDOOR_ROOM_NAMES)) {
+      return true;
+    }
+    float [][] points = room.getPoints();
+    double along = 0;
+    double perimeter = 0;
+    for (int i = 0; i < points.length; i++) {
+      float [] next = points [(i + 1) % points.length];
+      double length = Math.hypot(next [0] - points [i][0], next [1] - points [i][1]);
+      perimeter += length;
+      float x = (points [i][0] + next [0]) / 2;
+      float y = (points [i][1] + next [1]) / 2;
+      for (Wall wall : this.home.getWalls()) {
+        if (wall.getLevel() == room.getLevel()
+            && Line2D.ptSegDist(wall.getXStart(), wall.getYStart(), wall.getXEnd(), wall.getYEnd(), x, y) <= wall.getThickness() / 2 + 5) {
+          along += length;
+          break;
+        }
+      }
+    }
+    return perimeter > 0 && along < perimeter / 2;
   }
 
   /**
@@ -1943,10 +2532,21 @@ class AssistantTerrainCommands {
         continue;
       }
       Map<String, Object> properties = new LinkedHashMap<String, Object>();
-      properties.put("kind", kind != null ? (kind.equals("property") ? "lot_line" : kind) : "line");
+      String lineName = polyline.getProperty(AssistantSiteCommands.LINE_NAME_PROPERTY);
+      if ("property".equals(kind)) {
+        properties.put("kind", "lot_line");
+        properties.put("role", "subject");
+      } else if ("neighbor_lot".equals(kind) || kind == null && lineName != null
+                     && lineName.toLowerCase(Locale.ENGLISH).matches(".*(neighbo|parcel|lot line|lot_line|property|boundary).*")) {
+        // The lot of a neighbor, imported or drawn by hand with a name that tells it
+        properties.put("kind", "lot_line");
+        properties.put("role", "neighbor");
+      } else {
+        properties.put("kind", kind != null ? kind : "line");
+      }
       properties.put("id", this.executor.getId(polyline));
-      if (polyline.getProperty(AssistantSiteCommands.LINE_NAME_PROPERTY) != null) {
-        properties.put("name", polyline.getProperty(AssistantSiteCommands.LINE_NAME_PROPERTY));
+      if (lineName != null) {
+        properties.put("name", lineName);
       }
       boolean polygon = polyline.isClosedPath() && polyline.getPointCount() >= 3;
       if (polygon) {
@@ -1956,12 +2556,22 @@ class AssistantTerrainCommands {
           : "{\"type\":\"LineString\",\"coordinates\":" + toCoordinates(georeference, polyline.getPoints(), false) + "}", properties);
       count(counts, String.valueOf(properties.get("kind")));
     }
+    boolean interiorRooms = command.getBoolean("interior_rooms", false);
+    int interior = 0;
     for (Room room : this.home.getRooms()) {
       if (room.getPointCount() < 3) {
         continue;
       }
+      // The rooms of the house aren't features of the site
+      boolean outdoorRoom = isOutdoorRoom(room);
+      if (!outdoorRoom) {
+        interior++;
+        if (!interiorRooms) {
+          continue;
+        }
+      }
       Map<String, Object> properties = new LinkedHashMap<String, Object>();
-      properties.put("kind", "room");
+      properties.put("kind", outdoorRoom ? "room" : "room_interior");
       properties.put("id", this.executor.getId(room));
       if (room.getName() != null) {
         properties.put("name", room.getName());
@@ -1971,7 +2581,7 @@ class AssistantTerrainCommands {
       }
       properties.put("area_m2", Double.valueOf(Math.round(room.getArea() / 100.) / 100.));
       addFeature(features, "{\"type\":\"Polygon\",\"coordinates\":[" + toCoordinates(georeference, room.getPoints(), true) + "]}", properties);
-      count(counts, "room");
+      count(counts, String.valueOf(properties.get("kind")));
     }
     for (HomePieceOfFurniture piece : this.home.getFurniture()) {
       if (!piece.isVisible() || HomeTerrain.isTerrain(piece)) {
@@ -2029,7 +2639,7 @@ class AssistantTerrainCommands {
       }
     }
     if (features.length() == 0) {
-      throw new IOException("the home has nothing to export: no line, room, fence, tree or slab");
+      throw new IOException("the home has nothing to export: no line, room outdoors, fence, tree or slab");
     }
     java.io.Writer writer = new java.io.OutputStreamWriter(new java.io.FileOutputStream(file), "UTF-8");
     try {
@@ -2038,7 +2648,9 @@ class AssistantTerrainCommands {
       writer.close();
     }
     notes.add("Wrote the site in " + file + " (GeoJSON, longitude and latitude in WGS 84): " + counts.toString().replace("=", " ")
-        .replace("{", "").replace("}", ""));
+        .replace("{", "").replace("}", "")
+        + (interior > 0 && !interiorRooms ? ". The " + interior + (interior == 1 ? " room" : " rooms") + " of the house "
+            + (interior == 1 ? "isn't" : "aren't") + " in it: \"interior_rooms\":true adds them with the kind room_interior" : ""));
   }
 
   private static void count(Map<String, Integer> counts, String kind) {
@@ -2047,7 +2659,7 @@ class AssistantTerrainCommands {
 
   private void slopeMap(AssistantCommand command, List<String> notes) throws IOException {
     HomePieceOfFurniture terrain = getTerrain();
-    List<float [][]> triangles = HomeTerrain.getTriangles(terrain.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY));
+    List<float [][]> triangles = HomeTerrain.getTriangles(terrain);
     float [][] polygon = command.getParameters().get("area") instanceof List ? getShape(command, "area", 3) : null;
     float threshold = (float)command.getDouble("threshold", 25);
     float [] limits = {2, 5, 8.33f, 15, 25, Float.MAX_VALUE};

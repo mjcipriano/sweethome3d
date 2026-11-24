@@ -197,7 +197,7 @@ with a note that says so.
 | `pdf` | The pages of **File > Print to PDF**: plan, furniture list, 3D view |
 | `svg` | The plan of the selected level |
 | `obj` | The 3D model, with its `.mtl` file and its textures beside it |
-| `csv` | The furniture list |
+| `csv` | The furniture list for a program: the `id`, `name`, `level`, `x`, `y`, `elevation`, `angle`, `width`, `depth`, `height`, `visible` and `tags` of each piece, lengths in cm and angles in degrees, the unit in the header (`x_cm`, `angle_deg`). `"units"` gives `m`, `mm`, `in` or `ft`; `"columns":[...]` chooses the columns, with `catalog_id`, `description`, `movable`, `door_or_window` and `created_by` too. The **Export to CSV format** menu item of the window writes the columns and the unit of its furniture list instead |
 | `web_page` | A new folder with the 3D visit for a browser, in the folder `path` |
 | `panorama` | A new folder with a 360 degree picture from the place of the virtual visitor and its page, in the folder `path` (`width` from 1024 to 8192) |
 
