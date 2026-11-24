@@ -341,14 +341,6 @@
     <mkdir dir="deploy/lib"/>
     <!-- Copy jar files adding to their manifest security attributes
          (these attributes are necessary to be able to call applet methods from JavaScript) -->
-    <jar destfile="deploy/lib/batik-svgpathparser-1.7.jar">
-      <manifest>
-        <attribute name="Permissions"               value="all-permissions"/>
-        <attribute name="Codebase"                  value="*"/>
-        <attribute name="Caller-Allowable-Codebase" value="*"/>
-      </manifest>
-      <zipfileset src="lib/batik-svgpathparser-1.7.jar"/>
-    </jar>
     <!-- No Print to PDF, Export to SVG, Export to PNG and Create video in viewer -->
   </target>
 
@@ -357,14 +349,6 @@
     <mkdir dir="deploy/lib"/>
     <!-- Copy jar files adding to their manifest attributes necessary
          to be able to call applet methods from JavaScript -->
-    <jar destfile="deploy/lib/jeksparser-calculator.jar" filesetmanifest="merge">
-      <manifest>
-        <attribute name="Permissions"               value="all-permissions"/>
-        <attribute name="Codebase"                  value="*"/>
-        <attribute name="Caller-Allowable-Codebase" value="*"/>
-      </manifest>
-      <zipfileset src="lib/jeksparser-calculator.jar"/>
-    </jar>
     <jar destfile="deploy/lib/freehep-vectorgraphics-svg-2.1.1c.jar" filesetmanifest="merge">
       <manifest>
         <attribute name="Permissions"               value="all-permissions"/>
@@ -654,8 +638,6 @@
         <include name="COPYING.TXT"/>
         <include name="THIRDPARTY-LICENSE-JAVA3D.TXT"/>
         <include name="THIRDPARTY-LICENSE-JOGL.TXT"/>
-        <include name="THIRDPARTY-LICENSE-BATIK.TXT"/>
-        <include name="THIRDPARTY-LICENSE-JEKSPARSER.TXT"/>
         <include name="THIRDPARTY-LICENSE-ITEXT.TXT"/>
         <include name="THIRDPARTY-LICENSE-VECTORGRAPHICS.TXT"/>
         <include name="THIRDPARTY-LICENSE-THREEJS.TXT"/>
@@ -740,8 +722,6 @@
     <copy file="THIRDPARTY-LICENSE-OPENJDK.TXT"   todir="install/windows/build" />
     <copy file="THIRDPARTY-LICENSE-JAVA3D.TXT"    todir="install/windows/build" />
     <copy file="THIRDPARTY-LICENSE-JOGL.TXT"      todir="install/windows/build" />
-    <copy file="THIRDPARTY-LICENSE-BATIK.TXT"     todir="install/windows/build"/>
-    <copy file="THIRDPARTY-LICENSE-JEKSPARSER.TXT"     todir="install/windows/build"/>
     <copy file="THIRDPARTY-LICENSE-ITEXT.TXT"          todir="install/windows/build" />
     <copy file="THIRDPARTY-LICENSE-VECTORGRAPHICS.TXT" todir="install/windows/build" />
     <copy file="THIRDPARTY-LICENSE-SUNFLOW.TXT"   todir="install/windows/build" />
@@ -1025,8 +1005,6 @@
     <copy file="COPYING.TXT" todir="install/macosx/10.4/SweetHome3D-${version}"/>
     <copy file="LICENSE.TXT" todir="install/macosx/10.4/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JAVA3D.TXT"     todir="install/macosx/10.4/SweetHome3D-${version}" />
-    <copy file="THIRDPARTY-LICENSE-BATIK.TXT"      todir="install/macosx/10.4/SweetHome3D-${version}" />
-    <copy file="THIRDPARTY-LICENSE-JEKSPARSER.TXT"     todir="install/macosx/10.4/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-VECTORGRAPHICS.TXT" todir="install/macosx/10.4/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-SUNFLOW.TXT"    todir="install/macosx/10.4/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-YAFARAY.TXT"    todir="install/macosx/10.4/SweetHome3D-${version}" />
@@ -1210,8 +1188,6 @@
     <copy file="THIRDPARTY-LICENSE-OPENJDK.TXT"   todir="install/macosx/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JAVA3D.TXT"     todir="install/macosx/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JOGL.TXT"       todir="install/macosx/SweetHome3D-${version}" />
-    <copy file="THIRDPARTY-LICENSE-BATIK.TXT"      todir="install/macosx/SweetHome3D-${version}" />
-    <copy file="THIRDPARTY-LICENSE-JEKSPARSER.TXT"     todir="install/macosx/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-VECTORGRAPHICS.TXT" todir="install/macosx/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-SUNFLOW.TXT"    todir="install/macosx/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-YAFARAY.TXT"    todir="install/macosx/SweetHome3D-${version}" />
@@ -1376,8 +1352,6 @@
     <copy file="THIRDPARTY-LICENSE-JAVA.TXT"      todir="install/linux/x86/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JAVA3D.TXT"    todir="install/linux/x86/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JOGL.TXT"      todir="install/linux/x86/SweetHome3D-${version}" />
-    <copy file="THIRDPARTY-LICENSE-BATIK.TXT"     todir="install/linux/x86/SweetHome3D-${version}" />
-    <copy file="THIRDPARTY-LICENSE-JEKSPARSER.TXT"     todir="install/linux/x86/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-ITEXT.TXT"          todir="install/linux/x86/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-VECTORGRAPHICS.TXT" todir="install/linux/x86/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-SUNFLOW.TXT"   todir="install/linux/x86/SweetHome3D-${version}" />
@@ -1501,8 +1475,6 @@
     <copy file="THIRDPARTY-LICENSE-JAVA.TXT"      todir="install/linux/x64/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JAVA3D.TXT"    todir="install/linux/x64/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JOGL.TXT"      todir="install/linux/x64/SweetHome3D-${version}" />
-    <copy file="THIRDPARTY-LICENSE-BATIK.TXT"     todir="install/linux/x64/SweetHome3D-${version}" />
-    <copy file="THIRDPARTY-LICENSE-JEKSPARSER.TXT"     todir="install/linux/x64/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-ITEXT.TXT"          todir="install/linux/x64/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-VECTORGRAPHICS.TXT" todir="install/linux/x64/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-SUNFLOW.TXT"   todir="install/linux/x64/SweetHome3D-${version}" />
@@ -1660,8 +1632,6 @@
     <copy file="THIRDPARTY-LICENSE-OPENJDK.TXT"    todir="install/portable/SweetHome3D-${version}-portable" />
     <copy file="THIRDPARTY-LICENSE-JAVA3D.TXT"     todir="install/portable/SweetHome3D-${version}-portable" />
     <copy file="THIRDPARTY-LICENSE-JOGL.TXT"      todir="install/portable/SweetHome3D-${version}-portable" />
-    <copy file="THIRDPARTY-LICENSE-BATIK.TXT"      todir="install/portable/SweetHome3D-${version}-portable" />
-    <copy file="THIRDPARTY-LICENSE-JEKSPARSER.TXT"     todir="install/portable/SweetHome3D-${version}-portable" />
     <copy file="THIRDPARTY-LICENSE-ITEXT.TXT"          todir="install/portable/SweetHome3D-${version}-portable" />
     <copy file="THIRDPARTY-LICENSE-VECTORGRAPHICS.TXT" todir="install/portable/SweetHome3D-${version}-portable" />
     <copy file="THIRDPARTY-LICENSE-SUNFLOW.TXT"   todir="install/portable/SweetHome3D-${version}-portable" />
@@ -1709,7 +1679,6 @@
         <include name="COPYING.TXT"/>
         <include name="LICENSE.TXT"/>
         <include name="THIRDPARTY-LICENSE-JAVA3D.TXT"/>
-        <include name="THIRDPARTY-LICENSE-BATIK.TXT"/>
       </zipfileset>
     </zip>
 

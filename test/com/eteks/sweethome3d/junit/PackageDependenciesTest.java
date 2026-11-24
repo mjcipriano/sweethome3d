@@ -123,10 +123,6 @@ public class PackageDependenciesTest extends TestCase {
     JavaPackage vectorGraphicsUtil = constraint.addPackage("org.freehep.util");
     JavaPackage vectorGraphics = constraint.addPackage("org.freehep.graphicsio");
     JavaPackage vectorGraphicsSvg = constraint.addPackage("org.freehep.graphicsio.svg");
-    // Batik for SVG path parsing
-    JavaPackage orgApacheBatikParser = constraint.addPackage("org.apache.batik.parser");
-    // Jeks Parser
-    JavaPackage jeksParser = constraint.addPackage("com.eteks.parser");
     // Java JNLP
     JavaPackage jnlp = constraint.addPackage("javax.jnlp");
     // Mac OS X specific interfaces
@@ -177,7 +173,6 @@ public class PackageDependenciesTest extends TestCase {
     sweetHome3DJava3D.dependsUpon(xmlParsers);
     sweetHome3DJava3D.dependsUpon(xmlSax);
     sweetHome3DJava3D.dependsUpon(xmlSaxHelpers);
-    sweetHome3DJava3D.dependsUpon(orgApacheBatikParser);
     sweetHome3DJava3D.dependsUpon(jogl);
     sweetHome3DJava3D.dependsUpon(joglFixedFunc);
 
@@ -186,7 +181,6 @@ public class PackageDependenciesTest extends TestCase {
     sweetHome3DSwing.dependsUpon(sweetHome3DPlugin);
     sweetHome3DSwing.dependsUpon(sweetHome3DViewController);
     sweetHome3DSwing.dependsUpon(sweetHome3DJava3D);
-    sweetHome3DSwing.dependsUpon(jeksParser);
     sweetHome3DSwing.dependsUpon(swing);
     sweetHome3DSwing.dependsUpon(swingEvent);
     sweetHome3DSwing.dependsUpon(swingText);

@@ -204,8 +204,7 @@ public class SweetHome3DViewer extends JApplet {
           "com.jogamp",
           "jogamp",
           "javax.media.opengl",
-          "javax.media.nativewindow",
-          "org.apache.batik"}));
+          "javax.media.nativewindow"}));
 
       ClassLoader extensionsClassLoader = new ExtensionsClassLoader(
           sweetHome3DViewerClass.getClassLoader(), sweetHome3DViewerClass.getProtectionDomain(),

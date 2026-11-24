@@ -370,9 +370,7 @@ public class SweetHome3DApplet extends JApplet {
           "com.sun.media",
           "com.ibm.media",
           "jmpapps.util",
-          "org.sunflow",
-          "org.apache.batik",
-          "com.eteks.parser"}));
+          "org.sunflow"}));
       applicationPackages.addAll(getPluginsPackages());
 
       if (!applicationClassName.startsWith((String)applicationPackages.get(0))) {

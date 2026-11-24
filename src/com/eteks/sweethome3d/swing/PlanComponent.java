@@ -1779,21 +1779,12 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
                                                              UserPreferences preferences) {
     InternationalFormatter formatter;
     if (editableProperty == PlanController.EditableProperty.ANGLE) {
-      DecimalFormat format = new DecimalFormat("0.#");
-      try {
-        format = new CalculatorFormat(format, null);
-      } catch (LinkageError ex) {
-        // Don't allow math expressions if Jeks Parser library isn't available
-      }
+      DecimalFormat format = new CalculatorFormat(new DecimalFormat("0.#"), null);
       formatter = new NumberFormatter(format);
     } else {
       Format lengthFormat = preferences.getLengthUnit().getFormat();
       if (lengthFormat instanceof DecimalFormat) {
-        try {
-          lengthFormat = new CalculatorFormat((DecimalFormat)lengthFormat, preferences.getLengthUnit());
-        } catch (LinkageError ex) {
-          // Don't allow math expressions if Jeks Parser library isn't available
-        }
+        lengthFormat = new CalculatorFormat((DecimalFormat)lengthFormat, preferences.getLengthUnit());
         formatter = new NumberFormatter((DecimalFormat)lengthFormat);
       } else {
         formatter = new InternationalFormatter(lengthFormat);

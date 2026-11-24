@@ -55,9 +55,7 @@ public class SweetHome3DBootstrap {
     GraphicsEnvironmentConfiguration.applyDefaults();
     Class<?> sweetHome3DBootstrapClass = SweetHome3DBootstrap.class;
     List<String> extensionJarsAndDlls = new ArrayList<String>(Arrays.asList(new String [] {
-        "batik-svgpathparser-1.7.jar", // Jars included in Sweet Home 3D executable jar file
-        "jeksparser-calculator.jar",
-        "iText-2.1.7.jar",
+        "iText-2.1.7.jar", // Jars included in Sweet Home 3D executable jar file
         "freehep-vectorgraphics-svg-2.1.1c.jar",
         "sunflow-0.07.3i.jar",
         "flatlaf-3.5.4.jar", // Modern Swing look and feel
@@ -252,9 +250,7 @@ public class SweetHome3DBootstrap {
         "com.ibm.media",
         "jmpapps.util",
         "org.sunflow",
-        "org.apache.batik",
-        "com.formdev.flatlaf",
-        "com.eteks.parser"};
+        "com.formdev.flatlaf"};
     String applicationClassName = "com.eteks.sweethome3d.SweetHome3D";
     File cacheFolder = new File(System.getProperty("java.io.tmpdir"));
     String cachedFilesPrefix = applicationClassName + "-cache-";
