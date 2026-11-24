@@ -349,14 +349,6 @@
     <mkdir dir="deploy/lib"/>
     <!-- Copy jar files adding to their manifest attributes necessary
          to be able to call applet methods from JavaScript -->
-    <jar destfile="deploy/lib/freehep-vectorgraphics-svg-2.1.1c.jar" filesetmanifest="merge">
-      <manifest>
-        <attribute name="Permissions"               value="all-permissions"/>
-        <attribute name="Codebase"                  value="*"/>
-        <attribute name="Caller-Allowable-Codebase" value="*"/>
-      </manifest>
-      <zipfileset src="lib/freehep-vectorgraphics-svg-2.1.1c.jar"/>
-    </jar>
     <jar destfile="deploy/lib/sunflow-0.07.3i.jar" filesetmanifest="merge">
       <manifest>
         <attribute name="Permissions"               value="all-permissions"/>
@@ -364,14 +356,6 @@
         <attribute name="Caller-Allowable-Codebase" value="*"/>
       </manifest>
       <zipfileset src="lib/sunflow-0.07.3i.jar"/>
-    </jar>
-    <jar destfile="deploy/lib/iText-2.1.7.jar" filesetmanifest="merge">
-      <manifest>
-        <attribute name="Permissions"               value="all-permissions"/>
-        <attribute name="Codebase"                  value="*"/>
-        <attribute name="Caller-Allowable-Codebase" value="*"/>
-      </manifest>
-      <zipfileset src="lib/iText-2.1.7.jar"/>
     </jar>
     <jar destfile="deploy/lib/jmf.jar">
       <manifest>
@@ -638,8 +622,6 @@
         <include name="COPYING.TXT"/>
         <include name="THIRDPARTY-LICENSE-JAVA3D.TXT"/>
         <include name="THIRDPARTY-LICENSE-JOGL.TXT"/>
-        <include name="THIRDPARTY-LICENSE-ITEXT.TXT"/>
-        <include name="THIRDPARTY-LICENSE-VECTORGRAPHICS.TXT"/>
         <include name="THIRDPARTY-LICENSE-THREEJS.TXT"/>
         <include name="THIRDPARTY-LICENSE-SUNFLOW.TXT"/>
         <include name="THIRDPARTY-LICENSE-YAFARAY.TXT"/>
@@ -722,8 +704,6 @@
     <copy file="THIRDPARTY-LICENSE-OPENJDK.TXT"   todir="install/windows/build" />
     <copy file="THIRDPARTY-LICENSE-JAVA3D.TXT"    todir="install/windows/build" />
     <copy file="THIRDPARTY-LICENSE-JOGL.TXT"      todir="install/windows/build" />
-    <copy file="THIRDPARTY-LICENSE-ITEXT.TXT"          todir="install/windows/build" />
-    <copy file="THIRDPARTY-LICENSE-VECTORGRAPHICS.TXT" todir="install/windows/build" />
     <copy file="THIRDPARTY-LICENSE-SUNFLOW.TXT"   todir="install/windows/build" />
     <copy file="THIRDPARTY-LICENSE-YAFARAY.TXT"   todir="install/windows/build" />
     <copy file="THIRDPARTY-LICENSE-JMF.HTML"      todir="install/windows/build"/>
@@ -946,8 +926,6 @@
         <exclude name="j3dcore.jar"/>
         <exclude name="j3dutils.jar"/>
         <exclude name="vecmath.jar"/>
-        <!-- Print to PDF menu item isn't available under Mac OS X as it's already in standard print dialog -->
-        <exclude name="iText-2.1.7.jar"/>
       </fileset>
     </copy>
     <!-- Copy jnlp.jar, JMF and Mac OS X Java 3D 1.5.2 DLLs and JARs for Java 3D
@@ -1005,7 +983,6 @@
     <copy file="COPYING.TXT" todir="install/macosx/10.4/SweetHome3D-${version}"/>
     <copy file="LICENSE.TXT" todir="install/macosx/10.4/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JAVA3D.TXT"     todir="install/macosx/10.4/SweetHome3D-${version}" />
-    <copy file="THIRDPARTY-LICENSE-VECTORGRAPHICS.TXT" todir="install/macosx/10.4/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-SUNFLOW.TXT"    todir="install/macosx/10.4/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-YAFARAY.TXT"    todir="install/macosx/10.4/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JMF.HTML"       todir="install/macosx/10.4/SweetHome3D-${version}" />
@@ -1104,8 +1081,6 @@
         <exclude name="j3dcore.jar"/>
         <exclude name="j3dutils.jar"/>
         <exclude name="vecmath.jar"/>
-        <!-- Print to PDF menu item isn't available under Mac OS X as it's already in standard print dialog -->
-        <exclude name="iText-2.1.7.jar"/>
       </fileset>
     </copy>
     <!-- Copy jnlp.jar, JARs for Java 3D, Mac OS X Java 3D 1.6 and YafaRay DLLs and
@@ -1188,7 +1163,6 @@
     <copy file="THIRDPARTY-LICENSE-OPENJDK.TXT"   todir="install/macosx/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JAVA3D.TXT"     todir="install/macosx/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JOGL.TXT"       todir="install/macosx/SweetHome3D-${version}" />
-    <copy file="THIRDPARTY-LICENSE-VECTORGRAPHICS.TXT" todir="install/macosx/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-SUNFLOW.TXT"    todir="install/macosx/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-YAFARAY.TXT"    todir="install/macosx/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JMF.HTML"       todir="install/macosx/SweetHome3D-${version}" />
@@ -1352,8 +1326,6 @@
     <copy file="THIRDPARTY-LICENSE-JAVA.TXT"      todir="install/linux/x86/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JAVA3D.TXT"    todir="install/linux/x86/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JOGL.TXT"      todir="install/linux/x86/SweetHome3D-${version}" />
-    <copy file="THIRDPARTY-LICENSE-ITEXT.TXT"          todir="install/linux/x86/SweetHome3D-${version}" />
-    <copy file="THIRDPARTY-LICENSE-VECTORGRAPHICS.TXT" todir="install/linux/x86/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-SUNFLOW.TXT"   todir="install/linux/x86/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-YAFARAY.TXT"   todir="install/linux/x86/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JMF.HTML"      todir="install/linux/x86/SweetHome3D-${version}" />
@@ -1475,8 +1447,6 @@
     <copy file="THIRDPARTY-LICENSE-JAVA.TXT"      todir="install/linux/x64/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JAVA3D.TXT"    todir="install/linux/x64/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JOGL.TXT"      todir="install/linux/x64/SweetHome3D-${version}" />
-    <copy file="THIRDPARTY-LICENSE-ITEXT.TXT"          todir="install/linux/x64/SweetHome3D-${version}" />
-    <copy file="THIRDPARTY-LICENSE-VECTORGRAPHICS.TXT" todir="install/linux/x64/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-SUNFLOW.TXT"   todir="install/linux/x64/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-YAFARAY.TXT"   todir="install/linux/x64/SweetHome3D-${version}" />
     <copy file="THIRDPARTY-LICENSE-JMF.HTML"      todir="install/linux/x64/SweetHome3D-${version}" />
@@ -1632,8 +1602,6 @@
     <copy file="THIRDPARTY-LICENSE-OPENJDK.TXT"    todir="install/portable/SweetHome3D-${version}-portable" />
     <copy file="THIRDPARTY-LICENSE-JAVA3D.TXT"     todir="install/portable/SweetHome3D-${version}-portable" />
     <copy file="THIRDPARTY-LICENSE-JOGL.TXT"      todir="install/portable/SweetHome3D-${version}-portable" />
-    <copy file="THIRDPARTY-LICENSE-ITEXT.TXT"          todir="install/portable/SweetHome3D-${version}-portable" />
-    <copy file="THIRDPARTY-LICENSE-VECTORGRAPHICS.TXT" todir="install/portable/SweetHome3D-${version}-portable" />
     <copy file="THIRDPARTY-LICENSE-SUNFLOW.TXT"   todir="install/portable/SweetHome3D-${version}-portable" />
     <copy file="THIRDPARTY-LICENSE-YAFARAY.TXT"  todir="install/portable/SweetHome3D-${version}-portable" />
     <copy file="THIRDPARTY-LICENSE-JMF.HTML"      todir="install/portable/SweetHome3D-${version}-portable" />

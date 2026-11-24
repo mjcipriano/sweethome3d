@@ -235,7 +235,6 @@
 			<string>$JAVAROOT/Textures.jar</string>
 			<string>$JAVAROOT/Examples.jar</string>
 			<string>$JAVAROOT/Help.jar</string>
-			<string>$JAVAROOT/freehep-vectorgraphics-svg-2.1.1c.jar</string>
 			<string>$JAVAROOT/sunflow-0.07.3i.jar</string>
 		</array>
 		<key>Properties</key>

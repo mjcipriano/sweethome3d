@@ -67,7 +67,6 @@
     <!-- Request 640 MB max memory for other systems -->
     <j2se version="1.5+" max-heap-size="640m"/>
     <jar href="lib/SweetHome3DJavaWebStart.jar"/>
-    <jar href="lib/freehep-vectorgraphics-svg-2.1.1c.jar"/>
     <jar href="lib/sunflow-0.07.3i.jar"/>    
     <jar href="lib/jmf.jar"/>    
     <property name="com.eteks.sweethome3d.applicationId" value="SweetHome3D#JavaWebStart"/>
@@ -86,11 +85,9 @@
   </resources>
  
   <resources os="Windows" arch="x86">
-    <jar href="lib/iText-2.1.7.jar"/>
     <jar href="lib/windows/i386/java3d.jar"/>
   </resources>
   <resources os="Windows" arch="x86_64 amd64">
-    <jar href="lib/iText-2.1.7.jar"/>
     <jar href="lib/windows/x64/java3d.jar"/>
   </resources>
 
@@ -102,16 +99,13 @@
   </resources>
 
   <resources os="Linux" arch="i386">
-    <jar href="lib/iText-2.1.7.jar"/>
     <jar href="lib/linux/i386/java3d.jar"/>
   </resources>
   <resources os="Linux" arch="x86_64 amd64">
-    <jar href="lib/iText-2.1.7.jar"/>
     <jar href="lib/linux/x64/java3d.jar"/>
   </resources>
 
   <resources os="SunOS">
-    <jar href="lib/iText-2.1.7.jar"/>
     <extension href="http://download.java.net/media/java3d/webstart/release/java3d-1.5-latest.jnlp"/>
   </resources>
   

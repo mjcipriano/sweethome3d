@@ -154,8 +154,8 @@ display-list and antialiasing work.
 2. Stage to a local Windows folder (loading native DLLs over `\\wsl$` fails), for
    example `cp`-ing into `/mnt/c/sh3d-bench`: the `build/*.jar` dev jars,
    `build/performance-classes`, the Java 3D 1.6 jars `lib/java3d-1.6/*.jar` (not
-   the legacy `lib/j3dcore.jar`/`vecmath.jar`), the non-3D `lib/*.jar` (iText,
-   freehep, sunflow, jmf), the
+   the legacy `lib/j3dcore.jar`/`vecmath.jar`), the non-3D `lib/*.jar`
+   (sunflow, jmf), the
    `lib/java3d-1.6/windows/amd64/*.dll` JOGL natives,
    `lib/windows/x64/j3dcore-ogl.dll`, and the `.sh3d` home.
 3. Run a Windows JDK with the natives on `-Djava.library.path` (Java 8 needs no
