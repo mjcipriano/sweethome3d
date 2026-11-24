@@ -164,9 +164,6 @@ import javax.vecmath.Point3d;
 import javax.vecmath.Vector3d;
 import javax.vecmath.Vector3f;
 
-import org.freehep.graphicsio.ImageConstants;
-import org.freehep.graphicsio.svg.SVGGraphics2D;
-import org.freehep.util.UserProperties;
 
 import com.eteks.sweethome3d.j3d.Component3DManager;
 import com.eteks.sweethome3d.j3d.ModelManager;
@@ -1779,21 +1776,12 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
                                                              UserPreferences preferences) {
     InternationalFormatter formatter;
     if (editableProperty == PlanController.EditableProperty.ANGLE) {
-      DecimalFormat format = new DecimalFormat("0.#");
-      try {
-        format = new CalculatorFormat(format, null);
-      } catch (LinkageError ex) {
-        // Don't allow math expressions if Jeks Parser library isn't available
-      }
+      DecimalFormat format = new CalculatorFormat(new DecimalFormat("0.#"), null);
       formatter = new NumberFormatter(format);
     } else {
       Format lengthFormat = preferences.getLengthUnit().getFormat();
       if (lengthFormat instanceof DecimalFormat) {
-        try {
-          lengthFormat = new CalculatorFormat((DecimalFormat)lengthFormat, preferences.getLengthUnit());
-        } catch (LinkageError ex) {
-          // Don't allow math expressions if Jeks Parser library isn't available
-        }
+        lengthFormat = new CalculatorFormat((DecimalFormat)lengthFormat, preferences.getLengthUnit());
         formatter = new NumberFormatter((DecimalFormat)lengthFormat);
       } else {
         formatter = new InternationalFormatter(lengthFormat);
@@ -2474,8 +2462,8 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
   }
 
   /**
-   * Separate static class to be able to exclude FreeHEP library from classpath
-   * in case the application doesn't use export to SVG format.
+   * Separate static class which loads the classes writing SVG only
+   * in case the application uses export to SVG format.
    */
   private static class SVGSupport {
     public static void exportToSVG(OutputStream out,
@@ -2491,32 +2479,14 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
       Dimension imageSize = new Dimension((int)Math.ceil(svgItemBounds.getWidth() * svgScale + 2 * extraMargin),
           (int)Math.ceil(svgItemBounds.getHeight() * svgScale + 2 * extraMargin));
 
-      SVGGraphics2D exportG2D = new SVGGraphics2D(out, imageSize) {
-          @Override
-          public void writeHeader() throws IOException {
-            // Use English locale to avoid wrong encoding when localized dates contain accentuated letters
-            Locale defaultLocale = Locale.getDefault();
-            Locale.setDefault(Locale.ENGLISH);
-            super.writeHeader();
-            Locale.setDefault(defaultLocale);
-          }
-        };
-      UserProperties properties = new UserProperties();
-      properties.setProperty(SVGGraphics2D.STYLABLE, true);
-      properties.setProperty(SVGGraphics2D.WRITE_IMAGES_AS, ImageConstants.PNG);
-      properties.setProperty(SVGGraphics2D.TITLE,
-          planComponent.home.getName() != null
-              ? planComponent.home.getName()
-              : "" );
-      properties.setProperty(SVGGraphics2D.FOR, System.getProperty("user.name", ""));
-      exportG2D.setProperties(properties);
-      exportG2D.startExport();
+      SVGVectorGraphics2D exportG2D = new SVGVectorGraphics2D(out, imageSize,
+          planComponent.home.getName(), System.getProperty("user.name", ""));
       exportG2D.translate(-svgItemBounds.getMinX() + extraMargin,
           -svgItemBounds.getMinY() + extraMargin);
 
       planComponent.checkCurrentThreadIsntInterrupted(PaintMode.EXPORT);
       planComponent.paintContent(exportG2D, planComponent.home.getSelectedLevel(), svgScale, PaintMode.EXPORT);
-      exportG2D.endExport();
+      exportG2D.close();
     }
   }
 

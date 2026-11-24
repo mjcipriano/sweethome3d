@@ -26,12 +26,9 @@ import java.awt.geom.AffineTransform;
 import java.awt.geom.CubicCurve2D;
 import java.awt.geom.GeneralPath;
 import java.awt.geom.Rectangle2D;
+import java.text.ParseException;
 import java.util.Map;
 import java.util.WeakHashMap;
-
-import org.apache.batik.parser.AWTPathProducer;
-import org.apache.batik.parser.ParseException;
-import org.apache.batik.parser.PathParser;
 
 import com.eteks.sweethome3d.model.Polyline;
 
@@ -151,31 +148,13 @@ public class ShapeTools {
     Shape shape = parsedShapes.get(svgPathShape);
     if (shape == null) {
       try {
-        shape = SVGPathSupport.parsePathShape(svgPathShape);
-      } catch (LinkageError ex) {
-        // Fallback to default square shape if batik classes aren't in classpath
+        shape = SVGPathParser.parse(svgPathShape);
+      } catch (ParseException ex) {
+        // Fallback to default square shape if shape is incorrect
         shape = new Rectangle2D.Float(0, 0, 1, 1);
       }
       parsedShapes.put(svgPathShape, shape);
     }
     return shape;
-  }
-
-  /**
-   * Separate static class to be able to exclude Batik library from classpath.
-   */
-  private static class SVGPathSupport {
-    public static Shape parsePathShape(String svgPathShape) {
-      try {
-        AWTPathProducer pathProducer = new AWTPathProducer();
-        PathParser pathParser = new PathParser();
-        pathParser.setPathHandler(pathProducer);
-        pathParser.parse(svgPathShape);
-        return pathProducer.getShape();
-      } catch (ParseException ex) {
-        // Fallback to default square shape if shape is incorrect
-        return new Rectangle2D.Float(0, 0, 1, 1);
-      }
-    }
   }
 }

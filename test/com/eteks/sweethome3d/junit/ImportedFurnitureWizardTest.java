@@ -61,24 +61,23 @@ import com.eteks.sweethome3d.viewcontroller.ImportedFurnitureWizardController;
 import com.eteks.sweethome3d.viewcontroller.View;
 import com.eteks.sweethome3d.viewcontroller.ViewFactory;
 
-import abbot.finder.AWTHierarchy;
-import abbot.finder.BasicFinder;
-import abbot.finder.ComponentSearchException;
-import abbot.finder.matchers.ClassMatcher;
-import abbot.tester.JComponentTester;
-import junit.extensions.abbot.ComponentTestFixture;
+import com.eteks.sweethome3d.testing.ComponentFinder;
+import com.eteks.sweethome3d.testing.ComponentLookupException;
+import com.eteks.sweethome3d.testing.ClassComponentMatcher;
+import com.eteks.sweethome3d.testing.SwingRobot;
+import com.eteks.sweethome3d.testing.SwingTestCase;
 
 /**
  * Tests imported furniture wizard.
  * @author Emmanuel Puybaret
  */
-public class ImportedFurnitureWizardTest extends ComponentTestFixture {
+public class ImportedFurnitureWizardTest extends SwingTestCase {
   protected void setUp() throws Exception {
     TestUtilities.assume3DIsAvailable();
     super.setUp();
   }
 
-  public void testImportFurnitureWizard() throws ComponentSearchException, InterruptedException, 
+  public void testImportFurnitureWizard() throws ComponentLookupException, InterruptedException, 
       NoSuchFieldException, IllegalAccessException, InvocationTargetException {
     String language = Locale.getDefault().getLanguage();
     final UserPreferences preferences = new FileUserPreferences();
@@ -134,7 +133,7 @@ public class ImportedFurnitureWizardTest extends ComponentTestFixture {
 
     // Show home plan frame
     showWindow(frame);
-    JComponentTester tester = new JComponentTester();
+    SwingRobot tester = new SwingRobot();
     tester.waitForIdle();    
 
     // 2. Transfer focus to plan view 
@@ -152,7 +151,7 @@ public class ImportedFurnitureWizardTest extends ComponentTestFixture {
         }
       });
     // Wait for import furniture view to be shown
-    tester.waitForFrameShowing(new AWTHierarchy(), preferences.getLocalizedString(
+    tester.waitForWindowShowing(preferences.getLocalizedString(
         ImportedFurnitureWizardController.class, "importFurnitureWizard.title"));
     // Check dialog box is displayed
     JDialog wizardDialog = (JDialog)TestUtilities.findComponent(frame, JDialog.class);
@@ -415,11 +414,11 @@ public class ImportedFurnitureWizardTest extends ComponentTestFixture {
         }
       });
     // Wait for confirm dialog to be shown
-    tester.waitForFrameShowing(new AWTHierarchy(), preferences.getLocalizedString(
+    tester.waitForWindowShowing(preferences.getLocalizedString(
         HomePane.class, "confirmDeleteCatalogSelection.title"));
     // Find displayed dialog box
-    JDialog confirmDeleteCatalogSelectionDialog = (JDialog)new BasicFinder().find(frame, 
-        new ClassMatcher (JDialog.class, true));
+    JDialog confirmDeleteCatalogSelectionDialog = (JDialog)new ComponentFinder().find(frame, 
+        new ClassComponentMatcher (JDialog.class, true));
     // Click on Ok in dialog box
     final JOptionPane optionPane = (JOptionPane)TestUtilities.findComponent(
         confirmDeleteCatalogSelectionDialog, JOptionPane.class);

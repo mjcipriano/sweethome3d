@@ -21,13 +21,10 @@ package com.eteks.sweethome3d.swing;
 
 import java.text.DecimalFormat;
 import java.text.FieldPosition;
+import java.text.ParseException;
 import java.text.ParsePosition;
+import java.util.Locale;
 
-import com.eteks.parser.CalculatorParser;
-import com.eteks.parser.CompilationException;
-import com.eteks.parser.Function;
-import com.eteks.parser.Interpreter;
-import com.eteks.parser.Syntax;
 import com.eteks.sweethome3d.model.LengthUnit;
 
 /**
@@ -50,15 +47,14 @@ class CalculatorFormat extends DecimalFormat {
     final String parsedText = text.substring(pos.getIndex());
     Number number = this.numberFormat.parse(text, pos);
     if (number == null || pos.getIndex() != text.length()) {
-      CalculatorParser parser = new CalculatorParser(new CalculatorSyntax());
       try {
-        // Try to parse with Jeks Parser
-        number = (Number)parser.computeExpression(parsedText, new CalculatorInterpreter());
-        if (number != null && this.lengthUnit != null) {
+        // Try to compute a formula
+        number = new Calculator(parsedText).compute();
+        if (this.lengthUnit != null) {
           number = this.lengthUnit.unitToCentimeter(number.floatValue());
         }
         pos.setIndex(text.length());
-      } catch (CompilationException ex) {
+      } catch (ParseException ex) {
         // Keep default value
       }
     }
@@ -70,208 +66,187 @@ class CalculatorFormat extends DecimalFormat {
   }
 
   /**
-   * The syntax used in computed formulas.
+   * Computes the value of a formula written with numbers, brackets, the operators
+   * <code>+ - * / ^</code>, the opposite operator <code>-</code> and the functions
+   * <code>LN LOG EXP SQR SQRT COS SIN TAN ARCCOS ARCSIN ARCTAN</code> (angles in degrees),
+   * whose parameter may be written without brackets. Operators of the same priority are
+   * computed from left to right; the opposite of a number and a function are computed
+   * before any operator, as in <code>-3^2</code> equal to 9 and <code>sqr 3+1</code> equal to 10.
    */
-  private class CalculatorSyntax implements Syntax {
-    public Object getLiteral(String expression, StringBuffer extractedString) {
-      ParsePosition position = new ParsePosition(0);
-      Number literal = numberFormat.parse(expression, position);
-      if (literal != null && lengthUnit != null) {
-        literal = lengthUnit.centimeterToUnit(literal.floatValue());
+  private class Calculator {
+    private static final String WHITE_SPACES = " \t\n\r";
+    private static final String DELIMITERS = " \t\n\r-+*/^().";
+
+    private final String expression;
+    private int          index;
+
+    public Calculator(String expression) {
+      this.expression = expression;
+    }
+
+    /**
+     * Returns the value of the whole expression.
+     * @throws ParseException if the expression is incorrect
+     */
+    public Number compute() throws ParseException {
+      double value = computeOperation(1);
+      skipWhiteSpaces();
+      if (this.index < this.expression.length()) {
+        throw new ParseException("Unexpected character", this.index);
       }
-      extractedString.append(expression, 0, position.getIndex());
-      return literal;
+      return Double.valueOf(value);
     }
 
-    public Object getConstantKey(String constant) {
-      return null; // No constant only numbers
-    }
-
-    public Object getUnaryOperatorKey(String unaryOperator) {
-      if ("-".equals(unaryOperator)) {
-        return unaryOperator;
-      } else {
-        return null;
-      }
-    }
-
-    public Object getBinaryOperatorKey(String binaryOperator) {
-      if ("+".equals(binaryOperator)
-          || "-".equals(binaryOperator)
-          || "/".equals(binaryOperator)
-          || "*".equals(binaryOperator)
-          || "^".equals(binaryOperator)) {
-        return binaryOperator;
-      } else {
-        return null;
+    private void skipWhiteSpaces() {
+      while (this.index < this.expression.length()
+             && WHITE_SPACES.indexOf(this.expression.charAt(this.index)) >= 0) {
+        this.index++;
       }
     }
 
-    public Object getConditionPartKey(String ternaryOperator) {
-      return null; // No condition
-    }
-
-    public int getConditionPartCount() {
+    /**
+     * Returns the priority of the binary operator at the current index, or 0 if there's none.
+     */
+    private int getBinaryOperatorPriority() {
+      if (this.index < this.expression.length()) {
+        switch (this.expression.charAt(this.index)) {
+          case '+' :
+          case '-' :
+            return 1;
+          case '*' :
+          case '/' :
+            return 2;
+          case '^' :
+            return 3;
+        }
+      }
       return 0;
     }
 
-    public Object getCommonFunctionKey(String predefinedFunction) {
-      predefinedFunction = predefinedFunction.toUpperCase();
-      if ("LN".equals(predefinedFunction)
-          || "LOG".equals(predefinedFunction)
-          || "EXP".equals(predefinedFunction)
-          || "SQR".equals(predefinedFunction)
-          || "SQRT".equals(predefinedFunction)
-          || "COS".equals(predefinedFunction)
-          || "SIN".equals(predefinedFunction)
-          || "TAN".equals(predefinedFunction)
-          || "ARCCOS".equals(predefinedFunction)
-          || "ARCSIN".equals(predefinedFunction)
-          || "ARCTAN".equals(predefinedFunction)) {
-        return predefinedFunction;
-      } else {
-        return null;
+    /**
+     * Returns the value of the operands bound by operators of a priority
+     * at least equal to <code>minPriority</code>.
+     */
+    private double computeOperation(int minPriority) throws ParseException {
+      double value = computeOperand();
+      while (true) {
+        skipWhiteSpaces();
+        int priority = getBinaryOperatorPriority();
+        if (priority < minPriority) {
+          return value;
+        }
+        char operator = this.expression.charAt(this.index++);
+        // Operators of the same priority are computed from left to right
+        double value2 = computeOperation(priority + 1);
+        switch (operator) {
+          case '+' :
+            value += value2;
+            break;
+          case '-' :
+            value -= value2;
+            break;
+          case '*' :
+            value *= value2;
+            break;
+          case '/' :
+            value /= value2;
+            break;
+          default :
+            value = Math.pow(value, value2);
+            break;
+        }
       }
     }
 
-    public Function getFunction(String userFunction) {
-      return null; // No function
-    }
-
-    public int getBinaryOperatorPriority(Object binaryOperatorKey) {
-      if ("+".equals(binaryOperatorKey)
-          || "-".equals(binaryOperatorKey)) {
-        return 1;
-      } else if ("/".equals(binaryOperatorKey)
-          || "*".equals(binaryOperatorKey)) {
-        return 2;
-      } else if ("^".equals(binaryOperatorKey)) {
-        return 3;
-      } else {
-        throw new IllegalArgumentException();
+    /**
+     * Returns the value of a number, of an expression between brackets, of
+     * the opposite of an operand or of a function applied to an operand.
+     */
+    private double computeOperand() throws ParseException {
+      skipWhiteSpaces();
+      if (this.index >= this.expression.length()) {
+        throw new ParseException("Missing operand", this.index);
       }
-    }
-
-    public String getAssignmentOperator() {
-      return null;
-    }
-
-    public String getWhiteSpaceCharacters() {
-      return " \t\n\r";
-    }
-
-    public char getOpeningBracket() {
-      return '(';
-    }
-
-    public char getClosingBracket() {
-      return ')';
-    }
-
-    public char getParameterSeparator() {
-      return 0;
-    }
-
-    public String getDelimiters() {
-      return " \t\n\r-+*/^().";
-    }
-
-    public boolean isCaseSensitive() {
-      return false;
-    }
-
-    public boolean isShortSyntax() {
-      // Supports common function calls without brackets
-      return true;
-    }
-
-    public boolean isValidIdentifier(String identifier) {
-      return false; // No identifier
-    }
-  }
-
-  /**
-   * The interpreter used to compute formulas.
-   */
-  private static class CalculatorInterpreter implements Interpreter {
-    public Object getLiteralValue(Object literal) {
-      return literal;
-    }
-
-    public Object getParameterValue(Object parameter) {
-      return null; // No parameter
-    }
-
-    public Object getConstantValue(Object key) {
-      return null; // No constant
-    }
-
-    public Double getUnaryOperatorValue(Object unaryOperator, Object param) {
-      if (unaryOperator.equals("-")) {
-        return -((Number)param).doubleValue();
-      } else {
-        throw new IllegalArgumentException("Not implemented");
+      char c = this.expression.charAt(this.index);
+      if (c == '-') {
+        this.index++;
+        return -computeOperand();
+      } else if (c == '(') {
+        this.index++;
+        double value = computeOperation(1);
+        skipWhiteSpaces();
+        if (this.index >= this.expression.length()
+            || this.expression.charAt(this.index) != ')') {
+          throw new ParseException("Missing closing bracket", this.index);
+        }
+        this.index++;
+        return value;
+      } else if (DELIMITERS.indexOf(c) >= 0) {
+        throw new ParseException("Unexpected character", this.index);
       }
-    }
 
-    public Double getBinaryOperatorValue(Object binaryOperator, Object param1, Object param2) {
-      if (binaryOperator.equals("+")) {
-        return ((Number)param1).doubleValue() + ((Number)param2).doubleValue();
-      } else if (binaryOperator.equals("-")) {
-        return ((Number)param1).doubleValue() - ((Number)param2).doubleValue();
-      } else if (binaryOperator.equals("/")) {
-        return ((Number)param1).doubleValue() / ((Number)param2).doubleValue();
-      } else if (binaryOperator.equals("*")) {
-        return ((Number)param1).doubleValue() * ((Number)param2).doubleValue();
-      } else if (binaryOperator.equals("^")) {
-        return Math.pow(((Number)param1).doubleValue(), ((Number)param2).doubleValue());
-      } else {
-        throw new IllegalArgumentException("Not implemented");
+      ParsePosition position = new ParsePosition(this.index);
+      Number literal = numberFormat.parse(this.expression, position);
+      if (literal != null && position.getIndex() > this.index) {
+        this.index = position.getIndex();
+        if (lengthUnit != null) {
+          return lengthUnit.centimeterToUnit(literal.floatValue());
+        } else {
+          return literal.doubleValue();
+        }
       }
-    }
 
-    public Double getCommonFunctionValue(Object predefinedFunction, Object param) {
-      if (predefinedFunction.equals("LN")) {
-        return Math.log(((Number)param).doubleValue());
-      } else if (predefinedFunction.equals("LOG")) {
-        return Math.log(((Number)param).doubleValue()) / Math.log(10.);
-      } else if (predefinedFunction.equals("EXP")) {
-        return Math.exp(((Number)param).doubleValue());
-      } else if (predefinedFunction.equals("SQR")) {
-        return ((Number)param).doubleValue() * ((Number)param).doubleValue();
-      } else if (predefinedFunction.equals("SQRT")) {
-        return Math.sqrt(((Number)param).doubleValue());
-      } else if (predefinedFunction.equals("COS")) {
-        return Math.cos(Math.toRadians(((Number)param).doubleValue()));
-      } else if (predefinedFunction.equals("SIN")) {
-        return Math.sin(Math.toRadians(((Number)param).doubleValue()));
-      } else if (predefinedFunction.equals("TAN")) {
-        return Math.tan(Math.toRadians(((Number)param).doubleValue()));
-      } else if (predefinedFunction.equals("ARCCOS")) {
-        return Math.toDegrees(Math.acos(((Number)param).doubleValue()));
-      } else if (predefinedFunction.equals("ARCSIN")) {
-        return Math.toDegrees(Math.asin(((Number)param).doubleValue()));
-      } else if (predefinedFunction.equals("ARCTAN")) {
-        return Math.toDegrees(Math.atan(((Number)param).doubleValue()));
-      } else {
-        throw new IllegalArgumentException("Not implemented");
+      // Search the name of a function, which ends at the first delimiter
+      int start = this.index;
+      while (this.index < this.expression.length()
+             && DELIMITERS.indexOf(this.expression.charAt(this.index)) < 0) {
+        this.index++;
       }
+      String function = this.expression.substring(start, this.index).toUpperCase(Locale.ENGLISH);
+      if (!isFunction(function)) {
+        throw new ParseException("Unknown function", start);
+      }
+      return computeFunction(function, computeOperand());
     }
 
-    public Object getConditionValue(Object paramIf, Object paramThen, Object paramElse) {
-      return null;
+    private boolean isFunction(String function) {
+      return "LN".equals(function)
+          || "LOG".equals(function)
+          || "EXP".equals(function)
+          || "SQR".equals(function)
+          || "SQRT".equals(function)
+          || "COS".equals(function)
+          || "SIN".equals(function)
+          || "TAN".equals(function)
+          || "ARCCOS".equals(function)
+          || "ARCSIN".equals(function)
+          || "ARCTAN".equals(function);
     }
 
-    public boolean isTrue(Object param) {
-      return false; // No condition
-    }
-
-    public boolean supportsRecursiveCall() {
-      return false;
-    }
-
-    public Object getFunctionValue(Function function, Object [] parameters, boolean recursiveCall) {
-      return null; // No function
+    private double computeFunction(String function, double param) {
+      if (function.equals("LN")) {
+        return Math.log(param);
+      } else if (function.equals("LOG")) {
+        return Math.log(param) / Math.log(10.);
+      } else if (function.equals("EXP")) {
+        return Math.exp(param);
+      } else if (function.equals("SQR")) {
+        return param * param;
+      } else if (function.equals("SQRT")) {
+        return Math.sqrt(param);
+      } else if (function.equals("COS")) {
+        return Math.cos(Math.toRadians(param));
+      } else if (function.equals("SIN")) {
+        return Math.sin(Math.toRadians(param));
+      } else if (function.equals("TAN")) {
+        return Math.tan(Math.toRadians(param));
+      } else if (function.equals("ARCCOS")) {
+        return Math.toDegrees(Math.acos(param));
+      } else if (function.equals("ARCSIN")) {
+        return Math.toDegrees(Math.asin(param));
+      } else {
+        return Math.toDegrees(Math.atan(param));
+      }
     }
   }
 }

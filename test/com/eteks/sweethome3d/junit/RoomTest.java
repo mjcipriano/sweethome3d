@@ -56,25 +56,24 @@ import com.eteks.sweethome3d.viewcontroller.PlanView;
 import com.eteks.sweethome3d.viewcontroller.RoomController;
 import com.eteks.sweethome3d.viewcontroller.ViewFactory;
 
-import abbot.finder.AWTHierarchy;
-import abbot.finder.BasicFinder;
-import abbot.finder.ComponentSearchException;
-import abbot.finder.matchers.ClassMatcher;
-import abbot.tester.JComponentTester;
-import junit.extensions.abbot.ComponentTestFixture;
+import com.eteks.sweethome3d.testing.ComponentFinder;
+import com.eteks.sweethome3d.testing.ComponentLookupException;
+import com.eteks.sweethome3d.testing.ClassComponentMatcher;
+import com.eteks.sweethome3d.testing.SwingRobot;
+import com.eteks.sweethome3d.testing.SwingTestCase;
 
 /**
  * Tests rooms in {@link com.eteks.sweethome3d.swing.PlanComponent plan} component and
  * their management in {@link com.eteks.sweethome3d.viewcontroller.PlanController controller}.
  * @author Emmanuel Puybaret
  */
-public class RoomTest extends ComponentTestFixture {
+public class RoomTest extends SwingTestCase {
   protected void setUp() throws Exception {
     TestUtilities.assume3DIsAvailable();
     super.setUp();
   }
 
-  public void testRoomCreation() throws ComponentSearchException,
+  public void testRoomCreation() throws ComponentLookupException,
       NoSuchFieldException, IllegalAccessException {
     // 1. Create a frame that displays a home view
     RoomTestFrame frame = new RoomTestFrame();
@@ -89,7 +88,7 @@ public class RoomTest extends ComponentTestFixture {
     PlanComponent planComponent = (PlanComponent)planController.getView();
     planController.setMode(PlanController.Mode.WALL_CREATION);
     // Click at (50, 50), (200, 50), (250, 100), (250, 150), (50, 150) then double click at (50, 50)
-    JComponentTester tester = new JComponentTester();
+    SwingRobot tester = new SwingRobot();
     tester.actionClick(planComponent, 50, 50);
     tester.actionClick(planComponent, 200, 50);
     tester.actionClick(planComponent, 250, 100);
@@ -214,7 +213,7 @@ public class RoomTest extends ComponentTestFixture {
    * in <code>HomePane</code>.
    */
   private void runAction(final HomeController controller,
-                         final HomePane.ActionType actionType, JComponentTester tester) {
+                         final HomePane.ActionType actionType, SwingRobot tester) {
     tester.invokeAndWait(new Runnable() {
         public void run() {
           ((JComponent)controller.getView()).getActionMap().get(actionType).actionPerformed(null);
@@ -227,8 +226,8 @@ public class RoomTest extends ComponentTestFixture {
    */
   private JDialog showRoomPanel(UserPreferences preferences,
                                 final HomeController controller,
-                                JFrame parent, JComponentTester tester)
-            throws ComponentSearchException {
+                                JFrame parent, SwingRobot tester)
+            throws ComponentLookupException {
     tester.invokeLater(new Runnable() {
         public void run() {
           // Display dialog box later in Event Dispatch Thread to avoid blocking test thread
@@ -236,11 +235,11 @@ public class RoomTest extends ComponentTestFixture {
         }
       });
     // Wait for wall view to be shown
-    tester.waitForFrameShowing(new AWTHierarchy(), preferences.getLocalizedString(
+    tester.waitForWindowShowing(preferences.getLocalizedString(
         RoomPanel.class, "room.title"));
     // Check dialog box is displayed
-    JDialog attributesDialog = (JDialog)new BasicFinder().find(parent,
-        new ClassMatcher (JDialog.class, true));
+    JDialog attributesDialog = (JDialog)new ComponentFinder().find(parent,
+        new ClassComponentMatcher (JDialog.class, true));
     assertTrue("Room dialog not showing", attributesDialog.isShowing());
     return attributesDialog;
   }

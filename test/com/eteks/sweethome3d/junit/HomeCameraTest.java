@@ -34,14 +34,13 @@ import javax.swing.JRadioButton;
 import javax.swing.JSlider;
 import javax.swing.JSpinner;
 
-import junit.extensions.abbot.ComponentTestFixture;
-import abbot.finder.AWTHierarchy;
-import abbot.finder.BasicFinder;
-import abbot.finder.ComponentSearchException;
-import abbot.finder.matchers.ClassMatcher;
-import abbot.finder.matchers.WindowMatcher;
-import abbot.tester.ComponentLocation;
-import abbot.tester.JComponentTester;
+import com.eteks.sweethome3d.testing.SwingTestCase;
+import com.eteks.sweethome3d.testing.ComponentFinder;
+import com.eteks.sweethome3d.testing.ComponentLookupException;
+import com.eteks.sweethome3d.testing.ClassComponentMatcher;
+import com.eteks.sweethome3d.testing.WindowTitleMatcher;
+import com.eteks.sweethome3d.testing.ComponentPoint;
+import com.eteks.sweethome3d.testing.SwingRobot;
 
 import com.eteks.sweethome3d.io.DefaultUserPreferences;
 import com.eteks.sweethome3d.model.Camera;
@@ -68,13 +67,13 @@ import com.eteks.sweethome3d.viewcontroller.HomeController;
  * Tests camera changes in home.
  * @author Emmanuel Puybaret
  */
-public class HomeCameraTest extends ComponentTestFixture {
+public class HomeCameraTest extends SwingTestCase {
   protected void setUp() throws Exception {
     TestUtilities.assume3DIsAvailable();
     super.setUp();
   }
 
-  public void testHomeCamera() throws ComponentSearchException, InterruptedException, 
+  public void testHomeCamera() throws ComponentLookupException, InterruptedException, 
       NoSuchFieldException, IllegalAccessException, InvocationTargetException {
     Locale.setDefault(Locale.FRANCE);
     UserPreferences preferences = new DefaultUserPreferences() {
@@ -100,7 +99,7 @@ public class HomeCameraTest extends ComponentTestFixture {
 
     // Show home plan frame
     showWindow(frame);
-    JComponentTester tester = new JComponentTester();
+    SwingRobot tester = new SwingRobot();
     tester.waitForIdle();
     // Transfer focus to plan view 
     planComponent.requestFocusInWindow();
@@ -219,9 +218,9 @@ public class HomeCameraTest extends ComponentTestFixture {
     float [][] cameraPoints = observerCamera.getPoints();
     int xYawIndicator = (int)(((40 + (cameraPoints[0][0] + cameraPoints[3][0]) / 2)) * planComponent.getScale());
     int yYawIndicator = (int)(((40 + (cameraPoints[0][1] + cameraPoints[3][1]) / 2)) * planComponent.getScale());
-    tester.actionMousePress(planComponent, new ComponentLocation(
+    tester.actionMousePress(planComponent, new ComponentPoint(
         new Point(xYawIndicator, yYawIndicator - 1)));
-    tester.actionMouseMove(planComponent, new ComponentLocation(
+    tester.actionMouseMove(planComponent, new ComponentPoint(
         new Point(xYawIndicator + 2, yYawIndicator + 1)));
     tester.actionMouseRelease();
     // Check camera yaw angle changed
@@ -233,9 +232,9 @@ public class HomeCameraTest extends ComponentTestFixture {
     cameraPoints = observerCamera.getPoints();
     int xPitchIndicator = (int)(((40 + (cameraPoints[1][0] + cameraPoints[2][0]) / 2)) * planComponent.getScale());
     int yPitchIndicator = (int)(((40 + (cameraPoints[1][1] + cameraPoints[2][1]) / 2)) * planComponent.getScale());
-    tester.actionMousePress(planComponent, new ComponentLocation(
+    tester.actionMousePress(planComponent, new ComponentPoint(
         new Point(xPitchIndicator - 1, yPitchIndicator + 1)));
-    tester.actionMouseMove(planComponent, new ComponentLocation(
+    tester.actionMouseMove(planComponent, new ComponentPoint(
         new Point(xPitchIndicator + 1, yPitchIndicator + 3)));
     tester.actionMouseRelease();
     // Check camera pitch angle changed
@@ -244,9 +243,9 @@ public class HomeCameraTest extends ComponentTestFixture {
         2.5097f, 0.1639f, home.getCamera());
     
     // 9. Change observer camera location with mouse in 3D view
-    tester.actionMousePress(component3D, new ComponentLocation(new Point(10, 10)));
+    tester.actionMousePress(component3D, new ComponentPoint(new Point(10, 10)));
     tester.actionKeyPress(KeyEvent.VK_ALT);
-    tester.actionMouseMove(component3D, new ComponentLocation(new Point(10, 20)));
+    tester.actionMouseMove(component3D, new ComponentPoint(new Point(10, 20)));
     tester.actionKeyRelease(KeyEvent.VK_ALT);
     tester.actionMouseRelease();
     // Check camera location changed
@@ -254,16 +253,16 @@ public class HomeCameraTest extends ComponentTestFixture {
         2.5097f, 0.1639f, home.getCamera());
 
     // 10. Change observer camera yaw with mouse in 3D view
-    tester.actionMousePress(component3D, new ComponentLocation(new Point(10, 20)));
-    tester.actionMouseMove(component3D, new ComponentLocation(new Point(20, 20)));
+    tester.actionMousePress(component3D, new ComponentPoint(new Point(10, 20)));
+    tester.actionMouseMove(component3D, new ComponentPoint(new Point(20, 20)));
     tester.actionMouseRelease();
     // Check camera yaw changed
     assertCoordinatesAndAnglesEqualCameraLocationAndAngles(108.716f, 111.42f, 170, 
         2.5597f, 0.1639f, home.getCamera());
     
     // Change camera pitch with mouse in 3D view
-    tester.actionMousePress(component3D, new ComponentLocation(new Point(20, 20)));
-    tester.actionMouseMove(component3D, new ComponentLocation(new Point(20, 30)));
+    tester.actionMousePress(component3D, new ComponentPoint(new Point(20, 20)));
+    tester.actionMouseMove(component3D, new ComponentPoint(new Point(20, 30)));
     tester.actionMouseRelease();
     // Check camera yaw changed
     assertCoordinatesAndAnglesEqualCameraLocationAndAngles(108.716f, 111.42f, 170, 
@@ -350,14 +349,14 @@ public class HomeCameraTest extends ComponentTestFixture {
     // Wait for 3D view to be shown
     String groundTextureTitle = preferences.getLocalizedString(
         Home3DAttributesController.class, "groundTextureTitle");
-    tester.waitForFrameShowing(new AWTHierarchy(), groundTextureTitle);
+    tester.waitForWindowShowing(groundTextureTitle);
     // Check texture dialog box is displayed
-    JDialog textureDialog = (JDialog)new BasicFinder().find(attributesDialog, 
-        new WindowMatcher(groundTextureTitle));
+    JDialog textureDialog = (JDialog)new ComponentFinder().find(attributesDialog, 
+        new WindowTitleMatcher(groundTextureTitle));
     assertTrue("Texture dialog not showing", textureDialog.isShowing());
     
-    JList availableTexturesList = (JList)new BasicFinder().find(textureDialog, 
-        new ClassMatcher(JList.class, true));
+    JList availableTexturesList = (JList)new ComponentFinder().find(textureDialog, 
+        new ClassComponentMatcher(JList.class, true));
     availableTexturesList.setSelectedIndex(0);
     CatalogTexture firstTexture = preferences.getTexturesCatalog().getCategories().get(0).getTexture(0);
     assertEquals("Wrong first texture in list", firstTexture, 
@@ -379,13 +378,13 @@ public class HomeCameraTest extends ComponentTestFixture {
         0x000000, 0x808080, 1 / 255f * 128f, home);
     
     // 15. Edit observer camera attributes
-    tester.actionClick(planComponent, new ComponentLocation(new Point(115, 115)), InputEvent.BUTTON1_MASK, 2);
+    tester.actionClick(planComponent, new ComponentPoint(new Point(115, 115)), InputEvent.BUTTON1_MASK, 2);
     String observerCameraTitle = preferences.getLocalizedString(
         ObserverCameraPanel.class, "observerCamera.title");
-    tester.waitForFrameShowing(new AWTHierarchy(), observerCameraTitle);
+    tester.waitForWindowShowing(observerCameraTitle);
     // Check observer camera dialog box is displayed
-    JDialog observerCameraDialog = (JDialog)new BasicFinder().find(frame, 
-        new WindowMatcher(observerCameraTitle));
+    JDialog observerCameraDialog = (JDialog)new ComponentFinder().find(frame, 
+        new WindowTitleMatcher(observerCameraTitle));
     assertTrue("Observer camera dialog not showing", observerCameraDialog.isShowing());
 
     ObserverCameraPanel observerCameraPanel = (ObserverCameraPanel)TestUtilities.findComponent(
@@ -412,8 +411,8 @@ public class HomeCameraTest extends ComponentTestFixture {
    */
   private JDialog showHome3DAttributesPanel(UserPreferences preferences,
                                             final HomeController controller, 
-                                            JFrame parent, JComponentTester tester) 
-            throws ComponentSearchException {
+                                            JFrame parent, SwingRobot tester) 
+            throws ComponentLookupException {
     tester.invokeLater(new Runnable() { 
         public void run() {
           // Display dialog box later in Event Dispatch Thread to avoid blocking test thread
@@ -421,11 +420,11 @@ public class HomeCameraTest extends ComponentTestFixture {
         }
       });
     // Wait for 3D view to be shown
-    tester.waitForFrameShowing(new AWTHierarchy(), preferences.getLocalizedString(
+    tester.waitForWindowShowing(preferences.getLocalizedString(
         Home3DAttributesPanel.class, "home3DAttributes.title"));
     // Check dialog box is displayed
-    JDialog attributesDialog = (JDialog)new BasicFinder().find(parent, 
-        new ClassMatcher (JDialog.class, true));
+    JDialog attributesDialog = (JDialog)new ComponentFinder().find(parent, 
+        new ClassComponentMatcher (JDialog.class, true));
     assertTrue("3D view dialog not showing", attributesDialog.isShowing());
     return attributesDialog;
   }
@@ -433,8 +432,8 @@ public class HomeCameraTest extends ComponentTestFixture {
   /**
    * Clicks on OK in dialog to close it.
    */
-  private void doClickOnOkInDialog(JDialog dialog, JComponentTester tester) 
-            throws ComponentSearchException {
+  private void doClickOnOkInDialog(JDialog dialog, SwingRobot tester) 
+            throws ComponentLookupException {
     final JOptionPane attributesOptionPane = (JOptionPane)TestUtilities.findComponent(
         dialog, JOptionPane.class);
     tester.invokeAndWait(new Runnable() {
@@ -452,7 +451,7 @@ public class HomeCameraTest extends ComponentTestFixture {
    */
   private void runAction(final HomeController controller,
                          final HomePane.ActionType actionType,
-                         JComponentTester tester) {
+                         SwingRobot tester) {
     tester.invokeAndWait(new Runnable() { 
         public void run() {
           ((JComponent)controller.getView()).getActionMap().get(actionType).actionPerformed(null);

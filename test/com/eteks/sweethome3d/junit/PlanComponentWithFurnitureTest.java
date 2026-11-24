@@ -55,9 +55,9 @@ import com.eteks.sweethome3d.viewcontroller.PlanController;
 import com.eteks.sweethome3d.viewcontroller.PlanView;
 import com.eteks.sweethome3d.viewcontroller.ViewFactory;
 
-import abbot.tester.ComponentLocation;
-import abbot.tester.JComponentTester;
-import junit.extensions.abbot.ComponentTestFixture;
+import com.eteks.sweethome3d.testing.ComponentPoint;
+import com.eteks.sweethome3d.testing.SwingRobot;
+import com.eteks.sweethome3d.testing.SwingTestCase;
 
 /**
  * Tests wall and furniture management in
@@ -65,7 +65,7 @@ import junit.extensions.abbot.ComponentTestFixture;
  * its {@link com.eteks.sweethome3d.viewcontroller.PlanController controller}.
  * @author Emmanuel Puybaret
  */
-public class PlanComponentWithFurnitureTest extends ComponentTestFixture {
+public class PlanComponentWithFurnitureTest extends SwingTestCase {
   protected void setUp() throws Exception {
     TestUtilities.assume3DIsAvailable();
     super.setUp();
@@ -79,7 +79,7 @@ public class PlanComponentWithFurnitureTest extends ComponentTestFixture {
     showWindow(frame);
 
     // 2. Use CREATE_WALLS mode
-    JComponentTester tester = new JComponentTester();
+    SwingRobot tester = new SwingRobot();
     tester.actionClick(frame.createWallsButton);
     PlanComponent planComponent = (PlanComponent)
         frame.homeController.getPlanController().getView();
@@ -123,10 +123,10 @@ public class PlanComponentWithFurnitureTest extends ComponentTestFixture {
     // 4. Press mouse button at piece center
     int widthPixel = Math.round(pieceWidth * planComponent.getScale());
     int depthPixel = Math.round(pieceDepth * planComponent.getScale());
-    tester.actionMousePress(planComponent, new ComponentLocation(
+    tester.actionMousePress(planComponent, new ComponentPoint(
         new Point(20 + widthPixel / 2, 20 + depthPixel / 2)));
     // Drag mouse to (100, 100) from piece center
-    tester.actionMousePress(planComponent, new ComponentLocation(
+    tester.actionMousePress(planComponent, new ComponentPoint(
         new Point(20 + widthPixel / 2 + 100, 20 + depthPixel / 2 + 100)));
     tester.actionMouseRelease();
     // Check piece moved
@@ -136,9 +136,9 @@ public class PlanComponentWithFurnitureTest extends ComponentTestFixture {
 
     // 5. Press mouse button at top left point of selected piece
     tester.actionMousePress(planComponent,
-        new ComponentLocation(new Point(119, 120)));
+        new ComponentPoint(new Point(119, 120)));
     // Drag mouse to (-depthPixel / 2 - 1, widthPixel / 2) pixels from piece center
-    tester.actionMouseMove(planComponent, new ComponentLocation(
+    tester.actionMouseMove(planComponent, new ComponentPoint(
         new Point(119 + widthPixel / 2 - depthPixel / 2 - 1,
                   120 + depthPixel / 2 + widthPixel / 2)));
     tester.actionMouseRelease();
@@ -147,11 +147,11 @@ public class PlanComponentWithFurnitureTest extends ComponentTestFixture {
         pieceX, pieceY, (float)Math.PI * 3 / 2, piece);
 
     // 6. Press mouse button at top left point of selected piece
-    tester.actionMousePress(planComponent, new ComponentLocation(
+    tester.actionMousePress(planComponent, new ComponentPoint(
         new Point(119 + widthPixel / 2 - depthPixel / 2,
                   120 + depthPixel / 2 + widthPixel / 2)));
     // Drag mouse to the previous position plus 1 pixel along x axis
-    tester.actionMouseMove(planComponent, new ComponentLocation(
+    tester.actionMouseMove(planComponent, new ComponentPoint(
         new Point(120, 120)));
     // Check piece angle is 0°
     assertLocationAndOrientationEqualPiece(pieceX, pieceY, 0, piece);
@@ -187,9 +187,9 @@ public class PlanComponentWithFurnitureTest extends ComponentTestFixture {
     // 8. Drag and drop mouse to (40, 160)
     Thread.sleep(1000); // Wait 1s to avoid double click
     tester.actionMousePress(planComponent,
-        new ComponentLocation(new Point(30, 160)));
+        new ComponentPoint(new Point(30, 160)));
     tester.actionMouseMove(planComponent,
-        new ComponentLocation(new Point(40, 160)));
+        new ComponentPoint(new Point(40, 160)));
     tester.actionMouseRelease();
     // Check the piece of furniture moved 20 cm along x axis
     assertLocationAndOrientationEqualPiece(
@@ -240,10 +240,10 @@ public class PlanComponentWithFurnitureTest extends ComponentTestFixture {
     assertTrue("Piece of furniture not selected", selectedItems.contains(piece));
     // Drag mouse (4,4) pixels out of piece box with magnetism disabled
     Thread.sleep(1000); // Wait 1s to avoid double click
-    tester.actionMousePress(planComponent, new ComponentLocation(new Point(
+    tester.actionMousePress(planComponent, new ComponentPoint(new Point(
         pieceXPixel + depthPixel / 2 + 1, pieceYPixel - widthPixel / 2)));
     tester.actionKeyPress(TestUtilities.getMagnetismToggleKey());
-    tester.actionMouseMove(planComponent, new ComponentLocation(new Point(
+    tester.actionMouseMove(planComponent, new ComponentPoint(new Point(
         pieceXPixel + depthPixel / 2 + 5, pieceYPixel - widthPixel / 2 + 4)));
     tester.actionMouseRelease();
     tester.actionKeyRelease(TestUtilities.getMagnetismToggleKey());
@@ -257,13 +257,13 @@ public class PlanComponentWithFurnitureTest extends ComponentTestFixture {
     pieceYPixel = Math.round((piece.getY() + 40) * planComponent.getScale());
     widthPixel = Math.round((piece.getWidth()) * planComponent.getScale());
     depthPixel = Math.round((piece.getDepth()) * planComponent.getScale());
-    tester.actionMouseMove(planComponent, new ComponentLocation(new Point(
+    tester.actionMouseMove(planComponent, new ComponentPoint(new Point(
         pieceXPixel + depthPixel / 2, pieceYPixel + widthPixel / 2)));
     Thread.sleep(1000);
-    tester.actionMousePress(planComponent, new ComponentLocation(new Point(
+    tester.actionMousePress(planComponent, new ComponentPoint(new Point(
         pieceXPixel + depthPixel / 2, pieceYPixel + widthPixel / 2)));
     // Drag mouse (2,4) pixels
-    tester.actionMouseMove(planComponent, new ComponentLocation(new Point(
+    tester.actionMouseMove(planComponent, new ComponentPoint(new Point(
         pieceXPixel + depthPixel / 2 + 2, pieceYPixel + widthPixel / 2 + 4)));
     tester.actionMouseRelease();
     // Check piece height was resized
@@ -274,10 +274,10 @@ public class PlanComponentWithFurnitureTest extends ComponentTestFixture {
     // 13. Click at point (pieceXPixel - depthPixel / 2, pieceYPixel - widthPixel / 2)
     //     at elevation point of the piece
     float pieceElevation = piece.getElevation();
-    tester.actionMousePress(planComponent, new ComponentLocation(new Point(
+    tester.actionMousePress(planComponent, new ComponentPoint(new Point(
         pieceXPixel - depthPixel / 2, pieceYPixel - widthPixel / 2 - 1)));
     // Drag mouse (2,-4) pixels
-    tester.actionMouseMove(planComponent, new ComponentLocation(new Point(
+    tester.actionMouseMove(planComponent, new ComponentPoint(new Point(
         pieceXPixel - depthPixel / 2 + 2, pieceYPixel - widthPixel / 2 - 5)));
     tester.actionMouseRelease();
     // Check piece elevation was updated
@@ -336,8 +336,8 @@ public class PlanComponentWithFurnitureTest extends ComponentTestFixture {
     assertEquals("Selection doesn't contain the first dimension",
         frame.home.getSelectedItems().get(0), firstDimensionLine);
     // Move its end point to (330, 167)
-    tester.actionMousePress(planComponent, new ComponentLocation(new Point(280, 167)));
-    tester.actionMouseMove(planComponent, new ComponentLocation(new Point(320, 167)));
+    tester.actionMousePress(planComponent, new ComponentPoint(new Point(280, 167)));
+    tester.actionMouseMove(planComponent, new ComponentPoint(new Point(320, 167)));
     // Check its coordinates with magnetism
     assertEqualsDimensionLine(520, 122, 567.105f, 297.7985f, 0, firstDimensionLine);
     // Check its length with magnetism
@@ -390,8 +390,8 @@ public class PlanComponentWithFurnitureTest extends ComponentTestFixture {
     assertEqualsDimensionLine(520, 122, 567.105f, 297.7985f, 0, firstDimensionLine);
 
     // 19. Select two walls, the piece and a dimension line
-    tester.actionMousePress(planComponent, new ComponentLocation(new Point(20, 100)));
-    tester.actionMouseMove(planComponent, new ComponentLocation(new Point(200, 200)));
+    tester.actionMousePress(planComponent, new ComponentPoint(new Point(20, 100)));
+    tester.actionMouseMove(planComponent, new ComponentPoint(new Point(200, 200)));
     tester.actionMouseRelease();
     // Check selection
     selectedItems = frame.home.getSelectedItems();
@@ -404,8 +404,8 @@ public class PlanComponentWithFurnitureTest extends ComponentTestFixture {
     pieceY = selectedPiece.getY();
     // Start items duplication
     tester.actionKeyPress(OperatingSystem.isMacOSX() ? KeyEvent.VK_ALT : KeyEvent.VK_CONTROL);
-    tester.actionMousePress(planComponent, new ComponentLocation(new Point(50, 170)));
-    tester.actionMouseMove(planComponent, new ComponentLocation(new Point(51, 170)));
+    tester.actionMousePress(planComponent, new ComponentPoint(new Point(50, 170)));
+    tester.actionMouseMove(planComponent, new ComponentPoint(new Point(51, 170)));
     // Check selection changed
     assertFalse("Selection didn't change", selectedItems.equals(frame.home.getSelectedItems()));
     assertEquals("Selection doesn't contain 4 items", 4, frame.home.getSelectedItems().size());
@@ -414,7 +414,7 @@ public class PlanComponentWithFurnitureTest extends ComponentTestFixture {
     assertEquals("No new dimension lines", dimensionLinesCount + 1, frame.home.getDimensionLines().size());
 
     // 20. Duplicate and move items
-    tester.actionMouseMove(planComponent, new ComponentLocation(new Point(70, 200)));
+    tester.actionMouseMove(planComponent, new ComponentPoint(new Point(70, 200)));
     // Check the piece moved and the original piece didn't move
     HomePieceOfFurniture movedPiece =
         Home.getFurnitureSubList(frame.home.getSelectedItems()).get(0);
@@ -447,8 +447,8 @@ public class PlanComponentWithFurnitureTest extends ComponentTestFixture {
     tester.actionMouseRelease();
 
     // 22. Duplicate items
-    tester.actionMousePress(planComponent, new ComponentLocation(new Point(50, 170)));
-    tester.actionMouseMove(planComponent, new ComponentLocation(new Point(50, 190)));
+    tester.actionMousePress(planComponent, new ComponentPoint(new Point(50, 170)));
+    tester.actionMouseMove(planComponent, new ComponentPoint(new Point(50, 190)));
     tester.actionMouseRelease();
     tester.actionKeyRelease(OperatingSystem.isMacOSX() ? KeyEvent.VK_ALT : KeyEvent.VK_CONTROL);
     // Check the duplicated piece moved and the original piece didn't move

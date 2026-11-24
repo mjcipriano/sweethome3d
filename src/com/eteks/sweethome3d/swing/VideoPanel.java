@@ -67,7 +67,6 @@ import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.lang.ref.WeakReference;
-import java.lang.reflect.Field;
 import java.net.URL;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -82,20 +81,11 @@ import java.util.Hashtable;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Locale;
-import java.util.Map;
 import java.util.TimeZone;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import javax.imageio.ImageIO;
-import javax.media.Buffer;
-import javax.media.Format;
-import javax.media.MediaLocator;
-import javax.media.Time;
-import javax.media.format.VideoFormat;
-import javax.media.protocol.ContentDescriptor;
-import javax.media.protocol.PullBufferDataSource;
-import javax.media.protocol.PullBufferStream;
 import javax.swing.ActionMap;
 import javax.swing.BorderFactory;
 import javax.swing.BoundedRangeModel;
@@ -159,21 +149,21 @@ public class VideoPanel extends JPanel implements DialogView {
   private static final int MINIMUM_DELAY_BEFORE_DISCARDING_WITHOUT_WARNING = 30000;
 
   private static final VideoFormat [] VIDEO_FORMATS = {
-      new VideoFormat(VideoFormat.JPEG, new Dimension(176, 132), Format.NOT_SPECIFIED, Format.byteArray, 12), // 4/3
-      new VideoFormat(VideoFormat.JPEG, new Dimension(320, 240), Format.NOT_SPECIFIED, Format.byteArray, 25),
-      new VideoFormat(VideoFormat.JPEG, new Dimension(480, 360), Format.NOT_SPECIFIED, Format.byteArray, 25),
-      new VideoFormat(VideoFormat.JPEG, new Dimension(640, 480), Format.NOT_SPECIFIED, Format.byteArray, 25),
-      new VideoFormat(VideoFormat.JPEG, new Dimension(720, 540), Format.NOT_SPECIFIED, Format.byteArray, 25),
-      new VideoFormat(VideoFormat.JPEG, new Dimension(1024, 768), Format.NOT_SPECIFIED, Format.byteArray, 25),
-      new VideoFormat(VideoFormat.JPEG, new Dimension(1280, 960), Format.NOT_SPECIFIED, Format.byteArray, 25),
-      new VideoFormat(VideoFormat.JPEG, new Dimension(720, 405), Format.NOT_SPECIFIED, Format.byteArray, 25), // 16/9
-      new VideoFormat(VideoFormat.JPEG, new Dimension(1280, 536), Format.NOT_SPECIFIED, Format.byteArray, 25),
-      new VideoFormat(VideoFormat.JPEG, new Dimension(1280, 720), Format.NOT_SPECIFIED, Format.byteArray, 25),
-      new VideoFormat(VideoFormat.JPEG, new Dimension(1920, 800), Format.NOT_SPECIFIED, Format.byteArray, 25),
-      new VideoFormat(VideoFormat.JPEG, new Dimension(1920, 1080), Format.NOT_SPECIFIED, Format.byteArray, 25),
-      new VideoFormat(VideoFormat.JPEG, new Dimension(3840, 2160), Format.NOT_SPECIFIED, Format.byteArray, 25),
-      new VideoFormat(VideoFormat.JPEG, new Dimension(4096, 1728), Format.NOT_SPECIFIED, Format.byteArray, 25),
-      new VideoFormat(VideoFormat.JPEG, new Dimension(7680, 4320), Format.NOT_SPECIFIED, Format.byteArray, 25)};
+      new VideoFormat(176, 132, 12), // 4/3
+      new VideoFormat(320, 240, 25),
+      new VideoFormat(480, 360, 25),
+      new VideoFormat(640, 480, 25),
+      new VideoFormat(720, 540, 25),
+      new VideoFormat(1024, 768, 25),
+      new VideoFormat(1280, 960, 25),
+      new VideoFormat(720, 405, 25), // 16/9
+      new VideoFormat(1280, 536, 25),
+      new VideoFormat(1280, 720, 25),
+      new VideoFormat(1920, 800, 25),
+      new VideoFormat(1920, 1080, 25),
+      new VideoFormat(3840, 2160, 25),
+      new VideoFormat(4096, 1728, 25),
+      new VideoFormat(7680, 4320, 25)};
 
   private static final String TIP_CARD      = "tip";
   private static final String PROGRESS_CARD = "progress";
@@ -1514,9 +1504,8 @@ public class VideoPanel extends JPanel implements DialogView {
                 || home.getEnvironment().getDrawingMode() != HomeEnvironment.DrawingMode.OUTLINE));
       }
       if (!Thread.currentThread().isInterrupted()) {
-        ImageDataSource sourceStream = new ImageDataSource((VideoFormat)this.videoFormatComboBox.getSelectedItem(),
-            frameGenerator, videoFramesPath, progressModel);
-        new JPEGImagesToVideo().createVideoFile(width, height, frameRate, sourceStream, file);
+        ImageSource source = new ImageSource(frameGenerator, videoFramesPath, progressModel);
+        new JPEGImagesToVideo().createVideoFile(width, height, frameRate, source, file);
       }
     } catch (InterruptedIOException ex) {
       if (file != null) {
@@ -1696,191 +1685,64 @@ public class VideoPanel extends JPanel implements DialogView {
   }
 
   /**
-   * A data source able to create JPEG buffers on the fly from camera path
-   * and turn that into a stream of JMF buffers.
+   * The size and the frame rate of a video proposed to the user.
    */
-  private static class ImageDataSource extends PullBufferDataSource {
-    private ImageSourceStream stream;
+  private static class VideoFormat {
+    private final Dimension size;
+    private final int       frameRate;
 
-    public ImageDataSource(VideoFormat format,
-                           FrameGenerator frameGenerator,
-                           Camera []      framesPath,
-                           BoundedRangeModel progressModel) {
-      this.stream = new ImageSourceStream(format, frameGenerator, framesPath, progressModel);
+    public VideoFormat(int width, int height, int frameRate) {
+      this.size = new Dimension(width, height);
+      this.frameRate = frameRate;
     }
 
-    @Override
-    public void setLocator(MediaLocator source) {
+    public Dimension getSize() {
+      return this.size;
     }
 
-    @Override
-    public MediaLocator getLocator() {
-      return null;
-    }
-
-    /**
-     * Returns RAW since buffers of video frames are sent without a container format.
-     */
-    @Override
-    public String getContentType() {
-      return ContentDescriptor.RAW;
-    }
-
-    @Override
-    public void connect() {
-    }
-
-    @Override
-    public void disconnect() {
-    }
-
-    @Override
-    public void start() {
-    }
-
-    @Override
-    public void stop() {
-    }
-
-    public PullBufferStream [] getStreams() {
-      return new PullBufferStream [] {this.stream};
-    }
-
-    /**
-     * Not necessary to compute the duration.
-     */
-    @Override
-    public Time getDuration() {
-      return DURATION_UNKNOWN;
-    }
-
-    @Override
-    public Object [] getControls() {
-      return new Object [0];
-    }
-
-    @Override
-    public Object getControl(String type) {
-      return null;
+    public float getFrameRate() {
+      return this.frameRate;
     }
   }
 
   /**
-   * A source of video images.
+   * A source able to create JPEG images on the fly from camera path.
    */
-  private static class ImageSourceStream implements PullBufferStream {
-    private final FrameGenerator                 frameGenerator;
-    private final Camera []                      framesPath;
-    private final BoundedRangeModel              progressModel;
-    private final javax.media.format.VideoFormat format;
-    private int                                  imageIndex;
-    private boolean                              stopped;
-    private Object                               mainThreadContext;
+  private static class ImageSource implements JPEGImagesToVideo.FrameSource {
+    private final FrameGenerator    frameGenerator;
+    private final Camera []         framesPath;
+    private final BoundedRangeModel progressModel;
+    private int                     imageIndex;
 
-    public ImageSourceStream(VideoFormat format,
-                             FrameGenerator frameGenerator,
-                             Camera [] framesPath,
-                             final BoundedRangeModel progressModel) {
+    public ImageSource(FrameGenerator frameGenerator,
+                       Camera [] framesPath,
+                       BoundedRangeModel progressModel) {
       this.frameGenerator = frameGenerator;
       this.framesPath = framesPath;
       this.progressModel = progressModel;
-      this.format = format;
-      try {
-        // Retrieve main thread AppContext instance by reflection
-        this.mainThreadContext = Class.forName("sun.awt.AppContext").getMethod("getAppContext").invoke(null);
-      } catch (Throwable ex) {
-        // Let's consider app context is not necessary for the program
-      }
     }
 
     /**
-     * Return <code>false</code> because source stream doesn't
-     * need to block assuming data can be created on demand.
+     * Returns the next image of the video at JPEG format, or <code>null</code> after the last one.
      */
-    public boolean willReadBlock() {
-      return false;
-    }
-
-    /**
-     * This is called from the Processor to read a frame worth of video data.
-     */
-    public void read(Buffer buffer) throws IOException {
-      buffer.setOffset(0);
-      // Check if we've finished all the frames
-      if (endOfStream()) {
-        buffer.setEOM(true);
-        buffer.setLength(0);
+    public byte [] readFrame() throws IOException {
+      if (this.imageIndex == this.framesPath.length) {
+        return null;
       } else {
-        checkAppContext();
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         BufferedImage frame = this.frameGenerator.renderImageAt(this.framesPath [this.imageIndex],
             this.imageIndex == this.framesPath.length - 1);
-        ImageIO.write(frame, "JPEG", outputStream);
-        byte [] data = outputStream.toByteArray();
-        buffer.setData(data);
-        buffer.setLength(data.length);
-        buffer.setFormat(this.format);
-        buffer.setFlags(buffer.getFlags() | Buffer.FLAG_KEY_FRAME);
-
+        if (!ImageIO.write(frame, "JPEG", outputStream)) {
+          throw new IOException("No JPEG writer");
+        }
         final int progressionValue = this.imageIndex++;
         EventQueue.invokeLater(new Runnable() {
             public void run() {
               progressModel.setValue(progressionValue);
             }
           });
+        return outputStream.toByteArray();
       }
-    }
-
-    /**
-     * Checks that app context is correct.
-     */
-    private void checkAppContext() {
-      if (this.mainThreadContext != null) {
-        try {
-          // Check by reflection that sun.awt.AppContext.getAppContext() doesn't return null
-          // (required by ImageIO.write() and other JMF internal calls) to apply workaround proposed at
-          // http://stackoverflow.com/questions/17223304/appcontext-is-null-from-rmi-thread-with-java-7-update-25
-          Class<?> appContextClass = Class.forName("sun.awt.AppContext");
-          if (appContextClass.getMethod("getAppContext").invoke(null) == null) {
-            Field field = appContextClass.getDeclaredField("threadGroup2appContext");
-            field.setAccessible(true);
-            Map threadGroup2appContext = (Map)field.get(null);
-            ThreadGroup currentThreadGroup = Thread.currentThread().getThreadGroup();
-            threadGroup2appContext.put(currentThreadGroup, this.mainThreadContext);
-          }
-        } catch (Throwable ex) {
-          // Let's consider app context is not necessary for the program
-        }
-        // Don't need mainThreadContext anymore
-        this.mainThreadContext = null;
-      }
-    }
-
-    /**
-     * Return the format of each video frame. That will be JPEG.
-     */
-    public Format getFormat() {
-      return this.format;
-    }
-
-    public ContentDescriptor getContentDescriptor() {
-      return new ContentDescriptor(ContentDescriptor.RAW);
-    }
-
-    public long getContentLength() {
-      return 0;
-    }
-
-    public boolean endOfStream() {
-      return this.stopped || this.imageIndex == this.framesPath.length;
-    }
-
-    public Object [] getControls() {
-      return new Object [0];
-    }
-
-    public Object getControl(String type) {
-      return null;
     }
   }
 

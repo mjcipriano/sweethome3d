@@ -140,7 +140,7 @@ public class AutoCommitSpinner extends JSpinner {
                         };
                     }
                   } catch (LinkageError ex) {
-                    // Don't allow math expressions if Jeks Parser library isn't available
+                    // Don't allow math expressions if the class that computes them can't be loaded
                   }
                   return noGroupingFormat;
                 } else {
