@@ -58,7 +58,7 @@ public final class AssistantHelp {
       {"Lights, sun, doors and camera", "set_light set_sun set_environment open_door set_camera store_point_of_view"},
       {"Checks, reports and schedules", "check_home fix_home home_report set_unit_prices export_elevation measure door_schedule "
           + "window_schedule room_schedule schedule export_schedule add_symbol add_symbols symbol_schedule list_symbols "
-          + "framing_estimate find_duplicates find_floating"},
+          + "framing_estimate find_duplicates find_floating optimize_models"},
       {"Undo groups and help", "begin_group help get_capabilities"}};
 
   /**

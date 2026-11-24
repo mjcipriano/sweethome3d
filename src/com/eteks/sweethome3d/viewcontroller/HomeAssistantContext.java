@@ -467,6 +467,13 @@ public class HomeAssistantContext {
   }
 
   /**
+   * Returns what changed on the site between two states of a home: its trees, its fences and its ground.
+   */
+  public static String compareSites(Home oldHome, Home newHome) {
+    return AssistantTerrainCommands.compareSites(oldHome, newHome);
+  }
+
+  /**
    * Returns the names of the species of trees and of shrubs <code>add_tree</code> and <code>add_shrub</code> build.
    */
   public static java.util.List<String> getPlantSpecies(boolean shrubs) {
@@ -538,6 +545,8 @@ public class HomeAssistantContext {
         + "these is reported with the list of the keys. move, rotate, resize, set_elevation, set_color, rename and set_tags still do each one)\n"
         + "  {\"action\":\"set_site_defaults\",\"on_terrain\":false}  (a setting kept with the home: false leaves the pieces added outdoors "
         + "at the elevation 0 of their level, instead of putting them on the terrain)\n"
+        + "  {\"action\":\"optimize_models\",\"min_kb\":500}  (shows the reduced version of every heavy 3D model - 500 KB or more - in the "
+        + "3D view, as reduce_detail does for the pieces given, and tells the ones that have none yet)\n"
         + "  {\"action\":\"find_duplicates\"}  (the pieces that repeat another one: same model and size, within \"tolerance\" cm (5) and at the "
         + "same angle, on any level - like fence posts left on two levels - with the delete command that keeps one of each; \"where\" limits it)\n"
         + "  {\"action\":\"find_floating\"}  (the pieces outdoors whose bottom is more than \"tolerance\" cm (10) above or under the ground built "

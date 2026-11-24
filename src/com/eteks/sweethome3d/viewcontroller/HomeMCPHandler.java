@@ -394,6 +394,25 @@ public class HomeMCPHandler {
   private volatile ImageAnnotator imageAnnotator;
 
   /**
+   * Draws shapes over a picture of the plan.
+   */
+  public interface PlanOverlayPainter {
+    /**
+     * Returns the PNG <code>image</code> with shapes drawn over it, in pixels. Each shape is
+     * {kind, points, fill, stroke, stroke width, text}: the kind is <code>polygon</code>, <code>line</code>,
+     * <code>circle</code> (its center then a point of its edge), <code>text</code> (centered on its point) or
+     * <code>label</code> (starting at its point); the colors are ARGB or <code>null</code>.
+     */
+    byte [] paint(byte [] image, List<Object []> shapes);
+  }
+
+  private volatile PlanOverlayPainter planOverlayPainter;
+
+  public void setPlanOverlayPainter(PlanOverlayPainter planOverlayPainter) {
+    this.planOverlayPainter = planOverlayPainter;
+  }
+
+  /**
    * Sets the object that draws the dimensions of elevation pictures.
    */
   public void setImageAnnotator(ImageAnnotator imageAnnotator) {
@@ -882,6 +901,19 @@ public class HomeMCPHandler {
         schema(noteProperties, "id"), false));
     Map<String, Object> imageProperties = new LinkedHashMap<String, Object>();
     imageProperties.put("max_size", property("number", "Largest side of the image in pixels (default 1000, at most 2000)"));
+    Map<String, Object> layersProperty = property("array", "Drawn over this picture only: slope (the ground colored by its slope), "
+        + "contours (contour lines every contour_interval cm), trees (the crowns of the generated trees with their species), "
+        + "fences (the fences colored by style). Lot lines, setbacks, photos and the basemap are a part of the plan itself");
+    layersProperty.put("items", property("string", "slope, contours, trees or fences"));
+    imageProperties.put("layers", layersProperty);
+    imageProperties.put("contour_interval", property("number", "With the layer contours: the height between two lines in cm"));
+    imageProperties.put("legend", property("boolean", "true draws what the colors of the layers mean"));
+    imageProperties.put("scale_bar", property("boolean", "true draws a scale bar at the bottom left"));
+    imageProperties.put("north_arrow", property("boolean", "true draws an arrow to the north of the compass at the top right"));
+    Map<String, Object> annotateProperty = property("array", "Marks drawn in this picture only, not kept in the home: "
+        + "{\"text\":\"...\",\"x\":N,\"y\":N}, {\"marker\":[x,y],\"text\":\"...\"} or {\"line\":[[x,y],[x,y]],\"text\":\"...\"}, in cm of the plan");
+    annotateProperty.put("items", property("object", "A mark"));
+    imageProperties.put("annotate", annotateProperty);
     imageProperties.put("level", property("string", "Name of the level to draw (default: the selected level)"));
     Map<String, Object> areaProperty = property("object",
         "Part of the plan to draw, enlarged, in centimeters: {\"x\":N,\"y\":N,\"width\":N,\"height\":N} "
@@ -932,6 +964,8 @@ public class HomeMCPHandler {
         + "and seen through, to see what is behind them"));
     image3DProperties.put("season", enumProperty("Draws the generated trees and shrubs in this season for this picture, "
         + "without changing the home", "spring", "summer", "autumn", "winter"));
+    image3DProperties.put("date", property("string", "Lights this picture by the sun of a date, YYYY-MM-DD, without changing the home"));
+    image3DProperties.put("time", property("string", "Lights this picture by the sun of a local time, HH:MM"));
     image3DProperties.put("cutaway", property("number", "Leaves out the furniture, the roofs and the slabs whose bottom is at "
         + "this height in cm or above it (from the elevation 0). Walls aren't cut"));
     image3DProperties.put("photo", property("string", "The id of a photo placed by import_photos, like PH1: the picture is drawn "
@@ -1166,7 +1200,7 @@ public class HomeMCPHandler {
     exportProperties.put("format", enumProperty("pdf: the printed pages (plan, furniture list, 3D view); svg: the plan as a drawing; "
         + "obj: the 3D model with its materials; csv: the furniture list; web_page: a folder with the 3D visit for a browser; "
         + "panorama: a 360 degree picture from the place of the virtual visitor, with its page",
-        "pdf", "svg", "obj", "csv", "web_page", "panorama"));
+        "pdf", "svg", "obj", "glb", "csv", "web_page", "panorama"));
     exportProperties.put("path", property("string", "Absolute path of the file to write (pdf, svg, obj, csv), or of an existing folder that will receive a new folder (web_page, panorama)"));
     exportProperties.put("replace", property("boolean", "true to replace a file that exists"));
     exportProperties.put("width", property("number", "panorama: width of the picture in pixels (default 4096, from 1024 to 8192)"));
@@ -1545,17 +1579,301 @@ public class HomeMCPHandler {
         level = getLevel(targets.get(0));
       }
     }
+    List<String> layers = strings(arguments.get("layers"));
+    boolean overlays = !layers.isEmpty() || bool(arguments, "legend", false) || bool(arguments, "scale_bar", false)
+        || bool(arguments, "north_arrow", false) || arguments.get("annotate") instanceof List;
+    if (overlays && area == null) {
+      // The whole home, to know where each point of the plan is in the picture
+      float [] bounds = {Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
+      List<float [][]> shapes = new ArrayList<float [][]>();
+      for (Wall wall : this.home.getWalls()) {
+        shapes.add(wall.getPoints());
+      }
+      for (Room room : this.home.getRooms()) {
+        shapes.add(room.getPoints());
+      }
+      for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+        if (piece.isVisible()) {
+          shapes.add(piece.getPoints());
+        }
+      }
+      for (com.eteks.sweethome3d.model.Polyline polyline : this.home.getPolylines()) {
+        shapes.add(polyline.getPoints());
+      }
+      for (float [][] shape : shapes) {
+        for (float [] point : shape) {
+          bounds [0] = Math.min(bounds [0], point [0]);
+          bounds [1] = Math.min(bounds [1], point [1]);
+          bounds [2] = Math.max(bounds [2], point [0]);
+          bounds [3] = Math.max(bounds [3], point [1]);
+        }
+      }
+      if (bounds [0] < bounds [2] && bounds [1] < bounds [3]) {
+        float margin = Math.max(100, Math.max(bounds [2] - bounds [0], bounds [3] - bounds [1]) * 0.05f);
+        area = new float [] {bounds [0] - margin, bounds [1] - margin, bounds [2] - bounds [0] + 2 * margin,
+                             bounds [3] - bounds [1] + 2 * margin};
+      }
+    }
     byte [] image = provider != null ? provider.getPlanImage(maxSize, level, area) : null;
     if (image == null) {
       return toolResult("No picture of the plan is available (the plan is empty or not displayed).", true);
     }
+    String overlayText = "";
+    if (overlays && area != null) {
+      PlanOverlayPainter painter = this.planOverlayPainter;
+      int [] size = AssistantGeneratedModel.getImageSize(image);
+      if (painter == null || size == null) {
+        overlayText = " The layers can't be drawn here.";
+      } else {
+        List<String> legend = new ArrayList<String>();
+        byte [] painted = painter.paint(image, getPlanOverlay(arguments, layers, area, size, legend));
+        if (painted != null) {
+          image = painted;
+          overlayText = " Drawn over it, in this picture only: " + (legend.isEmpty() ? "the marks asked" : legend) + ".";
+        }
+      }
+    }
     Map<String, Object> result = imageResult(image);
+    if (overlayText.length() > 0 && area == null) {
+      ((List<Object>)result.get("content")).add(textContent(overlayText.trim()));
+    }
     if (area != null) {
       ((List<Object>)result.get("content")).add(textContent("Plan from x " + Math.round(area [0]) + ", y " + Math.round(area [1])
           + " (top left) to x " + Math.round(area [0] + area [2]) + ", y " + Math.round(area [1] + area [3]) + " cm"
-          + (level != null ? ", level \"" + level.getName() + "\"" : "") + "."));
+          + (level != null ? ", level \"" + level.getName() + "\"" : "") + "." + overlayText));
     }
     return result;
+  }
+
+  /**
+   * Returns the shapes of the layers asked for a picture of the plan, in pixels.
+   * @param legend filled with what the layers show
+   */
+  private List<Object []> getPlanOverlay(Map<String, Object> arguments, List<String> layers, float [] area, int [] size, List<String> legend) {
+    List<Object []> shapes = new ArrayList<Object []>();
+    final float scale = size [0] / area [2];
+    final float left = area [0];
+    final float top = area [1];
+    List<Object []> legendEntries = new ArrayList<Object []>();
+    List<float [][]> triangles = layers.contains("slope") || layers.contains("contours") ? HomeTerrain.getTriangles(this.home)
+        : new ArrayList<float [][]>();
+    if (layers.contains("slope")) {
+      float [] limits = {2, 5, 8.33f, 15, 25, Float.MAX_VALUE};
+      int [] colors = {0x6FA8DC, 0x93C47D, 0xFFD966, 0xF6B26B, 0xE06666, 0x990000};
+      String [] names = {"under 2 %", "2 to 5 %", "5 to 8.33 %", "8.33 to 15 %", "15 to 25 %", "over 25 %"};
+      boolean [] used = new boolean [limits.length];
+      for (float [][] triangle : triangles) {
+        double ux = triangle [1][0] - triangle [0][0];
+        double uy = triangle [1][1] - triangle [0][1];
+        double uz = triangle [1][2] - triangle [0][2];
+        double vx = triangle [2][0] - triangle [0][0];
+        double vy = triangle [2][1] - triangle [0][1];
+        double vz = triangle [2][2] - triangle [0][2];
+        double nz = ux * vy - uy * vx;
+        if (Math.abs(nz) < 1E-6) {
+          continue;
+        }
+        double slope = Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz) / Math.abs(nz) * 100;
+        int index = 0;
+        while (slope >= limits [index]) {
+          index++;
+        }
+        used [index] = true;
+        shapes.add(new Object [] {"polygon", new float [] {(triangle [0][0] - left) * scale, (triangle [0][1] - top) * scale,
+            (triangle [1][0] - left) * scale, (triangle [1][1] - top) * scale, (triangle [2][0] - left) * scale,
+            (triangle [2][1] - top) * scale}, Integer.valueOf(0x80000000 | colors [index]), null, null, null});
+      }
+      for (int i = 0; i < limits.length; i++) {
+        if (used [i]) {
+          legendEntries.add(new Object [] {Integer.valueOf(0xC0000000 | colors [i]), "slope " + names [i]});
+        }
+      }
+      legend.add("slopes by color");
+    }
+    if (layers.contains("contours") && !triangles.isEmpty()) {
+      float lowest = Float.MAX_VALUE;
+      float highest = -Float.MAX_VALUE;
+      for (float [][] triangle : triangles) {
+        for (float [] corner : triangle) {
+          lowest = Math.min(lowest, corner [2]);
+          highest = Math.max(highest, corner [2]);
+        }
+      }
+      float interval = (float)number(arguments, "contour_interval", Math.max(10, Math.round((highest - lowest) / 12 / 10) * 10));
+      interval = Math.max(interval, (highest - lowest) / 300);
+      for (int n = (int)Math.ceil((lowest + 0.01f) / interval); n * interval < highest; n++) {
+        float height = n * interval + 0.013f;
+        float [] labelPlace = null;
+        for (float [][] triangle : triangles) {
+          float [] segment = new float [4];
+          int count = 0;
+          for (int i = 0; i < 3 && count < 2; i++) {
+            float [] a = triangle [i];
+            float [] b = triangle [(i + 1) % 3];
+            if (a [2] < height != b [2] < height) {
+              float t = (height - a [2]) / (b [2] - a [2]);
+              segment [count * 2] = (a [0] + (b [0] - a [0]) * t - left) * scale;
+              segment [count * 2 + 1] = (a [1] + (b [1] - a [1]) * t - top) * scale;
+              count++;
+            }
+          }
+          if (count == 2) {
+            shapes.add(new Object [] {"line", segment, null, Integer.valueOf(0xE08A5A2B), Float.valueOf(n % 5 == 0 ? 2f : 1f), null});
+            if (labelPlace == null && segment [0] > 30 && segment [0] < size [0] - 30 && segment [1] > 20 && segment [1] < size [1] - 20) {
+              labelPlace = new float [] {segment [0], segment [1]};
+            }
+          }
+        }
+        if (labelPlace != null && n % 5 == 0) {
+          shapes.add(new Object [] {"text", labelPlace, null, Integer.valueOf(0xFF6B4A1B), null,
+              AssistantStructureCommands.format(n * interval)});
+        }
+      }
+      legendEntries.add(new Object [] {Integer.valueOf(0xE08A5A2B), "contour lines every " + AssistantStructureCommands.format(interval) + " cm"});
+      legend.add("contour lines every " + AssistantStructureCommands.format(interval) + " cm");
+    }
+    if (layers.contains("trees")) {
+      int count = 0;
+      for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+        Map<String, Object> plant = AssistantPlantCommands.getSpec(piece);
+        if (plant == null || !piece.isVisible()) {
+          continue;
+        }
+        float x = (AssistantFurnitureBuilder.getNumber(plant, "x", piece.getX()) - left) * scale;
+        float y = (AssistantFurnitureBuilder.getNumber(plant, "y", piece.getY()) - top) * scale;
+        float radius = AssistantFurnitureBuilder.getNumber(plant, "crown_w", piece.getWidth()) / 2 * scale;
+        boolean removed = plant.get("removed_since") != null;
+        shapes.add(new Object [] {"circle", new float [] {x, y, x + radius, y}, Integer.valueOf(removed ? 0x30808080 : 0x5038761D),
+            Integer.valueOf(removed ? 0xA0808080 : 0xFF274E13), Float.valueOf(1.2f), null});
+        if (radius > 16) {
+          String species = String.valueOf(plant.get("species")).replace('_', ' ');
+          shapes.add(new Object [] {"text", new float [] {x, y}, null, Integer.valueOf(0xFF1B3A0B), null,
+              species.length() > 16 ? species.substring(0, 15) + "." : species});
+        }
+        count++;
+      }
+      legendEntries.add(new Object [] {Integer.valueOf(0x9038761D), "crowns of " + count + " generated trees and shrubs"});
+      legend.add("the crowns of " + count + " trees and shrubs");
+    }
+    if (layers.contains("fences")) {
+      int [] colors = {0xCC0000, 0x1155CC, 0xBF9000, 0x7030A0, 0x38761D, 0x134F5C, 0xB45F06, 0x741B47};
+      Map<String, Integer> styles = new LinkedHashMap<String, Integer>();
+      for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+        Map<String, Object> fence = AssistantFenceCommands.getSpec(piece);
+        if (fence == null || !piece.isVisible()) {
+          continue;
+        }
+        try {
+          float [][] points = AssistantFenceBuilder.getPoints(fence);
+          boolean closed = AssistantFenceBuilder.isClosed(fence, points);
+          String style = fence.get("style") != null ? fence.get("style").toString() : "picket";
+          if (!styles.containsKey(style)) {
+            styles.put(style, Integer.valueOf(colors [styles.size() % colors.length]));
+          }
+          float [] line = new float [(points.length + (closed ? 1 : 0)) * 2];
+          for (int i = 0; i < points.length + (closed ? 1 : 0); i++) {
+            line [i * 2] = (points [i % points.length][0] - left) * scale;
+            line [i * 2 + 1] = (points [i % points.length][1] - top) * scale;
+          }
+          shapes.add(new Object [] {"line", line, null, Integer.valueOf(0xFF000000 | styles.get(style)), Float.valueOf(3f), null});
+        } catch (java.io.IOException ex) {
+          // A fence that can't be read isn't drawn
+        }
+      }
+      for (Map.Entry<String, Integer> style : styles.entrySet()) {
+        legendEntries.add(new Object [] {Integer.valueOf(0xFF000000 | style.getValue()), "fence " + style.getKey()});
+      }
+      legend.add("the fences by style");
+    }
+    // Marks of this picture only
+    if (arguments.get("annotate") instanceof List) {
+      for (Object item : (List<?>)arguments.get("annotate")) {
+        if (!(item instanceof Map)) {
+          continue;
+        }
+        Map<?, ?> mark = (Map<?, ?>)item;
+        String text = mark.get("text") != null ? mark.get("text").toString() : null;
+        float [] place = null;
+        if (mark.get("line") instanceof List) {
+          List<?> points = (List<?>)mark.get("line");
+          float [] line = new float [points.size() * 2];
+          boolean valid = points.size() >= 2;
+          for (int i = 0; i < points.size() && valid; i++) {
+            valid = points.get(i) instanceof List && ((List<?>)points.get(i)).size() >= 2 && ((List<?>)points.get(i)).get(0) instanceof Number;
+            if (valid) {
+              line [i * 2] = (((Number)((List<?>)points.get(i)).get(0)).floatValue() - left) * scale;
+              line [i * 2 + 1] = (((Number)((List<?>)points.get(i)).get(1)).floatValue() - top) * scale;
+            }
+          }
+          if (valid) {
+            shapes.add(new Object [] {"line", line, null, Integer.valueOf(0xFFD0006F), Float.valueOf(2.5f), null});
+            place = new float [] {(line [0] + line [2]) / 2, (line [1] + line [3]) / 2 - 10};
+          }
+        } else {
+          Object point = mark.get("marker") instanceof List ? mark.get("marker") : null;
+          float x = point != null && ((List<?>)point).size() >= 2 ? ((Number)((List<?>)point).get(0)).floatValue()
+              : AssistantFurnitureBuilder.getNumber(mark, "x", Float.NaN);
+          float y = point != null && ((List<?>)point).size() >= 2 ? ((Number)((List<?>)point).get(1)).floatValue()
+              : AssistantFurnitureBuilder.getNumber(mark, "y", Float.NaN);
+          if (!Float.isNaN(x) && !Float.isNaN(y)) {
+            float px = (x - left) * scale;
+            float py = (y - top) * scale;
+            if (point != null || text == null) {
+              shapes.add(new Object [] {"circle", new float [] {px, py, px + 6, py}, Integer.valueOf(0xFFD0006F), Integer.valueOf(0xFFFFFFFF),
+                  Float.valueOf(1.5f), null});
+              place = new float [] {px, py - 14};
+            } else {
+              place = new float [] {px, py};
+            }
+          }
+        }
+        if (text != null && place != null) {
+          shapes.add(new Object [] {"text", place, null, Integer.valueOf(0xFFA0004F), null, text});
+        }
+      }
+      legend.add("the marks of \"annotate\"");
+    }
+    if (bool(arguments, "scale_bar", false)) {
+      // A round length about a fifth of the picture wide
+      double target = area [2] / 5;
+      double length = Math.pow(10, Math.floor(Math.log10(target)));
+      length = target / length >= 5 ? length * 5 : target / length >= 2 ? length * 2 : length;
+      float x = 20;
+      float y = size [1] - 22;
+      float width = (float)(length * scale);
+      shapes.add(new Object [] {"polygon", new float [] {x - 6, y - 20, x + width + 6, y - 20, x + width + 6, y + 10, x - 6, y + 10},
+          Integer.valueOf(0xD0FFFFFF), null, null, null});
+      shapes.add(new Object [] {"line", new float [] {x, y - 5, x, y, x + width, y, x + width, y - 5}, null, Integer.valueOf(0xFF000000),
+          Float.valueOf(2f), null});
+      shapes.add(new Object [] {"text", new float [] {x + width / 2, y - 10}, null, Integer.valueOf(0xFF000000), null,
+          length >= 100 ? AssistantStructureCommands.format((float)(length / 100)) + " m" : AssistantStructureCommands.format((float)length) + " cm"});
+      legend.add("a scale bar");
+    }
+    if (bool(arguments, "north_arrow", false)) {
+      double north = this.home.getCompass().getNorthDirection();
+      float x = size [0] - 40;
+      float y = 45;
+      float dx = (float)Math.sin(north);
+      float dy = -(float)Math.cos(north);
+      shapes.add(new Object [] {"circle", new float [] {x, y, x + 30, y}, Integer.valueOf(0xD0FFFFFF), Integer.valueOf(0xFF000000),
+          Float.valueOf(1f), null});
+      shapes.add(new Object [] {"polygon", new float [] {x + dx * 24, y + dy * 24, x - dx * 14 - dy * 9, y - dy * 14 + dx * 9,
+          x - dx * 6, y - dy * 6, x - dx * 14 + dy * 9, y - dy * 14 - dx * 9}, Integer.valueOf(0xFF000000), null, null, null});
+      shapes.add(new Object [] {"text", new float [] {x + dx * 12 + dy * 12, y + dy * 12 - dx * 12}, null, Integer.valueOf(0xFFCC0000), null, "N"});
+      legend.add("a north arrow");
+    }
+    if (bool(arguments, "legend", false) && !legendEntries.isEmpty()) {
+      float y = 14;
+      shapes.add(new Object [] {"polygon", new float [] {6, 4, 300, 4, 300, 10 + legendEntries.size() * 18, 6, 10 + legendEntries.size() * 18},
+          Integer.valueOf(0xD8FFFFFF), null, null, null});
+      for (Object [] entry : legendEntries) {
+        shapes.add(new Object [] {"polygon", new float [] {12, y - 6, 30, y - 6, 30, y + 6, 12, y + 6}, entry [0], Integer.valueOf(0xFF404040),
+            Float.valueOf(0.8f), null});
+        shapes.add(new Object [] {"label", new float [] {36, y}, null, Integer.valueOf(0xFF000000), null, entry [1]});
+        y += 18;
+      }
+    }
+    return shapes;
   }
 
   private static Level getLevel(Selectable item) {
@@ -2134,7 +2452,8 @@ public class HomeMCPHandler {
     String hiddenDescription = "";
     if (sweep == null && (arguments.get("exclude_tags") != null || arguments.get("include_tags") != null
                           || arguments.get("hide_ids") != null || arguments.get("xray") != null
-                          || arguments.get("season") != null || arguments.get("cutaway") != null)) {
+                          || arguments.get("season") != null || arguments.get("cutaway") != null
+                          || arguments.get("date") != null || arguments.get("time") != null)) {
       List<String> excludedTags = strings(arguments.get("exclude_tags"));
       List<String> includedTags = strings(arguments.get("include_tags"));
       List<String> hiddenIds = strings(arguments.get("hide_ids"));
@@ -2151,6 +2470,32 @@ public class HomeMCPHandler {
       }
       double cutaway = number(arguments, "cutaway", Double.NaN);
       drawnHome = this.home.clone();
+      String sunText = "";
+      if (arguments.get("date") != null || arguments.get("time") != null) {
+        // The sun at a date and a time, for this picture
+        java.util.Calendar calendar = new java.util.GregorianCalendar(java.util.TimeZone.getTimeZone("UTC"));
+        calendar.setTimeInMillis(this.home.getCamera().getTime());
+        java.util.regex.Matcher dateMatcher = java.util.regex.Pattern.compile("(\\d{4})-(\\d{1,2})-(\\d{1,2})").matcher(
+            string(arguments, "date") != null ? string(arguments, "date").trim() : "");
+        java.util.regex.Matcher timeMatcher = java.util.regex.Pattern.compile("(\\d{1,2}):(\\d{2})").matcher(
+            string(arguments, "time") != null ? string(arguments, "time").trim() : "");
+        if (arguments.get("date") != null && !dateMatcher.matches() || arguments.get("time") != null && !timeMatcher.matches()) {
+          return toolResult("\"date\" is written YYYY-MM-DD and \"time\" HH:MM.", true);
+        }
+        if (arguments.get("date") != null) {
+          calendar.set(Integer.parseInt(dateMatcher.group(1)), Integer.parseInt(dateMatcher.group(2)) - 1, Integer.parseInt(dateMatcher.group(3)));
+        }
+        if (arguments.get("time") != null) {
+          calendar.set(java.util.Calendar.HOUR_OF_DAY, Integer.parseInt(timeMatcher.group(1)));
+          calendar.set(java.util.Calendar.MINUTE, Integer.parseInt(timeMatcher.group(2)));
+          calendar.set(java.util.Calendar.SECOND, 0);
+        }
+        for (Camera camera : new Camera [] {drawnHome.getCamera(), drawnHome.getTopCamera(), drawnHome.getObserverCamera()}) {
+          camera.setTime(calendar.getTimeInMillis());
+        }
+        drawnHome.setProperty(AssistantSceneCommands.SUN_FOLLOWS_TIME_PROPERTY, "true");
+        sunText = " Lit by the sun of " + String.format("%tF at %tR", calendar, calendar) + ", local time.";
+      }
       if (level != null) {
         int levelIndex = this.home.getLevels().indexOf(level);
         if (levelIndex >= 0 && levelIndex < drawnHome.getLevels().size()) {
@@ -2216,7 +2561,7 @@ public class HomeMCPHandler {
       hiddenDescription = " " + hidden + (hidden == 1 ? " item" : " items") + " left out of this picture"
           + (changed > 0 ? ", " + changed + " generated plants drawn " + (xray ? "pale and seen through" : "in " + season) : "")
           + (xray && changed == 0 ? " (no generated plant to see through: catalog trees are left out with exclude_tags)" : "")
-          + (!Double.isNaN(cutaway) ? "; the walls aren't cut by \"cutaway\"" : "") + ".";
+          + (!Double.isNaN(cutaway) ? "; the walls aren't cut by \"cutaway\"" : "") + "." + sunText;
     }
     long start = System.currentTimeMillis();
     Image3DRequest imageRequest = sweep != null ? null : new Image3DRequest(width, height, renderer,
@@ -2660,7 +3005,8 @@ public class HomeMCPHandler {
       Home newHome = otherVersion != null ? this.homeController.readHomeVersion(otherVersion) : this.home;
       String text = "From the version \"" + HomeVersions.getLabel(version) + "\" to "
           + (otherVersion != null ? "the version \"" + HomeVersions.getLabel(otherVersion) + "\"" : "the home as it is now") + ":\n"
-          + HomeVersions.compare(oldHome, newHome) + "\n" + HomeVersions.compareItems(oldHome, newHome, 40);
+          + HomeVersions.compare(oldHome, newHome) + "\n" + HomeVersions.compareItems(oldHome, newHome, 40)
+          + AssistantTerrainCommands.compareSites(oldHome, newHome);
       ImageProvider provider = this.imageProvider;
       ImageComposer composer = this.imageComposer;
       if (bool(arguments, "picture", false) && provider != null && composer != null) {
@@ -2783,8 +3129,9 @@ public class HomeMCPHandler {
       String format = string(arguments, "format") != null ? string(arguments, "format").toLowerCase() : "";
       String path = string(arguments, "path");
       boolean folder = "web_page".equals(format) || "panorama".equals(format);
-      if (!folder && !"pdf".equals(format) && !"svg".equals(format) && !"obj".equals(format) && !"csv".equals(format)) {
-        return toolResult("\"format\" is pdf, svg, obj, csv, web_page or panorama.", true);
+      if (!folder && !"pdf".equals(format) && !"svg".equals(format) && !"obj".equals(format) && !"csv".equals(format)
+          && !"glb".equals(format)) {
+        return toolResult("\"format\" is pdf, svg, obj, glb, csv, web_page or panorama.", true);
       } else if (path == null || !new java.io.File(path).isAbsolute()) {
         return toolResult("\"path\" must be an absolute path.", true);
       }
@@ -2800,6 +3147,31 @@ public class HomeMCPHandler {
           return toolResult("The folder " + target.getParent() + " doesn't exist.", true);
         } else if (target.exists() && !bool(arguments, "replace", false)) {
           return toolResult(target + " exists: give \"replace\":true to replace it, or another name.", true);
+        }
+      }
+      if ("glb".equals(format)) {
+        // The OBJ export written in a folder of its own, then turned into one binary glTF file
+        java.io.File folderOfObj = java.nio.file.Files.createTempDirectory("sh3dglb").toFile();
+        try {
+          java.io.File obj = new java.io.File(folderOfObj, "home.obj");
+          operations.export("obj", obj, arguments);
+          HomeGeoreference georeference = HomeGeoreference.get(this.home);
+          String extras = georeference != null
+              ? "{\"georeference\":{\"latitude\":" + georeference.getLatitude() + ",\"longitude\":" + georeference.getLongitude()
+                  + ",\"plan_x_cm\":" + georeference.getX() + ",\"plan_y_cm\":" + georeference.getY() + ",\"north_clockwise_from_plan_top_deg\":"
+                  + georeference.getRotation() + ",\"note\":\"x of the model is the x of the plan and z its y, in meters\"}}"
+              : null;
+          int triangles = AssistantGltfWriter.convert(obj, target, extras);
+          return toolResult("Wrote " + target + ": a binary glTF 2.0 file of " + triangles + " triangles, in meters, y up"
+              + (georeference != null ? ", with the georeference of the home in the extras of its scene" : "") + ".", false);
+        } finally {
+          java.io.File [] files = folderOfObj.listFiles();
+          if (files != null) {
+            for (java.io.File file : files) {
+              file.delete();
+            }
+          }
+          folderOfObj.delete();
         }
       }
       return toolResult(operations.export(format, target, arguments), false);

@@ -1760,6 +1760,132 @@ class AssistantTerrainCommands {
     notes.add(text.toString());
   }
 
+  /**
+   * Returns what changed on the site between two states of a home: its trees, its fences and its ground.
+   */
+  static String compareSites(Home oldHome, Home newHome) {
+    StringBuilder text = new StringBuilder();
+    // Trees by their place
+    List<Map<String, Object>> oldTrees = new ArrayList<Map<String, Object>>();
+    List<Map<String, Object>> newTrees = new ArrayList<Map<String, Object>>();
+    for (int side = 0; side < 2; side++) {
+      for (HomePieceOfFurniture piece : (side == 0 ? oldHome : newHome).getFurniture()) {
+        Map<String, Object> plant = AssistantPlantCommands.getSpec(piece);
+        if (plant != null && plant.get("removed_since") == null) {
+          (side == 0 ? oldTrees : newTrees).add(plant);
+        }
+      }
+    }
+    List<Map<String, Object>> removed = new ArrayList<Map<String, Object>>(oldTrees);
+    List<String> added = new ArrayList<String>();
+    List<String> changed = new ArrayList<String>();
+    for (Map<String, Object> tree : newTrees) {
+      float x = AssistantFurnitureBuilder.getNumber(tree, "x", 0);
+      float y = AssistantFurnitureBuilder.getNumber(tree, "y", 0);
+      Map<String, Object> same = null;
+      for (Map<String, Object> other : removed) {
+        if (Math.hypot(AssistantFurnitureBuilder.getNumber(other, "x", 0) - x, AssistantFurnitureBuilder.getNumber(other, "y", 0) - y) < 100) {
+          same = other;
+          break;
+        }
+      }
+      String place = tree.get("species") + " at (" + Math.round(x) + ", " + Math.round(y) + ")";
+      if (same == null) {
+        added.add(place);
+      } else {
+        removed.remove(same);
+        float oldHeight = AssistantFurnitureBuilder.getNumber(same, "height", 0);
+        float newHeight = AssistantFurnitureBuilder.getNumber(tree, "height", 0);
+        if (!String.valueOf(same.get("species")).equals(String.valueOf(tree.get("species"))) || Math.abs(oldHeight - newHeight) > 20) {
+          changed.add(place + (String.valueOf(same.get("species")).equals(String.valueOf(tree.get("species"))) ? "" : ", was " + same.get("species"))
+              + (Math.abs(oldHeight - newHeight) > 20 ? ", " + format(oldHeight / 100) + " to " + format(newHeight / 100) + " m high" : ""));
+        }
+      }
+    }
+    if (!added.isEmpty() || !removed.isEmpty() || !changed.isEmpty()) {
+      text.append("\nTrees and shrubs: ").append(added.size()).append(" added, ").append(removed.size()).append(" removed, ")
+          .append(changed.size()).append(" changed");
+      if (!added.isEmpty()) {
+        text.append(". Added: ").append(added.size() > 12 ? added.subList(0, 12) + "..." : added);
+      }
+      if (!removed.isEmpty()) {
+        List<String> places = new ArrayList<String>();
+        for (Map<String, Object> tree : removed) {
+          places.add(tree.get("species") + " at (" + Math.round(AssistantFurnitureBuilder.getNumber(tree, "x", 0)) + ", "
+              + Math.round(AssistantFurnitureBuilder.getNumber(tree, "y", 0)) + ")");
+        }
+        text.append(". Removed: ").append(places.size() > 12 ? places.subList(0, 12) + "..." : places);
+      }
+      if (!changed.isEmpty()) {
+        text.append(". Changed: ").append(changed.size() > 12 ? changed.subList(0, 12) + "..." : changed);
+      }
+    }
+    // Fences by the object that shows them
+    Map<String, HomePieceOfFurniture> oldFences = new LinkedHashMap<String, HomePieceOfFurniture>();
+    for (HomePieceOfFurniture piece : oldHome.getFurniture()) {
+      if (AssistantFenceCommands.getSpec(piece) != null) {
+        oldFences.put(piece.getId(), piece);
+      }
+    }
+    List<String> fenceChanges = new ArrayList<String>();
+    for (HomePieceOfFurniture piece : newHome.getFurniture()) {
+      Map<String, Object> spec = AssistantFenceCommands.getSpec(piece);
+      if (spec == null) {
+        continue;
+      }
+      HomePieceOfFurniture old = oldFences.remove(piece.getId());
+      String id = HomeItemIds.getId(piece);
+      String name = (id != null ? id + " " : "") + "\"" + piece.getName() + "\" (" + (spec.get("style") != null ? spec.get("style") : "picket") + ")";
+      if (old == null) {
+        fenceChanges.add("added " + name);
+      } else if (!String.valueOf(old.getProperty(AssistantFenceCommands.FENCE_PROPERTY)).equals(piece.getProperty(AssistantFenceCommands.FENCE_PROPERTY))) {
+        Map<String, Object> oldSpec = AssistantFenceCommands.getSpec(old);
+        List<String> keys = new ArrayList<String>();
+        java.util.Set<String> allKeys = new java.util.LinkedHashSet<String>(spec.keySet());
+        if (oldSpec != null) {
+          allKeys.addAll(oldSpec.keySet());
+        }
+        for (String key : allKeys) {
+          if (oldSpec == null || !String.valueOf(oldSpec.get(key)).equals(String.valueOf(spec.get(key)))) {
+            keys.add(key);
+          }
+        }
+        fenceChanges.add("changed " + name + ": " + keys);
+      }
+    }
+    for (HomePieceOfFurniture old : oldFences.values()) {
+      fenceChanges.add("removed \"" + old.getName() + "\"");
+    }
+    if (!fenceChanges.isEmpty()) {
+      text.append("\nFences: ").append(fenceChanges.size() > 15 ? fenceChanges.subList(0, 15) + "..." : fenceChanges);
+    }
+    // The ground
+    String oldGround = null;
+    String newGround = null;
+    for (HomePieceOfFurniture piece : oldHome.getFurniture()) {
+      if (HomeTerrain.isTerrain(piece)) {
+        oldGround = piece.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY);
+      }
+    }
+    for (HomePieceOfFurniture piece : newHome.getFurniture()) {
+      if (HomeTerrain.isTerrain(piece)) {
+        newGround = piece.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY);
+      }
+    }
+    if (oldGround == null && newGround != null) {
+      text.append("\nGround: a terrain was built");
+    } else if (oldGround != null && newGround == null) {
+      text.append("\nGround: the terrain was removed");
+    } else if (oldGround != null && !oldGround.equals(newGround)) {
+      Surface before = new Surface(HomeTerrain.getTriangles(oldGround));
+      Surface after = new Surface(HomeTerrain.getTriangles(newGround));
+      float [] bounds = {Math.min(before.bounds [0], after.bounds [0]), Math.min(before.bounds [1], after.bounds [1]),
+                         Math.max(before.bounds [2], after.bounds [2]), Math.max(before.bounds [3], after.bounds [3])};
+      text.append("\nGround: changed, ").append(describeVolumes(getVolumes(before, after, bounds, null)));
+    }
+    return text.length() > 0 ? "\nSite:" + text : "";
+  }
+
   private static String toJsonNumber(double value) {
     return String.format(Locale.US, "%.8f", value);
   }

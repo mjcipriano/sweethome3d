@@ -236,6 +236,7 @@ each one of these changes.
 | `find_duplicates` | The pieces that repeat another one: same model and size, within `tolerance` cm (5) and at the same angle, on any level. The answer ends with the `delete` command that keeps one of each |
 | `find_floating` | The pieces outdoors whose bottom is more than `tolerance` cm (10) above or under the ground built by `set_terrain`. The answer ends with the `set_elevation` command that puts them on it |
 | `set_site_defaults` | `"on_terrain":false` leaves the pieces added outdoors at the elevation 0 of their level; kept with the home |
+| `optimize_models` | Shows the reduced version of every 3D model of `min_kb` KB (500) or more in the 3D view, and tells the ones that have none yet |
 
 Both find commands change nothing, and `where` limits them to some pieces.
 

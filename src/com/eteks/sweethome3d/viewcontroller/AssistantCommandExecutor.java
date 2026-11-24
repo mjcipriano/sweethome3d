@@ -925,6 +925,35 @@ public class AssistantCommandExecutor {
       } else {
         notes.add("Couldn't run set_site_defaults (give \"on_terrain\":true or false)");
       }
+    } else if ("optimize_models".equals(action)) {
+      // The reduced model of the heavy pieces, the full one being kept for close views
+      double minimum = Math.max(1, command.getDouble("min_kb", 500)) * 1024;
+      List<String> ids = new ArrayList<String>();
+      List<String> waiting = new ArrayList<String>();
+      long weight = 0;
+      for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+        if (piece.getModelSize() != null && piece.getModelSize() >= minimum && piece.isVisible()) {
+          if (piece.getModel() != null && this.home.getModelLOD(piece.getModel()) != null) {
+            if (!ModelLOD.isReducedDetailInView(piece)) {
+              ids.add(getId(piece));
+              weight += piece.getModelSize();
+            }
+          } else if (waiting.size() < 10) {
+            waiting.add(getId(piece) + " \"" + piece.getName() + "\"");
+          }
+        }
+      }
+      if (!ids.isEmpty()) {
+        Map<String, Object> parameters = new java.util.LinkedHashMap<String, Object>();
+        parameters.put("ids", ids);
+        applyCommand(new AssistantCommand("reduce_detail", parameters), tally, notFound, notes);
+      }
+      notes.add((ids.isEmpty() ? "No heavy model to reduce" : "Reduced the detail of " + ids.size() + " pieces whose models weigh "
+              + AssistantStructureCommands.format(weight / 1024f / 1024f) + " MB in all: the 3D view draws their light version, and "
+              + "restore_detail gives the full one back")
+          + " (models of " + AssistantStructureCommands.format((float)(minimum / 1024)) + " KB or more)"
+          + (waiting.isEmpty() ? "" : ". These have no reduced version yet: " + waiting + ". It is made by 3D view > Generate model "
+              + "LOD cache, and by itself when a home is opened"));
     } else if ("find_duplicates".equals(action)) {
       findDuplicates(command, notes);
     } else if ("find_floating".equals(action)) {

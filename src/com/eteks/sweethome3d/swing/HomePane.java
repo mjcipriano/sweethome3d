@@ -5418,6 +5418,11 @@ public class HomePane extends JRootPane implements HomeView {
             return composeTiles(tiles, columns, rows, tileSize, crop, rotation);
           }
         });
+      this.mcpHandler.setPlanOverlayPainter(new HomeMCPHandler.PlanOverlayPainter() {
+          public byte [] paint(byte [] image, List<Object []> shapes) {
+            return paintPlanOverlay(image, shapes);
+          }
+        });
       this.mcpHandler.setModelSizeProvider(new AssistantModelSizeProvider());
       this.mcpHandler.setModelInspector(new AssistantModelInspector());
       this.mcpHandler.setImageAnnotator(new HomeMCPHandler.ImageAnnotator() {
@@ -6169,6 +6174,75 @@ public class HomePane extends JRootPane implements HomeView {
       ImageIO.write(map, "png", out);
       return out.toByteArray();
     } catch (IOException ex) {
+      return null;
+    }
+  }
+
+  /**
+   * Returns a picture of the plan with shapes drawn over it.
+   */
+  static byte [] paintPlanOverlay(byte [] image, List<Object []> shapes) {
+    try {
+      BufferedImage source = ImageIO.read(new java.io.ByteArrayInputStream(image));
+      BufferedImage picture = new BufferedImage(source.getWidth(), source.getHeight(), BufferedImage.TYPE_INT_ARGB);
+      Graphics2D g2D = picture.createGraphics();
+      g2D.drawImage(source, 0, 0, null);
+      g2D.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+      g2D.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+      g2D.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, Math.max(11, picture.getWidth() / 85)));
+      java.awt.FontMetrics metrics = g2D.getFontMetrics();
+      for (Object [] shape : shapes) {
+        String kind = (String)shape [0];
+        float [] points = (float [])shape [1];
+        Integer fill = (Integer)shape [2];
+        Integer stroke = (Integer)shape [3];
+        float width = shape [4] != null ? ((Float)shape [4]).floatValue() : 1;
+        String text = (String)shape [5];
+        if (kind.equals("text") || kind.equals("label")) {
+          int textWidth = metrics.stringWidth(text);
+          float x = kind.equals("text") ? points [0] - textWidth / 2f : points [0];
+          float y = points [1] + metrics.getAscent() / 2f - 1;
+          // White around the letters, to be read over any color
+          g2D.setColor(new Color(255, 255, 255, 220));
+          for (int [] offset : new int [][] {{-1, 0}, {1, 0}, {0, -1}, {0, 1}}) {
+            g2D.drawString(text, x + offset [0], y + offset [1]);
+          }
+          g2D.setColor(new Color(stroke != null ? stroke.intValue() : 0xFF000000, true));
+          g2D.drawString(text, x, y);
+          continue;
+        }
+        java.awt.Shape drawn;
+        if (kind.equals("circle")) {
+          double radius = Math.hypot(points [2] - points [0], points [3] - points [1]);
+          drawn = new java.awt.geom.Ellipse2D.Double(points [0] - radius, points [1] - radius, radius * 2, radius * 2);
+        } else {
+          java.awt.geom.GeneralPath path = new java.awt.geom.GeneralPath();
+          path.moveTo(points [0], points [1]);
+          for (int i = 2; i + 1 < points.length; i += 2) {
+            path.lineTo(points [i], points [i + 1]);
+          }
+          if (kind.equals("polygon")) {
+            path.closePath();
+          }
+          drawn = path;
+        }
+        if (fill != null && !kind.equals("line")) {
+          g2D.setColor(new Color(fill.intValue(), true));
+          g2D.fill(drawn);
+        }
+        if (stroke != null) {
+          g2D.setColor(new Color(stroke.intValue(), true));
+          g2D.setStroke(new java.awt.BasicStroke(width, java.awt.BasicStroke.CAP_ROUND, java.awt.BasicStroke.JOIN_ROUND));
+          g2D.draw(drawn);
+        }
+      }
+      g2D.dispose();
+      java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+      ImageIO.write(picture, "png", out);
+      return out.toByteArray();
+    } catch (IOException ex) {
+      return null;
+    } catch (RuntimeException ex) {
       return null;
     }
   }
