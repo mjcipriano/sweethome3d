@@ -97,6 +97,7 @@ public class AssistantCommandExecutor {
   private final AssistantTerrainCommands terrainCommands;
   private final AssistantOutdoorCommands outdoorCommands;
   private final AssistantGisCommands     gisCommands;
+  private final AssistantPhotoCommands   photoCommands;
   private boolean                       stopOnError;
   private String                        groupName;
   private final AssistantScheduleCommands scheduleCommands;
@@ -189,6 +190,7 @@ public class AssistantCommandExecutor {
     this.terrainCommands = new AssistantTerrainCommands(home, homeController, this);
     this.outdoorCommands = new AssistantOutdoorCommands(home, homeController, this);
     this.gisCommands = new AssistantGisCommands(home, this);
+    this.photoCommands = new AssistantPhotoCommands(home, homeController, this);
     this.scheduleCommands = new AssistantScheduleCommands(home, preferences, homeController, this);
     this.sceneCommands = new AssistantSceneCommands(home, preferences, homeController, this);
     this.layerCommands = new AssistantLayerCommands(home, homeController, this);
@@ -937,6 +939,7 @@ public class AssistantCommandExecutor {
                && !this.terrainCommands.apply(action, command, tally, notes)
                && !this.outdoorCommands.apply(action, command, tally, notes)
                && !this.gisCommands.apply(action, command, tally, notes)
+               && !this.photoCommands.apply(action, command, tally, notes)
                && !this.structureCommands.apply(action, command, tally, notes)
                && !this.shapeCommands.apply(action, command, tally, notes)
                && !this.buildingCommands.apply(action, command, tally, notes)

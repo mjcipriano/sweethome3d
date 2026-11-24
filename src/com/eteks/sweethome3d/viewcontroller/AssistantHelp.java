@@ -51,6 +51,7 @@ public final class AssistantHelp {
       {"Outdoor structures and site items", "add_deck add_patio add_pergola add_shed add_playset add_pool add_driveway "
           + "add_retaining_wall add_steps_on_slope add_drainage add_utility add_raised_bed add_callout"},
       {"Neighbors and context", "add_context_building add_context_vehicle"},
+      {"Photos", "import_photos add_photo photo_viewpoint refine_photo_pose locate_from_photos"},
       {"GIS files and web sources", "import_geojson import_buildings import_osm import_parcels fetch_elevation set_basemap web_sources"},
       {"Trees and plants", "add_tree add_shrub add_trees import_trees update_trees relabel_trees grow_trees set_season forest_fill"},
       {"Labels, dimensions and plan", "add_label add_dimension auto_dimensions set_background_image"},

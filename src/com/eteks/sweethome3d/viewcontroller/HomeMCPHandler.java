@@ -934,6 +934,8 @@ public class HomeMCPHandler {
         + "without changing the home", "spring", "summer", "autumn", "winter"));
     image3DProperties.put("cutaway", property("number", "Leaves out the furniture, the roofs and the slabs whose bottom is at "
         + "this height in cm or above it (from the elevation 0). Walls aren't cut"));
+    image3DProperties.put("photo", property("string", "The id of a photo placed by import_photos, like PH1: the picture is drawn "
+        + "from where the photo was taken, looking the same way, beside the photo"));
     image3DProperties.put("fov", property("number", "Field of view in degrees, from 20 to 120 (default: 63 outside, 85 inside)"));
     image3DProperties.put("levels", enumProperty(
         "all (default): every level and the roof. selected: the selected level and the ones under it only, "
@@ -1344,7 +1346,8 @@ public class HomeMCPHandler {
       return toolResult(this.commandExecutor.reportHome(), false);
     } else if ("get_notes".equals(name)) {
       this.commandExecutor.snapshotDescribedItems();
-      return toolResult(HomeReviewNotes.describe(this.home, !Boolean.TRUE.equals(arguments.get("all"))), false);
+      return toolResult(HomeReviewNotes.describe(this.home, !Boolean.TRUE.equals(arguments.get("all")))
+          + (AssistantPhotoCommands.getPhotos(this.home).isEmpty() ? "" : "\n" + AssistantPhotoCommands.describePhotos(this.home)), false);
     } else if ("get_plan_image".equals(name)) {
       return getPlanImage(arguments);
     } else if ("get_elevation_image".equals(name)) {
@@ -2022,7 +2025,24 @@ public class HomeMCPHandler {
     String target = string(arguments, "target");
     HomeViewpoints.Pose pose = null;
     String viewDescription;
-    if (arguments.get("camera") instanceof Map && ((Map<String, Object>)arguments.get("camera")).get("yaw") != null) {
+    String photoPath = null;
+    if (string(arguments, "photo") != null) {
+      // From where a photo was taken, beside it
+      Map<String, Object> photo = AssistantPhotoCommands.getPhoto(this.home, string(arguments, "photo"));
+      if (photo == null) {
+        return toolResult("No photo " + string(arguments, "photo") + ": the list_photos command lists the photos of the home.", true);
+      } else if (photo.get("heading") == null) {
+        return toolResult("The photo " + photo.get("id") + " has no direction: the refine_photo_pose command finds it.", true);
+      }
+      float photoX = AssistantFurnitureBuilder.getNumber(photo, "x", 0);
+      float photoY = AssistantFurnitureBuilder.getNumber(photo, "y", 0);
+      float ground = this.commandExecutor.getShapeCommands().getStandingHeight(photoX, photoY);
+      pose = new HomeViewpoints.Pose(photoX, photoY, ground + 160,
+          (float)Math.toRadians(AssistantFurnitureBuilder.getNumber(photo, "heading", 0) + 180), 0,
+          (float)Math.toRadians(AssistantFurnitureBuilder.getNumber(photo, "fov", 65)), false);
+      viewDescription = "photo " + photo.get("id") + ", " + pose.describe();
+      photoPath = String.valueOf(photo.get("path"));
+    } else if (arguments.get("camera") instanceof Map && ((Map<String, Object>)arguments.get("camera")).get("yaw") != null) {
       // A camera given by its place and its angles
       Map<String, Object> camera = (Map<String, Object>)arguments.get("camera");
       double x = number(camera, "x", Double.NaN);
@@ -2262,7 +2282,7 @@ public class HomeMCPHandler {
       }
     }
     byte [] composedImage = null;
-    String compareWith = string(arguments, "compare_with");
+    String compareWith = string(arguments, "compare_with") != null ? string(arguments, "compare_with") : photoPath;
     if (compareWith != null) {
       // The picture beside a photo, or under it, to check the home against it
       java.io.File photo = new java.io.File(compareWith.startsWith("~/")

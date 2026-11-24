@@ -32,6 +32,7 @@ The text Claude receives is produced by
 - [Outdoor structures and site items](#outdoor-structures-and-site-items)
 - [Neighbors and context](#neighbors-and-context)
 - [GIS files and web sources](#gis-files-and-web-sources)
+- [Photos](#photos)
 - [Furnishing a room by itself](#furnishing-a-room-by-itself)
 - [Lights, sun, doors and materials](#lights-sun-doors-and-materials)
 - [Camera](#camera)
@@ -1355,6 +1356,47 @@ level, and `remove_background_image` takes it away.
 - Bing and Google pictures, WMS servers and the dates of pictures aren't available.
 - Only the outer ring of a polygon is drawn.
 - The coordinate systems are the built-in ones, not every EPSG code.
+
+## Photos
+
+Photos taken around the house with a phone carry the place, the direction and the lens of the
+camera. These commands put them in the plan, look at the home from where each one was taken, and
+find the place of what two photos show.
+
+| Command | What it does |
+| --- | --- |
+| `import_photos` | Places the JPEG photos of a `folder`, or of `paths`, from what their camera recorded |
+| `add_photo` | Places one photo by hand: `path`, `x`, `y`, `heading`, `fov` |
+| `list_photos`, `remove_photos` | Lists them with their ids; removes some (`ids`) or all of them |
+| `photo_viewpoint` | Moves the camera of the 3D view where a photo was taken |
+| `refine_photo_pose` | Corrects the place and the direction of a photo from things seen in it |
+| `locate_from_photos` | The point of the plan where the lines of sight of two photos cross |
+
+```json
+{"commands":[
+  {"action":"import_photos","folder":"/home/me/Pictures/yard","tag":"2026-11"},
+  {"action":"refine_photo_pose","photo":"PH3","matches":[
+    {"u":0.18,"plan":[0,0]},{"u":0.55,"plan":[1200,0]},{"u":0.9,"plan":[1200,900]}]},
+  {"action":"locate_from_photos","rays":[{"photo":"PH3","u":0.4},{"photo":"PH7","u":0.72}]}
+]}
+```
+
+- Each photo gets an id like `PH1` and a mark in the plan: the cone of what it shows, a dashed
+  circle of the accuracy its camera recorded, and its id. `get_notes` lists the photos after the
+  notes. The files stay where they are: the home keeps their paths.
+- `import_photos` needs the georeference of the home. A photo without place is left out; one
+  without direction has a mark without cone. `heading` is in degrees clockwise from the top of
+  the plan, and the field of view comes from the focal length for a 35 mm film when it is written.
+- `get_3d_image` with `"photo":"PH1"` draws the home from where the photo was taken, looking the
+  same way, beside the photo; `compare_mode` and `compare_opacity` lay it over instead.
+- **`refine_photo_pose`**: `u` is where a thing is across the photo, 0 at its left edge and 1 at
+  its right edge; `plan` is its place. Two matches correct the direction, three or more the place
+  too. The answer tells how many degrees the matches are off: more than 3 means a wrong match or a
+  wrong field of view.
+- **`locate_from_photos`**: one ray by photo, towards the same thing. The answer gives the point
+  and the angle at which the lines cross: under 15 degrees the place is uncertain by meters.
+- The place a phone records is often 3 to 10 m off, and its compass a few degrees. Heights aren't
+  found from photos: only places in the plan.
 
 ## Furnishing a room by itself
 

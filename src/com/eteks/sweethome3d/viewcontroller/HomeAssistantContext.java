@@ -713,6 +713,7 @@ public class HomeAssistantContext {
         + AssistantTerrainCommands.getReference()
         + AssistantOutdoorCommands.getReference()
         + AssistantGisCommands.getReference()
+        + AssistantPhotoCommands.getReference()
         + AssistantScheduleCommands.getReference()
         + AssistantSceneCommands.getReference()
         + AssistantHelp.getReference()
