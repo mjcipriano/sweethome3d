@@ -42,8 +42,11 @@ public class Home3DNavigationTest extends TestCase {
   private Home             home;
   private HomeController3D controller;
 
+  private String           previousNo3D;
+
   @Override
   protected void setUp() throws Exception {
+    this.previousNo3D = System.getProperty("com.eteks.sweethome3d.no3D");
     System.setProperty("com.eteks.sweethome3d.no3D", "true");
     UserPreferences preferences = new DefaultUserPreferences();
     this.home = new Home();
@@ -55,6 +58,16 @@ public class Home3DNavigationTest extends TestCase {
     this.controller = homeController.getHomeController3D();
     this.controller.viewFromTop();
     this.controller.zoomCameraToFit();
+  }
+
+  @Override
+  protected void tearDown() throws Exception {
+    // The other tests of the suite have their 3D view
+    if (this.previousNo3D == null) {
+      System.clearProperty("com.eteks.sweethome3d.no3D");
+    } else {
+      System.setProperty("com.eteks.sweethome3d.no3D", this.previousNo3D);
+    }
   }
 
   private static float [] getRight(Camera camera) {
