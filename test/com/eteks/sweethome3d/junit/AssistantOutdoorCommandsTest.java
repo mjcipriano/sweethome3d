@@ -132,7 +132,9 @@ public class AssistantOutdoorCommandsTest {
       assertEquals("site", piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY));
       assertTrue(command [0], piece.getWidth() > 20 && piece.getHeight() > 0.4f);
       // What stands outdoors isn't furniture out of its room
-      assertFalse(run("{\"action\":\"check_home\"}").contains("\"" + command [2] + "\""));
+      // (a pool without a fence is told to have no barrier)
+      assertFalse(run("{\"action\":\"check_home\"}").replaceAll("The pool [^\n]* has no barrier[^\n]*", "")
+          .contains("\"" + command [2] + "\""));
       this.homeController.undo();
       assertNull(command [0], getPiece(command [2]));
     }

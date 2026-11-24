@@ -855,7 +855,7 @@ builds it again, and Edit > Undo takes each change back. It has the tags `garden
 | `trim_fence` | Keeps the parts inside a `polygon` (points, or the id of a room or of a closed line), or outside it with `"keep":"outside"` |
 | `offset_fence` | Moves a fence sideways by `distance` cm, or adds a copy with `"copy":true` |
 | `convert_to_fence` | Replaces a row of furniture (fence panels put one by one) by one fence through their centers, with their height and their elevation; `"keep":true` keeps the pieces |
-| `fence_report` | Lengths, posts by type, panels, gates, bags of concrete and fasteners, with totals by style and by owner. `measure` with `"fences":true` gives the same |
+| `fence_report` | The length of each line with the share of its gates (`6 m of line: 2 m of fence, 4 m of gates`), posts by type, panels, gates, bags of concrete and fasteners, with totals by style and by owner. Posts, panels, concrete and fasteners count the fenced part. `measure` with `"fences":true` gives the same |
 | `schedule` with `"type":"gates"` | The gates, how they swing and the room they need |
 | `list_fence_styles` | The styles and the gate types, described |
 
@@ -1027,14 +1027,36 @@ Options of some styles:
 | `retaining_wall` | `"retains":"left\|right"`: the side of the higher ground (the higher one by default). Its top follows that ground and its `height` is what stands above it. It doesn't change the terrain |
 | `bollards` | `"type":"steel\|concrete\|lighted"` |
 
-A key that the style doesn't read isn't an error: the fence is built, and the answer ends with a
-warning that names the key.
+A key that the style doesn't read isn't an error: the fence is built, and a warning on its own line,
+after the line of the result, names the key. `spacing` is read as `post_spacing` when the fence gives
+neither `post_spacing` nor `"post":{"spacing"}`.
+
+The answer gives the length of the line of the fence. When it has gates, it gives the share of the
+gates too: `6 m of line (2 m of fence, 4 m of gates)`.
+
+The materials of a fence are named after its parts, so `list_materials` shows them and `set_material`
+changes one: `posts`, `caps`, `rails`, then `pickets`, `boards`, `bars`, `wires`, `mesh`, `slats`,
+`lattice`, `panels`, `glass`, `wall`, `coping`, `stones`, `screen` or `infill` for what fills the
+spans, and `gate_posts`, `gate_rails`, `gate_pickets`..., `gate_hardware`, `gate_operator` for the
+gates. The parts of the style between the piers of `pier_and_panel` start with `panel_`. A name ends
+with `_2` when two parts of the same kind look different.
+
+A fence built by the version 7.29 or before kept no description. The first command that names it
+gives it one: a straight fence along an axis of the plan gets its line from the place of the piece,
+and any other one needs `modify_fence` with its `points`. Its gates are to add again with `add_gate`.
 
 ### Gates
 
 A gate is given in `openings` when the fence is built, or added later by `add_gate`. It is placed by
 `at`, the distance in cm from the first point to its middle along the fence, or by `near`, a point
 `[x,y]`. The posts on both sides are taller, and the gates are numbered along the fence in the answer.
+`near` is a point of the fence or close to it: a point farther than half the width of the gate, and
+than 100 cm, is refused with its distance to the fence.
+
+A `sliding`, `rolling` or `cantilever` gate slides along the fence, on the side of `slide_direction`:
+it needs a run of fence as long as itself there, and 40 % more for the tail of a `cantilever` gate.
+`add_gate` and `modify_gate` refuse a gate that lacks this run and tell how much is free on each side;
+`"force":true` builds it anyway, and the answer then keeps a warning.
 
 | Parameter | Meaning |
 | --- | --- |
@@ -1059,10 +1081,11 @@ A gate is given in `openings` when the fence is built, or added later by `add_ga
 | --- | --- |
 | A fence crosses a wall, or runs inside a room that has walls and a ceiling | error |
 | A fence crosses a slab named driveway, road, street or parking without a gate | warning |
-| A gate hits a wall or a piece of furniture when it swings | warning |
+| A gate hits a wall, the trunk of a tree, a shrub or a piece of furniture when it swings. Only what stands between the ground and the top of the gate, where the leaf goes, counts: the leaves of a tree above the gate don't | warning |
 | A `pool_code` fence is under 122 cm, has gaps of 10 cm or more, or a gate that doesn't close by itself, opens to the pool or has a low latch | warning |
-| A fence stands beyond the property lines, with the distance | warning |
-| The ground changed under the posts of a fence since it was built | warning |
+| A pool built by `add_pool` in the ground has no closed barrier: no `pool_code` fence, or one that leaves a way to the water. The fence may be closed around the pool or end at the walls of the house; an opening of the type `gap` is a way in. A pool above the ground with a wall of 122 cm or more, and a pond, aren't checked | warning |
+| A fence stands beyond the property lines, with the distance. A fence with an `owner` isn't checked, unless the owner is `me`, `us`, `owner`, `home` or `shared`: the fence of a neighbor stands on the lot of the neighbor. The lot lines of neighbors drawn by `import_parcels` aren't used | warning |
+| The ground changed under the posts of a fence since it was built. A fence with an `elevation`, like the railing of a deck, stands on a structure and isn't checked | warning |
 
 ### Limits
 
