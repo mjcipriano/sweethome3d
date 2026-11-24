@@ -467,6 +467,38 @@ public class HomeAssistantContext {
   }
 
   /**
+   * Returns the names of the species of trees and of shrubs <code>add_tree</code> and <code>add_shrub</code> build.
+   */
+  public static java.util.List<String> getPlantSpecies(boolean shrubs) {
+    java.util.List<String> names = new java.util.ArrayList<String>();
+    for (AssistantPlantBuilder.Species species : AssistantPlantBuilder.getAllSpecies()) {
+      if (species.shrub == shrubs) {
+        names.add(species.name);
+      }
+    }
+    return names;
+  }
+
+  /**
+   * Returns the count of triangles of the model of a species at its usual size.
+   * @param lod    low, medium or high
+   * @param season spring, summer, autumn or winter
+   */
+  public static int getPlantTriangleCount(String speciesName, String lod, String season) {
+    AssistantPlantBuilder.Species species = AssistantPlantBuilder.getSpecies(speciesName);
+    AssistantPlantBuilder.Plant plant = new AssistantPlantBuilder.Plant();
+    plant.species = species;
+    plant.height = species.height;
+    plant.crownWidth = plant.crownDepth = species.height * species.crownRatio;
+    plant.crownBase = species.height * species.baseRatio;
+    plant.trunkDiameter = species.height * species.trunkRatio;
+    plant.trunks = species.trunks;
+    plant.lod = lod;
+    plant.season = season;
+    return AssistantPlantBuilder.countTriangles(plant);
+  }
+
+  /**
    * Returns the styles of fences <code>add_fence</code> builds: for each one its name, its family,
    * what it is, its usual height and the usual distance between its posts in cm.
    */
@@ -674,6 +706,7 @@ public class HomeAssistantContext {
         + "the undo tool ends the group and undoes it)\n"
         + AssistantArrangeCommands.getReference()
         + AssistantGardenCommands.getReference()
+        + AssistantPlantCommands.getReference()
         + AssistantScheduleCommands.getReference()
         + AssistantSceneCommands.getReference()
         + AssistantHelp.getReference()

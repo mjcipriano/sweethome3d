@@ -27,6 +27,7 @@ The text Claude receives is produced by
 - [Arranging and measuring](#arranging-and-measuring)
 - [Garden](#garden)
 - [Fences, walls and gates](#fences-walls-and-gates)
+- [Trees and plants](#trees-and-plants)
 - [Furnishing a room by itself](#furnishing-a-room-by-itself)
 - [Lights, sun, doors and materials](#lights-sun-doors-and-materials)
 - [Camera](#camera)
@@ -944,6 +945,119 @@ A gate is given in `openings` when the fence is built, or added later by `add_ga
 - `"pattern":"custom_svg"` isn't read: the panels are plain.
 - The lights of posts are drawn but light nothing.
 - A fence follows the ground from post to post: closer posts follow a rough ground better.
+
+## Trees and plants
+
+`add_tree` and `add_shrub` build a plant from its **species**: a trunk, branches and masses of
+leaves with the silhouette of the species, light enough to plant hundreds of them. A plant stands on
+the ground built by `set_terrain`, keeps its description, and has the tags `tree` or `shrub` and
+the name of its species. The catalog pieces placed by `add_trees` with `names` still work as before.
+
+| Command | What it does |
+| --- | --- |
+| `add_tree` | One tree: `species`, `x`, `y`, and the sizes below |
+| `add_shrub` | One shrub, ornamental grass or groundcover plant, with `pruned_shape` |
+| `add_trees` with `trees` | Many trees at once, each with its own keys, in one step of undo. Keys beside `trees` are the ones of every tree that doesn't give them |
+| `add_trees` with `species` | Generated trees scattered in an `area` or `along` a line, as `forest_fill` |
+| `forest_fill` | Fills a polygon with a mix of species, and smaller plants between them |
+| `import_trees` | Trees read from a CSV or GeoJSON file, or text |
+| `update_trees` | Compares a new list with the trees that have a tag: adds, removes, or marks as removed |
+| `relabel_trees` | Another species for generated trees, at the same place and with the same sizes |
+| `grow_trees` | Makes the trees older or younger by `years` |
+| `set_season` | The season, or the detail, of every generated plant of the home |
+| `replace_furniture` with `species` | Replaces pieces of furniture by plants of a species, at their places and with their sizes |
+| `list_species` | The species, with their common name, whether they keep their leaves, and their usual height |
+
+```json
+{"commands":[
+  {"action":"add_tree","species":"white_oak","x":1200,"y":-400,"height":1800,"crown_radius":700},
+  {"action":"add_tree","species":"crape_myrtle","x":300,"y":900,"multi_trunk":4,"season":"summer"},
+  {"action":"add_shrub","species":"boxwood","x":150,"y":300,"pruned_shape":"ball","height":90},
+  {"action":"add_trees","tag":"lidar","species":"loblolly_pine","trees":[
+     {"x":-900,"y":-800,"height":2400,"crown_radius":350},
+     {"x":-500,"y":-1100,"height":2100,"crown_radius":300,"species":"sweetgum"}]},
+  {"action":"forest_fill","area":[[2000,-2000],[5000,-2000],[5000,1000],[2000,1000]],
+   "species":{"loblolly_pine":3,"sweetgum":1},"understory":["flowering_dogwood","azalea"],"density":4}
+]}
+```
+
+![Trees of a few species in spring, summer, autumn and winter](images/tree-seasons.jpg)
+
+### Sizes of a plant
+
+Sizes are in cm. What isn't given is the usual size of the species, in proportion to `height`.
+
+| Key | Meaning |
+| --- | --- |
+| `species` | A name of `list_species`, like `red_maple`, or its common name. `generic_deciduous`, `generic_conifer` and `generic_broadleaf_evergreen` stand for any tree |
+| `height` | Its height |
+| `crown_radius`, or `crown_w` and `crown_d` | The width of its crown |
+| `crown_base` | The height under its crown |
+| `trunk_dbh` | The diameter of its trunk |
+| `trunk_lean` | `{"angle":N,"dir":N}`: degrees from upright, towards a direction of the plan (0 is up the plan, 90 its right) |
+| `multi_trunk` | The number of its trunks |
+| `season` | `spring`, `summer`, `autumn` or `winter`. By default the season of the home |
+| `lod` | `low` (2 000 triangles at most), `medium` (10 000 at most, the default) or `high` |
+| `seed` | A number that gives another shape of the same species. Without it, the place of the tree chooses among 5 shapes |
+| `pruned_shape` | `natural`, `ball`, `box`, `cone` or `hedge_section`, for a clipped shrub |
+| `offset` | Raises it above the ground |
+| `name`, `tags`, `level` | Its name (the common name of the species by default), more tags, its level |
+
+Plants of the same species, season and proportions share one model, so a forest stays light.
+A key that isn't one of these is reported in a warning.
+
+### Species
+
+95 species of trees and 35 of shrubs, grasses and groundcovers, weighted to the southeastern
+United States. `list_species` gives them all.
+
+| Group | Species |
+| --- | --- |
+| Conifers | `loblolly_pine`, `shortleaf_pine`, `longleaf_pine`, `slash_pine`, `virginia_pine`, `white_pine`, `eastern_red_cedar`, `leyland_cypress`, `arizona_cypress`, `bald_cypress`, `eastern_hemlock`, `fraser_fir`, `blue_spruce`, `norway_spruce`, `deodar_cedar`, `cryptomeria`, `arborvitae_green_giant`, `arborvitae_emerald` |
+| Broadleaf evergreens | `southern_magnolia`, `magnolia_little_gem`, `magnolia_dd_blanchard`, `live_oak`, `american_holly`, `nellie_stevens_holly`, `yaupon`, `wax_myrtle`, `cherry_laurel`, `tea_olive`, `loquat`, `camellia_tree` |
+| Oaks | `white_oak`, `northern_red_oak`, `southern_red_oak`, `water_oak`, `willow_oak`, `scarlet_oak`, `post_oak`, `chestnut_oak`, `pin_oak`, `shumard_oak`, `overcup_oak` |
+| Shade trees | `sweetgum`, `tulip_poplar`, `red_maple`, `sugar_maple`, `japanese_maple`, `japanese_maple_laceleaf`, `river_birch`, `mockernut_hickory`, `pignut_hickory`, `black_gum`, `american_beech`, `sycamore`, `black_walnut`, `pecan`, `saucer_magnolia`, `american_elm`, `lacebark_elm`, `zelkova`, `ginkgo`, `honey_locust`, `black_locust`, `black_cherry`, `persimmon`, `sassafras`, `hackberry`, `mimosa`, `bradford_pear`, `sourwood` |
+| Ornamentals | `crape_myrtle`, `crape_myrtle_natchez`, `crape_myrtle_dwarf`, `flowering_dogwood`, `kousa_dogwood`, `eastern_redbud`, `redbud_forest_pansy`, `yoshino_cherry`, `kwanzan_cherry`, `fringe_tree`, `serviceberry`, `vitex`, `smoke_tree`, `windmill_palm`, `sabal_palm`, `needle_palm` |
+| Fruit trees | `apple`, `peach`, `pear`, `fig`, `citrus` |
+| Generic | `generic_deciduous`, `generic_conifer`, `generic_broadleaf_evergreen`, `dead_snag`, `stump` |
+| Shrubs | `azalea`, `native_azalea`, `boxwood`, `hydrangea`, `oakleaf_hydrangea`, `panicle_hydrangea`, `gardenia`, `loropetalum`, `indian_hawthorn`, `abelia`, `nandina`, `dwarf_yaupon`, `japanese_holly`, `inkberry`, `spreading_juniper`, `upright_juniper`, `yew`, `shrub_rose`, `knockout_rose`, `climbing_rose`, `forsythia`, `spirea`, `viburnum`, `rhododendron`, `fothergilla`, `ninebark`, `butterfly_bush`, `distylium`, `sasanqua`, `blueberry` |
+| Grasses and groundcovers | `muhly_grass`, `miscanthus`, `fountain_grass`, `liriope`, `mondo_grass` |
+
+![The conifers, the broadleaf evergreens and the first oaks](images/tree-species.jpg)
+
+### Lists of trees
+
+- `import_trees` reads `path` (an absolute path), `csv` (a text) or `geojson` (an object). A CSV
+  starts with a line of column names among `x`, `y` (cm of the plan) or `lat`, `lon` (with the
+  georeference of the home), `height`, `crown_radius`, `crown_base`, `dbh`, `species`, `tag`.
+  GeoJSON points are longitude and latitude, with the same names in their properties.
+  `"units":"m"` or `"ft"` gives the unit of the sizes of the file. A species the program doesn't
+  know becomes a generic tree with the name of that species as a tag.
+- `update_trees` takes a `tag` and a new list (`trees`, `csv`, `geojson` or `path`). A tree of the
+  list with no tree of the home within `tolerance` cm (150) is added; a tree that is much higher
+  in the list takes its new sizes; a tree of the home that isn't in the list is deleted, or with
+  `"removed_since":"2018"` kept as a pale ghost with the tag `removed`.
+- `forest_fill` plants `density` trees per 100 m2, or one every `spacing` cm, on a grid moved at
+  random. `species` and `understory` are a name, a list, or weights like `{"loblolly_pine":3,"sweetgum":1}`.
+  Heights vary by `variation` (0.25). The same `seed` gives the same forest. Places in a room, or
+  closer than `min_distance_from_buildings` (150) to one, are skipped. 3000 plants at most per call.
+
+### Seasons and growth
+
+- `set_season` with `season`, or with `date` (`YYYY-MM-DD`, read with the hemisphere of the home),
+  builds every generated plant again: deciduous trees are bare in winter, colored in autumn, pale
+  green in spring, and the ones that bloom carry their flowers in spring or in summer. The season is
+  kept with the home for the plants added later. `"lod":"low"` changes their detail the same way.
+- `grow_trees` adds `years` (negative: takes them away): each tree grows at the rate of its
+  species, slower as it gets close to the size the species reaches, and its crown and its trunk
+  follow. `where` or `ids` limits it.
+
+### Limits
+
+- Seasons don't change catalog pieces, hedges or planting beds.
+- The sun study uses the leaves the plants show: run `set_season` for the date studied.
+- No tree is read from LiDAR points, and no species is guessed from them.
+- The detail doesn't change with the distance of the camera: `set_season` with `lod` sets it for all.
 
 ## Furnishing a room by itself
 

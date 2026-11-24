@@ -203,13 +203,25 @@ class AssistantShapeCommands {
    */
   void replaceModel(final HomePieceOfFurniture piece, AssistantGeneratedModel model,
                             float x, float y, float elevation, Map<String, String> properties) {
+    replaceModel(piece, model, x, y, elevation, model.getWidth(), model.getDepth(), model.getHeight(), null, properties);
+  }
+
+  /**
+   * Replaces the model, the size, the place and the name of a piece, in an undoable way.
+   * @param name its new name, or <code>null</code> to keep the one it has
+   */
+  void replaceModel(final HomePieceOfFurniture piece, AssistantGeneratedModel model, float x, float y, float elevation,
+                    float width, float depth, float height, String name, Map<String, String> properties) {
     final Object [] before = getModelState(piece, properties.keySet());
     piece.setModel(model.getModel());
     piece.setIcon(model.getIcon());
     piece.setPlanIcon(model.getPlanIcon());
-    piece.setWidth(model.getWidth());
-    piece.setDepth(model.getDepth());
-    piece.setHeight(model.getHeight());
+    piece.setWidth(width);
+    piece.setDepth(depth);
+    piece.setHeight(height);
+    if (name != null) {
+      piece.setName(name);
+    }
     piece.setX(x);
     piece.setY(y);
     piece.setElevation(elevation);
@@ -244,7 +256,7 @@ class AssistantShapeCommands {
       properties.put(name, piece.getProperty(name));
     }
     return new Object [] {piece.getModel(), piece.getIcon(), piece.getPlanIcon(), piece.getWidth(), piece.getDepth(),
-                          piece.getHeight(), piece.getX(), piece.getY(), piece.getElevation(), properties};
+                          piece.getHeight(), piece.getX(), piece.getY(), piece.getElevation(), properties, piece.getName()};
   }
 
   @SuppressWarnings("unchecked")
@@ -261,6 +273,7 @@ class AssistantShapeCommands {
     for (Map.Entry<String, String> property : ((Map<String, String>)state [9]).entrySet()) {
       piece.setProperty(property.getKey(), property.getValue());
     }
+    piece.setName((String)state [10]);
   }
 
   /**

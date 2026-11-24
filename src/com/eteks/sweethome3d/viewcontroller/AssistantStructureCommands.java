@@ -829,6 +829,9 @@ class AssistantStructureCommands {
     if (roof == null) {
       roof = this.executor.getFenceCommands().describeFence(piece);
     }
+    if (roof == null) {
+      roof = this.executor.getPlantCommands().describePlant(piece);
+    }
     if (roof != null) {
       text.append(", ").append(roof);
     }

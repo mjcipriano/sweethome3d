@@ -45,7 +45,8 @@ public final class AssistantHelp {
           + "set_georeference import_parcel get_coordinates"},
       {"Fences, walls and gates", "add_fence add_gate modify_fence extend_fence join_fences split_fence trim_fence offset_fence "
           + "convert_to_fence fence_report"},
-      {"Garden", "add_hedge add_path add_planting_bed add_trees"},
+      {"Garden", "add_hedge add_path add_planting_bed"},
+      {"Trees and plants", "add_tree add_shrub add_trees import_trees update_trees relabel_trees grow_trees set_season forest_fill"},
       {"Labels, dimensions and plan", "add_label add_dimension auto_dimensions set_background_image"},
       {"Lights, sun, doors and camera", "set_light set_sun set_environment open_door set_camera store_point_of_view"},
       {"Checks, reports and schedules", "check_home fix_home home_report set_unit_prices export_elevation measure door_schedule "
@@ -284,7 +285,10 @@ public final class AssistantHelp {
         + "\nGeoreference: one point with a north angle; coordinate systems EPSG:4326, 4269, 3857, the UTM zones (326xx, 327xx, 269xx) "
         + "and the State Plane zones of Georgia (2240, 2239, 26967, 26966). Lot lines are read from GeoJSON and Esri JSON by import_parcel; "
         + "no shapefile, KML, DXF or OpenStreetMap import, no aerial imagery, no geotagged photos."
-        + "\nPlants: catalog pieces placed by add_trees and add_planting_bed; hedges built by add_hedge. No tree generator by species yet."
+        + "\nPlants: " + HomeAssistantContext.getPlantSpecies(false).size() + " species of trees and "
+        + HomeAssistantContext.getPlantSpecies(true).size() + " of shrubs built by add_tree and add_shrub (list_species), with seasons, "
+        + "growth, and 3 levels of detail (2000, 10000 and more triangles at most); 3000 plants per call. Catalog pieces are placed by "
+        + "add_trees with names. No tree is read from LiDAR points."
         + "\nModels read: OBJ, DAE, 3DS, KMZ, ZIP. Written by export_home: PDF, SVG, OBJ, CSV, a 3D web page, a panorama."
         + "\nLimits: " + AssistantCommandExecutor.MAX_COMMANDS_PER_TURN + " commands per call (" + AssistantCommandExecutor.MAX_COMMANDS_PER_FILE
         + " from a file); coordinates up to " + (int)AssistantCommandExecutor.MAX_COORDINATE_CM + " cm and sizes up to "
