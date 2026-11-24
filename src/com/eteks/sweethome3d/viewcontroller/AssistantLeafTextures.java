@@ -107,6 +107,11 @@ final class AssistantLeafTextures {
   }
 
   private static int shade(int color, float factor) {
+    if (factor > 1) {
+      // Lighter without changing the hue: no part of the color goes over its top
+      int top = Math.max((color >> 16) & 0xFF, Math.max((color >> 8) & 0xFF, color & 0xFF));
+      factor = Math.max(1, Math.min(factor, 232f / Math.max(1, top)));
+    }
     int red = Math.max(0, Math.min(255, Math.round(((color >> 16) & 0xFF) * factor)));
     int green = Math.max(0, Math.min(255, Math.round(((color >> 8) & 0xFF) * factor)));
     int blue = Math.max(0, Math.min(255, Math.round((color & 0xFF) * factor)));

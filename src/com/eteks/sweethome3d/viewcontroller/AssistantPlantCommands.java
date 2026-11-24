@@ -332,7 +332,10 @@ class AssistantPlantCommands {
       }
       this.missingCatalogSpecies.add(plant.species.name);
     }
-    String key = plant.species.name + "|" + plant.season + "|" + plant.lod + "|" + plant.seed + "|" + plant.trunks + "|"
+    // The clusters of leaves have the size of real ones: plants of close heights share a model
+    float heightStep = plant.height < 300 ? 50 : plant.height < 1000 ? 100 : 200;
+    float sharedHeight = Math.max(heightStep, Math.round(plant.height / heightStep) * heightStep);
+    String key = sharedHeight + "|" + plant.species.name + "|" + plant.season + "|" + plant.lod + "|" + plant.seed + "|" + plant.trunks + "|"
         + Math.round(plant.leanAngle) + "|" + Math.round(plant.leanDirection) + "|" + plant.prunedShape + "|" + plant.ghost + "|"
         + widthRatio + "|" + depthRatio + "|" + baseRatio + "|" + trunkRatio + "|" + plant.style + "|" + plant.profile;
     Object [] cached = this.models.get(key);
@@ -340,6 +343,7 @@ class AssistantPlantCommands {
       AssistantPlantBuilder.Plant shape = new AssistantPlantBuilder.Plant();
       shape.species = plant.species;
       shape.height = nominal;
+      shape.realHeight = sharedHeight;
       shape.crownWidth = nominal * widthRatio;
       shape.crownDepth = nominal * depthRatio;
       shape.crownBase = nominal * baseRatio;

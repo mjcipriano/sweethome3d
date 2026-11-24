@@ -71,6 +71,8 @@ final class AssistantMeshBuilder {
     /** The ARGB pixels of a square image, kept to draw pictures of the model, or <code>null</code>. */
     private int []        pixels;
     private int           pixelsSize;
+    /** <code>true</code> if its image lets see through parts of it. */
+    private boolean       cutOut;
 
     private Material(String name, int color, byte [] image, String imageName,
                      float textureWidth, float textureHeight, float angle, float xOffset, float yOffset) {
@@ -176,6 +178,9 @@ final class AssistantMeshBuilder {
       }
       material = new Material("texture" + this.materials.size() + "_" + this.suffix, color, image, imageName,
           Math.max(0.5f, width), Math.max(0.5f, height), 0, 0, 0);
+      // Kept for the pictures drawn of the model
+      material.pixels = AssistantPatterns.createPixels(pattern, color, color2, ratio);
+      material.pixelsSize = AssistantPatterns.SIZE;
       this.materials.put(key, material);
     }
     return material;
@@ -191,6 +196,7 @@ final class AssistantMeshBuilder {
     Material material = getImageMaterial(key, image, color);
     material.pixels = pixels;
     material.pixelsSize = pixelsSize;
+    material.cutOut = true;
     return material;
   }
 
@@ -744,7 +750,7 @@ final class AssistantMeshBuilder {
    */
   private boolean hasPictures() {
     for (Material material : this.materials.values()) {
-      if (material.pixels != null) {
+      if (material.cutOut) {
         return true;
       }
     }
@@ -761,6 +767,10 @@ final class AssistantMeshBuilder {
    * its impostor already, and the shadow a card casts on the other ones would show them as flat faces.
    */
   static final String UNSHADOWED_MATERIAL_PREFIX = "unshadowed_";
+  /** The half of the thickness of the slice of the plant a card shows, as a share of its half width. */
+  private static final float IMPOSTOR_SLICE = 0.42f;
+  /** Darkens the pictures, which the scene lights without the shade the leaves cast on each other. */
+  private static final float IMPOSTOR_BRIGHTNESS = 0.8f;
 
   /**
    * Returns a model of nine flat faces that show pictures of this one: its views from 8 sides on 4 crossed
@@ -799,12 +809,15 @@ final class AssistantMeshBuilder {
       rights [view] = right;
       towards [view] = toward;
       extents [view] = extent;
-      copyTile(render(right, up, toward, center, extent, Math.max(0.5f, (top - bottom) / 2), inner), inner,
+      // Each card shows the slice of the plant around it: the 4 of them seen together are as full as the plant
+      copyTile(render(right, up, toward, center, extent, Math.max(0.5f, (top - bottom) / 2), inner,
+              extent * IMPOSTOR_SLICE, IMPOSTOR_BRIGHTNESS), inner,
           atlas, size, (view % 3) * tileSize + margin, (view / 3) * tileSize + margin);
     }
     float halfWidth = Math.max(0.5f, (bounds [3] - bounds [0]) / 2);
     float halfDepth = Math.max(0.5f, (bounds [5] - bounds [2]) / 2);
-    copyTile(render(new float [] {1, 0, 0}, new float [] {0, 0, -1}, up, center, halfWidth, halfDepth, inner), inner,
+    copyTile(render(new float [] {1, 0, 0}, new float [] {0, 0, -1}, up, center, halfWidth, halfDepth, inner,
+            Float.MAX_VALUE, IMPOSTOR_BRIGHTNESS), inner,
         atlas, size, 2 * tileSize + margin, 2 * tileSize + margin);
 
     // Where nothing is drawn, the mean color of the picture, which the edges of the leaves blend with
@@ -909,6 +922,15 @@ final class AssistantMeshBuilder {
    */
   int [] render(float [] right, float [] up, float [] toward, float [] center,
                 float halfWidth, float halfHeight, int size) {
+    return render(right, up, toward, center, halfWidth, halfHeight, size, Float.MAX_VALUE, 1);
+  }
+
+  /**
+   * Returns the picture of the part of the model that is at less than <code>halfDepth</code> of
+   * <code>center</code> in the direction of the viewer, its colors multiplied by <code>brightness</code>.
+   */
+  private int [] render(float [] right, float [] up, float [] toward, float [] center,
+                        float halfWidth, float halfHeight, int size, float halfDepth, float brightness) {
     int sampling = 3;
     int width = size * sampling;
     float scaleX = width / 2f / halfWidth;
@@ -931,7 +953,9 @@ final class AssistantMeshBuilder {
     int [] colors = new int [width * width];
     for (Face face : this.faces) {
       Material material = face.material;
-      int [] pixels = face.textureCoordinates != null ? material.pixels : null;
+      int [] pixels = material.pixels;
+      float [][] coordinates = pixels == null ? null
+          : face.textureCoordinates != null ? face.textureCoordinates : getTextureCoordinates(face);
       float [] a = view [face.indices [0]];
       float [] normal = face.normal != null ? face.normal : getNormal(face.indices);
       float shade = 0.85f;
@@ -939,6 +963,7 @@ final class AssistantMeshBuilder {
         float dot = (normal [0] * light [0] + normal [1] * light [1] + normal [2] * light [2]) / lightLength;
         shade = 0.66f + 0.34f * Math.max(0, dot);
       }
+      shade *= brightness;
       int faceColor = material.color;
       for (int i = 1; i < face.indices.length - 1; i++) {
         float [] b = view [face.indices [i]];
@@ -952,9 +977,9 @@ final class AssistantMeshBuilder {
         int xMax = Math.min(width - 1, (int)Math.ceil(Math.max(a [0], Math.max(b [0], c [0]))));
         int yMin = Math.max(0, (int)Math.floor(Math.min(a [1], Math.min(b [1], c [1]))));
         int yMax = Math.min(width - 1, (int)Math.ceil(Math.max(a [1], Math.max(b [1], c [1]))));
-        float [] ta = pixels != null ? face.textureCoordinates [0] : null;
-        float [] tb = pixels != null ? face.textureCoordinates [i] : null;
-        float [] tc = pixels != null ? face.textureCoordinates [i + 1] : null;
+        float [] ta = pixels != null ? coordinates [0] : null;
+        float [] tb = pixels != null ? coordinates [i] : null;
+        float [] tc = pixels != null ? coordinates [i + 1] : null;
         for (int py = yMin; py <= yMax; py++) {
           for (int px = xMin; px <= xMax; px++) {
             float x = px + 0.5f;
@@ -967,7 +992,7 @@ final class AssistantMeshBuilder {
             }
             int index = py * width + px;
             float depth = w1 * a [2] + w2 * b [2] + w3 * c [2];
-            if (depth <= depths [index]) {
+            if (depth <= depths [index] || Math.abs(depth) > halfDepth) {
               continue;
             }
             int color = faceColor;
