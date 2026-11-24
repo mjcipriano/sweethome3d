@@ -53,6 +53,8 @@ class AssistantSiteCommands {
   static final String LINE_NAME_PROPERTY = "assistantLineName";
   /** <code>property</code> for a property line, <code>setback</code> for a setback line. */
   static final String LINE_KIND_PROPERTY = "assistantLineKind";
+  /** The kind of the lines that draw the lots of neighbors. */
+  static final String NEIGHBOR_LOT_KIND = "neighbor_lot";
   /** The distance in cm a setback line keeps from the line it follows. */
   static final String SETBACK_DISTANCE_PROPERTY = "assistantSetbackDistance";
   /** The id of the line a setback line follows. */
@@ -78,7 +80,8 @@ class AssistantSiteCommands {
   boolean apply(String action, AssistantCommand command, int [] tally, List<String> notes) {
     try {
       if ("add_polyline".equals(action) || "add_line".equals(action)) {
-        addPolyline(command, null, notes);
+        // The lot of a neighbor is a line that no check takes for the lot of the home
+        addPolyline(command, NEIGHBOR_LOT_KIND.equals(command.getString("kind")) ? NEIGHBOR_LOT_KIND : null, notes);
       } else if ("add_property_line".equals(action)) {
         addPolyline(command, "property", notes);
       } else if ("add_setback".equals(action)) {
@@ -188,7 +191,8 @@ class AssistantSiteCommands {
     }
     addPolylines(Collections.singletonList(polyline), level);
     String id = this.executor.getId(polyline);
-    StringBuilder note = new StringBuilder("Added the " + ("property".equals(kind) ? "property line " : "line ") + id
+    StringBuilder note = new StringBuilder("Added the " + ("property".equals(kind) ? "property line "
+        : NEIGHBOR_LOT_KIND.equals(kind) ? "neighbor lot line " : "line ") + id
         + (name != null ? " \"" + name + "\"" : "") + ": " + points.length + " points, "
         + format(getLength(points, closed) / 100) + " m long");
     if (closed && points.length >= 3) {
@@ -226,11 +230,12 @@ class AssistantSiteCommands {
     }
     Polyline.DashStyle dashStyle = parseDash(dash);
     if (dashStyle == null) {
-      dashStyle = "property".equals(kind) ? Polyline.DashStyle.DASH_DOT
+      dashStyle = "property".equals(kind) || NEIGHBOR_LOT_KIND.equals(kind) ? Polyline.DashStyle.DASH_DOT
           : "setback".equals(kind) ? Polyline.DashStyle.DASH : Polyline.DashStyle.SOLID;
     }
     if (color == null) {
-      color = "property".equals(kind) ? 0xC0392B : "setback".equals(kind) ? 0xE67E22 : 0x000000;
+      color = "property".equals(kind) ? 0xC0392B : "setback".equals(kind) ? 0xE67E22
+          : NEIGHBOR_LOT_KIND.equals(kind) ? 0x8A8A8A : 0x000000;
     }
     if (Double.isNaN(thickness)) {
       thickness = kind != null ? 4 : 2;
@@ -1152,14 +1157,65 @@ class AssistantSiteCommands {
   }
 
   /**
+   * Returns the closed property lines that are the lot of the home: all of them usually, but when
+   * the home has several, the ones its walls stand in, or the nearest one if they stand in none. The
+   * lots of neighbors drawn as property lines by an older import aren't the lot of the home.
+   */
+  static List<Polyline> getSubjectLots(Home home) {
+    List<Polyline> lots = new ArrayList<Polyline>();
+    for (Polyline polyline : home.getPolylines()) {
+      if ("property".equals(polyline.getProperty(LINE_KIND_PROPERTY)) && polyline.isClosedPath() && polyline.getPointCount() >= 3) {
+        lots.add(polyline);
+      }
+    }
+    if (lots.size() < 2 || home.getWalls().isEmpty()) {
+      return lots;
+    }
+    List<Polyline> subjects = new ArrayList<Polyline>();
+    Polyline nearest = null;
+    double nearestDistance = Double.MAX_VALUE;
+    for (Polyline lot : lots) {
+      float [][] polygon = lot.getPoints();
+      Room area = new Room(polygon);
+      int inside = 0;
+      double distance = Double.MAX_VALUE;
+      for (Wall wall : home.getWalls()) {
+        float x = (wall.getXStart() + wall.getXEnd()) / 2;
+        float y = (wall.getYStart() + wall.getYEnd()) / 2;
+        if (area.containsPoint(x, y, 0)) {
+          inside++;
+        }
+        for (int i = 0; i < polygon.length; i++) {
+          float [] next = polygon [(i + 1) % polygon.length];
+          distance = Math.min(distance, java.awt.geom.Line2D.ptSegDist(polygon [i][0], polygon [i][1], next [0], next [1], x, y));
+        }
+      }
+      if (inside > 0) {
+        subjects.add(lot);
+      }
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = lot;
+      }
+    }
+    if (subjects.isEmpty() && nearest != null) {
+      subjects.add(nearest);
+    }
+    return subjects;
+  }
+
+  /**
    * Returns the walls that stand beyond the setback lines and the property lines of the home, each one
-   * as {wall, line, the distance in cm it goes beyond the line}.
+   * as {wall, line, the distance in cm it goes beyond the line}. Among several property lines, only
+   * the lot the walls stand in is checked.
    */
   static List<Object []> getWallsBeyondLines(Home home) {
     List<Object []> result = new ArrayList<Object []>();
+    List<Polyline> lots = getSubjectLots(home);
     for (Polyline polyline : home.getPolylines()) {
       String kind = polyline.getProperty(LINE_KIND_PROPERTY);
-      if (!("setback".equals(kind) || "property".equals(kind)) || !polyline.isClosedPath() || polyline.getPointCount() < 3) {
+      if (!("setback".equals(kind) || "property".equals(kind)) || !polyline.isClosedPath() || polyline.getPointCount() < 3
+          || "property".equals(kind) && !lots.contains(polyline)) {
         continue;
       }
       float [][] polygon = polyline.getPoints();
