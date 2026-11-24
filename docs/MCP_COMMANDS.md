@@ -19,6 +19,7 @@ The text Claude receives is produced by
 - [Colors, textures and styles](#colors-textures-and-styles)
 - [Roofs](#roofs)
 - [Slabs and ground](#slabs-and-ground)
+- [Grading and terrain measures](#grading-and-terrain-measures)
 - [Site: lot lines, setbacks and georeference](#site-lot-lines-setbacks-and-georeference)
 - [Furniture made from parts](#furniture-made-from-parts)
 - [Pictures, models and libraries](#pictures-models-and-libraries)
@@ -419,6 +420,93 @@ it again replaces the ground.
   added, moved or deleted, also by hand in the plan, and after undo.
 - A slab whose top isn't above the height 0 is hidden by the flat ground
   where no terrain replaces it; the answer of `add_slab` says so.
+
+## Grading and terrain measures
+
+`set_terrain` builds the ground from points. These commands read it from a grid of heights or from
+a file, shape it, and measure it. The ground takes up to 100 000 points.
+
+| Command | What it does |
+| --- | --- |
+| `set_terrain` with `raster` or `file` | The ground from a grid of heights, an Esri ASCII grid or a text of x y z lines |
+| `shift_terrain` | Moves the whole ground up or down: `offset`, or `pin` |
+| `add_pad` | A flat or sloped pad cut or filled under a polygon, the ground joining it around |
+| `flatten_area` | A pad at the mean height of the ground in a polygon |
+| `smooth_area` | Softens the bumps of the ground in a polygon |
+| `add_berm`, `add_swale` | A rounded mound, or a shallow channel, along a line |
+| `grade_path` | The ground of a road, a driveway or a path along a center line |
+| `extend_terrain` | Extends the ground to cover every item of the home plus a `margin` |
+| `cut_fill_report` | The volumes cut and filled since the ground was first graded |
+| `contours` | Draws the contour lines of the ground in the plan |
+| `spot_elevations` | The height of the ground at points, with labels in the plan |
+| `slope_map` | The share of the ground by slope, and its steepest places |
+
+```json
+{"commands":[
+  {"action":"set_terrain","file":"/home/me/lot.asc","srs":"EPSG:2240","units":"ft",
+   "max_points":30000,"pin":{"x":250,"y":900,"height":-15}},
+  {"action":"add_pad","points":[[0,0],[1200,0],[1200,900],[0,900]],"height":-10,"blend_distance":300},
+  {"action":"grade_path","points":[[1400,900],[1400,2400],[900,3000]],"width":350,"cross_slope":2},
+  {"action":"add_swale","points":[[-300,-200],[-300,1100]],"depth":25,"width":200},
+  {"action":"contours","interval":30},
+  {"action":"cut_fill_report"}
+]}
+```
+
+### Heights from a raster or a file
+
+- `raster` is `{"x0","y0","cell","cols","rows","heights"}`: `x0`, `y0` is the place of the first
+  height, at the top left; `cell` the distance between two heights in cm; `heights` the rows from
+  the top of the plan to its bottom, one after the other (or a list of rows), in cm.
+- `file` is the absolute path of an **Esri ASCII grid** (`.asc`) or of a text of `x y z` lines
+  (`.xyz`, `.txt`, `.csv`). `units` (`m` by default, `ft`, `cm`) is the unit of its distances and
+  `z_units` the one of its heights. Its place is given by `"srs":"EPSG:2240"` with the
+  georeference of the home, or by `x`, `y`, the place in the plan of its lower left corner, its
+  north up the plan.
+- The heights are thinned to `max_points` (20 000, up to 100 000): more are kept where the ground
+  changes, and `max_error_cm` (5) is the error accepted.
+- `datum_offset_cm` is added to every height. `"pin":{"x","y","height"}` moves the ground up or
+  down for it to be at that height at that place, like the bottom of a doorstep.
+- GeoTIFF, LAS and LAZ files aren't read: `gdal_translate -of AAIGrid in.tif out.asc` converts a
+  raster.
+
+### Grading
+
+Each grading command builds the ground again with its finishes, as one step of undo, and tells the
+earth it moved. What stands on the ground keeps its height: `check_home` reports the fences to
+build again, and `find_floating` the pieces to put back on it.
+
+| Command | Parameters |
+| --- | --- |
+| `add_pad` | `points` of the polygon, `height` in cm (the mean of the ground there by default), `"slope":{"percent":2,"dir":180}` for a pad that drains (`dir` is the downhill direction: 0 up the plan, 90 its right), `blend_distance` (200) over which the ground joins it, `"blend_curve":"linear\|smoothstep"` |
+| `flatten_area` | `points`, `blend_distance` |
+| `smooth_area` | `points`, `radius` (300), `strength` from 0 to 1 |
+| `add_berm` | `points` of the line, `height` (60), `width` (300) |
+| `add_swale` | `points`, `depth` (30), `width` (200) |
+| `grade_path` | `points` of the center line, `width` (300); the ground goes straight from the height of a point to the next one, or through `"heights":[one per point]`; `cross_slope` in % towards the right of the direction walked, `crown` in cm, `"ditch":{"depth":30,"width":100}`, `blend_distance` (150). It shapes the ground only: `add_path` or `add_slab` lays the surface |
+| `extend_terrain` | `margin` (500). The new part is at the height of the closest edge: no height is fetched for it |
+
+### Measures
+
+- `cut_fill_report` compares the ground with what it was before its first grading, in m3 and
+  cubic yards, in the whole ground or in `"area":[[x,y],...]`. A new `set_terrain`, or
+  `"reset":true`, starts the count again.
+- `contours` draws a line every `interval` cm, the ones at 5 intervals thicker and labeled with
+  their height in cm; `area` limits them, `color` colors them, `"labels":false` leaves the labels
+  out. They are lines of the plan: run `contours` again after the ground changed, and
+  `"remove":true` deletes them.
+- `spot_elevations` gives the height at each of `points` and writes it in the plan, unless
+  `"labels":false`.
+- `slope_map` gives the surface by slope (under 2 %, 2 to 5 %, 5 to 8.33 %, 8.33 to 15 %, 15 to
+  25 %, over 25 %), the steepest place, and the places at `threshold` % (25) or more. It is a
+  table: no overlay is drawn in the plan.
+
+### Limits
+
+- No elevation is fetched from a web service, and no GeoTIFF or LiDAR file is read.
+- The ground is one surface: there are no patches refined apart.
+- `grade_path` builds no curb, and `add_pad` no wall: `add_fence` with `retaining_wall` draws one.
+- A ground of 100 000 points takes about 5 seconds to build and makes a heavy 3D model.
 
 ## Site: lot lines, setbacks and georeference
 

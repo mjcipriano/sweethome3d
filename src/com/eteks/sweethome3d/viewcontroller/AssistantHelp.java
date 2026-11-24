@@ -41,6 +41,8 @@ public final class AssistantHelp {
           + "reduce_detail restore_detail group align distribute mirror lock add_tags hide_layer"},
       {"Colors, textures and materials", "set_color set_texture apply_style import_texture list_materials set_material"},
       {"Roofs", "add_roof add_dormer modify_dormer remove_dormer modify_roof fit_walls_to_roof headroom auto_roof"},
+      {"Grading and terrain measures", "shift_terrain add_pad flatten_area smooth_area add_berm grade_path extend_terrain "
+          + "cut_fill_report contours spot_elevations slope_map"},
       {"Ground and site", "add_slab set_terrain set_site_defaults add_polyline add_property_line add_setback modify_polyline set_compass "
           + "set_georeference import_parcel get_coordinates"},
       {"Fences, walls and gates", "add_fence add_gate modify_fence extend_fence join_fences split_fence trim_fence offset_fence "
@@ -281,7 +283,9 @@ public final class AssistantHelp {
         + "\nFences: " + AssistantFenceBuilder.getStyles().size() + " styles (" + styles + "); gates: "
         + Arrays.toString(AssistantFenceBuilder.GATE_TYPES) + "."
         + "\nTerrain: points of known height given to set_terrain, " + AssistantShapeCommands.getMaxTerrainPoints()
-        + " at most, triangulated. No elevation is fetched from a web service and no raster, LiDAR or DEM file is read."
+        + " at most, or a raster, an Esri ASCII grid or a text of x y z lines thinned to that count; graded by add_pad, "
+        + "grade_path, add_berm, add_swale, flatten_area and smooth_area; measured by cut_fill_report, contours, spot_elevations and "
+        + "slope_map. No elevation is fetched from a web service and no GeoTIFF, LAS or LAZ file is read."
         + "\nGeoreference: one point with a north angle; coordinate systems EPSG:4326, 4269, 3857, the UTM zones (326xx, 327xx, 269xx) "
         + "and the State Plane zones of Georgia (2240, 2239, 26967, 26966). Lot lines are read from GeoJSON and Esri JSON by import_parcel; "
         + "no shapefile, KML, DXF or OpenStreetMap import, no aerial imagery, no geotagged photos."

@@ -215,7 +215,7 @@ class AssistantSiteCommands {
     return polyline;
   }
 
-  private Polyline createPolyline(float [][] points, boolean closed, Level level, String name, String kind,
+  Polyline createPolyline(float [][] points, boolean closed, Level level, String name, String kind,
                                   String colorText, double thickness, String dash, boolean visibleIn3D,
                                   double elevation) throws IOException {
     Integer color = colorText != null ? AssistantCommandExecutor.parseColor(colorText) : null;
@@ -252,7 +252,7 @@ class AssistantSiteCommands {
     return polyline;
   }
 
-  private void addPolylines(List<Polyline> polylines, Level level) {
+  void addPolylines(List<Polyline> polylines, Level level) {
     this.executor.beginTurnUpdate();
     Level selectedLevel = this.home.getSelectedLevel();
     if (level != null && level != selectedLevel) {

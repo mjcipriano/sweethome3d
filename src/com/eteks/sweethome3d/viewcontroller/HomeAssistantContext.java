@@ -707,6 +707,7 @@ public class HomeAssistantContext {
         + AssistantArrangeCommands.getReference()
         + AssistantGardenCommands.getReference()
         + AssistantPlantCommands.getReference()
+        + AssistantTerrainCommands.getReference()
         + AssistantScheduleCommands.getReference()
         + AssistantSceneCommands.getReference()
         + AssistantHelp.getReference()

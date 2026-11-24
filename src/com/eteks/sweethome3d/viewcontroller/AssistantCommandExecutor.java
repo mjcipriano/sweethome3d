@@ -94,6 +94,7 @@ public class AssistantCommandExecutor {
   private final AssistantGardenCommands gardenCommands;
   private final AssistantFenceCommands  fenceCommands;
   private final AssistantPlantCommands  plantCommands;
+  private final AssistantTerrainCommands terrainCommands;
   private boolean                       stopOnError;
   private String                        groupName;
   private final AssistantScheduleCommands scheduleCommands;
@@ -183,6 +184,7 @@ public class AssistantCommandExecutor {
     this.gardenCommands = new AssistantGardenCommands(home, preferences, homeController, this);
     this.fenceCommands = new AssistantFenceCommands(home, homeController, this);
     this.plantCommands = new AssistantPlantCommands(home, homeController, this);
+    this.terrainCommands = new AssistantTerrainCommands(home, homeController, this);
     this.scheduleCommands = new AssistantScheduleCommands(home, preferences, homeController, this);
     this.sceneCommands = new AssistantSceneCommands(home, preferences, homeController, this);
     this.layerCommands = new AssistantLayerCommands(home, homeController, this);
@@ -368,6 +370,10 @@ public class AssistantCommandExecutor {
 
   AssistantSceneCommands getSceneCommands() {
     return this.sceneCommands;
+  }
+
+  AssistantSiteCommands getSiteCommands() {
+    return this.siteCommands;
   }
 
   AssistantPlantCommands getPlantCommands() {
@@ -891,6 +897,7 @@ public class AssistantCommandExecutor {
     } else if ("delete".equals(action) || "remove".equals(action)) {
       delete(command, tally);
     } else if (!this.plantCommands.apply(action, command, tally, notes)
+               && !this.terrainCommands.apply(action, command, tally, notes)
                && !this.structureCommands.apply(action, command, tally, notes)
                && !this.shapeCommands.apply(action, command, tally, notes)
                && !this.buildingCommands.apply(action, command, tally, notes)

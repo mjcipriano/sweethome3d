@@ -506,7 +506,7 @@ public class HomeMCPServerTest {
     assertTrue(help, help.contains("add_dormer"));
     String capabilities = text(callTool(handler, "get_capabilities", "{}"));
     assertTrue(capabilities, capabilities.contains("Fences: 63 styles") && capabilities.contains("100 commands per call")
-        && capabilities.contains("3000 at most") && capabilities.contains("EPSG:4326"));
+        && capabilities.contains("100000 at most") && capabilities.contains("EPSG:4326"));
     assertTrue(text(callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"get_capabilities\"}]}")).contains("Fences: 63 styles"));
   }
 

@@ -730,7 +730,9 @@ public class HomeMCPHandler {
         + "along points, a lot line or between two places, and add_gate, modify_fence, extend_fence, join_fences, split_fence, "
         + "trim_fence, offset_fence, convert_to_fence and fence_report change and count them; add_tree and add_shrub build trees and shrubs from "
         + "a species (list_species) with seasons, add_trees with \"trees\", import_trees, update_trees and forest_fill plant many, "
-        + "set_season, grow_trees and relabel_trees change them all; furnish_room places the furniture of a kind of room by rules, as a starting point; "
+        + "set_season, grow_trees and relabel_trees change them all; set_terrain also reads a raster or a file of heights, "
+        + "add_pad, grade_path, add_berm, add_swale and flatten_area grade the ground, cut_fill_report, contours, spot_elevations "
+        + "and slope_map measure it; furnish_room places the furniture of a kind of room by rules, as a starting point; "
         + "schedule, add_symbol, add_symbols and framing_estimate list doors, windows and rooms, add electrical and plumbing "
         + "symbols and estimate framing; set_unit_prices also takes a room or a wall.");
     return result;
