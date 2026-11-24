@@ -171,7 +171,7 @@ from the menus. Each item runs one change that **Edit > Undo** reverts.
 | **Furniture** | Open the selected doors and windows... | Turns their leaves by an angle; a negative angle opens the other way. Only models with hinges open |
 | | Close the selected doors and windows | |
 | | Furnish the selected room... | Places catalog furniture for a kind of room, clear of doors, windows and passages. A starting point to arrange by hand |
-| **Plan > Garden** | Fence, Hedge, Path along the selected line... | Draw the line with **Plan > Create polylines**, select it, then choose the item and its sizes. The line may be deleted once used |
+| **Plan > Garden** | Fence, Hedge, Path along the selected line... | Draw the line with **Plan > Create polylines**, select it, then choose the item and its sizes. A fence is chosen among the 63 styles of [Fences, walls and gates](MCP_COMMANDS.md#fences-walls-and-gates), each with its usual height and posts. The line may be deleted once used |
 | | Planting bed in the selected line or room... | The same, for a closed line or a room |
 | **Plan > Electrical and plumbing symbols** | Add a symbol... | On the selected wall at a distance from its start, or at the middle of the selected room, to move as a piece of furniture |
 | | Outlets along the walls of the selected rooms... | At a regular distance, leaving doors free |

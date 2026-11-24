@@ -350,7 +350,7 @@ public class AssistantHouseModelingTest {
     assertTrue(this.home.getSelectedLevel() != terrainLevel);
     assertEquals(FurniturePlanVisibility.HIDE, FurniturePlanVisibility.get(terrain));
     assertTrue(summary, summary.contains("heights from 0 to 300"));
-    run("{\"action\":\"add_furniture\",\"name\":\"Desk\",\"x\":500,\"y\":1000}");
+    run("{\"action\":\"add_furniture\",\"name\":\"Desk\",\"x\":500,\"y\":1000,\"on_terrain\":false}");
     run("{\"action\":\"set_elevation\",\"id\":\"" + HomeItemIds.getId(getPiece("Desk")) + "\",\"on_terrain\":true}");
     assertEquals(200, getPiece("Desk").getElevation(), 0.5f);
     // Undo takes the piece off the ground, and redo puts it back, with what tells it stands outdoors

@@ -197,11 +197,11 @@ public class AssistantGardenCommandsTest {
     HomePieceOfFurniture fence = getPiece("Fence");
     assertNotNull(summary, fence);
     assertEquals("site", fence.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY));
-    // Posts of 9 cm stand 6 cm above the pickets
-    assertEquals(126, fence.getHeight(), 0.5f);
+    // Posts of 9 cm stand 6 cm above the pickets, under a cap of 2 cm
+    assertEquals(128, fence.getHeight(), 0.5f);
     assertEquals(0, fence.getElevation(), 0.01f);
-    assertEquals(489, fence.getWidth(), 1);
-    assertEquals(489, fence.getDepth(), 1);
+    assertEquals(491, fence.getWidth(), 1);
+    assertEquals(491, fence.getDepth(), 1);
     assertTrue(summary, summary.contains(HomeItemIds.getId(fence)));
     // A fence isn't furniture out of its room
     String report = run("{\"action\":\"check_home\"}");
@@ -213,9 +213,9 @@ public class AssistantGardenCommandsTest {
     summary = run("{\"action\":\"add_fence\",\"name\":\"Front fence\",\"points\":[[0,0],[1000,0]],\"style\":\"rail\","
         + "\"gate\":{\"at\":500,\"width\":100}}");
     assertTrue(summary, summary.contains("6 posts") && summary.contains("4 spans") && summary.contains("9 m long")
-        && summary.contains("from 450 to 550 cm"));
+        && summary.contains("single_swing 100 cm wide at 500 cm"));
     // The posts of the gate are 10 cm taller
-    assertEquals(136, getPiece("Front fence").getHeight(), 0.5f);
+    assertEquals(138, getPiece("Front fence").getHeight(), 0.5f);
 
     // A closed square: as many posts as spans
     summary = run("{\"action\":\"add_fence\",\"name\":\"Pen\",\"points\":[[0,0],[480,0],[480,480],[0,480]],\"closed\":true,"
@@ -230,7 +230,7 @@ public class AssistantGardenCommandsTest {
     summary = run("{\"action\":\"add_fence\",\"points\":[[0,0]]}");
     assertTrue(summary, summary.contains("Couldn't run add_fence") && summary.contains("2 different points"));
     summary = run("{\"action\":\"add_fence\",\"points\":[[0,0],[300,0]],\"style\":\"laser\"}");
-    assertTrue(summary, summary.contains("picket, panel, rail or wire"));
+    assertTrue(summary, summary.contains("unknown \"style\"") && summary.contains("chain_link"));
     summary = run("{\"action\":\"add_fence\",\"points\":[[0,0],[300,0]],\"gate\":{\"at\":290,\"width\":100}}");
     assertTrue(summary, summary.contains("the gate goes from 240 to 340 cm"));
     assertEquals(count, this.home.getFurniture().size());
@@ -263,7 +263,7 @@ public class AssistantGardenCommandsTest {
     HomePieceOfFurniture fence = getPiece("Fence");
     assertTrue(summary, summary.contains("5 posts") && summary.contains("following the ground from 0 to 100 cm"));
     assertEquals(-5, getBottom(fence), 1.5f);
-    assertEquals(100 + 100 + 6, getBottom(fence) + fence.getHeight(), 1.5f);
+    assertEquals(100 + 100 + 6 + 2, getBottom(fence) + fence.getHeight(), 1.5f);
 
     // A path laid on the slope
     summary = run("{\"action\":\"add_path\",\"points\":[[0,1000],[2000,1000]],\"width\":120,\"thickness\":4,\"edging\":true}");

@@ -62,7 +62,19 @@ public class HomeDiagnostics {
     /** A wall stands beyond a setback line. */
     BEYOND_SETBACK(false),
     /** A wall stands beyond a property line. */
-    BEYOND_PROPERTY_LINE(false);
+    BEYOND_PROPERTY_LINE(false),
+    /** A fence crosses a wall or runs inside a building. */
+    FENCE_THROUGH_BUILDING(false),
+    /** A fence crosses a driveway without a gate. */
+    FENCE_ON_DRIVEWAY(false),
+    /** A gate can't open. */
+    GATE_BLOCKED(false),
+    /** A pool fence doesn't follow the usual rules. */
+    POOL_FENCE(false),
+    /** A fence stands beyond the property lines. */
+    FENCE_BEYOND_PROPERTY_LINE(false),
+    /** The ground changed under the posts of a fence. */
+    FENCE_OFF_GROUND(false);
 
     private final boolean fixable;
 
@@ -88,6 +100,7 @@ public class HomeDiagnostics {
         case BEYOND_PROPERTY_LINE :
         case DUPLICATE_WALL :
         case EMPTY_ROOM :
+        case FENCE_THROUGH_BUILDING :
           return 2;
         case FURNITURE_OUTSIDE_ROOMS :
         case UNNAMED_ROOM :

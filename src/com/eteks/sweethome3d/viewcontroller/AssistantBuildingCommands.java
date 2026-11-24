@@ -181,8 +181,10 @@ class AssistantBuildingCommands {
    * Returns the issues of the home, with the ids of the items of the turn.
    */
   List<Issue> check() {
-    return HomeDiagnostics.check(this.home, this.executor.getTurnFurniture(),
+    List<Issue> issues = HomeDiagnostics.check(this.home, this.executor.getTurnFurniture(),
         this.executor.getTurnWalls(), this.executor.getTurnRooms());
+    issues.addAll(this.executor.getFenceCommands().check());
+    return issues;
   }
 
   // ---- Rooms ----

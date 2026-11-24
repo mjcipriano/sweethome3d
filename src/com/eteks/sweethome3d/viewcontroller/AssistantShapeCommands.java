@@ -76,8 +76,14 @@ class AssistantShapeCommands {
   /** Property of a piece made of parts storing the bounds of its parts. */
   static final String PARTS_BOUNDS_PROPERTY = "assistantPartsBounds";
 
-  private static final int MAX_TERRAIN_POINTS = 3000;
+  private static final int MAX_TERRAIN_POINTS = 100000;
+  /** Up to this count of points the ground is triangulated as it always was, so the grounds of older homes don't change. */
+  private static final int SIMPLE_TRIANGULATION_POINTS = 3000;
   private static final int MAX_SLAB_POINTS = 200;
+
+  static int getMaxTerrainPoints() {
+    return MAX_TERRAIN_POINTS;
+  }
 
   private final Home                     home;
   private final UserPreferences          preferences;
@@ -89,6 +95,9 @@ class AssistantShapeCommands {
 
   private String                         terrainSpec;
   private List<float [][]>               terrainTriangles;
+  private List<List<float [][]>>         terrainIndex;
+  private float []                       terrainIndexBounds;
+  private int                            terrainIndexCells;
 
   AssistantShapeCommands(Home home, UserPreferences preferences, HomeController homeController,
                          AssistantCommandExecutor executor) {
@@ -197,15 +206,27 @@ class AssistantShapeCommands {
   /**
    * Replaces the model, the size and the place of a piece, in an undoable way.
    */
-  private void replaceModel(final HomePieceOfFurniture piece, AssistantGeneratedModel model,
+  void replaceModel(final HomePieceOfFurniture piece, AssistantGeneratedModel model,
                             float x, float y, float elevation, Map<String, String> properties) {
+    replaceModel(piece, model, x, y, elevation, model.getWidth(), model.getDepth(), model.getHeight(), null, properties);
+  }
+
+  /**
+   * Replaces the model, the size, the place and the name of a piece, in an undoable way.
+   * @param name its new name, or <code>null</code> to keep the one it has
+   */
+  void replaceModel(final HomePieceOfFurniture piece, AssistantGeneratedModel model, float x, float y, float elevation,
+                    float width, float depth, float height, String name, Map<String, String> properties) {
     final Object [] before = getModelState(piece, properties.keySet());
     piece.setModel(model.getModel());
     piece.setIcon(model.getIcon());
     piece.setPlanIcon(model.getPlanIcon());
-    piece.setWidth(model.getWidth());
-    piece.setDepth(model.getDepth());
-    piece.setHeight(model.getHeight());
+    piece.setWidth(width);
+    piece.setDepth(depth);
+    piece.setHeight(height);
+    if (name != null) {
+      piece.setName(name);
+    }
     piece.setX(x);
     piece.setY(y);
     piece.setElevation(elevation);
@@ -240,7 +261,7 @@ class AssistantShapeCommands {
       properties.put(name, piece.getProperty(name));
     }
     return new Object [] {piece.getModel(), piece.getIcon(), piece.getPlanIcon(), piece.getWidth(), piece.getDepth(),
-                          piece.getHeight(), piece.getX(), piece.getY(), piece.getElevation(), properties};
+                          piece.getHeight(), piece.getX(), piece.getY(), piece.getElevation(), properties, piece.getName()};
   }
 
   @SuppressWarnings("unchecked")
@@ -257,6 +278,7 @@ class AssistantShapeCommands {
     for (Map.Entry<String, String> property : ((Map<String, String>)state [9]).entrySet()) {
       piece.setProperty(property.getKey(), property.getValue());
     }
+    piece.setName((String)state [10]);
   }
 
   /**
@@ -830,6 +852,9 @@ class AssistantShapeCommands {
     if (vertices.size() < 3) {
       return result;
     }
+    if (vertices.size() > SIMPLE_TRIANGULATION_POINTS) {
+      return triangulateFast(vertices, minX, minY, maxX, maxY);
+    }
     // Bowyer-Watson: a triangle around all the points, then each point added in turn
     double size = Math.max(maxX - minX, maxY - minY) + 1;
     double centerX = (minX + maxX) / 2.0;
@@ -886,6 +911,203 @@ class AssistantShapeCommands {
     return result;
   }
 
+  /**
+   * Returns the Delaunay triangles of many points: each point is looked for from the triangle of the
+   * point before it, close to it, and only the triangles around it are changed.
+   */
+  private static List<float [][]> triangulateFast(List<float []> vertices, float minX, float minY, float maxX, float maxY) {
+    final int count = vertices.size();
+    double size = Math.max(maxX - minX, maxY - minY) + 1;
+    double centerX = (minX + maxX) / 2.0;
+    double centerY = (minY + maxY) / 2.0;
+    final double [][] coordinates = new double [count + 3][];
+    for (int i = 0; i < count; i++) {
+      coordinates [i] = new double [] {vertices.get(i) [0], vertices.get(i) [1]};
+    }
+    coordinates [count] = new double [] {centerX - 30 * size, centerY - 10 * size};
+    coordinates [count + 1] = new double [] {centerX + 30 * size, centerY - 10 * size};
+    coordinates [count + 2] = new double [] {centerX, centerY + 30 * size};
+    // The points in the order of the cells of a grid walked back and forth
+    Integer [] order = new Integer [count];
+    for (int i = 0; i < count; i++) {
+      order [i] = i;
+    }
+    final int cells = Math.max(1, (int)Math.sqrt(count / 4.0));
+    final double cellWidth = (maxX - minX + 1) / cells;
+    final double cellHeight = (maxY - minY + 1) / cells;
+    final double originX = minX;
+    final double originY = minY;
+    java.util.Arrays.sort(order, new java.util.Comparator<Integer>() {
+        public int compare(Integer index1, Integer index2) {
+          int row1 = (int)((coordinates [index1][1] - originY) / cellHeight);
+          int row2 = (int)((coordinates [index2][1] - originY) / cellHeight);
+          if (row1 != row2) {
+            return row1 - row2;
+          }
+          int column1 = (int)((coordinates [index1][0] - originX) / cellWidth);
+          int column2 = (int)((coordinates [index2][0] - originX) / cellWidth);
+          if (column1 != column2) {
+            return row1 % 2 == 0 ? column1 - column2 : column2 - column1;
+          }
+          return index1 - index2;
+        }
+      });
+    // Triangles turn the same way; neighbors [3 * t + i] is across the side from the corner i to the next one
+    int capacity = 2 * count + 16;
+    int [] corners = new int [capacity * 3];
+    int [] neighbors = new int [capacity * 3];
+    boolean [] alive = new boolean [capacity];
+    int triangleCount = 1;
+    corners [0] = count;
+    corners [1] = count + 1;
+    corners [2] = count + 2;
+    neighbors [0] = neighbors [1] = neighbors [2] = -1;
+    alive [0] = true;
+    if (orient(coordinates [count], coordinates [count + 1], coordinates [count + 2]) < 0) {
+      corners [1] = count + 2;
+      corners [2] = count + 1;
+    }
+    int last = 0;
+    int [] stack = new int [64];
+    int [] cavity = new int [64];
+    int [] marks = new int [capacity];
+    int [] free = new int [capacity];
+    int freeCount = 0;
+    Map<Integer, Integer> startTriangles = new HashMap<Integer, Integer>();
+    Map<Integer, Integer> endTriangles = new HashMap<Integer, Integer>();
+    for (int n = 0; n < count; n++) {
+      int index = order [n];
+      double [] point = coordinates [index];
+      // Walks from the last triangle to the one that holds the point
+      int current = last;
+      int steps = 0;
+      boolean moved = true;
+      while (moved && steps++ < triangleCount + 8) {
+        moved = false;
+        for (int side = 0; side < 3; side++) {
+          double [] a = coordinates [corners [current * 3 + side]];
+          double [] b = coordinates [corners [current * 3 + (side + 1) % 3]];
+          if (orient(a, b, point) < 0 && neighbors [current * 3 + side] >= 0) {
+            current = neighbors [current * 3 + side];
+            moved = true;
+            break;
+          }
+        }
+      }
+      if (!isInCircle(coordinates [corners [current * 3]], coordinates [corners [current * 3 + 1]],
+              coordinates [corners [current * 3 + 2]], point)) {
+        // The walk went wrong on aligned points
+        current = -1;
+        for (int t = 0; t < triangleCount && current < 0; t++) {
+          if (alive [t] && isInCircle(coordinates [corners [t * 3]], coordinates [corners [t * 3 + 1]],
+                  coordinates [corners [t * 3 + 2]], point)) {
+            current = t;
+          }
+        }
+        if (current < 0) {
+          continue;
+        }
+      }
+      // The triangles whose circle holds the point, from neighbor to neighbor
+      int cavityCount = 0;
+      int stackCount = 0;
+      stack [stackCount++] = current;
+      marks [current] = n + 1;
+      while (stackCount > 0) {
+        int triangle = stack [--stackCount];
+        if (cavityCount == cavity.length) {
+          cavity = java.util.Arrays.copyOf(cavity, cavity.length * 2);
+        }
+        cavity [cavityCount++] = triangle;
+        for (int side = 0; side < 3; side++) {
+          int neighbor = neighbors [triangle * 3 + side];
+          if (neighbor >= 0 && marks [neighbor] != n + 1
+              && isInCircle(coordinates [corners [neighbor * 3]], coordinates [corners [neighbor * 3 + 1]],
+                     coordinates [corners [neighbor * 3 + 2]], point)) {
+            marks [neighbor] = n + 1;
+            if (stackCount == stack.length) {
+              stack = java.util.Arrays.copyOf(stack, stack.length * 2);
+            }
+            stack [stackCount++] = neighbor;
+          }
+        }
+      }
+      // A new triangle on each side of the hole
+      startTriangles.clear();
+      endTriangles.clear();
+      for (int c = 0; c < cavityCount; c++) {
+        int triangle = cavity [c];
+        for (int side = 0; side < 3; side++) {
+          int neighbor = neighbors [triangle * 3 + side];
+          if (neighbor >= 0 && marks [neighbor] == n + 1) {
+            continue;
+          }
+          int start = corners [triangle * 3 + side];
+          int end = corners [triangle * 3 + (side + 1) % 3];
+          int created;
+          if (freeCount > 0) {
+            created = free [--freeCount];
+          } else {
+            if (triangleCount == capacity) {
+              capacity *= 2;
+              corners = java.util.Arrays.copyOf(corners, capacity * 3);
+              neighbors = java.util.Arrays.copyOf(neighbors, capacity * 3);
+              alive = java.util.Arrays.copyOf(alive, capacity);
+              marks = java.util.Arrays.copyOf(marks, capacity);
+              free = java.util.Arrays.copyOf(free, capacity);
+            }
+            created = triangleCount++;
+          }
+          corners [created * 3] = start;
+          corners [created * 3 + 1] = end;
+          corners [created * 3 + 2] = index;
+          neighbors [created * 3] = neighbor;
+          neighbors [created * 3 + 1] = neighbors [created * 3 + 2] = -1;
+          alive [created] = true;
+          marks [created] = 0;
+          if (neighbor >= 0) {
+            for (int k = 0; k < 3; k++) {
+              if (neighbors [neighbor * 3 + k] == triangle) {
+                neighbors [neighbor * 3 + k] = created;
+              }
+            }
+          }
+          startTriangles.put(start, created);
+          endTriangles.put(end, created);
+          last = created;
+        }
+      }
+      for (Map.Entry<Integer, Integer> entry : startTriangles.entrySet()) {
+        int created = entry.getValue();
+        // Its side from its end to the point is shared with the triangle that starts at its end
+        Integer next = startTriangles.get(corners [created * 3 + 1]);
+        Integer previous = endTriangles.get(corners [created * 3]);
+        neighbors [created * 3 + 1] = next != null ? next : -1;
+        neighbors [created * 3 + 2] = previous != null ? previous : -1;
+      }
+      for (int c = 0; c < cavityCount; c++) {
+        alive [cavity [c]] = false;
+        free [freeCount++] = cavity [c];
+      }
+    }
+    List<float [][]> result = new ArrayList<float [][]>();
+    for (int t = 0; t < triangleCount; t++) {
+      if (alive [t] && corners [t * 3] < count && corners [t * 3 + 1] < count && corners [t * 3 + 2] < count) {
+        double [] a = coordinates [corners [t * 3]];
+        double [] b = coordinates [corners [t * 3 + 1]];
+        double [] c = coordinates [corners [t * 3 + 2]];
+        if (Math.abs((b [0] - a [0]) * (c [1] - a [1]) - (b [1] - a [1]) * (c [0] - a [0])) > 0.01) {
+          result.add(new float [][] {vertices.get(corners [t * 3]), vertices.get(corners [t * 3 + 1]), vertices.get(corners [t * 3 + 2])});
+        }
+      }
+    }
+    return result;
+  }
+
+  private static double orient(double [] a, double [] b, double [] c) {
+    return (b [0] - a [0]) * (c [1] - a [1]) - (b [1] - a [1]) * (c [0] - a [0]);
+  }
+
   private static boolean isInCircle(double [] a, double [] b, double [] c, double [] point) {
     double ax = a [0] - point [0];
     double ay = a [1] - point [1];
@@ -913,8 +1135,66 @@ class AssistantShapeCommands {
       if (!spec.equals(this.terrainSpec)) {
         this.terrainTriangles = HomeTerrain.getTriangles(spec);
         this.terrainSpec = spec;
+        this.terrainIndex = null;
+        if (this.terrainTriangles.size() > 2000) {
+          // The triangles over each cell of a grid, in their order
+          float [] bounds = {Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
+          for (float [][] triangle : this.terrainTriangles) {
+            for (float [] corner : triangle) {
+              bounds [0] = Math.min(bounds [0], corner [0]);
+              bounds [1] = Math.min(bounds [1], corner [1]);
+              bounds [2] = Math.max(bounds [2], corner [0]);
+              bounds [3] = Math.max(bounds [3], corner [1]);
+            }
+          }
+          int cells = Math.max(1, Math.min(400, (int)Math.sqrt(this.terrainTriangles.size() / 2.0)));
+          this.terrainIndexBounds = bounds;
+          this.terrainIndexCells = cells;
+          List<List<float [][]>> index = new ArrayList<List<float [][]>>(cells * cells);
+          for (int i = 0; i < cells * cells; i++) {
+            index.add(null);
+          }
+          float cellWidth = Math.max(1E-3f, (bounds [2] - bounds [0]) / cells);
+          float cellHeight = Math.max(1E-3f, (bounds [3] - bounds [1]) / cells);
+          for (float [][] triangle : this.terrainTriangles) {
+            int column1 = cells;
+            int row1 = cells;
+            int column2 = 0;
+            int row2 = 0;
+            for (float [] corner : triangle) {
+              column1 = Math.min(column1, (int)((corner [0] - bounds [0]) / cellWidth));
+              column2 = Math.max(column2, (int)((corner [0] - bounds [0]) / cellWidth));
+              row1 = Math.min(row1, (int)((corner [1] - bounds [1]) / cellHeight));
+              row2 = Math.max(row2, (int)((corner [1] - bounds [1]) / cellHeight));
+            }
+            for (int row = Math.max(0, row1); row <= Math.min(cells - 1, row2); row++) {
+              for (int column = Math.max(0, column1); column <= Math.min(cells - 1, column2); column++) {
+                List<float [][]> cell = index.get(row * cells + column);
+                if (cell == null) {
+                  index.set(row * cells + column, cell = new ArrayList<float [][]>());
+                }
+                cell.add(triangle);
+              }
+            }
+          }
+          this.terrainIndex = index;
+        }
       }
-      for (float [][] triangle : this.terrainTriangles) {
+      List<float [][]> candidates = this.terrainTriangles;
+      if (this.terrainIndex != null) {
+        float [] bounds = this.terrainIndexBounds;
+        if (x < bounds [0] - 0.01f || x > bounds [2] + 0.01f || y < bounds [1] - 0.01f || y > bounds [3] + 0.01f) {
+          continue;
+        }
+        int cells = this.terrainIndexCells;
+        int column = Math.max(0, Math.min(cells - 1, (int)((x - bounds [0]) / Math.max(1E-3f, (bounds [2] - bounds [0]) / cells))));
+        int row = Math.max(0, Math.min(cells - 1, (int)((y - bounds [1]) / Math.max(1E-3f, (bounds [3] - bounds [1]) / cells))));
+        candidates = this.terrainIndex.get(row * cells + column);
+        if (candidates == null) {
+          continue;
+        }
+      }
+      for (float [][] triangle : candidates) {
         double determinant = (triangle [1][1] - triangle [2][1]) * (triangle [0][0] - triangle [2][0])
             + (triangle [2][0] - triangle [1][0]) * (triangle [0][1] - triangle [2][1]);
         double w1 = ((triangle [1][1] - triangle [2][1]) * (x - triangle [2][0])
@@ -924,6 +1204,30 @@ class AssistantShapeCommands {
         double w3 = 1 - w1 - w2;
         if (w1 >= -1E-4 && w2 >= -1E-4 && w3 >= -1E-4) {
           return (float)(w1 * triangle [0][2] + w2 * triangle [1][2] + w3 * triangle [2][2]);
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Returns the height of the terrain at its point the closest to a point that it doesn't cover,
+   * and the distance to it, or <code>null</code> if the home has no terrain.
+   */
+  float [] getNearestTerrainHeight(float x, float y) {
+    boolean terrain = false;
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      terrain |= piece.getProperty(TERRAIN_PROPERTY) != null;
+    }
+    if (!terrain) {
+      return null;
+    }
+    for (float radius = 25; radius <= 200000; radius *= 1.25f) {
+      for (int i = 0; i < 24; i++) {
+        double angle = Math.PI * 2 * i / 24;
+        Float height = getTerrainHeight(x + (float)Math.cos(angle) * radius, y + (float)Math.sin(angle) * radius);
+        if (height != null) {
+          return new float [] {height, radius};
         }
       }
     }

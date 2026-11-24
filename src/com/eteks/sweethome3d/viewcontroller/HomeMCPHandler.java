@@ -21,6 +21,9 @@ import javax.swing.undo.CannotUndoException;
 
 import com.eteks.sweethome3d.model.Camera;
 import com.eteks.sweethome3d.model.Home;
+import com.eteks.sweethome3d.model.HomePieceOfFurniture;
+import com.eteks.sweethome3d.model.Wall;
+import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Level;
 import com.eteks.sweethome3d.model.ObserverCamera;
 import com.eteks.sweethome3d.model.Selectable;
@@ -391,6 +394,25 @@ public class HomeMCPHandler {
   private volatile ImageAnnotator imageAnnotator;
 
   /**
+   * Draws shapes over a picture of the plan.
+   */
+  public interface PlanOverlayPainter {
+    /**
+     * Returns the PNG <code>image</code> with shapes drawn over it, in pixels. Each shape is
+     * {kind, points, fill, stroke, stroke width, text}: the kind is <code>polygon</code>, <code>line</code>,
+     * <code>circle</code> (its center then a point of its edge), <code>text</code> (centered on its point) or
+     * <code>label</code> (starting at its point); the colors are ARGB or <code>null</code>.
+     */
+    byte [] paint(byte [] image, List<Object []> shapes);
+  }
+
+  private volatile PlanOverlayPainter planOverlayPainter;
+
+  public void setPlanOverlayPainter(PlanOverlayPainter planOverlayPainter) {
+    this.planOverlayPainter = planOverlayPainter;
+  }
+
+  /**
    * Sets the object that draws the dimensions of elevation pictures.
    */
   public void setImageAnnotator(ImageAnnotator imageAnnotator) {
@@ -411,6 +433,24 @@ public class HomeMCPHandler {
   /**
    * Returns whether clients may save the home in its own file.
    */
+  /**
+   * Returns <code>true</code> if commands may ask web services for data about the place of the home.
+   */
+  public boolean isWebAccessAllowed() {
+    return this.commandExecutor.isWebAccessAllowed();
+  }
+
+  public void setWebAccessAllowed(boolean webAccessAllowed) {
+    this.commandExecutor.setWebAccessAllowed(webAccessAllowed);
+  }
+
+  /**
+   * Sets what puts the tiles of a map together in one picture.
+   */
+  public void setTileComposer(AssistantGisCommands.TileComposer tileComposer) {
+    this.commandExecutor.setTileComposer(tileComposer);
+  }
+
   public boolean isSavingAllowed() {
     return this.savingAllowed && isEditingAllowed();
   }
@@ -677,6 +717,9 @@ public class HomeMCPHandler {
     result.put("serverInfo", serverInfo);
     result.put("instructions",
         "Tools to read and edit the home open in Sweet Home 3D, an interior design application. "
+        + "The help tool lists every command of apply_commands by area (rooms and walls, levels and stairs, furniture, roofs, "
+        + "ground and site, fences and gates, garden, lights and camera, checks and schedules), gives the full syntax of one "
+        + "and searches a word: use it rather than reading the files of the program. get_capabilities gives the version and the limits. "
         + "Call get_home first: it describes the levels, rooms, walls and furniture with the ids "
         + "(F# furniture, W# walls, R# rooms, L# levels, P# lines) used by apply_commands. An id belongs to its item for good: "
         + "it doesn't change when other items are added or deleted, the reply of a command names the ids of what it added, "
@@ -722,8 +765,17 @@ public class HomeMCPHandler {
         + "export_home writes the home as PDF, SVG, OBJ, CSV, a 3D web page or a panorama, and get_elevation_image draws a side "
         + "of the building square on with its dimensions. Other commands of apply_commands: group, align, distribute, mirror "
         + "and measure (distances, the free space around a piece, what is at a point); set_light, set_sun, set_environment, "
-        + "open_door and set_material (one material of a model); add_fence, add_hedge, add_path, add_planting_bed and add_trees "
-        + "for the garden; furnish_room places the furniture of a kind of room by rules, as a starting point; "
+        + "open_door and set_material (one material of a model); add_hedge, add_path, add_planting_bed and add_trees "
+        + "for the garden; add_fence builds fences, garden walls and barriers in 63 styles with their gates (list_fence_styles), "
+        + "along points, a lot line or between two places, and add_gate, modify_fence, extend_fence, join_fences, split_fence, "
+        + "trim_fence, offset_fence, convert_to_fence and fence_report change and count them; add_tree and add_shrub build trees and shrubs from "
+        + "a species (list_species) with seasons, add_trees with \"trees\", import_trees, update_trees and forest_fill plant many, "
+        + "set_season, grow_trees and relabel_trees change them all; set_terrain also reads a raster or a file of heights, "
+        + "add_pad, grade_path, add_berm, add_swale and flatten_area grade the ground, cut_fill_report, contours, spot_elevations "
+        + "and slope_map measure it; add_deck, add_patio, add_pergola, add_shed, add_pool, add_driveway, add_retaining_wall, "
+        + "add_utility and the other outdoor commands build what stands around a house, add_context_building the houses of neighbors; "
+        + "import_geojson, import_kml, import_shapefile, import_dxf and import_osm draw GIS files in the plan, and with the "
+        + "permission of the user fetch_elevation, import_osm, import_parcels and set_basemap ask web services (web_sources); furnish_room places the furniture of a kind of room by rules, as a starting point; "
         + "schedule, add_symbol, add_symbols and framing_estimate list doors, windows and rooms, add electrical and plumbing "
         + "symbols and estimate framing; set_unit_prices also takes a room or a wall.");
     return result;
@@ -733,6 +785,7 @@ public class HomeMCPHandler {
     return "get_home".equals(name) || "list_catalog".equals(name) || "search_catalog".equals(name)
         || "search_textures".equals(name) || "check_home".equals(name) || "get_report".equals(name) || "get_plan_image".equals(name)
         || "get_3d_image".equals(name) || "get_3d_info".equals(name) || "get_catalog_image".equals(name)
+        || "help".equals(name) || "get_capabilities".equals(name)
         || "export_blender".equals(name) || "get_sun_study_image".equals(name) || "sun_study".equals(name)
         || "get_notes".equals(name) || "update_note".equals(name)
         || "apply_commands".equals(name) || "undo".equals(name) || "redo".equals(name)
@@ -760,13 +813,17 @@ public class HomeMCPHandler {
         "A short list of the items matching every criterion given, as in apply_commands: "
         + "{\"level\":\"<name or L#>\",\"tag\":\"<tag>\",\"name\":\"<text, or Pine|Oak>\","
         + "\"type\":\"furniture|doors_and_windows|lights|stairs|groups|all_furniture|walls|rooms|polylines\","
-        + "\"bbox\":[x1,y1,x2,y2]} (bbox in cm: what is inside that box). One line per item, up to 500");
+        + "\"bbox\":[x1,y1,x2,y2]} (bbox in cm: what is inside that box). Also \"name_regex\":\"^Pine \\\\d+$\" (a regular expression, "
+        + "whatever the case) and \"created_by\":\"agent|user\" (what commands created, or what was drawn by hand). "
+        + "One line per item, up to 500; \"offset\" and \"limit\" read a longer list in pages");
     homeProperties.put("where", whereProperty);
     Map<String, Object> fieldsProperty = property("array",
         "With or without where: one short line per item with only these fields, among name, position, size, level, "
         + "elevation, angle, tags, type, area, points, color (default: name, position, size, level). The id is always given");
     fieldsProperty.put("items", property("string", "A field"));
     homeProperties.put("fields", fieldsProperty);
+    homeProperties.put("offset", property("number", "With where or fields: skips this number of items, to read a long list in pages"));
+    homeProperties.put("limit", property("number", "With where or fields: the number of items listed (500 at most)"));
     tools.add(tool("get_home", "Describe home",
         "Returns a text description of the home open in Sweet Home 3D: levels, rooms with their "
         + "areas, walls, furniture with positions and sizes, and the current selection. Each "
@@ -844,6 +901,19 @@ public class HomeMCPHandler {
         schema(noteProperties, "id"), false));
     Map<String, Object> imageProperties = new LinkedHashMap<String, Object>();
     imageProperties.put("max_size", property("number", "Largest side of the image in pixels (default 1000, at most 2000)"));
+    Map<String, Object> layersProperty = property("array", "Drawn over this picture only: slope (the ground colored by its slope), "
+        + "contours (contour lines every contour_interval cm), trees (the crowns of the generated trees with their species), "
+        + "fences (the fences colored by style). Lot lines, setbacks, photos and the basemap are a part of the plan itself");
+    layersProperty.put("items", property("string", "slope, contours, trees or fences"));
+    imageProperties.put("layers", layersProperty);
+    imageProperties.put("contour_interval", property("number", "With the layer contours: the height between two lines in cm"));
+    imageProperties.put("legend", property("boolean", "true draws what the colors of the layers mean"));
+    imageProperties.put("scale_bar", property("boolean", "true draws a scale bar at the bottom left"));
+    imageProperties.put("north_arrow", property("boolean", "true draws an arrow to the north of the compass at the top right"));
+    Map<String, Object> annotateProperty = property("array", "Marks drawn in this picture only, not kept in the home: "
+        + "{\"text\":\"...\",\"x\":N,\"y\":N}, {\"marker\":[x,y],\"text\":\"...\"} or {\"line\":[[x,y],[x,y]],\"text\":\"...\"}, in cm of the plan");
+    annotateProperty.put("items", property("object", "A mark"));
+    imageProperties.put("annotate", annotateProperty);
     imageProperties.put("level", property("string", "Name of the level to draw (default: the selected level)"));
     Map<String, Object> areaProperty = property("object",
         "Part of the plan to draw, enlarged, in centimeters: {\"x\":N,\"y\":N,\"width\":N,\"height\":N} "
@@ -876,7 +946,30 @@ public class HomeMCPHandler {
         "Instead of view: the name of a point of view stored in the home (see get_3d_info)"));
     image3DProperties.put("camera", property("object",
         "Instead of view: a camera for this picture only, in centimeters: {\"x\":N,\"y\":N,\"height\":N,"
-        + "\"look_at_x\":N,\"look_at_y\":N,\"look_at_height\":N}; heights are above the floor of the level"));
+        + "\"look_at_x\":N,\"look_at_y\":N,\"look_at_height\":N}; heights are above the floor of the level. "
+        + "Or its place and its angles: {\"x\":N,\"y\":N,\"z\":N,\"yaw\":N,\"pitch\":N,\"fov\":N} in degrees, yaw 0 looking down "
+        + "the plan and 180 up the plan, pitch positive looking down, z from the elevation 0"));
+    Map<String, Object> tagsProperty = property("array", "Leaves out of this picture the furniture with one of these tags, "
+        + "like [\"tree\",\"shrub\"] to see a house past its trees. The home isn't changed");
+    tagsProperty.put("items", property("string", "A tag"));
+    image3DProperties.put("exclude_tags", tagsProperty);
+    Map<String, Object> includeProperty = property("array", "Leaves out of this picture the furniture that has none of these "
+        + "tags; the ground, roofs, slabs, fences and walls stay");
+    includeProperty.put("items", property("string", "A tag"));
+    image3DProperties.put("include_tags", includeProperty);
+    Map<String, Object> hideProperty = property("array", "Leaves out of this picture the items with these ids (F#, W#, R#)");
+    hideProperty.put("items", property("string", "An id"));
+    image3DProperties.put("hide_ids", hideProperty);
+    image3DProperties.put("xray", property("boolean", "true draws the trees and the shrubs built by add_tree and add_shrub pale "
+        + "and seen through, to see what is behind them"));
+    image3DProperties.put("season", enumProperty("Draws the generated trees and shrubs in this season for this picture, "
+        + "without changing the home", "spring", "summer", "autumn", "winter"));
+    image3DProperties.put("date", property("string", "Lights this picture by the sun of a date, YYYY-MM-DD, without changing the home"));
+    image3DProperties.put("time", property("string", "Lights this picture by the sun of a local time, HH:MM"));
+    image3DProperties.put("cutaway", property("number", "Leaves out the furniture, the roofs and the slabs whose bottom is at "
+        + "this height in cm or above it (from the elevation 0). Walls aren't cut"));
+    image3DProperties.put("photo", property("string", "The id of a photo placed by import_photos, like PH1: the picture is drawn "
+        + "from where the photo was taken, looking the same way, beside the photo"));
     image3DProperties.put("fov", property("number", "Field of view in degrees, from 20 to 120 (default: 63 outside, 85 inside)"));
     image3DProperties.put("levels", enumProperty(
         "all (default): every level and the roof. selected: the selected level and the ones under it only, "
@@ -920,6 +1013,19 @@ public class HomeMCPHandler {
     tools.add(tool("get_3d_info", "3D view and renderers",
         "Returns the camera of the home (place, direction, field of view), the points of view stored in the home, "
         + "the levels, the views get_3d_image accepts, and the renderers available for its pictures with their options.",
+        schema(null), true));
+    Map<String, Object> helpProperties = new LinkedHashMap<String, Object>();
+    helpProperties.put("command", property("string", "The name of a command of apply_commands, like add_fence: its syntax, "
+        + "its parameters and the commands related to it"));
+    helpProperties.put("search", property("string", "A word: the commands and the parameters that mention it"));
+    helpProperties.put("style", property("string", "With \"command\":\"add_fence\": a style of fence, for its options"));
+    tools.add(tool("help", "Help of the commands",
+        "Without argument, lists every command of apply_commands by area with a line on each. \"command\" gives the full syntax "
+        + "of one command, \"search\" finds a word in all of them. Use it instead of guessing a command or a parameter.",
+        schema(helpProperties), true));
+    tools.add(tool("get_capabilities", "Version, features and limits",
+        "Returns the version of Sweet Home 3D, what this version has (styles of fences, types of gates, coordinate systems, "
+        + "formats read and written, what isn't available) and its limits.",
         schema(null), true));
     Map<String, Object> sunImageProperties = new LinkedHashMap<String, Object>();
     sunImageProperties.put("sweep", enumProperty(
@@ -1006,6 +1112,9 @@ public class HomeMCPHandler {
         "Instead of commands: the absolute path of a JSON file holding the array of commands (or an object with a "
         + "\"commands\" array), for long lists written by a script; up to "
         + AssistantCommandExecutor.MAX_COMMANDS_PER_FILE + " commands, run as one undoable change"));
+    commandsProperties.put("stop_on_error", property("boolean",
+        "true stops at the first command that fails and tells which ones weren't run. By default a command that fails "
+        + "doesn't stop the ones after it, and the answer names it by its number"));
     tools.add(tool("apply_commands", "Edit home",
         "Edits the home open in Sweet Home 3D by running a list of commands as a single "
         + "undoable change, and returns a summary of what was applied or skipped. "
@@ -1091,7 +1200,7 @@ public class HomeMCPHandler {
     exportProperties.put("format", enumProperty("pdf: the printed pages (plan, furniture list, 3D view); svg: the plan as a drawing; "
         + "obj: the 3D model with its materials; csv: the furniture list; web_page: a folder with the 3D visit for a browser; "
         + "panorama: a 360 degree picture from the place of the virtual visitor, with its page",
-        "pdf", "svg", "obj", "csv", "web_page", "panorama"));
+        "pdf", "svg", "obj", "glb", "csv", "web_page", "panorama"));
     exportProperties.put("path", property("string", "Absolute path of the file to write (pdf, svg, obj, csv), or of an existing folder that will receive a new folder (web_page, panorama)"));
     exportProperties.put("replace", property("boolean", "true to replace a file that exists"));
     exportProperties.put("width", property("number", "panorama: width of the picture in pixels (default 4096, from 1024 to 8192)"));
@@ -1144,6 +1253,27 @@ public class HomeMCPHandler {
     return schema;
   }
 
+  /**
+   * Returns the texts of a list, or of a text with commas.
+   */
+  private static List<String> strings(Object value) {
+    List<String> texts = new ArrayList<String>();
+    if (value instanceof List) {
+      for (Object item : (List<?>)value) {
+        if (item != null) {
+          texts.add(item.toString().trim());
+        }
+      }
+    } else if (value instanceof String) {
+      for (String item : ((String)value).split(",")) {
+        if (item.trim().length() > 0) {
+          texts.add(item.trim());
+        }
+      }
+    }
+    return texts;
+  }
+
   private static Map<String, Object> enumProperty(String description, String... values) {
     Map<String, Object> property = property("string", description);
     property.put("enum", new ArrayList<Object>(Arrays.asList(values)));
@@ -1179,7 +1309,9 @@ public class HomeMCPHandler {
         fields.addAll(Arrays.asList(((String)arguments.get("fields")).split("[,\\s]+")));
       }
       this.commandExecutor.snapshotDescribedItems();
-      return toolResult(this.commandExecutor.describeItems(where, fields), false);
+      return toolResult(this.commandExecutor.describeItems(where, fields,
+          arguments.get("offset") instanceof Number ? ((Number)arguments.get("offset")).intValue() : 0,
+          arguments.get("limit") instanceof Number ? ((Number)arguments.get("limit")).intValue() : 500), false);
     } else if ("get_home".equals(name)) {
       String levelName = string(arguments, "level");
       if (levelName != null && findLevel(levelName) == null) {
@@ -1220,6 +1352,13 @@ public class HomeMCPHandler {
       return searchCatalog(arguments);
     } else if ("get_3d_image".equals(name)) {
       return get3DImage(arguments);
+    } else if ("help".equals(name)) {
+      return toolResult(AssistantHelp.getHelp(arguments.get("command") != null ? arguments.get("command").toString() : null,
+          arguments.get("search") != null ? arguments.get("search").toString() : null,
+          arguments.get("style") != null ? arguments.get("style").toString() : null), false);
+    } else if ("get_capabilities".equals(name)) {
+      return toolResult((this.serverVersion.length() > 0 ? "MCP server version " + this.serverVersion + ". " : "")
+          + AssistantHelp.getCapabilities(), false);
     } else if ("get_3d_info".equals(name)) {
       return toolResult(get3DInfo(), false);
     } else if ("get_sun_study_image".equals(name)) {
@@ -1241,7 +1380,8 @@ public class HomeMCPHandler {
       return toolResult(this.commandExecutor.reportHome(), false);
     } else if ("get_notes".equals(name)) {
       this.commandExecutor.snapshotDescribedItems();
-      return toolResult(HomeReviewNotes.describe(this.home, !Boolean.TRUE.equals(arguments.get("all"))), false);
+      return toolResult(HomeReviewNotes.describe(this.home, !Boolean.TRUE.equals(arguments.get("all")))
+          + (AssistantPhotoCommands.getPhotos(this.home).isEmpty() ? "" : "\n" + AssistantPhotoCommands.describePhotos(this.home)), false);
     } else if ("get_plan_image".equals(name)) {
       return getPlanImage(arguments);
     } else if ("get_elevation_image".equals(name)) {
@@ -1439,17 +1579,301 @@ public class HomeMCPHandler {
         level = getLevel(targets.get(0));
       }
     }
+    List<String> layers = strings(arguments.get("layers"));
+    boolean overlays = !layers.isEmpty() || bool(arguments, "legend", false) || bool(arguments, "scale_bar", false)
+        || bool(arguments, "north_arrow", false) || arguments.get("annotate") instanceof List;
+    if (overlays && area == null) {
+      // The whole home, to know where each point of the plan is in the picture
+      float [] bounds = {Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
+      List<float [][]> shapes = new ArrayList<float [][]>();
+      for (Wall wall : this.home.getWalls()) {
+        shapes.add(wall.getPoints());
+      }
+      for (Room room : this.home.getRooms()) {
+        shapes.add(room.getPoints());
+      }
+      for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+        if (piece.isVisible()) {
+          shapes.add(piece.getPoints());
+        }
+      }
+      for (com.eteks.sweethome3d.model.Polyline polyline : this.home.getPolylines()) {
+        shapes.add(polyline.getPoints());
+      }
+      for (float [][] shape : shapes) {
+        for (float [] point : shape) {
+          bounds [0] = Math.min(bounds [0], point [0]);
+          bounds [1] = Math.min(bounds [1], point [1]);
+          bounds [2] = Math.max(bounds [2], point [0]);
+          bounds [3] = Math.max(bounds [3], point [1]);
+        }
+      }
+      if (bounds [0] < bounds [2] && bounds [1] < bounds [3]) {
+        float margin = Math.max(100, Math.max(bounds [2] - bounds [0], bounds [3] - bounds [1]) * 0.05f);
+        area = new float [] {bounds [0] - margin, bounds [1] - margin, bounds [2] - bounds [0] + 2 * margin,
+                             bounds [3] - bounds [1] + 2 * margin};
+      }
+    }
     byte [] image = provider != null ? provider.getPlanImage(maxSize, level, area) : null;
     if (image == null) {
       return toolResult("No picture of the plan is available (the plan is empty or not displayed).", true);
     }
+    String overlayText = "";
+    if (overlays && area != null) {
+      PlanOverlayPainter painter = this.planOverlayPainter;
+      int [] size = AssistantGeneratedModel.getImageSize(image);
+      if (painter == null || size == null) {
+        overlayText = " The layers can't be drawn here.";
+      } else {
+        List<String> legend = new ArrayList<String>();
+        byte [] painted = painter.paint(image, getPlanOverlay(arguments, layers, area, size, legend));
+        if (painted != null) {
+          image = painted;
+          overlayText = " Drawn over it, in this picture only: " + (legend.isEmpty() ? "the marks asked" : legend) + ".";
+        }
+      }
+    }
     Map<String, Object> result = imageResult(image);
+    if (overlayText.length() > 0 && area == null) {
+      ((List<Object>)result.get("content")).add(textContent(overlayText.trim()));
+    }
     if (area != null) {
       ((List<Object>)result.get("content")).add(textContent("Plan from x " + Math.round(area [0]) + ", y " + Math.round(area [1])
           + " (top left) to x " + Math.round(area [0] + area [2]) + ", y " + Math.round(area [1] + area [3]) + " cm"
-          + (level != null ? ", level \"" + level.getName() + "\"" : "") + "."));
+          + (level != null ? ", level \"" + level.getName() + "\"" : "") + "." + overlayText));
     }
     return result;
+  }
+
+  /**
+   * Returns the shapes of the layers asked for a picture of the plan, in pixels.
+   * @param legend filled with what the layers show
+   */
+  private List<Object []> getPlanOverlay(Map<String, Object> arguments, List<String> layers, float [] area, int [] size, List<String> legend) {
+    List<Object []> shapes = new ArrayList<Object []>();
+    final float scale = size [0] / area [2];
+    final float left = area [0];
+    final float top = area [1];
+    List<Object []> legendEntries = new ArrayList<Object []>();
+    List<float [][]> triangles = layers.contains("slope") || layers.contains("contours") ? HomeTerrain.getTriangles(this.home)
+        : new ArrayList<float [][]>();
+    if (layers.contains("slope")) {
+      float [] limits = {2, 5, 8.33f, 15, 25, Float.MAX_VALUE};
+      int [] colors = {0x6FA8DC, 0x93C47D, 0xFFD966, 0xF6B26B, 0xE06666, 0x990000};
+      String [] names = {"under 2 %", "2 to 5 %", "5 to 8.33 %", "8.33 to 15 %", "15 to 25 %", "over 25 %"};
+      boolean [] used = new boolean [limits.length];
+      for (float [][] triangle : triangles) {
+        double ux = triangle [1][0] - triangle [0][0];
+        double uy = triangle [1][1] - triangle [0][1];
+        double uz = triangle [1][2] - triangle [0][2];
+        double vx = triangle [2][0] - triangle [0][0];
+        double vy = triangle [2][1] - triangle [0][1];
+        double vz = triangle [2][2] - triangle [0][2];
+        double nz = ux * vy - uy * vx;
+        if (Math.abs(nz) < 1E-6) {
+          continue;
+        }
+        double slope = Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz) / Math.abs(nz) * 100;
+        int index = 0;
+        while (slope >= limits [index]) {
+          index++;
+        }
+        used [index] = true;
+        shapes.add(new Object [] {"polygon", new float [] {(triangle [0][0] - left) * scale, (triangle [0][1] - top) * scale,
+            (triangle [1][0] - left) * scale, (triangle [1][1] - top) * scale, (triangle [2][0] - left) * scale,
+            (triangle [2][1] - top) * scale}, Integer.valueOf(0x80000000 | colors [index]), null, null, null});
+      }
+      for (int i = 0; i < limits.length; i++) {
+        if (used [i]) {
+          legendEntries.add(new Object [] {Integer.valueOf(0xC0000000 | colors [i]), "slope " + names [i]});
+        }
+      }
+      legend.add("slopes by color");
+    }
+    if (layers.contains("contours") && !triangles.isEmpty()) {
+      float lowest = Float.MAX_VALUE;
+      float highest = -Float.MAX_VALUE;
+      for (float [][] triangle : triangles) {
+        for (float [] corner : triangle) {
+          lowest = Math.min(lowest, corner [2]);
+          highest = Math.max(highest, corner [2]);
+        }
+      }
+      float interval = (float)number(arguments, "contour_interval", Math.max(10, Math.round((highest - lowest) / 12 / 10) * 10));
+      interval = Math.max(interval, (highest - lowest) / 300);
+      for (int n = (int)Math.ceil((lowest + 0.01f) / interval); n * interval < highest; n++) {
+        float height = n * interval + 0.013f;
+        float [] labelPlace = null;
+        for (float [][] triangle : triangles) {
+          float [] segment = new float [4];
+          int count = 0;
+          for (int i = 0; i < 3 && count < 2; i++) {
+            float [] a = triangle [i];
+            float [] b = triangle [(i + 1) % 3];
+            if (a [2] < height != b [2] < height) {
+              float t = (height - a [2]) / (b [2] - a [2]);
+              segment [count * 2] = (a [0] + (b [0] - a [0]) * t - left) * scale;
+              segment [count * 2 + 1] = (a [1] + (b [1] - a [1]) * t - top) * scale;
+              count++;
+            }
+          }
+          if (count == 2) {
+            shapes.add(new Object [] {"line", segment, null, Integer.valueOf(0xE08A5A2B), Float.valueOf(n % 5 == 0 ? 2f : 1f), null});
+            if (labelPlace == null && segment [0] > 30 && segment [0] < size [0] - 30 && segment [1] > 20 && segment [1] < size [1] - 20) {
+              labelPlace = new float [] {segment [0], segment [1]};
+            }
+          }
+        }
+        if (labelPlace != null && n % 5 == 0) {
+          shapes.add(new Object [] {"text", labelPlace, null, Integer.valueOf(0xFF6B4A1B), null,
+              AssistantStructureCommands.format(n * interval)});
+        }
+      }
+      legendEntries.add(new Object [] {Integer.valueOf(0xE08A5A2B), "contour lines every " + AssistantStructureCommands.format(interval) + " cm"});
+      legend.add("contour lines every " + AssistantStructureCommands.format(interval) + " cm");
+    }
+    if (layers.contains("trees")) {
+      int count = 0;
+      for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+        Map<String, Object> plant = AssistantPlantCommands.getSpec(piece);
+        if (plant == null || !piece.isVisible()) {
+          continue;
+        }
+        float x = (AssistantFurnitureBuilder.getNumber(plant, "x", piece.getX()) - left) * scale;
+        float y = (AssistantFurnitureBuilder.getNumber(plant, "y", piece.getY()) - top) * scale;
+        float radius = AssistantFurnitureBuilder.getNumber(plant, "crown_w", piece.getWidth()) / 2 * scale;
+        boolean removed = plant.get("removed_since") != null;
+        shapes.add(new Object [] {"circle", new float [] {x, y, x + radius, y}, Integer.valueOf(removed ? 0x30808080 : 0x5038761D),
+            Integer.valueOf(removed ? 0xA0808080 : 0xFF274E13), Float.valueOf(1.2f), null});
+        if (radius > 16) {
+          String species = String.valueOf(plant.get("species")).replace('_', ' ');
+          shapes.add(new Object [] {"text", new float [] {x, y}, null, Integer.valueOf(0xFF1B3A0B), null,
+              species.length() > 16 ? species.substring(0, 15) + "." : species});
+        }
+        count++;
+      }
+      legendEntries.add(new Object [] {Integer.valueOf(0x9038761D), "crowns of " + count + " generated trees and shrubs"});
+      legend.add("the crowns of " + count + " trees and shrubs");
+    }
+    if (layers.contains("fences")) {
+      int [] colors = {0xCC0000, 0x1155CC, 0xBF9000, 0x7030A0, 0x38761D, 0x134F5C, 0xB45F06, 0x741B47};
+      Map<String, Integer> styles = new LinkedHashMap<String, Integer>();
+      for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+        Map<String, Object> fence = AssistantFenceCommands.getSpec(piece);
+        if (fence == null || !piece.isVisible()) {
+          continue;
+        }
+        try {
+          float [][] points = AssistantFenceBuilder.getPoints(fence);
+          boolean closed = AssistantFenceBuilder.isClosed(fence, points);
+          String style = fence.get("style") != null ? fence.get("style").toString() : "picket";
+          if (!styles.containsKey(style)) {
+            styles.put(style, Integer.valueOf(colors [styles.size() % colors.length]));
+          }
+          float [] line = new float [(points.length + (closed ? 1 : 0)) * 2];
+          for (int i = 0; i < points.length + (closed ? 1 : 0); i++) {
+            line [i * 2] = (points [i % points.length][0] - left) * scale;
+            line [i * 2 + 1] = (points [i % points.length][1] - top) * scale;
+          }
+          shapes.add(new Object [] {"line", line, null, Integer.valueOf(0xFF000000 | styles.get(style)), Float.valueOf(3f), null});
+        } catch (java.io.IOException ex) {
+          // A fence that can't be read isn't drawn
+        }
+      }
+      for (Map.Entry<String, Integer> style : styles.entrySet()) {
+        legendEntries.add(new Object [] {Integer.valueOf(0xFF000000 | style.getValue()), "fence " + style.getKey()});
+      }
+      legend.add("the fences by style");
+    }
+    // Marks of this picture only
+    if (arguments.get("annotate") instanceof List) {
+      for (Object item : (List<?>)arguments.get("annotate")) {
+        if (!(item instanceof Map)) {
+          continue;
+        }
+        Map<?, ?> mark = (Map<?, ?>)item;
+        String text = mark.get("text") != null ? mark.get("text").toString() : null;
+        float [] place = null;
+        if (mark.get("line") instanceof List) {
+          List<?> points = (List<?>)mark.get("line");
+          float [] line = new float [points.size() * 2];
+          boolean valid = points.size() >= 2;
+          for (int i = 0; i < points.size() && valid; i++) {
+            valid = points.get(i) instanceof List && ((List<?>)points.get(i)).size() >= 2 && ((List<?>)points.get(i)).get(0) instanceof Number;
+            if (valid) {
+              line [i * 2] = (((Number)((List<?>)points.get(i)).get(0)).floatValue() - left) * scale;
+              line [i * 2 + 1] = (((Number)((List<?>)points.get(i)).get(1)).floatValue() - top) * scale;
+            }
+          }
+          if (valid) {
+            shapes.add(new Object [] {"line", line, null, Integer.valueOf(0xFFD0006F), Float.valueOf(2.5f), null});
+            place = new float [] {(line [0] + line [2]) / 2, (line [1] + line [3]) / 2 - 10};
+          }
+        } else {
+          Object point = mark.get("marker") instanceof List ? mark.get("marker") : null;
+          float x = point != null && ((List<?>)point).size() >= 2 ? ((Number)((List<?>)point).get(0)).floatValue()
+              : AssistantFurnitureBuilder.getNumber(mark, "x", Float.NaN);
+          float y = point != null && ((List<?>)point).size() >= 2 ? ((Number)((List<?>)point).get(1)).floatValue()
+              : AssistantFurnitureBuilder.getNumber(mark, "y", Float.NaN);
+          if (!Float.isNaN(x) && !Float.isNaN(y)) {
+            float px = (x - left) * scale;
+            float py = (y - top) * scale;
+            if (point != null || text == null) {
+              shapes.add(new Object [] {"circle", new float [] {px, py, px + 6, py}, Integer.valueOf(0xFFD0006F), Integer.valueOf(0xFFFFFFFF),
+                  Float.valueOf(1.5f), null});
+              place = new float [] {px, py - 14};
+            } else {
+              place = new float [] {px, py};
+            }
+          }
+        }
+        if (text != null && place != null) {
+          shapes.add(new Object [] {"text", place, null, Integer.valueOf(0xFFA0004F), null, text});
+        }
+      }
+      legend.add("the marks of \"annotate\"");
+    }
+    if (bool(arguments, "scale_bar", false)) {
+      // A round length about a fifth of the picture wide
+      double target = area [2] / 5;
+      double length = Math.pow(10, Math.floor(Math.log10(target)));
+      length = target / length >= 5 ? length * 5 : target / length >= 2 ? length * 2 : length;
+      float x = 20;
+      float y = size [1] - 22;
+      float width = (float)(length * scale);
+      shapes.add(new Object [] {"polygon", new float [] {x - 6, y - 20, x + width + 6, y - 20, x + width + 6, y + 10, x - 6, y + 10},
+          Integer.valueOf(0xD0FFFFFF), null, null, null});
+      shapes.add(new Object [] {"line", new float [] {x, y - 5, x, y, x + width, y, x + width, y - 5}, null, Integer.valueOf(0xFF000000),
+          Float.valueOf(2f), null});
+      shapes.add(new Object [] {"text", new float [] {x + width / 2, y - 10}, null, Integer.valueOf(0xFF000000), null,
+          length >= 100 ? AssistantStructureCommands.format((float)(length / 100)) + " m" : AssistantStructureCommands.format((float)length) + " cm"});
+      legend.add("a scale bar");
+    }
+    if (bool(arguments, "north_arrow", false)) {
+      double north = this.home.getCompass().getNorthDirection();
+      float x = size [0] - 40;
+      float y = 45;
+      float dx = (float)Math.sin(north);
+      float dy = -(float)Math.cos(north);
+      shapes.add(new Object [] {"circle", new float [] {x, y, x + 30, y}, Integer.valueOf(0xD0FFFFFF), Integer.valueOf(0xFF000000),
+          Float.valueOf(1f), null});
+      shapes.add(new Object [] {"polygon", new float [] {x + dx * 24, y + dy * 24, x - dx * 14 - dy * 9, y - dy * 14 + dx * 9,
+          x - dx * 6, y - dy * 6, x - dx * 14 + dy * 9, y - dy * 14 - dx * 9}, Integer.valueOf(0xFF000000), null, null, null});
+      shapes.add(new Object [] {"text", new float [] {x + dx * 12 + dy * 12, y + dy * 12 - dx * 12}, null, Integer.valueOf(0xFFCC0000), null, "N"});
+      legend.add("a north arrow");
+    }
+    if (bool(arguments, "legend", false) && !legendEntries.isEmpty()) {
+      float y = 14;
+      shapes.add(new Object [] {"polygon", new float [] {6, 4, 300, 4, 300, 10 + legendEntries.size() * 18, 6, 10 + legendEntries.size() * 18},
+          Integer.valueOf(0xD8FFFFFF), null, null, null});
+      for (Object [] entry : legendEntries) {
+        shapes.add(new Object [] {"polygon", new float [] {12, y - 6, 30, y - 6, 30, y + 6, 12, y + 6}, entry [0], Integer.valueOf(0xFF404040),
+            Float.valueOf(0.8f), null});
+        shapes.add(new Object [] {"label", new float [] {36, y}, null, Integer.valueOf(0xFF000000), null, entry [1]});
+        y += 18;
+      }
+    }
+    return shapes;
   }
 
   private static Level getLevel(Selectable item) {
@@ -1919,7 +2343,41 @@ public class HomeMCPHandler {
     String target = string(arguments, "target");
     HomeViewpoints.Pose pose = null;
     String viewDescription;
-    if (arguments.get("camera") instanceof Map) {
+    String photoPath = null;
+    if (string(arguments, "photo") != null) {
+      // From where a photo was taken, beside it
+      Map<String, Object> photo = AssistantPhotoCommands.getPhoto(this.home, string(arguments, "photo"));
+      if (photo == null) {
+        return toolResult("No photo " + string(arguments, "photo") + ": the list_photos command lists the photos of the home.", true);
+      } else if (photo.get("heading") == null) {
+        return toolResult("The photo " + photo.get("id") + " has no direction: the refine_photo_pose command finds it.", true);
+      }
+      float photoX = AssistantFurnitureBuilder.getNumber(photo, "x", 0);
+      float photoY = AssistantFurnitureBuilder.getNumber(photo, "y", 0);
+      float ground = this.commandExecutor.getShapeCommands().getStandingHeight(photoX, photoY);
+      pose = new HomeViewpoints.Pose(photoX, photoY, ground + 160,
+          (float)Math.toRadians(AssistantFurnitureBuilder.getNumber(photo, "heading", 0) + 180), 0,
+          (float)Math.toRadians(AssistantFurnitureBuilder.getNumber(photo, "fov", 65)), false);
+      viewDescription = "photo " + photo.get("id") + ", " + pose.describe();
+      photoPath = String.valueOf(photo.get("path"));
+    } else if (arguments.get("camera") instanceof Map && ((Map<String, Object>)arguments.get("camera")).get("yaw") != null) {
+      // A camera given by its place and its angles
+      Map<String, Object> camera = (Map<String, Object>)arguments.get("camera");
+      double x = number(camera, "x", Double.NaN);
+      double y = number(camera, "y", Double.NaN);
+      double z = number(camera, "z", number(camera, "height", 160));
+      double yaw = number(camera, "yaw", 0);
+      double pitch = number(camera, "pitch", 0);
+      double cameraFieldOfView = number(camera, "fov", fieldOfView > 0 ? Math.toDegrees(fieldOfView) : 63);
+      if (Double.isNaN(x) || Double.isNaN(y) || Math.abs(x) > 1E6 || Math.abs(y) > 1E6 || z < 0 || z > 1E5
+          || Math.abs(pitch) > 90 || cameraFieldOfView < 20 || cameraFieldOfView > 120) {
+        return toolResult("\"camera\" with \"yaw\" needs x, y in centimeters, z (its height, 160 by default), yaw in degrees "
+            + "(0 looks down the plan, 90 to its left, 180 up the plan), pitch from -90 to 90 (positive looks down) and fov from 20 to 120.", true);
+      }
+      pose = new HomeViewpoints.Pose((float)x, (float)y, (float)Math.max(1, z), (float)Math.toRadians(yaw), (float)Math.toRadians(pitch),
+          (float)Math.toRadians(cameraFieldOfView), z > 400);
+      viewDescription = pose.describe();
+    } else if (arguments.get("camera") instanceof Map) {
       Map<String, Object> camera = (Map<String, Object>)arguments.get("camera");
       double x = number(camera, "x", Double.NaN);
       double y = number(camera, "y", Double.NaN);
@@ -1989,15 +2447,135 @@ public class HomeMCPHandler {
       viewDescription = "camera of the home, " + (pose != null ? pose.describe() : HomeViewpoints.describeCamera(this.home));
     }
 
+    // What the picture leaves out or shows another way, in a copy of the home
+    Home drawnHome = null;
+    String hiddenDescription = "";
+    if (sweep == null && (arguments.get("exclude_tags") != null || arguments.get("include_tags") != null
+                          || arguments.get("hide_ids") != null || arguments.get("xray") != null
+                          || arguments.get("season") != null || arguments.get("cutaway") != null
+                          || arguments.get("date") != null || arguments.get("time") != null)) {
+      List<String> excludedTags = strings(arguments.get("exclude_tags"));
+      List<String> includedTags = strings(arguments.get("include_tags"));
+      List<String> hiddenIds = strings(arguments.get("hide_ids"));
+      boolean xray = Boolean.TRUE.equals(arguments.get("xray"));
+      String season = string(arguments, "season");
+      if (season != null) {
+        season = season.trim().toLowerCase();
+        if (season.equals("fall")) {
+          season = "autumn";
+        }
+        if (!Arrays.asList("spring", "summer", "autumn", "winter").contains(season)) {
+          return toolResult("\"season\" is spring, summer, autumn or winter.", true);
+        }
+      }
+      double cutaway = number(arguments, "cutaway", Double.NaN);
+      drawnHome = this.home.clone();
+      String sunText = "";
+      if (arguments.get("date") != null || arguments.get("time") != null) {
+        // The sun at a date and a time, for this picture
+        java.util.Calendar calendar = new java.util.GregorianCalendar(java.util.TimeZone.getTimeZone("UTC"));
+        calendar.setTimeInMillis(this.home.getCamera().getTime());
+        java.util.regex.Matcher dateMatcher = java.util.regex.Pattern.compile("(\\d{4})-(\\d{1,2})-(\\d{1,2})").matcher(
+            string(arguments, "date") != null ? string(arguments, "date").trim() : "");
+        java.util.regex.Matcher timeMatcher = java.util.regex.Pattern.compile("(\\d{1,2}):(\\d{2})").matcher(
+            string(arguments, "time") != null ? string(arguments, "time").trim() : "");
+        if (arguments.get("date") != null && !dateMatcher.matches() || arguments.get("time") != null && !timeMatcher.matches()) {
+          return toolResult("\"date\" is written YYYY-MM-DD and \"time\" HH:MM.", true);
+        }
+        if (arguments.get("date") != null) {
+          calendar.set(Integer.parseInt(dateMatcher.group(1)), Integer.parseInt(dateMatcher.group(2)) - 1, Integer.parseInt(dateMatcher.group(3)));
+        }
+        if (arguments.get("time") != null) {
+          calendar.set(java.util.Calendar.HOUR_OF_DAY, Integer.parseInt(timeMatcher.group(1)));
+          calendar.set(java.util.Calendar.MINUTE, Integer.parseInt(timeMatcher.group(2)));
+          calendar.set(java.util.Calendar.SECOND, 0);
+        }
+        for (Camera camera : new Camera [] {drawnHome.getCamera(), drawnHome.getTopCamera(), drawnHome.getObserverCamera()}) {
+          camera.setTime(calendar.getTimeInMillis());
+        }
+        drawnHome.setProperty(AssistantSceneCommands.SUN_FOLLOWS_TIME_PROPERTY, "true");
+        sunText = " Lit by the sun of " + String.format("%tF at %tR", calendar, calendar) + ", local time.";
+      }
+      if (level != null) {
+        int levelIndex = this.home.getLevels().indexOf(level);
+        if (levelIndex >= 0 && levelIndex < drawnHome.getLevels().size()) {
+          drawnHome.setSelectedLevel(drawnHome.getLevels().get(levelIndex));
+        }
+      }
+      List<HomePieceOfFurniture> furniture = this.home.getFurniture();
+      List<HomePieceOfFurniture> drawnFurniture = drawnHome.getFurniture();
+      int hidden = 0;
+      int changed = 0;
+      for (int i = 0; i < furniture.size() && i < drawnFurniture.size(); i++) {
+        HomePieceOfFurniture piece = furniture.get(i);
+        HomePieceOfFurniture drawnPiece = drawnFurniture.get(i);
+        if (!piece.isVisible()) {
+          continue;
+        }
+        boolean structure = piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY) != null;
+        boolean hide = hiddenIds.contains(HomeItemIds.getId(piece));
+        for (String tag : excludedTags) {
+          hide |= HomeItemTags.hasTag(piece, tag);
+        }
+        if (!includedTags.isEmpty() && !structure) {
+          boolean included = false;
+          for (String tag : includedTags) {
+            included |= HomeItemTags.hasTag(piece, tag);
+          }
+          hide |= !included;
+        }
+        if (!Double.isNaN(cutaway) && !HomeTerrain.isTerrain(piece)
+            && piece.getElevation() + (piece.getLevel() != null ? piece.getLevel().getElevation() : 0) >= cutaway) {
+          hide = true;
+        }
+        if (hide) {
+          drawnPiece.setVisible(false);
+          hidden++;
+        } else if ((xray || season != null) && this.commandExecutor.getPlantCommands() != null) {
+          com.eteks.sweethome3d.model.Content model = this.commandExecutor.getPlantCommands().getPictureModel(piece, xray, season);
+          if (model != null) {
+            drawnPiece.setModel(model);
+            changed++;
+          }
+        }
+      }
+      // Walls and rooms given by their ids
+      int index = 0;
+      List<Wall> drawnWalls = new ArrayList<Wall>(drawnHome.getWalls());
+      for (Wall wall : this.home.getWalls()) {
+        if (hiddenIds.contains(HomeItemIds.getId(wall)) && index < drawnWalls.size()) {
+          drawnHome.deleteWall(drawnWalls.get(index));
+          hidden++;
+        }
+        index++;
+      }
+      index = 0;
+      List<Room> drawnRooms = new ArrayList<Room>(drawnHome.getRooms());
+      for (Room room : this.home.getRooms()) {
+        if (hiddenIds.contains(HomeItemIds.getId(room)) && index < drawnRooms.size()) {
+          drawnHome.deleteRoom(drawnRooms.get(index));
+          hidden++;
+        }
+        index++;
+      }
+      hiddenDescription = " " + hidden + (hidden == 1 ? " item" : " items") + " left out of this picture"
+          + (changed > 0 ? ", " + changed + " generated plants drawn " + (xray ? "pale and seen through" : "in " + season) : "")
+          + (xray && changed == 0 ? " (no generated plant to see through: catalog trees are left out with exclude_tags)" : "")
+          + (!Double.isNaN(cutaway) ? "; the walls aren't cut by \"cutaway\"" : "") + "." + sunText;
+    }
     long start = System.currentTimeMillis();
+    Image3DRequest imageRequest = sweep != null ? null : new Image3DRequest(width, height, renderer,
+        bool(arguments, "shadows", true), bool(arguments, "ambient_occlusion", true), highQuality,
+        pose, level, allLevels, savedFile != null && width > 1000 ? 1000 : 0,
+        (int)Math.max(0, Math.min(3600, number(arguments, "timeout", 0))));
+    if (imageRequest != null && drawnHome != null) {
+      imageRequest.setDrawnHome(drawnHome);
+    }
     Image3D image = sweep != null
         ? drawSunSweep(provider, sweep, width, height, renderer,
             bool(arguments, "shadows", true), bool(arguments, "ambient_occlusion", true), highQuality,
             pose, level, allLevels, (int)Math.max(0, Math.min(3600, number(arguments, "timeout", 0))))
-        : provider.get3DImage(new Image3DRequest(width, height, renderer,
-            bool(arguments, "shadows", true), bool(arguments, "ambient_occlusion", true), highQuality,
-            pose, level, allLevels, savedFile != null && width > 1000 ? 1000 : 0,
-            (int)Math.max(0, Math.min(3600, number(arguments, "timeout", 0)))));
+        : provider.get3DImage(imageRequest);
     if (image != null && image.getImage() == null && image.getDescription() != null) {
       return toolResult(image.getDescription(), true);
     }
@@ -2009,7 +2587,8 @@ public class HomeMCPHandler {
         + width + " x " + height + " pixels, in " + Math.round((System.currentTimeMillis() - start) / 100.) / 10. + " s. "
         + "Seen from: " + viewDescription + ". "
         + (allLevels ? "All levels." : "Levels above "
-            + (selectedLevel != null ? "\"" + selectedLevel.getName() + "\"" : "the selected one") + " left out.");
+            + (selectedLevel != null ? "\"" + selectedLevel.getName() + "\"" : "the selected one") + " left out.")
+        + hiddenDescription;
     if (sweep != null) {
       description += "\n" + sweep.text;
     }
@@ -2048,7 +2627,7 @@ public class HomeMCPHandler {
       }
     }
     byte [] composedImage = null;
-    String compareWith = string(arguments, "compare_with");
+    String compareWith = string(arguments, "compare_with") != null ? string(arguments, "compare_with") : photoPath;
     if (compareWith != null) {
       // The picture beside a photo, or under it, to check the home against it
       java.io.File photo = new java.io.File(compareWith.startsWith("~/")
@@ -2357,7 +2936,9 @@ public class HomeMCPHandler {
       }
     }
     if (this.commandExecutor.isGroupOpen()) {
-      text.append("\nA group of calls is open (begin_group): its changes count as one step once ended.");
+      text.append("\nA group of calls is open (begin_group)"
+          + (this.commandExecutor.getGroupName() != null ? ", named \"" + this.commandExecutor.getGroupName() + "\"" : "")
+          + ": its changes count as one step once ended.");
     }
     text.append(this.home.isModified() ? "\nThe home has changes that aren't saved in its file." : "\nThe home is saved.");
     return text.toString();
@@ -2424,7 +3005,8 @@ public class HomeMCPHandler {
       Home newHome = otherVersion != null ? this.homeController.readHomeVersion(otherVersion) : this.home;
       String text = "From the version \"" + HomeVersions.getLabel(version) + "\" to "
           + (otherVersion != null ? "the version \"" + HomeVersions.getLabel(otherVersion) + "\"" : "the home as it is now") + ":\n"
-          + HomeVersions.compare(oldHome, newHome) + "\n" + HomeVersions.compareItems(oldHome, newHome, 40);
+          + HomeVersions.compare(oldHome, newHome) + "\n" + HomeVersions.compareItems(oldHome, newHome, 40)
+          + AssistantTerrainCommands.compareSites(oldHome, newHome);
       ImageProvider provider = this.imageProvider;
       ImageComposer composer = this.imageComposer;
       if (bool(arguments, "picture", false) && provider != null && composer != null) {
@@ -2547,8 +3129,9 @@ public class HomeMCPHandler {
       String format = string(arguments, "format") != null ? string(arguments, "format").toLowerCase() : "";
       String path = string(arguments, "path");
       boolean folder = "web_page".equals(format) || "panorama".equals(format);
-      if (!folder && !"pdf".equals(format) && !"svg".equals(format) && !"obj".equals(format) && !"csv".equals(format)) {
-        return toolResult("\"format\" is pdf, svg, obj, csv, web_page or panorama.", true);
+      if (!folder && !"pdf".equals(format) && !"svg".equals(format) && !"obj".equals(format) && !"csv".equals(format)
+          && !"glb".equals(format)) {
+        return toolResult("\"format\" is pdf, svg, obj, glb, csv, web_page or panorama.", true);
       } else if (path == null || !new java.io.File(path).isAbsolute()) {
         return toolResult("\"path\" must be an absolute path.", true);
       }
@@ -2564,6 +3147,31 @@ public class HomeMCPHandler {
           return toolResult("The folder " + target.getParent() + " doesn't exist.", true);
         } else if (target.exists() && !bool(arguments, "replace", false)) {
           return toolResult(target + " exists: give \"replace\":true to replace it, or another name.", true);
+        }
+      }
+      if ("glb".equals(format)) {
+        // The OBJ export written in a folder of its own, then turned into one binary glTF file
+        java.io.File folderOfObj = java.nio.file.Files.createTempDirectory("sh3dglb").toFile();
+        try {
+          java.io.File obj = new java.io.File(folderOfObj, "home.obj");
+          operations.export("obj", obj, arguments);
+          HomeGeoreference georeference = HomeGeoreference.get(this.home);
+          String extras = georeference != null
+              ? "{\"georeference\":{\"latitude\":" + georeference.getLatitude() + ",\"longitude\":" + georeference.getLongitude()
+                  + ",\"plan_x_cm\":" + georeference.getX() + ",\"plan_y_cm\":" + georeference.getY() + ",\"north_clockwise_from_plan_top_deg\":"
+                  + georeference.getRotation() + ",\"note\":\"x of the model is the x of the plan and z its y, in meters\"}}"
+              : null;
+          int triangles = AssistantGltfWriter.convert(obj, target, extras);
+          return toolResult("Wrote " + target + ": a binary glTF 2.0 file of " + triangles + " triangles, in meters, y up"
+              + (georeference != null ? ", with the georeference of the home in the extras of its scene" : "") + ".", false);
+        } finally {
+          java.io.File [] files = folderOfObj.listFiles();
+          if (files != null) {
+            for (java.io.File file : files) {
+              file.delete();
+            }
+          }
+          folderOfObj.delete();
         }
       }
       return toolResult(operations.export(format, target, arguments), false);
@@ -2707,7 +3315,13 @@ public class HomeMCPHandler {
       Map<String, Object> command = (Map<String, Object>)item;
       commands.add(new AssistantCommand(command.get("action").toString(), command));
     }
-    String summary = this.commandExecutor.execute(commands, maxCount);
+    this.commandExecutor.setStopOnError(Boolean.TRUE.equals(arguments.get("stop_on_error")));
+    String summary;
+    try {
+      summary = this.commandExecutor.execute(commands, maxCount);
+    } finally {
+      this.commandExecutor.setStopOnError(false);
+    }
     // An id that designates nothing is an error, even if other commands were applied
     return toolResult(summary != null
         ? summary

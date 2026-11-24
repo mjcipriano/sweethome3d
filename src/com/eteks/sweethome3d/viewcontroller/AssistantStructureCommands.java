@@ -763,7 +763,8 @@ class AssistantStructureCommands {
     java.util.Collections.sort(names);
     for (String name : names) {
       String value = item.getProperty(name);
-      if (value != null && !HomeItemIds.ID_PROPERTY.equals(name) && !HomeItemTags.TAGS_PROPERTY.equals(name)) {
+      if (value != null && !HomeItemIds.ID_PROPERTY.equals(name) && !HomeItemTags.TAGS_PROPERTY.equals(name)
+          && !AssistantCommandExecutor.CREATED_BY_PROPERTY.equals(name)) {
         text.append(text.length() == 0 ? ", properties: " : ", ").append(name).append('=')
             .append(value.length() > 60 ? value.substring(0, 60) + "..." : value);
       }
@@ -825,6 +826,12 @@ class AssistantStructureCommands {
     }
     text.append(", in the plans of the levels above: ").append(FurniturePlanVisibility.get(piece));
     String roof = this.executor.getShapeCommands().describeRoof(piece);
+    if (roof == null) {
+      roof = this.executor.getFenceCommands().describeFence(piece);
+    }
+    if (roof == null) {
+      roof = this.executor.getPlantCommands().describePlant(piece);
+    }
     if (roof != null) {
       text.append(", ").append(roof);
     }
@@ -833,6 +840,13 @@ class AssistantStructureCommands {
     }
     if (piece.getDescription() != null) {
       text.append(", description: ").append(piece.getDescription());
+    }
+    if ("agent".equals(piece.getProperty(AssistantCommandExecutor.CREATED_BY_PROPERTY))) {
+      text.append(", created by commands");
+    }
+    String modelMaterials = this.executor.getSceneCommands().describeMaterials(piece);
+    if (modelMaterials != null) {
+      text.append(", ").append(modelMaterials);
     }
     return text.append(describeProperties(piece)).toString();
   }

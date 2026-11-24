@@ -100,6 +100,20 @@ public class HomeMCPServerTest {
     return (Map<String, Object>)response.get("result");
   }
 
+  /**
+   * Returns the last text of an answer, which comes after its picture.
+   */
+  @SuppressWarnings("unchecked")
+  private static String lastText(Map<String, Object> toolResult) {
+    String text = null;
+    for (Object content : (List<Object>)toolResult.get("content")) {
+      if (((Map<String, Object>)content).get("text") != null) {
+        text = (String)((Map<String, Object>)content).get("text");
+      }
+    }
+    return text;
+  }
+
   @SuppressWarnings("unchecked")
   private static String text(Map<String, Object> toolResult) {
     return (String)((Map<String, Object>)((List<Object>)toolResult.get("content")).get(0)).get("text");
@@ -135,7 +149,7 @@ public class HomeMCPServerTest {
 
       response = call(handler, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}");
       List<Object> tools = (List<Object>)((Map<String, Object>)response.get("result")).get("tools");
-      assertEquals(33, tools.size());
+      assertEquals(35, tools.size());
       for (Object tool : tools) {
         Map<String, Object> toolMap = (Map<String, Object>)tool;
         assertNotNull(toolMap.get("name"));
@@ -472,6 +486,228 @@ public class HomeMCPServerTest {
   /**
    * The pictures of the sun through a day and a year, and the control of its window.
    */
+  @Test
+  public void testPictureWithoutTrees() throws Exception {
+    Fixture fixture = new Fixture();
+    HomeMCPHandler handler = fixture.handler;
+    callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"add_tree\",\"species\":\"red_maple\",\"x\":0,\"y\":0},"
+        + "{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":900,\"y\":0},"
+        + "{\"action\":\"add_furniture\",\"name\":\"Table\",\"x\":400,\"y\":400,\"tags\":[\"patio\"]}]}");
+    // The places of the pieces in the furniture of the home
+    int maple = -1;
+    int oak = -1;
+    int table = -1;
+    for (int i = 0; i < fixture.home.getFurniture().size(); i++) {
+      String name = fixture.home.getFurniture().get(i).getName();
+      if ("Red maple".equals(name)) {
+        maple = i;
+      } else if ("White oak".equals(name)) {
+        oak = i;
+      } else if ("Table".equals(name)) {
+        table = i;
+      }
+    }
+    assertTrue(maple >= 0 && oak >= 0 && table >= 0);
+    int others = fixture.home.getFurniture().size() - 3;
+    final List<HomeMCPHandler.Image3DRequest> requests = new java.util.ArrayList<HomeMCPHandler.Image3DRequest>();
+    handler.setImageProvider(new HomeMCPHandler.ImageProvider() {
+        public byte [] getPlanImage(int maxSize, com.eteks.sweethome3d.model.Level level, float [] area) {
+          return null;
+        }
+
+        public HomeMCPHandler.Image3D get3DImage(HomeMCPHandler.Image3DRequest request) {
+          requests.add(request);
+          return new HomeMCPHandler.Image3D(new byte [] {1}, null, "Drawn by a test");
+        }
+
+        public byte [] getCatalogImage(String name, boolean texture) {
+          return null;
+        }
+
+        public String get3DInfo() {
+          return "";
+        }
+      });
+    // Without option, the home itself is drawn
+    callTool(handler, "get_3d_image", "{}");
+    assertNull(requests.get(0).getDrawnHome());
+    // Without its trees: a copy where they are hidden, the home unchanged
+    String text = lastText(callTool(handler, "get_3d_image", "{\"exclude_tags\":[\"tree\"]}"));
+    assertTrue(text, text.contains("2 items left out of this picture"));
+    com.eteks.sweethome3d.model.Home drawn = requests.get(1).getDrawnHome();
+    assertNotNull(drawn);
+    assertFalse(drawn.getFurniture().get(maple).isVisible());
+    assertFalse(drawn.getFurniture().get(oak).isVisible());
+    assertTrue(drawn.getFurniture().get(table).isVisible());
+    assertTrue(fixture.home.getFurniture().get(maple).isVisible());
+    // Only what has a tag, one piece by its id
+    text = lastText(callTool(handler, "get_3d_image", "{\"include_tags\":[\"patio\"]}"));
+    assertTrue(text, text.contains((2 + others) + " items left out"));
+    text = lastText(callTool(handler, "get_3d_image", "{\"hide_ids\":[\"" + com.eteks.sweethome3d.viewcontroller.HomeItemIds.getId(fixture.home.getFurniture().get(table)) + "\"]}"));
+    assertTrue(text, text.contains("1 item left out"));
+    assertFalse(requests.get(3).getDrawnHome().getFurniture().get(table).isVisible());
+    // Seen through, and in winter: other models for the picture only
+    Object model = fixture.home.getFurniture().get(maple).getModel();
+    text = lastText(callTool(handler, "get_3d_image", "{\"xray\":true}"));
+    assertTrue(text, text.contains("2 generated plants drawn pale and seen through"));
+    assertTrue(requests.get(4).getDrawnHome().getFurniture().get(maple).getModel() != model);
+    assertTrue(fixture.home.getFurniture().get(maple).getModel() == model);
+    text = lastText(callTool(handler, "get_3d_image", "{\"season\":\"winter\"}"));
+    assertTrue(text, text.contains("2 generated plants drawn in winter"));
+    text = lastText(callTool(handler, "get_3d_image", "{\"season\":\"monsoon\"}"));
+    assertTrue(text, text.contains("\"season\" is spring"));
+    // A camera by its place and its angles
+    text = lastText(callTool(handler, "get_3d_image", "{\"camera\":{\"x\":100,\"y\":200,\"z\":160,\"yaw\":90,\"pitch\":10,\"fov\":70}}"));
+    assertTrue(text, text.contains("x 100, y 200, height 160 cm, yaw 90 degrees, pitch 10 degrees"));
+    text = lastText(callTool(handler, "get_3d_image", "{\"camera\":{\"x\":100,\"y\":200,\"yaw\":90,\"pitch\":120}}"));
+    assertTrue(text, text.contains("pitch from -90 to 90"));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void testPlanLayersGltfAndSiteDiff() throws Exception {
+    Fixture fixture = new Fixture();
+    HomeMCPHandler handler = fixture.handler;
+    callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"set_terrain\",\"points\":[[-500,-500,0],[3000,-500,200],[3000,3000,200],[-500,3000,0]]},"
+        + "{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":2000,\"y\":2000,\"height\":1500},"
+        + "{\"action\":\"add_fence\",\"style\":\"picket\",\"points\":[[0,2500],[2500,2500]]}]}");
+    java.awt.image.BufferedImage picture = new java.awt.image.BufferedImage(700, 700, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+    javax.imageio.ImageIO.write(picture, "png", out);
+    final byte [] png = out.toByteArray();
+    final List<float []> areas = new java.util.ArrayList<float []>();
+    handler.setImageProvider(new HomeMCPHandler.ImageProvider() {
+        public byte [] getPlanImage(int maxSize, com.eteks.sweethome3d.model.Level level, float [] area) {
+          areas.add(area);
+          return png;
+        }
+
+        public HomeMCPHandler.Image3D get3DImage(HomeMCPHandler.Image3DRequest request) {
+          return null;
+        }
+
+        public byte [] getCatalogImage(String name, boolean texture) {
+          return null;
+        }
+
+        public String get3DInfo() {
+          return "";
+        }
+      });
+    final List<Object []> painted = new java.util.ArrayList<Object []>();
+    handler.setPlanOverlayPainter(new HomeMCPHandler.PlanOverlayPainter() {
+        public byte [] paint(byte [] image, List<Object []> shapes) {
+          painted.addAll(shapes);
+          return image;
+        }
+      });
+    // Without layer, the plan as it is
+    callTool(handler, "get_plan_image", "{}");
+    assertNull(areas.get(0));
+    assertTrue(painted.isEmpty());
+    // With layers, the area of the whole home is asked for, and the shapes are in pixels
+    String text = lastText(callTool(handler, "get_plan_image", "{\"layers\":[\"slope\",\"contours\",\"trees\",\"fences\"],\"legend\":true,"
+        + "\"scale_bar\":true,\"north_arrow\":true,\"contour_interval\":50,\"annotate\":[{\"marker\":[1000,1000],\"text\":\"Here\"}]}"));
+    assertNotNull(areas.get(1));
+    assertTrue(text, text.contains("slopes by color") && text.contains("contour lines every 50 cm")
+        && text.contains("the crowns of 1 trees and shrubs") && text.contains("the fences by style") && text.contains("a scale bar")
+        && text.contains("a north arrow"));
+    int polygons = 0;
+    int circles = 0;
+    int lines = 0;
+    boolean here = false;
+    for (Object [] shape : painted) {
+      polygons += "polygon".equals(shape [0]) ? 1 : 0;
+      circles += "circle".equals(shape [0]) ? 1 : 0;
+      lines += "line".equals(shape [0]) ? 1 : 0;
+      here |= "Here".equals(shape [5]);
+      for (float coordinate : (float [])shape [1]) {
+        assertTrue(shape [0] + " " + coordinate, coordinate > -50 && coordinate < 750);
+      }
+    }
+    // The two triangles of the ground, the crown of the tree, the fence and three contour lines
+    assertTrue(polygons + " polygons", polygons >= 2);
+    assertTrue(circles + " circles", circles >= 3);
+    assertTrue(lines + " lines", lines >= 5);
+    assertTrue(here);
+
+    // What changed on the site between two states of a home
+    com.eteks.sweethome3d.model.Home before = fixture.home.clone();
+    callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"add_tree\",\"species\":\"red_maple\",\"x\":500,\"y\":500},"
+        + "{\"action\":\"grow_trees\",\"years\":10,\"where\":{\"name\":\"White oak\"}},"
+        + "{\"action\":\"modify_fence\",\"style\":\"privacy\"},"
+        + "{\"action\":\"add_pad\",\"points\":[[1000,1000],[1600,1000],[1600,1600],[1000,1600]],\"height\":120}]}");
+    String diff = com.eteks.sweethome3d.viewcontroller.HomeAssistantContext.compareSites(before, fixture.home);
+    assertTrue(diff, diff.contains("Trees and shrubs: 1 added, 0 removed, 1 changed") && diff.contains("red_maple at (500, 500)")
+        && diff.contains("Fences: [changed") && diff.contains("[style]") && diff.contains("Ground: changed") && diff.contains("m3 filled"));
+    assertEquals("", com.eteks.sweethome3d.viewcontroller.HomeAssistantContext.compareSites(before, before));
+
+    // A binary glTF file from an OBJ file of one colored triangle and one square with a picture
+    java.io.File folder = java.nio.file.Files.createTempDirectory("glb").toFile();
+    java.nio.file.Files.write(new java.io.File(folder, "home.mtl").toPath(),
+        ("newmtl red\nKd 1 0 0\nd 0.5\nnewmtl wood\nKd 1 1 1\nmap_Kd wood.png\n").getBytes("ISO-8859-1"));
+    java.nio.file.Files.write(new java.io.File(folder, "wood.png").toPath(), png);
+    java.nio.file.Files.write(new java.io.File(folder, "home.obj").toPath(),
+        ("mtllib home.mtl\nv 0 0 0\nv 100 0 0\nv 100 100 0\nv 0 100 0\nvt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\nvn 0 0 1\n"
+         + "usemtl red\nf 1//1 2//1 3//1\nusemtl wood\nf 1/1/1 2/2/1 3/3/1 4/4/1\n").getBytes("ISO-8859-1"));
+    java.io.File glb = new java.io.File(folder, "home.glb");
+    assertEquals(3, com.eteks.sweethome3d.viewcontroller.AssistantGltfWriter.convert(new java.io.File(folder, "home.obj"), glb,
+        "{\"georeference\":{\"latitude\":33.7}}"));
+    byte [] data = java.nio.file.Files.readAllBytes(glb.toPath());
+    java.nio.ByteBuffer buffer = java.nio.ByteBuffer.wrap(data).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+    assertEquals(0x46546C67, buffer.getInt(0));
+    assertEquals(2, buffer.getInt(4));
+    assertEquals(data.length, buffer.getInt(8));
+    int jsonLength = buffer.getInt(12);
+    Map<String, Object> gltf = (Map<String, Object>)com.eteks.sweethome3d.viewcontroller.JSONParser.parse(new String(data, 20, jsonLength, "UTF-8"));
+    assertEquals(2, ((List<Object>)((Map<String, Object>)((List<Object>)gltf.get("meshes")).get(0)).get("primitives")).size());
+    assertEquals(1, ((List<Object>)gltf.get("images")).size());
+    assertEquals(Double.valueOf(data.length - 28 - jsonLength), ((Map<String, Object>)((List<Object>)gltf.get("buffers")).get(0)).get("byteLength"));
+    assertTrue(new String(data, 20, jsonLength, "UTF-8").contains("\"latitude\":33.7"));
+    for (java.io.File file : folder.listFiles()) {
+      file.delete();
+    }
+    folder.delete();
+  }
+
+  @Test
+  public void testHelpAndCapabilities() throws Exception {
+    Fixture fixture = new Fixture();
+    HomeMCPHandler handler = fixture.handler;
+    // Every command by area
+    String help = text(callTool(handler, "help", "{}"));
+    assertTrue(help, help.contains("Fences, walls and gates:") && help.contains("\n  add_fence - ")
+        && help.contains("Rooms and walls:") && help.contains("\n  add_rectangular_room - ") && help.contains("\n  help - "));
+    assertFalse(help, help.contains("Other commands"));
+    // One command, with what is related to it
+    help = text(callTool(handler, "help", "{\"command\":\"add_gate\"}"));
+    assertTrue(help, help.startsWith("add_gate\nSyntax: {\"action\":\"add_gate\"") && help.contains("single_swing")
+        && help.contains("Related (Fences, walls and gates): add_fence") && !help.contains("Rules:"));
+    help = text(callTool(handler, "help", "{\"command\":\"add_fence\"}"));
+    assertTrue(help, help.contains("chain_link (diamond mesh") && help.contains("Gate types:"));
+    help = text(callTool(handler, "help", "{\"command\":\"add_fence\",\"style\":\"wrought_iron\"}"));
+    assertTrue(help, help.startsWith("Style of fence ornamental_steel") && help.contains("finials=spear"));
+    help = text(callTool(handler, "help", "{\"command\":\"restore_detail\"}"));
+    assertTrue(help, help.contains("back to full detail") && !help.contains("Rules:") && !help.contains("MUST be names"));
+    // A command told about in the entry of another one, and one that doesn't exist
+    help = text(callTool(handler, "help", "{\"command\":\"remove_gate\"}"));
+    assertTrue(help, help.contains("has no entry of its own") && help.contains("add_gate"));
+    help = text(callTool(handler, "help", "{\"command\":\"teleport\"}"));
+    assertTrue(help, help.startsWith("No command \"teleport\""));
+    // A word
+    help = text(callTool(handler, "help", "{\"search\":\"lot_line\"}"));
+    assertTrue(help, help.contains("1 command mentions \"lot_line\"") && help.contains("add_fence: "));
+    help = text(callTool(handler, "help", "{\"search\":\"lattice\"}"));
+    assertTrue(help, help.contains("Styles of fence with \"lattice\": lattice_top, lattice_panel"));
+    // The same through apply_commands
+    help = text(callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"help\",\"search\":\"dormer\"}]}"));
+    assertTrue(help, help.contains("add_dormer"));
+    String capabilities = text(callTool(handler, "get_capabilities", "{}"));
+    assertTrue(capabilities, capabilities.contains("Fences: 63 styles") && capabilities.contains("100 commands per call")
+        && capabilities.contains("100000 at most") && capabilities.contains("EPSG:4326"));
+    assertTrue(text(callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"get_capabilities\"}]}")).contains("Fences: 63 styles"));
+  }
+
   @Test
   @SuppressWarnings("unchecked")
   public void testSunStudy() throws Exception {
@@ -1044,7 +1280,7 @@ public class HomeMCPServerTest {
       Map<String, Object> result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [0])).get("result");
       assertEquals("2025-06-18", result.get("protocolVersion"));
       result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [1])).get("result");
-      assertEquals(33, ((List<Object>)result.get("tools")).size());
+      assertEquals(35, ((List<Object>)result.get("tools")).size());
       result = (Map<String, Object>)((Map<String, Object>)JSONParser.parse(lines [2])).get("result");
       assertEquals(Boolean.TRUE, result.get("isError"));
       assertTrue(lines [2], lines [2].contains("Start server"));

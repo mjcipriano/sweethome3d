@@ -467,6 +467,63 @@ public class HomeAssistantContext {
   }
 
   /**
+   * Returns what changed on the site between two states of a home: its trees, its fences and its ground.
+   */
+  public static String compareSites(Home oldHome, Home newHome) {
+    return AssistantTerrainCommands.compareSites(oldHome, newHome);
+  }
+
+  /**
+   * Returns the names of the species of trees and of shrubs <code>add_tree</code> and <code>add_shrub</code> build.
+   */
+  public static java.util.List<String> getPlantSpecies(boolean shrubs) {
+    java.util.List<String> names = new java.util.ArrayList<String>();
+    for (AssistantPlantBuilder.Species species : AssistantPlantBuilder.getAllSpecies()) {
+      if (species.shrub == shrubs) {
+        names.add(species.name);
+      }
+    }
+    return names;
+  }
+
+  /**
+   * Returns the count of triangles of the model of a species at its usual size.
+   * @param lod    low, medium or high
+   * @param season spring, summer, autumn or winter
+   */
+  public static int getPlantTriangleCount(String speciesName, String lod, String season) {
+    AssistantPlantBuilder.Species species = AssistantPlantBuilder.getSpecies(speciesName);
+    AssistantPlantBuilder.Plant plant = new AssistantPlantBuilder.Plant();
+    plant.species = species;
+    plant.height = species.height;
+    plant.crownWidth = plant.crownDepth = species.height * species.crownRatio;
+    plant.crownBase = species.height * species.baseRatio;
+    plant.trunkDiameter = species.height * species.trunkRatio;
+    plant.trunks = species.trunks;
+    plant.lod = lod;
+    plant.season = season;
+    return AssistantPlantBuilder.countTriangles(plant);
+  }
+
+  /**
+   * Returns the styles of fences <code>add_fence</code> builds: for each one its name, its family,
+   * what it is, its usual height and the usual distance between its posts in cm.
+   */
+  public static String [][] getFenceStyles() {
+    java.util.List<AssistantFenceBuilder.Style> styles = AssistantFenceBuilder.getStyles();
+    String [][] result = new String [styles.size()][];
+    for (int i = 0; i < result.length; i++) {
+      AssistantFenceBuilder.Style style = styles.get(i);
+      Object height = style.defaults.get("height");
+      Object spacing = style.defaults.get("post_spacing");
+      result [i] = new String [] {style.name, style.family, style.description,
+          height instanceof Number ? String.valueOf(((Number)height).intValue()) : "120",
+          spacing instanceof Number ? String.valueOf(((Number)spacing).intValue()) : "240"};
+    }
+    return result;
+  }
+
+  /**
    * Returns the reference of the edit commands (coordinate system, commands and
    * their rules), shared by the chat protocol and the MCP server.
    */
@@ -477,7 +534,23 @@ public class HomeAssistantContext {
         + "Compute positions relative to the current selection "
         + "when the user refers to it. Supported commands (omit a field to use its default):\n"
         + "  {\"action\":\"search_catalog\",\"query\":\"<words>\"}  (matches are reported back to you in the next turn)\n"
-        + "  {\"action\":\"add_furniture\",\"name\":\"<exact catalog name>\",\"x\":N,\"y\":N,\"angle\":N,\"width\":N,\"depth\":N,\"elevation\":N}\n"
+        + "  {\"action\":\"add_furniture\",\"name\":\"<exact catalog name>\",\"x\":N,\"y\":N,\"angle\":N,\"width\":N,\"depth\":N,\"height\":N,\"elevation\":N}  "
+        + "(optional: \"color\":\"#RRGGBB\", \"tags\":[...], \"level\":\"<level>\", \"name_override\":\"<the name it shows, instead of the catalog name>\", "
+        + "\"mirrored\":true, \"on_terrain\":true with \"offset\":N cm to stand on the ground built by set_terrain. Without elevation, a piece "
+        + "put outdoors where a terrain is stands on it. A key that isn't one of these is reported)\n"
+        + "  {\"action\":\"modify_furniture\",\"ids\":[\"F1\"],\"x\":N,\"y\":N,\"angle\":N,\"width\":N,\"depth\":N,\"height\":N,\"elevation\":N,"
+        + "\"color\":\"#RRGGBB\",\"name\":\"<name>\",\"tags\":[...],\"visible\":true}  (changes furniture in one command, by \"ids\" or \"where\": "
+        + "its place (x, y, or dx, dy), its angle (or by, pitch, roll), its size, its elevation (or on_terrain with offset), its color or texture, "
+        + "its name, its tags (or add_tags, remove_tags), its level and whether it shows. Give only what changes; a key that isn't one of "
+        + "these is reported with the list of the keys. move, rotate, resize, set_elevation, set_color, rename and set_tags still do each one)\n"
+        + "  {\"action\":\"set_site_defaults\",\"on_terrain\":false}  (a setting kept with the home: false leaves the pieces added outdoors "
+        + "at the elevation 0 of their level, instead of putting them on the terrain)\n"
+        + "  {\"action\":\"optimize_models\",\"min_kb\":500}  (shows the reduced version of every heavy 3D model - 500 KB or more - in the "
+        + "3D view, as reduce_detail does for the pieces given, and tells the ones that have none yet)\n"
+        + "  {\"action\":\"find_duplicates\"}  (the pieces that repeat another one: same model and size, within \"tolerance\" cm (5) and at the "
+        + "same angle, on any level - like fence posts left on two levels - with the delete command that keeps one of each; \"where\" limits it)\n"
+        + "  {\"action\":\"find_floating\"}  (the pieces outdoors whose bottom is more than \"tolerance\" cm (10) above or under the ground built "
+        + "by set_terrain, with the set_elevation command that puts them on it; \"where\" limits it)\n"
         + "  {\"action\":\"add_door_or_window\",\"name\":\"<exact catalog name>\",\"x\":N,\"y\":N,\"angle\":N}\n"
         + "  {\"action\":\"add_room\",\"name\":\"<name>\",\"points\":[[x,y],[x,y],[x,y],...]}  "
         + "(optional \"floor_color\", \"ceiling_visible\":false, and \"floor_offset\":N with \"slab_thickness\":N for a floor "
@@ -637,16 +710,27 @@ public class HomeAssistantContext {
         + "georeference, the middle of the parcel goes to \"x\",\"y\" with the north at the top)\n"
         + "  {\"action\":\"get_coordinates\",\"points\":[[x,y],...],\"srs\":\"EPSG:2240\"}  (the latitude and longitude of points of the plan or "
         + "of the items given by ids, and their coordinates in srs)\n"
-        + "  {\"action\":\"begin_group\"} ... {\"action\":\"end_group\"}  (everything changed by the calls between them is undone as ONE step; "
+        + "  {\"action\":\"geo_to_plan\",\"points\":[[lat,lon],...]}  (the points of the plan, in cm, of places given by their "
+        + "latitude and longitude, or with \"srs\":\"EPSG:2240\" by their [x,y] in that system; plan_to_geo is get_coordinates. "
+        + "set_georeference with 3 \"points\" {\"lat\",\"lon\",\"x\",\"y\"} or more fits them all and tells how far each one is off)\n"
+        + "  {\"action\":\"begin_group\",\"name\":\"<what the group does>\"} ... {\"action\":\"end_group\"}  (everything changed by the calls "
+        + "between them is undone as ONE step, shown under that name by get_history; "
         + "the undo tool ends the group and undoes it)\n"
         + AssistantArrangeCommands.getReference()
         + AssistantGardenCommands.getReference()
+        + AssistantPlantCommands.getReference()
+        + AssistantTerrainCommands.getReference()
+        + AssistantOutdoorCommands.getReference()
+        + AssistantGisCommands.getReference()
+        + AssistantPhotoCommands.getReference()
         + AssistantScheduleCommands.getReference()
         + AssistantSceneCommands.getReference()
+        + AssistantHelp.getReference()
         + "To MODIFY items that already exist, reference them by the id shown in the project "
         + "summary (F# furniture, W# walls, R# rooms, P# lines; an id never changes), by \"target\":\"selection\", by name, or in bulk by "
         + "\"where\":{\"level\":\"<level>\",\"tag\":\"<tag>\",\"name\":\"<part of a name, or Pine|Oak for either>\",\"type\":\"furniture|doors_and_windows|"
         + "lights|stairs|all_furniture|walls|rooms|polylines\",\"bbox\":[x1,y1,x2,y2]} (the items matching every criterion given; "
+        + "also \"name_regex\":\"<regular expression>\" and \"created_by\":\"agent|user\" for what commands created or what was drawn by hand; "
         + "e.g. {\"action\":\"move_to_level\",\"where\":{\"level\":\"Old\"},\"level\":\"Level 1\"}). "
         + "Editing commands (omit a field to leave it unchanged):\n"
         + "  {\"action\":\"move\",\"id\":\"F1\",\"dx\":N,\"dy\":N}  (relative; or \"x\":N,\"y\":N for an absolute position)\n"
@@ -691,7 +775,10 @@ public class HomeAssistantContext {
         + "property line. Each issue is an error, a warning or an info. \"ignore\":[\"F516\"] and \"ignore_tags\":[\"marker\"] leave issues out, "
         + "\"min_severity\":\"warning|error\" too; \"remember\":true keeps them for the next checks of this home)\n"
         + "  {\"action\":\"fix_home\"}  (repairs the defects marked fixable; \"types\":[\"wall_gap\"] limits it)\n"
-        + "  {\"action\":\"set_elevation\",\"id\":\"F1\",\"elevation\":N}  (above the floor of its level; negative = under it)\n"
+        + "  {\"action\":\"set_elevation\",\"id\":\"F1\",\"elevation\":N}  (above the floor of its level; negative = under it. "
+        + "\"on_terrain\":true puts it on the ground built by set_terrain, \"offset\":N cm above it; a piece out of the terrain takes "
+        + "the height of its closest edge, with a warning. With on_terrain, \"align_to_slope\":true tilts a bench or a shed as the "
+        + "ground under it, by \"max_tilt\" degrees (20) at most)\n"
         + "  {\"action\":\"set_visible\",\"id\":\"F1\",\"visible\":true}\n"
         + "  {\"action\":\"rename\",\"id\":\"F1\",\"name\":\"<new name>\"}\n"
         + "  {\"action\":\"add_tags\",\"ids\":[\"F1\",\"F2\"],\"tags\":[\"kitchen\",\"to buy\"]}  "

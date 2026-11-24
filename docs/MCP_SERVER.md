@@ -120,15 +120,17 @@ check its work with a picture.
 | `get_catalog_image` | The pictures of up to 8 catalog pieces or textures, to choose between search results |
 | `check_home` | Report of plan defects (unjoined walls, duplicates, rooms without door, doors out of walls or above the roof, walls beyond a setback...) with ids, each an error, a warning or an info. Options `min_severity`, `ignore`, `ignore_tags`, `remember`, `forget` ([details](MCP_COMMANDS.md#checks-reports-and-exports)) |
 | `get_report` | Floor areas and perimeters by room, wall lengths and surfaces, furniture counts and prices |
-| `get_plan_image` | PNG picture of the 2D plan of a level, or of a part of it enlarged |
-| `get_3d_image` | PNG picture of the home in 3D (see [Pictures](#pictures)) |
+| `get_plan_image` | PNG picture of the 2D plan of a level, or of a part of it enlarged `layers` draws over one picture the ground colored by its `slope`, its `contours`, the crowns of the `trees` with their species and the `fences` colored by style; `legend`, `scale_bar` and `north_arrow` add them, and `annotate` draws marks that aren't kept in the home |
+| `get_3d_image` | PNG picture of the home in 3D (see [Pictures](#pictures)) `exclude_tags`, `include_tags` and `hide_ids` leave items out of one picture (`"exclude_tags":["tree","shrub"]` shows a house past its trees), `"xray":true` draws the generated trees pale and seen through, `season` draws them in another season, `cutaway` leaves out what stands above a height, and `camera` also takes a place and angles `{"x","y","z","yaw","pitch","fov"}`. None of them changes the home `date` and `time` light one picture by the sun of that moment, and `"photo":"PH1"` draws it from where a photo was taken, beside the photo |
 | `get_3d_info` | The camera, the stored points of view, the levels, the views and the renderers `get_3d_image` accepts |
+| `help` | Every command of `apply_commands` by area with a line on each; `"command":"add_fence"` gives the syntax of one command and the commands related to it, `"search":"gate"` finds a word |
+| `get_capabilities` | The version, what it has (styles of fences, types of gates, coordinate systems, formats) and its limits |
 | `get_sun_study_image` | One picture of the home at several hours of a day, or at several dates of a year, with the shadows of the sun ([below](#sun-study)) |
 | `sun_study` | Opens or closes your window **Sun and shadows**, plays its animations, and chooses the renderer and the shadows of the 3D view on screen ([below](#sun-study)) |
 | `export_blender` | Writes the model and a Blender scene script in a folder, for a high quality render |
 | `get_notes` | The review notes pinned to walls, furniture and rooms during a visit ([Review notes](REVIEW_NOTES.md)) |
 | `update_note` | Marks a note done with a reply, or deletes it |
-| `apply_commands` | Runs a list of edit commands as one undoable change and returns a summary with the ids of what was created ([Command reference](MCP_COMMANDS.md)). `"file":"<absolute path>"` runs the commands of a JSON file instead, up to 2000 |
+| `apply_commands` | Runs a list of edit commands as one undoable change and returns a summary with the ids of what was created ([Command reference](MCP_COMMANDS.md)). `"file":"<absolute path>"` runs the commands of a JSON file instead, up to 2000. A command that fails is named by its number and doesn't stop the others, unless `"stop_on_error":true` |
 | `undo` / `redo` | Undoes or redoes the last change, or the last `steps` changes |
 | `get_history` | The changes undo and redo would revert or apply again, yours and Claude's |
 | `get_changes` | What you added, deleted or modified by hand since Claude last asked |
@@ -136,14 +138,25 @@ check its work with a picture.
 | `save_version`, `list_versions`, `compare_versions`, `restore_version` | Versions of the home ([below](#versions-and-saving)) |
 | `save_home` | Saves the home in its file if you allowed it, or writes a copy in a new file |
 | `list_homes`, `open_home`, `new_home`, `switch_home` | The homes open in the application, and which one Claude works on |
-| `export_home` | Writes the home as PDF, SVG, OBJ, CSV, a 3D web page or a 360 degree panorama |
+| `export_home` | Writes the home as PDF, SVG, OBJ, glTF (`glb`, in meters, with the georeference of the home), CSV, a 3D web page or a 360 degree panorama |
 | `add_note` | Pins a review note to an item or a place |
 | `start_visit` | Opens the game mode or the walk-through in your browser |
 
-The tools can't reach the network. They write the file of the home only if
+The tools don't reach the network unless you tick **Allow web services
+(elevation, parcels, OpenStreetMap, aerial pictures)** in the dialog. With it,
+`fetch_elevation`, `import_osm`, `import_parcels` with a `url` and
+`set_basemap` ask the USGS, OpenStreetMap, a county parcel server or a map
+server for data around the home: the corners of the area asked are sent to
+that service, and nothing else of the home
+([GIS files and web sources](MCP_COMMANDS.md#gis-files-and-web-sources)). The
+box is unticked each time the application starts.
+
+They write the file of the home only if
 you tick **Allow saving this home in its file, and replacing files** in the
 dialog; without it, saving stays your decision (**File > Save**) and Claude
 can only keep versions and write copies in new files.
+
+![The plan with the slopes, the contour lines, the crowns of the trees and the fences drawn over it](images/plan-layers.jpg)
 
 ## Versions and saving
 
@@ -154,7 +167,7 @@ morning?"* - *"Go back to the version before the new roof."*
 | --- | --- |
 | `save_version` | Saves a copy of the home with a `label` in the folder of versions beside its file, the one of **File > Versions...**. The home and its file don't change |
 | `list_versions` | The versions, the most recent first, numbered from 1 |
-| `compare_versions` | From a `version` (its number or a part of its label) to the home now, or to another version (`with`): counts and areas, then the items added, removed, moved, resized or renamed, with their ids. `"picture":true` adds both states side by side |
+| `compare_versions` | From a `version` (its number or a part of its label) to the home now, or to another version (`with`): counts and areas, then the items added, removed, moved, resized or renamed, with their ids. `"picture":true` adds both states side by side It ends with what changed on the site: trees added, removed or changed, fences, and the earth moved |
 | `restore_version` | Replaces the levels and the items of the home by the ones of a version, as **one change that undo reverts**. The state before it is saved as a version first (`"keep_current":false` skips that). The file of the home isn't written |
 | `save_home` | Saves the home in its file: needs **Allow saving**. With `"copy_to":"<path>.sh3d"` it writes a copy in a new file instead, and the home keeps its file and its unsaved state |
 
