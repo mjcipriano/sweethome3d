@@ -288,6 +288,55 @@ public class AssistantTerrainCommandsTest {
   }
 
   @Test
+  public void testSiteReportExportAndCoordinates() throws Exception {
+    run("{\"action\":\"add_property_line\",\"points\":[[0,0],[4000,0],[4000,3000],[0,3000]]}");
+    run("{\"action\":\"add_rectangular_room\",\"name\":\"House\",\"x\":1000,\"y\":1000,\"width\":1000,\"depth\":800}");
+    run("{\"action\":\"add_slab\",\"name\":\"Driveway\",\"points\":[[2200,1000],[2600,1000],[2600,3000],[2200,3000]],\"thickness\":10}");
+    run("{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":500,\"y\":500,\"height\":1500,\"crown_radius\":400},"
+        + "{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":3500,\"y\":500,\"height\":1700,\"crown_radius\":400},"
+        + "{\"action\":\"add_shrub\",\"species\":\"azalea\",\"x\":900,\"y\":900}");
+    run("{\"action\":\"add_fence\",\"style\":\"privacy\",\"points\":[[0,0],[4000,0]],\"owner\":\"Me\"}");
+    String summary = run("{\"action\":\"site_report\"}");
+    assertTrue(summary, summary.contains("Lot: 1200 m2 (0.3 acres)") && summary.contains("driveways 80 m2")
+        && summary.contains("roofs or rooms 80 m2") && summary.contains("Generated trees: 2")
+        && summary.contains("2 white_oak (16 m high on average)") && summary.contains("Generated shrubs: 1")
+        && summary.contains("privacy_solid 40 m") && summary.contains("Ground: flat"));
+    // About 100 m2 of crowns over 1200 m2
+    assertTrue(summary, summary.contains("crowns covering 100.53 m2 (8.38 % of the lot"));
+
+    // Coordinates both ways
+    summary = run("{\"action\":\"geo_to_plan\",\"points\":[[33.749,-84.388]]}");
+    assertTrue(summary, summary.contains("no georeference"));
+    summary = run("{\"action\":\"set_georeference\",\"x\":0,\"y\":0,\"lat\":33.749,\"lon\":-84.388}");
+    summary = run("{\"action\":\"geo_to_plan\",\"points\":[[33.749,-84.388],{\"lat\":33.7499,\"lon\":-84.388}]}");
+    // 0.0009 degree of latitude is about 100 m to the north, up the plan
+    assertTrue(summary, summary.contains("(33.7490000, -84.3880000) -> (0, 0)"));
+    String list = summary.substring(summary.indexOf("As a list: [[") + 13);
+    float y = Float.parseFloat(list.substring(list.indexOf("],[") + 3).split(",") [1].replace("]", "").replace(".", "x").split("x") [0]);
+    assertEquals(-9980, y, 60);
+    summary = run("{\"action\":\"geo_to_plan\",\"points\":[[-84.388,33.749]]}");
+    assertTrue(summary, summary.contains("km from the home") && summary.contains("[latitude, longitude]"));
+    // Three points of the plan and their places fit a georeference, and the answer tells the fit
+    summary = run("{\"action\":\"set_georeference\",\"points\":[{\"lat\":33.749,\"lon\":-84.388,\"x\":0,\"y\":0},"
+        + "{\"lat\":33.7499,\"lon\":-84.388,\"x\":0,\"y\":-9980},{\"lat\":33.749,\"lon\":-84.38692,\"x\":10000,\"y\":0}]}");
+    assertTrue(summary, summary.contains("Fitted 3 points") && summary.contains("cm off on average"));
+
+    // The site written for a GIS
+    java.io.File file = java.io.File.createTempFile("site", ".geojson");
+    file.delete();
+    file.deleteOnExit();
+    summary = run("{\"action\":\"export_site\",\"path\":\"" + file.getPath().replace("\\", "\\\\") + "\"}");
+    assertTrue(summary, summary.contains("Wrote the site") && summary.contains("lot_line 1") && summary.contains("fence 1")
+        && summary.contains("tree 2") && summary.contains("shrub 1"));
+    String geojson = new String(java.nio.file.Files.readAllBytes(file.toPath()), "UTF-8");
+    assertTrue(geojson, geojson.startsWith("{\"type\":\"FeatureCollection\"") && geojson.contains("\"species\":\"white_oak\"")
+        && geojson.contains("\"style\":\"privacy\"") && geojson.contains("\"owner\":\"Me\"") && geojson.contains("\"kind\":\"lot_line\"")
+        && geojson.contains("[-84.38"));
+    summary = run("{\"action\":\"export_site\",\"path\":\"" + file.getPath().replace("\\", "\\\\") + "\"}");
+    assertTrue(summary, summary.contains("exists"));
+  }
+
+  @Test
   public void testLargeGround() {
     // 40 000 points: more than the old limit
     StringBuilder rows = new StringBuilder();

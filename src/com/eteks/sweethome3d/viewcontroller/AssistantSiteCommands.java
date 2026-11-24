@@ -91,8 +91,10 @@ class AssistantSiteCommands {
         setGeoreference(command, notes);
       } else if ("import_parcel".equals(action)) {
         importParcel(command, notes);
-      } else if ("get_coordinates".equals(action) || "export_coordinates".equals(action)) {
+      } else if ("get_coordinates".equals(action) || "plan_to_geo".equals(action) || "export_coordinates".equals(action)) {
         getCoordinates(command, notes);
+      } else if ("geo_to_plan".equals(action)) {
+        geoToPlan(command, notes);
       } else {
         return false;
       }
@@ -692,7 +694,73 @@ class AssistantSiteCommands {
   private void setGeoreference(AssistantCommand command, List<String> notes) throws IOException {
     HomeGeoreference georeference;
     Object controlPoints = command.getParameters().get("points");
-    if (controlPoints instanceof List && ((List<?>)controlPoints).size() >= 2) {
+    if (controlPoints instanceof List && ((List<?>)controlPoints).size() >= 3) {
+      // The turn and the place that fit best several points
+      List<?> list = (List<?>)controlPoints;
+      int count = list.size();
+      double [][] values = new double [count][];
+      double meanLatitude = 0;
+      double meanLongitude = 0;
+      for (int i = 0; i < count; i++) {
+        if (!(list.get(i) instanceof Map)) {
+          throw new IOException("\"points\" must give points like {\"lat\":33.9,\"lon\":-84.3,\"x\":0,\"y\":0}");
+        }
+        Map<?, ?> map = (Map<?, ?>)list.get(i);
+        values [i] = new double [] {getNumber(map, "lat", "latitude"), getNumber(map, "lon", "longitude"),
+                                    getNumber(map, "x", "x"), getNumber(map, "y", "y")};
+        meanLatitude += values [i][0] / count;
+        meanLongitude += values [i][1] / count;
+      }
+      HomeGeoreference north = new HomeGeoreference(meanLatitude, meanLongitude, 0, 0, 0);
+      double [][] ground = new double [count][];
+      double [] groundCenter = new double [2];
+      double [] planCenter = new double [2];
+      for (int i = 0; i < count; i++) {
+        ground [i] = north.toPlan(values [i][0], values [i][1]);
+        groundCenter [0] += ground [i][0] / count;
+        groundCenter [1] += ground [i][1] / count;
+        planCenter [0] += values [i][2] / count;
+        planCenter [1] += values [i][3] / count;
+      }
+      double cross = 0;
+      double dot = 0;
+      double groundSize = 0;
+      double planSize = 0;
+      for (int i = 0; i < count; i++) {
+        double gx = ground [i][0] - groundCenter [0];
+        double gy = ground [i][1] - groundCenter [1];
+        double px = values [i][2] - planCenter [0];
+        double py = values [i][3] - planCenter [1];
+        cross += gx * py - gy * px;
+        dot += gx * px + gy * py;
+        groundSize += gx * gx + gy * gy;
+        planSize += px * px + py * py;
+      }
+      if (groundSize < 1 || planSize < 1) {
+        throw new IOException("the points must be different places and different points of the plan");
+      }
+      double rotation = Math.toDegrees(Math.atan2(cross, dot));
+      double scale = Math.sqrt(planSize / groundSize);
+      // The middle of the places is at the middle of the points
+      double [] center = north.toLatitudeLongitude(groundCenter [0], groundCenter [1]);
+      georeference = new HomeGeoreference(center [0], center [1], planCenter [0], planCenter [1], rotation);
+      double worst = 0;
+      double squares = 0;
+      int worstIndex = 0;
+      for (int i = 0; i < count; i++) {
+        double [] place = georeference.toPlan(values [i][0], values [i][1]);
+        double gap = Math.hypot(place [0] - values [i][2], place [1] - values [i][3]);
+        squares += gap * gap / count;
+        if (gap > worst) {
+          worst = gap;
+          worstIndex = i;
+        }
+      }
+      notes.add("Fitted " + count + " points: they are " + format(Math.sqrt(squares)) + " cm off on average and the point "
+          + (worstIndex + 1) + " is the farthest, " + format(worst) + " cm off. The plan is " + String.format(Locale.US, "%.4f", scale)
+          + " times the size of the ground between them" + (Math.abs(scale - 1) > 0.01
+              ? ": it isn't at the scale of the ground, or a point is wrong. The plan keeps its scale" : ""));
+    } else if (controlPoints instanceof List && ((List<?>)controlPoints).size() >= 2) {
       double [][] values = new double [2][];
       for (int i = 0; i < 2; i++) {
         Object point = ((List<?>)controlPoints).get(i);
@@ -738,6 +806,70 @@ class AssistantSiteCommands {
     notes.add("Set the georeference: " + describe(georeference)
         + (command.getBoolean("compass", true) ? ". The compass shows the true north and has this latitude and longitude" : "")
         + ". import_parcel and \"geo\" points are now placed in the plan, and get_coordinates gives the coordinates of its points");
+  }
+
+  /**
+   * Tells the points of the plan of places given by their latitude and longitude, or by their coordinates in a system.
+   */
+  private void geoToPlan(AssistantCommand command, List<String> notes) throws IOException {
+    HomeGeoreference georeference = HomeGeoreference.get(this.home);
+    if (georeference == null) {
+      throw new IOException("this home has no georeference: {\"action\":\"set_georeference\",\"lat\":N,\"lon\":N,\"x\":N,\"y\":N} first");
+    }
+    HomeGeoreference.Projection projection = command.getString("srs") != null
+        ? HomeGeoreference.Projection.get(command.getString("srs")) : null;
+    Object points = command.getParameters().get("points");
+    if (!(points instanceof List) || ((List<?>)points).isEmpty()) {
+      throw new IOException("give \"points\":[[lat,lon],...], or with \"srs\":\"EPSG:2240\" [[x,y],...] in that system "
+          + "(for EPSG:4326 too: [longitude, latitude])");
+    }
+    StringBuilder text = new StringBuilder("Points of the plan in cm"
+        + (projection != null ? ", from " + projection.getName() : ", from [latitude, longitude]") + ": ");
+    StringBuilder list = new StringBuilder("[");
+    int count = 0;
+    for (Object point : (List<?>)points) {
+      double latitude;
+      double longitude;
+      String name;
+      if (point instanceof Map) {
+        latitude = getNumber((Map<?, ?>)point, "lat", "latitude");
+        longitude = getNumber((Map<?, ?>)point, "lon", "longitude");
+        name = String.format(Locale.US, "%.7f, %.7f", latitude, longitude);
+      } else if (point instanceof List && ((List<?>)point).size() >= 2 && ((List<?>)point).get(0) instanceof Number
+                 && ((List<?>)point).get(1) instanceof Number) {
+        double first = ((Number)((List<?>)point).get(0)).doubleValue();
+        double second = ((Number)((List<?>)point).get(1)).doubleValue();
+        if (projection != null) {
+          double [] place = projection.toLatitudeLongitude(first, second);
+          latitude = place [0];
+          longitude = place [1];
+          name = first + ", " + second;
+        } else {
+          latitude = first;
+          longitude = second;
+          name = String.format(Locale.US, "%.7f, %.7f", latitude, longitude);
+        }
+      } else {
+        throw new IOException("a point is written [lat,lon], {\"lat\":N,\"lon\":N}, or [x,y] with \"srs\"");
+      }
+      if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+        throw new IOException("the point " + name + " isn't a latitude from -90 to 90 and a longitude from -180 to 180: "
+            + "a point is written [latitude, longitude]");
+      }
+      double [] plan = georeference.toPlan(latitude, longitude);
+      if (Math.hypot(plan [0] - georeference.getX(), plan [1] - georeference.getY()) > 1E7) {
+        throw new IOException("the point " + name + " is " + format(Math.hypot(plan [0] - georeference.getX(),
+            plan [1] - georeference.getY()) / 100000) + " km from the home: a point is written [latitude, longitude], "
+            + "in this order");
+      }
+      if (count < 200) {
+        text.append(count > 0 ? "; " : "").append('(').append(name).append(") -> (").append(format(plan [0])).append(", ")
+            .append(format(plan [1])).append(')');
+      }
+      list.append(count > 0 ? "," : "").append('[').append(format(plan [0])).append(',').append(format(plan [1])).append(']');
+      count++;
+    }
+    notes.add(text + (count > 200 ? "; ... " + (count - 200) + " more" : "") + ". As a list: " + list + "]");
   }
 
   private static double getNumber(Map<?, ?> map, String key, String otherKey) throws IOException {

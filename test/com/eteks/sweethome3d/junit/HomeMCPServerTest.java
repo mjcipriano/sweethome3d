@@ -100,6 +100,20 @@ public class HomeMCPServerTest {
     return (Map<String, Object>)response.get("result");
   }
 
+  /**
+   * Returns the last text of an answer, which comes after its picture.
+   */
+  @SuppressWarnings("unchecked")
+  private static String lastText(Map<String, Object> toolResult) {
+    String text = null;
+    for (Object content : (List<Object>)toolResult.get("content")) {
+      if (((Map<String, Object>)content).get("text") != null) {
+        text = (String)((Map<String, Object>)content).get("text");
+      }
+    }
+    return text;
+  }
+
   @SuppressWarnings("unchecked")
   private static String text(Map<String, Object> toolResult) {
     return (String)((Map<String, Object>)((List<Object>)toolResult.get("content")).get(0)).get("text");
@@ -472,6 +486,83 @@ public class HomeMCPServerTest {
   /**
    * The pictures of the sun through a day and a year, and the control of its window.
    */
+  @Test
+  public void testPictureWithoutTrees() throws Exception {
+    Fixture fixture = new Fixture();
+    HomeMCPHandler handler = fixture.handler;
+    callTool(handler, "apply_commands", "{\"commands\":[{\"action\":\"add_tree\",\"species\":\"red_maple\",\"x\":0,\"y\":0},"
+        + "{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":900,\"y\":0},"
+        + "{\"action\":\"add_furniture\",\"name\":\"Table\",\"x\":400,\"y\":400,\"tags\":[\"patio\"]}]}");
+    // The places of the pieces in the furniture of the home
+    int maple = -1;
+    int oak = -1;
+    int table = -1;
+    for (int i = 0; i < fixture.home.getFurniture().size(); i++) {
+      String name = fixture.home.getFurniture().get(i).getName();
+      if ("Red maple".equals(name)) {
+        maple = i;
+      } else if ("White oak".equals(name)) {
+        oak = i;
+      } else if ("Table".equals(name)) {
+        table = i;
+      }
+    }
+    assertTrue(maple >= 0 && oak >= 0 && table >= 0);
+    int others = fixture.home.getFurniture().size() - 3;
+    final List<HomeMCPHandler.Image3DRequest> requests = new java.util.ArrayList<HomeMCPHandler.Image3DRequest>();
+    handler.setImageProvider(new HomeMCPHandler.ImageProvider() {
+        public byte [] getPlanImage(int maxSize, com.eteks.sweethome3d.model.Level level, float [] area) {
+          return null;
+        }
+
+        public HomeMCPHandler.Image3D get3DImage(HomeMCPHandler.Image3DRequest request) {
+          requests.add(request);
+          return new HomeMCPHandler.Image3D(new byte [] {1}, null, "Drawn by a test");
+        }
+
+        public byte [] getCatalogImage(String name, boolean texture) {
+          return null;
+        }
+
+        public String get3DInfo() {
+          return "";
+        }
+      });
+    // Without option, the home itself is drawn
+    callTool(handler, "get_3d_image", "{}");
+    assertNull(requests.get(0).getDrawnHome());
+    // Without its trees: a copy where they are hidden, the home unchanged
+    String text = lastText(callTool(handler, "get_3d_image", "{\"exclude_tags\":[\"tree\"]}"));
+    assertTrue(text, text.contains("2 items left out of this picture"));
+    com.eteks.sweethome3d.model.Home drawn = requests.get(1).getDrawnHome();
+    assertNotNull(drawn);
+    assertFalse(drawn.getFurniture().get(maple).isVisible());
+    assertFalse(drawn.getFurniture().get(oak).isVisible());
+    assertTrue(drawn.getFurniture().get(table).isVisible());
+    assertTrue(fixture.home.getFurniture().get(maple).isVisible());
+    // Only what has a tag, one piece by its id
+    text = lastText(callTool(handler, "get_3d_image", "{\"include_tags\":[\"patio\"]}"));
+    assertTrue(text, text.contains((2 + others) + " items left out"));
+    text = lastText(callTool(handler, "get_3d_image", "{\"hide_ids\":[\"" + com.eteks.sweethome3d.viewcontroller.HomeItemIds.getId(fixture.home.getFurniture().get(table)) + "\"]}"));
+    assertTrue(text, text.contains("1 item left out"));
+    assertFalse(requests.get(3).getDrawnHome().getFurniture().get(table).isVisible());
+    // Seen through, and in winter: other models for the picture only
+    Object model = fixture.home.getFurniture().get(maple).getModel();
+    text = lastText(callTool(handler, "get_3d_image", "{\"xray\":true}"));
+    assertTrue(text, text.contains("2 generated plants drawn pale and seen through"));
+    assertTrue(requests.get(4).getDrawnHome().getFurniture().get(maple).getModel() != model);
+    assertTrue(fixture.home.getFurniture().get(maple).getModel() == model);
+    text = lastText(callTool(handler, "get_3d_image", "{\"season\":\"winter\"}"));
+    assertTrue(text, text.contains("2 generated plants drawn in winter"));
+    text = lastText(callTool(handler, "get_3d_image", "{\"season\":\"monsoon\"}"));
+    assertTrue(text, text.contains("\"season\" is spring"));
+    // A camera by its place and its angles
+    text = lastText(callTool(handler, "get_3d_image", "{\"camera\":{\"x\":100,\"y\":200,\"z\":160,\"yaw\":90,\"pitch\":10,\"fov\":70}}"));
+    assertTrue(text, text.contains("x 100, y 200, height 160 cm, yaw 90 degrees, pitch 10 degrees"));
+    text = lastText(callTool(handler, "get_3d_image", "{\"camera\":{\"x\":100,\"y\":200,\"yaw\":90,\"pitch\":120}}"));
+    assertTrue(text, text.contains("pitch from -90 to 90"));
+  }
+
   @Test
   public void testHelpAndCapabilities() throws Exception {
     Fixture fixture = new Fixture();

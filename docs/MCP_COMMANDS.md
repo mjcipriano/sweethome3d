@@ -440,6 +440,8 @@ a file, shape it, and measure it. The ground takes up to 100 000 points.
 | `contours` | Draws the contour lines of the ground in the plan |
 | `spot_elevations` | The height of the ground at points, with labels in the plan |
 | `slope_map` | The share of the ground by slope, and its steepest places |
+| `site_report` | The site in figures: lot, built and paved surfaces, lawn, fences, trees, beds, earth moved, slopes |
+| `export_site` | Writes the site as GeoJSON in longitude and latitude |
 
 ```json
 {"commands":[
@@ -501,6 +503,18 @@ build again, and `find_floating` the pieces to put back on it.
   25 %, over 25 %), the steepest place, and the places at `threshold` % (25) or more. It is a
   table: no overlay is drawn in the plan.
 
+### Site report and export
+
+- `site_report` gives the area of the lot (its property lines), what is built or paved with its
+  share of the lot, the lawn left, the planting beds, the generated trees by species with the
+  share of the lot under their crowns, the fences by style and by owner, the earth cut and filled
+  and the slopes. Slabs and paths are counted by the rectangle around them, and crowns that
+  overlap are counted twice.
+- `export_site` writes `path`, a `.geojson` file, with the lot lines and the other lines, the
+  fences (style, height, owner, length, gates), the generated trees and shrubs (species, height,
+  crown radius, trunk diameter, tags), the rooms, the slabs, the roofs and the garden pieces. It
+  needs the georeference of the home, and `"replace":true` to overwrite a file.
+
 ### Limits
 
 - No elevation is fetched from a web service, and no GeoTIFF or LiDAR file is read.
@@ -519,7 +533,8 @@ build again, and `find_floating` the pieces to put back on it.
 | `set_compass` | The north of the plan, the place and the look of the compass |
 | `set_georeference` | The place of the plan on the Earth |
 | `import_parcel` | Draws the lot lines of a survey from GeoJSON or Esri JSON |
-| `get_coordinates` | The latitude, longitude and projected coordinates of points of the plan |
+| `get_coordinates` | The latitude, longitude and projected coordinates of points of the plan (`plan_to_geo` is the same) |
+| `geo_to_plan` | The points of the plan of places given by latitude and longitude, or by coordinates in a system |
 
 ```json
 {"action":"add_property_line","points":[[-600,-700],[1900,-700],[1900,1500],[-600,1500]],
@@ -575,6 +590,13 @@ property line, as errors.
   lines, placed by the georeference of the home; in a home without one, the
   middle of the parcel goes to `x`,`y` with the north at the top, and the
   home gets that georeference.
+- `geo_to_plan`: `points` as `[latitude, longitude]` or `{"lat","lon"}`, or with
+  `"srs":"EPSG:2240"` as `[x, y]` in that system. The answer gives each point of the plan in cm,
+  and all of them as a list ready for `points`. A point more than 100 km from the home is refused:
+  it is usually a longitude written first.
+- `set_georeference` with 3 `points` or more fits the turn and the place of the plan to all of
+  them, and tells how far each one is off and the scale between the plan and the ground. The plan
+  keeps its scale.
 - `get_coordinates`: `points` of the plan, or `ids` of items, with an
   optional `srs` for projected coordinates beside latitude and longitude.
 

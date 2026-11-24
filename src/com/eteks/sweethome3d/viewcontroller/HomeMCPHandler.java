@@ -21,6 +21,9 @@ import javax.swing.undo.CannotUndoException;
 
 import com.eteks.sweethome3d.model.Camera;
 import com.eteks.sweethome3d.model.Home;
+import com.eteks.sweethome3d.model.HomePieceOfFurniture;
+import com.eteks.sweethome3d.model.Wall;
+import com.eteks.sweethome3d.model.Room;
 import com.eteks.sweethome3d.model.Level;
 import com.eteks.sweethome3d.model.ObserverCamera;
 import com.eteks.sweethome3d.model.Selectable;
@@ -890,7 +893,26 @@ public class HomeMCPHandler {
         "Instead of view: the name of a point of view stored in the home (see get_3d_info)"));
     image3DProperties.put("camera", property("object",
         "Instead of view: a camera for this picture only, in centimeters: {\"x\":N,\"y\":N,\"height\":N,"
-        + "\"look_at_x\":N,\"look_at_y\":N,\"look_at_height\":N}; heights are above the floor of the level"));
+        + "\"look_at_x\":N,\"look_at_y\":N,\"look_at_height\":N}; heights are above the floor of the level. "
+        + "Or its place and its angles: {\"x\":N,\"y\":N,\"z\":N,\"yaw\":N,\"pitch\":N,\"fov\":N} in degrees, yaw 0 looking down "
+        + "the plan and 180 up the plan, pitch positive looking down, z from the elevation 0"));
+    Map<String, Object> tagsProperty = property("array", "Leaves out of this picture the furniture with one of these tags, "
+        + "like [\"tree\",\"shrub\"] to see a house past its trees. The home isn't changed");
+    tagsProperty.put("items", property("string", "A tag"));
+    image3DProperties.put("exclude_tags", tagsProperty);
+    Map<String, Object> includeProperty = property("array", "Leaves out of this picture the furniture that has none of these "
+        + "tags; the ground, roofs, slabs, fences and walls stay");
+    includeProperty.put("items", property("string", "A tag"));
+    image3DProperties.put("include_tags", includeProperty);
+    Map<String, Object> hideProperty = property("array", "Leaves out of this picture the items with these ids (F#, W#, R#)");
+    hideProperty.put("items", property("string", "An id"));
+    image3DProperties.put("hide_ids", hideProperty);
+    image3DProperties.put("xray", property("boolean", "true draws the trees and the shrubs built by add_tree and add_shrub pale "
+        + "and seen through, to see what is behind them"));
+    image3DProperties.put("season", enumProperty("Draws the generated trees and shrubs in this season for this picture, "
+        + "without changing the home", "spring", "summer", "autumn", "winter"));
+    image3DProperties.put("cutaway", property("number", "Leaves out the furniture, the roofs and the slabs whose bottom is at "
+        + "this height in cm or above it (from the elevation 0). Walls aren't cut"));
     image3DProperties.put("fov", property("number", "Field of view in degrees, from 20 to 120 (default: 63 outside, 85 inside)"));
     image3DProperties.put("levels", enumProperty(
         "all (default): every level and the roof. selected: the selected level and the ones under it only, "
@@ -1172,6 +1194,27 @@ public class HomeMCPHandler {
       schema.put("required", new ArrayList<Object>(Arrays.asList(required)));
     }
     return schema;
+  }
+
+  /**
+   * Returns the texts of a list, or of a text with commas.
+   */
+  private static List<String> strings(Object value) {
+    List<String> texts = new ArrayList<String>();
+    if (value instanceof List) {
+      for (Object item : (List<?>)value) {
+        if (item != null) {
+          texts.add(item.toString().trim());
+        }
+      }
+    } else if (value instanceof String) {
+      for (String item : ((String)value).split(",")) {
+        if (item.trim().length() > 0) {
+          texts.add(item.trim());
+        }
+      }
+    }
+    return texts;
   }
 
   private static Map<String, Object> enumProperty(String description, String... values) {
@@ -1958,7 +2001,24 @@ public class HomeMCPHandler {
     String target = string(arguments, "target");
     HomeViewpoints.Pose pose = null;
     String viewDescription;
-    if (arguments.get("camera") instanceof Map) {
+    if (arguments.get("camera") instanceof Map && ((Map<String, Object>)arguments.get("camera")).get("yaw") != null) {
+      // A camera given by its place and its angles
+      Map<String, Object> camera = (Map<String, Object>)arguments.get("camera");
+      double x = number(camera, "x", Double.NaN);
+      double y = number(camera, "y", Double.NaN);
+      double z = number(camera, "z", number(camera, "height", 160));
+      double yaw = number(camera, "yaw", 0);
+      double pitch = number(camera, "pitch", 0);
+      double cameraFieldOfView = number(camera, "fov", fieldOfView > 0 ? Math.toDegrees(fieldOfView) : 63);
+      if (Double.isNaN(x) || Double.isNaN(y) || Math.abs(x) > 1E6 || Math.abs(y) > 1E6 || z < 0 || z > 1E5
+          || Math.abs(pitch) > 90 || cameraFieldOfView < 20 || cameraFieldOfView > 120) {
+        return toolResult("\"camera\" with \"yaw\" needs x, y in centimeters, z (its height, 160 by default), yaw in degrees "
+            + "(0 looks down the plan, 90 to its left, 180 up the plan), pitch from -90 to 90 (positive looks down) and fov from 20 to 120.", true);
+      }
+      pose = new HomeViewpoints.Pose((float)x, (float)y, (float)Math.max(1, z), (float)Math.toRadians(yaw), (float)Math.toRadians(pitch),
+          (float)Math.toRadians(cameraFieldOfView), z > 400);
+      viewDescription = pose.describe();
+    } else if (arguments.get("camera") instanceof Map) {
       Map<String, Object> camera = (Map<String, Object>)arguments.get("camera");
       double x = number(camera, "x", Double.NaN);
       double y = number(camera, "y", Double.NaN);
@@ -2028,15 +2088,108 @@ public class HomeMCPHandler {
       viewDescription = "camera of the home, " + (pose != null ? pose.describe() : HomeViewpoints.describeCamera(this.home));
     }
 
+    // What the picture leaves out or shows another way, in a copy of the home
+    Home drawnHome = null;
+    String hiddenDescription = "";
+    if (sweep == null && (arguments.get("exclude_tags") != null || arguments.get("include_tags") != null
+                          || arguments.get("hide_ids") != null || arguments.get("xray") != null
+                          || arguments.get("season") != null || arguments.get("cutaway") != null)) {
+      List<String> excludedTags = strings(arguments.get("exclude_tags"));
+      List<String> includedTags = strings(arguments.get("include_tags"));
+      List<String> hiddenIds = strings(arguments.get("hide_ids"));
+      boolean xray = Boolean.TRUE.equals(arguments.get("xray"));
+      String season = string(arguments, "season");
+      if (season != null) {
+        season = season.trim().toLowerCase();
+        if (season.equals("fall")) {
+          season = "autumn";
+        }
+        if (!Arrays.asList("spring", "summer", "autumn", "winter").contains(season)) {
+          return toolResult("\"season\" is spring, summer, autumn or winter.", true);
+        }
+      }
+      double cutaway = number(arguments, "cutaway", Double.NaN);
+      drawnHome = this.home.clone();
+      if (level != null) {
+        int levelIndex = this.home.getLevels().indexOf(level);
+        if (levelIndex >= 0 && levelIndex < drawnHome.getLevels().size()) {
+          drawnHome.setSelectedLevel(drawnHome.getLevels().get(levelIndex));
+        }
+      }
+      List<HomePieceOfFurniture> furniture = this.home.getFurniture();
+      List<HomePieceOfFurniture> drawnFurniture = drawnHome.getFurniture();
+      int hidden = 0;
+      int changed = 0;
+      for (int i = 0; i < furniture.size() && i < drawnFurniture.size(); i++) {
+        HomePieceOfFurniture piece = furniture.get(i);
+        HomePieceOfFurniture drawnPiece = drawnFurniture.get(i);
+        if (!piece.isVisible()) {
+          continue;
+        }
+        boolean structure = piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY) != null;
+        boolean hide = hiddenIds.contains(HomeItemIds.getId(piece));
+        for (String tag : excludedTags) {
+          hide |= HomeItemTags.hasTag(piece, tag);
+        }
+        if (!includedTags.isEmpty() && !structure) {
+          boolean included = false;
+          for (String tag : includedTags) {
+            included |= HomeItemTags.hasTag(piece, tag);
+          }
+          hide |= !included;
+        }
+        if (!Double.isNaN(cutaway) && !HomeTerrain.isTerrain(piece)
+            && piece.getElevation() + (piece.getLevel() != null ? piece.getLevel().getElevation() : 0) >= cutaway) {
+          hide = true;
+        }
+        if (hide) {
+          drawnPiece.setVisible(false);
+          hidden++;
+        } else if ((xray || season != null) && this.commandExecutor.getPlantCommands() != null) {
+          com.eteks.sweethome3d.model.Content model = this.commandExecutor.getPlantCommands().getPictureModel(piece, xray, season);
+          if (model != null) {
+            drawnPiece.setModel(model);
+            changed++;
+          }
+        }
+      }
+      // Walls and rooms given by their ids
+      int index = 0;
+      List<Wall> drawnWalls = new ArrayList<Wall>(drawnHome.getWalls());
+      for (Wall wall : this.home.getWalls()) {
+        if (hiddenIds.contains(HomeItemIds.getId(wall)) && index < drawnWalls.size()) {
+          drawnHome.deleteWall(drawnWalls.get(index));
+          hidden++;
+        }
+        index++;
+      }
+      index = 0;
+      List<Room> drawnRooms = new ArrayList<Room>(drawnHome.getRooms());
+      for (Room room : this.home.getRooms()) {
+        if (hiddenIds.contains(HomeItemIds.getId(room)) && index < drawnRooms.size()) {
+          drawnHome.deleteRoom(drawnRooms.get(index));
+          hidden++;
+        }
+        index++;
+      }
+      hiddenDescription = " " + hidden + (hidden == 1 ? " item" : " items") + " left out of this picture"
+          + (changed > 0 ? ", " + changed + " generated plants drawn " + (xray ? "pale and seen through" : "in " + season) : "")
+          + (xray && changed == 0 ? " (no generated plant to see through: catalog trees are left out with exclude_tags)" : "")
+          + (!Double.isNaN(cutaway) ? "; the walls aren't cut by \"cutaway\"" : "") + ".";
+    }
     long start = System.currentTimeMillis();
+    Image3DRequest imageRequest = sweep != null ? null : new Image3DRequest(width, height, renderer,
+        bool(arguments, "shadows", true), bool(arguments, "ambient_occlusion", true), highQuality,
+        pose, level, allLevels, savedFile != null && width > 1000 ? 1000 : 0,
+        (int)Math.max(0, Math.min(3600, number(arguments, "timeout", 0))));
+    if (imageRequest != null && drawnHome != null) {
+      imageRequest.setDrawnHome(drawnHome);
+    }
     Image3D image = sweep != null
         ? drawSunSweep(provider, sweep, width, height, renderer,
             bool(arguments, "shadows", true), bool(arguments, "ambient_occlusion", true), highQuality,
             pose, level, allLevels, (int)Math.max(0, Math.min(3600, number(arguments, "timeout", 0))))
-        : provider.get3DImage(new Image3DRequest(width, height, renderer,
-            bool(arguments, "shadows", true), bool(arguments, "ambient_occlusion", true), highQuality,
-            pose, level, allLevels, savedFile != null && width > 1000 ? 1000 : 0,
-            (int)Math.max(0, Math.min(3600, number(arguments, "timeout", 0)))));
+        : provider.get3DImage(imageRequest);
     if (image != null && image.getImage() == null && image.getDescription() != null) {
       return toolResult(image.getDescription(), true);
     }
@@ -2048,7 +2201,8 @@ public class HomeMCPHandler {
         + width + " x " + height + " pixels, in " + Math.round((System.currentTimeMillis() - start) / 100.) / 10. + " s. "
         + "Seen from: " + viewDescription + ". "
         + (allLevels ? "All levels." : "Levels above "
-            + (selectedLevel != null ? "\"" + selectedLevel.getName() + "\"" : "the selected one") + " left out.");
+            + (selectedLevel != null ? "\"" + selectedLevel.getName() + "\"" : "the selected one") + " left out.")
+        + hiddenDescription;
     if (sweep != null) {
       description += "\n" + sweep.text;
     }

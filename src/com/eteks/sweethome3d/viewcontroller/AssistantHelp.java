@@ -42,9 +42,9 @@ public final class AssistantHelp {
       {"Colors, textures and materials", "set_color set_texture apply_style import_texture list_materials set_material"},
       {"Roofs", "add_roof add_dormer modify_dormer remove_dormer modify_roof fit_walls_to_roof headroom auto_roof"},
       {"Grading and terrain measures", "shift_terrain add_pad flatten_area smooth_area add_berm grade_path extend_terrain "
-          + "cut_fill_report contours spot_elevations slope_map"},
+          + "cut_fill_report contours spot_elevations slope_map site_report export_site"},
       {"Ground and site", "add_slab set_terrain set_site_defaults add_polyline add_property_line add_setback modify_polyline set_compass "
-          + "set_georeference import_parcel get_coordinates"},
+          + "set_georeference import_parcel get_coordinates geo_to_plan"},
       {"Fences, walls and gates", "add_fence add_gate modify_fence extend_fence join_fences split_fence trim_fence offset_fence "
           + "convert_to_fence fence_report"},
       {"Garden", "add_hedge add_path add_planting_bed"},

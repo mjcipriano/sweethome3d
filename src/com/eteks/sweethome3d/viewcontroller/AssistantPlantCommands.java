@@ -1206,6 +1206,28 @@ class AssistantPlantCommands {
   }
 
   /**
+   * Returns the model that shows a generated plant in another way, for a picture: pale and seen through
+   * (<code>xray</code>), or at another season. Returns <code>null</code> if <code>piece</code> isn't a generated plant.
+   */
+  com.eteks.sweethome3d.model.Content getPictureModel(HomePieceOfFurniture piece, boolean xray, String season) {
+    Map<String, Object> spec = getSpec(piece);
+    if (spec == null) {
+      return null;
+    }
+    try {
+      if (season != null) {
+        spec.put("season", season);
+      }
+      if (xray) {
+        spec.put("removed_since", "picture");
+      }
+      return ((AssistantGeneratedModel)getModel(getPlant(spec, false)) [0]).getModel();
+    } catch (IOException ex) {
+      return null;
+    }
+  }
+
+  /**
    * Returns the color of the leaves of a species, for hedges.
    */
   static Integer getLeafColor(String speciesName) {

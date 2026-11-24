@@ -99,7 +99,13 @@ class AssistantTerrainCommands {
         + "  {\"action\":\"spot_elevations\",\"points\":[[x,y],...]}  (the height of the ground at points, with a label in the plan at "
         + "each one unless \"labels\":false)\n"
         + "  {\"action\":\"slope_map\"}  (the share of the ground by slope: flat, gentle, walkable, steep..., its steepest place, "
-        + "and the places steeper than \"threshold\" % in \"area\":[[x,y],...] or the whole ground. A table: no overlay is drawn)\n";
+        + "and the places steeper than \"threshold\" % in \"area\":[[x,y],...] or the whole ground. A table: no overlay is drawn)\n"
+        + "  {\"action\":\"site_report\"}  (the site in figures: the area of the lot, what is built or paved on it, the lawn left, "
+        + "the fences by style and by owner, the generated trees by species with the share of the lot under their crowns, the "
+        + "planting beds, the earth cut and filled, and the slopes)\n"
+        + "  {\"action\":\"export_site\",\"path\":\"<absolute path>.geojson\"}  (writes the lot lines, the fences with their style and "
+        + "owner, the generated trees with their species and sizes, the rooms, the slabs and the paths as GeoJSON in longitude and "
+        + "latitude, for a GIS or a contractor; it needs the georeference of the home; \"replace\":true overwrites the file)\n";
   }
 
   /**
@@ -135,6 +141,10 @@ class AssistantTerrainCommands {
         spotElevations(command, tally, notes);
       } else if ("slope_map".equals(action)) {
         slopeMap(command, notes);
+      } else if ("site_report".equals(action)) {
+        siteReport(command, tally, notes);
+      } else if ("export_site".equals(action)) {
+        exportSite(command, notes);
       } else {
         return false;
       }
@@ -1299,6 +1309,302 @@ class AssistantTerrainCommands {
       this.homeController.getPlanController().addLabels(newLabels);
     }
     notes.add(text + (newLabels.isEmpty() ? "" : ". " + newLabels.size() + " labels were added to the plan"));
+  }
+
+  private static double getPolygonArea(float [][] points) {
+    return Math.abs(getArea(points)) / 10000;
+  }
+
+  /**
+   * Tells the site in figures.
+   */
+  private void siteReport(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
+    StringBuilder text = new StringBuilder("Site report.");
+    // The lot
+    double lot = 0;
+    int lots = 0;
+    for (Polyline polyline : this.home.getPolylines()) {
+      if ("property".equals(polyline.getProperty(AssistantSiteCommands.LINE_KIND_PROPERTY)) && polyline.isClosedPath()
+          && polyline.getPointCount() >= 3) {
+        lot += getPolygonArea(polyline.getPoints());
+        lots++;
+      }
+    }
+    text.append(lots > 0 ? "\nLot: " + format(lot) + " m2 (" + format(lot / 4046.86) + " acres)" + (lots > 1 ? " in " + lots + " property lines" : "")
+        : "\nLot: no property line is drawn (add_property_line or import_parcel): shares of the lot can't be given");
+    // What is built or paved
+    double roofs = 0;
+    double driveways = 0;
+    double patios = 0;
+    double otherSlabs = 0;
+    double paths = 0;
+    double beds = 0;
+    int bedCount = 0;
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      if (!piece.isVisible() || HomeTerrain.isTerrain(piece)) {
+        continue;
+      }
+      String structure = piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY);
+      String garden = piece.getProperty(AssistantGardenCommands.GARDEN_PROPERTY);
+      String name = piece.getName() != null ? piece.getName().toLowerCase(Locale.ENGLISH) : "";
+      double area = piece.getWidth() * piece.getDepth() / 10000.;
+      if (piece.getProperty(AssistantShapeCommands.ROOF_SPEC_PROPERTY) != null) {
+        roofs += area;
+      } else if ("slab".equals(structure) && piece.getProperty(AssistantShapeCommands.ROOM_SLAB_PROPERTY) == null) {
+        if (name.matches(".*(drive|road|street|parking|apron).*")) {
+          driveways += area;
+        } else if (name.matches(".*(patio|terrace|deck|porch|walk|pool).*")) {
+          patios += area;
+        } else {
+          otherSlabs += area;
+        }
+      } else if ("path".equals(garden)) {
+        paths += area;
+      } else if ("planting_bed".equals(garden)) {
+        beds += area;
+        bedCount++;
+      }
+    }
+    if (roofs == 0) {
+      // Without roof, the rooms under a ceiling
+      for (Room room : this.home.getRooms()) {
+        if (room.isCeilingVisible() && (room.getLevel() == null || room.getLevel().getElevation() == 0)) {
+          roofs += room.getArea() / 10000.;
+        }
+      }
+    }
+    double impervious = roofs + driveways + patios + otherSlabs + paths;
+    text.append("\nBuilt or paved: ").append(format(impervious)).append(" m2").append(lot > 0 ? " (" + format(impervious / lot * 100) + " % of the lot)" : "")
+        .append(": roofs or rooms ").append(format(roofs)).append(" m2, driveways ").append(format(driveways)).append(" m2, patios and decks ")
+        .append(format(patios)).append(" m2, other slabs ").append(format(otherSlabs)).append(" m2, paths ").append(format(paths))
+        .append(" m2 (slabs and paths counted by the rectangle around them)");
+    text.append("\nPlanting beds: ").append(bedCount).append(", ").append(format(beds)).append(" m2");
+    if (lot > 0) {
+      text.append("\nLawn and open ground left: about ").append(format(Math.max(0, lot - impervious - beds))).append(" m2");
+    }
+    // Trees
+    Map<String, double []> species = new java.util.TreeMap<String, double []>();
+    double canopy = 0;
+    int trees = 0;
+    int shrubs = 0;
+    int removed = 0;
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      Map<String, Object> spec = AssistantPlantCommands.getSpec(piece);
+      if (spec == null) {
+        continue;
+      }
+      if (spec.get("removed_since") != null) {
+        removed++;
+        continue;
+      }
+      AssistantPlantBuilder.Species plantSpecies = AssistantPlantBuilder.getSpecies(String.valueOf(spec.get("species")));
+      if (plantSpecies == null) {
+        continue;
+      }
+      if (plantSpecies.shrub) {
+        shrubs++;
+        continue;
+      }
+      trees++;
+      double crown = Math.PI * AssistantFurnitureBuilder.getNumber(spec, "crown_w", 0) / 2
+          * AssistantFurnitureBuilder.getNumber(spec, "crown_d", 0) / 2 / 10000.;
+      canopy += crown;
+      double [] values = species.get(plantSpecies.name);
+      if (values == null) {
+        species.put(plantSpecies.name, values = new double [3]);
+      }
+      values [0]++;
+      values [1] += crown;
+      values [2] += AssistantFurnitureBuilder.getNumber(spec, "height", 0) / 100.;
+    }
+    text.append("\nGenerated trees: ").append(trees);
+    if (trees > 0) {
+      text.append(", their crowns covering ").append(format(canopy)).append(" m2").append(lot > 0 ? " (" + format(Math.min(100, canopy / lot * 100))
+          + " % of the lot, crowns that overlap counted twice)" : "").append(". By species: ");
+      boolean first = true;
+      for (Map.Entry<String, double []> entry : species.entrySet()) {
+        text.append(first ? "" : ", ").append((int)entry.getValue() [0]).append(' ').append(entry.getKey()).append(" (")
+            .append(format(entry.getValue() [2] / entry.getValue() [0])).append(" m high on average)");
+        first = false;
+      }
+    }
+    text.append("\nGenerated shrubs: ").append(shrubs).append(removed > 0 ? "; plants marked as removed: " + removed : "");
+    // What the other reports tell
+    text.append("\n").append(this.executor.getFenceCommands().report(false));
+    List<String> others = new ArrayList<String>();
+    boolean terrain = false;
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      terrain |= HomeTerrain.isTerrain(piece);
+    }
+    if (terrain) {
+      cutFillReport(new AssistantCommand("cut_fill_report", new LinkedHashMap<String, Object>()), others);
+      slopeMap(new AssistantCommand("slope_map", new LinkedHashMap<String, Object>()), others);
+    } else {
+      others.add("Ground: flat, no terrain was built by set_terrain");
+    }
+    for (String other : others) {
+      text.append("\n").append(other);
+    }
+    notes.add(text.toString());
+  }
+
+  private static String toJsonNumber(double value) {
+    return String.format(Locale.US, "%.8f", value);
+  }
+
+  /**
+   * Returns the coordinates of points as GeoJSON, in longitude and latitude.
+   */
+  private static String toCoordinates(HomeGeoreference georeference, float [][] points, boolean closed) {
+    StringBuilder text = new StringBuilder("[");
+    for (int i = 0; i < points.length + (closed ? 1 : 0); i++) {
+      double [] place = georeference.toLatitudeLongitude(points [i % points.length][0], points [i % points.length][1]);
+      text.append(i > 0 ? "," : "").append('[').append(toJsonNumber(place [1])).append(',').append(toJsonNumber(place [0])).append(']');
+    }
+    return text.append(']').toString();
+  }
+
+  private static void addFeature(StringBuilder features, String geometry, Map<String, Object> properties) {
+    features.append(features.length() > 0 ? ",\n" : "").append("{\"type\":\"Feature\",\"geometry\":").append(geometry)
+        .append(",\"properties\":").append(AssistantShapeCommands.toJson(properties)).append('}');
+  }
+
+  /**
+   * Writes the site as GeoJSON.
+   */
+  private void exportSite(AssistantCommand command, List<String> notes) throws IOException {
+    HomeGeoreference georeference = HomeGeoreference.get(this.home);
+    if (georeference == null) {
+      throw new IOException("this home has no georeference: set_georeference gives the place of the plan on the Earth");
+    }
+    String path = command.getString("path") != null ? command.getString("path") : command.getString("file");
+    if (path == null || path.trim().length() == 0) {
+      throw new IOException("give the absolute \"path\" of the .geojson file to write");
+    }
+    path = path.trim();
+    if (path.startsWith("~/")) {
+      path = System.getProperty("user.home") + path.substring(1);
+    }
+    File file = new File(path);
+    if (!file.isAbsolute()) {
+      throw new IOException("\"path\" must be an absolute path, not \"" + path + "\"");
+    } else if (!path.toLowerCase(Locale.ENGLISH).endsWith(".geojson") && !path.toLowerCase(Locale.ENGLISH).endsWith(".json")) {
+      throw new IOException("\"path\" must be the path of a .geojson file");
+    } else if (file.getParentFile() == null || !file.getParentFile().isDirectory()) {
+      throw new IOException("the folder of \"path\" doesn't exist");
+    } else if (file.isDirectory()) {
+      throw new IOException(file + " is a folder");
+    } else if (file.exists() && !command.getBoolean("replace", false)) {
+      throw new IOException(file + " exists; give \"replace\":true to overwrite it");
+    }
+    StringBuilder features = new StringBuilder();
+    Map<String, Integer> counts = new LinkedHashMap<String, Integer>();
+    for (Polyline polyline : this.home.getPolylines()) {
+      String kind = polyline.getProperty(AssistantSiteCommands.LINE_KIND_PROPERTY);
+      if ("contour".equals(kind) || polyline.getPointCount() < 2) {
+        continue;
+      }
+      Map<String, Object> properties = new LinkedHashMap<String, Object>();
+      properties.put("kind", kind != null ? (kind.equals("property") ? "lot_line" : kind) : "line");
+      properties.put("id", this.executor.getId(polyline));
+      if (polyline.getProperty(AssistantSiteCommands.LINE_NAME_PROPERTY) != null) {
+        properties.put("name", polyline.getProperty(AssistantSiteCommands.LINE_NAME_PROPERTY));
+      }
+      boolean polygon = polyline.isClosedPath() && polyline.getPointCount() >= 3;
+      if (polygon) {
+        properties.put("area_m2", Double.valueOf(Math.round(getPolygonArea(polyline.getPoints()) * 100) / 100.));
+      }
+      addFeature(features, polygon ? "{\"type\":\"Polygon\",\"coordinates\":[" + toCoordinates(georeference, polyline.getPoints(), true) + "]}"
+          : "{\"type\":\"LineString\",\"coordinates\":" + toCoordinates(georeference, polyline.getPoints(), false) + "}", properties);
+      count(counts, String.valueOf(properties.get("kind")));
+    }
+    for (Room room : this.home.getRooms()) {
+      if (room.getPointCount() < 3) {
+        continue;
+      }
+      Map<String, Object> properties = new LinkedHashMap<String, Object>();
+      properties.put("kind", "room");
+      properties.put("id", this.executor.getId(room));
+      if (room.getName() != null) {
+        properties.put("name", room.getName());
+      }
+      if (room.getLevel() != null) {
+        properties.put("level", room.getLevel().getName());
+      }
+      properties.put("area_m2", Double.valueOf(Math.round(room.getArea() / 100.) / 100.));
+      addFeature(features, "{\"type\":\"Polygon\",\"coordinates\":[" + toCoordinates(georeference, room.getPoints(), true) + "]}", properties);
+      count(counts, "room");
+    }
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      if (!piece.isVisible() || HomeTerrain.isTerrain(piece)) {
+        continue;
+      }
+      Map<String, Object> properties = new LinkedHashMap<String, Object>();
+      properties.put("id", this.executor.getId(piece));
+      properties.put("name", piece.getName());
+      Map<String, Object> fence = AssistantFenceCommands.getSpec(piece);
+      Map<String, Object> plant = AssistantPlantCommands.getSpec(piece);
+      String structure = piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY);
+      String garden = piece.getProperty(AssistantGardenCommands.GARDEN_PROPERTY);
+      if (fence != null) {
+        float [][] points = AssistantFenceBuilder.getPoints(fence);
+        boolean closed = AssistantFenceBuilder.isClosed(fence, points);
+        properties.put("kind", "fence");
+        properties.put("style", fence.get("style") != null ? fence.get("style") : "picket");
+        for (String key : new String [] {"height", "owner", "ownership_side"}) {
+          if (fence.get(key) != null) {
+            properties.put(key.equals("height") ? "height_cm" : key, fence.get(key));
+          }
+        }
+        double [] distances = AssistantFenceBuilder.getDistances(points, closed);
+        properties.put("length_m", Double.valueOf(Math.round(distances [distances.length - 1]) / 100.));
+        if (fence.get("openings") instanceof List) {
+          properties.put("gates", Integer.valueOf(((List<?>)fence.get("openings")).size()));
+        }
+        addFeature(features, "{\"type\":\"LineString\",\"coordinates\":" + toCoordinates(georeference, points, closed) + "}", properties);
+        count(counts, "fence");
+      } else if (plant != null) {
+        AssistantPlantBuilder.Species species = AssistantPlantBuilder.getSpecies(String.valueOf(plant.get("species")));
+        properties.put("kind", species != null && species.shrub ? "shrub" : "tree");
+        properties.put("species", plant.get("species"));
+        if (species != null) {
+          properties.put("common_name", species.commonName);
+        }
+        properties.put("height_m", Double.valueOf(Math.round(AssistantFurnitureBuilder.getNumber(plant, "height", 0)) / 100.));
+        properties.put("crown_radius_m", Double.valueOf(Math.round(AssistantFurnitureBuilder.getNumber(plant, "crown_w", 0) / 2) / 100.));
+        properties.put("trunk_dbh_cm", plant.get("trunk_dbh"));
+        if (plant.get("removed_since") != null) {
+          properties.put("removed_since", plant.get("removed_since"));
+        }
+        if (piece.getProperty(HomeItemTags.TAGS_PROPERTY) != null) {
+          properties.put("tags", piece.getProperty(HomeItemTags.TAGS_PROPERTY));
+        }
+        float [][] place = {{AssistantFurnitureBuilder.getNumber(plant, "x", piece.getX()), AssistantFurnitureBuilder.getNumber(plant, "y", piece.getY())}};
+        String coordinates = toCoordinates(georeference, place, false);
+        addFeature(features, "{\"type\":\"Point\",\"coordinates\":" + coordinates.substring(1, coordinates.length() - 1) + "}", properties);
+        count(counts, String.valueOf(properties.get("kind")));
+      } else if ("slab".equals(structure) || "roof".equals(structure) || garden != null) {
+        properties.put("kind", garden != null ? garden : structure);
+        properties.put("note", "the rectangle around the piece");
+        addFeature(features, "{\"type\":\"Polygon\",\"coordinates\":[" + toCoordinates(georeference, piece.getPoints(), true) + "]}", properties);
+        count(counts, String.valueOf(properties.get("kind")));
+      }
+    }
+    if (features.length() == 0) {
+      throw new IOException("the home has nothing to export: no line, room, fence, tree or slab");
+    }
+    java.io.Writer writer = new java.io.OutputStreamWriter(new java.io.FileOutputStream(file), "UTF-8");
+    try {
+      writer.write("{\"type\":\"FeatureCollection\",\"features\":[\n" + features + "\n]}\n");
+    } finally {
+      writer.close();
+    }
+    notes.add("Wrote the site in " + file + " (GeoJSON, longitude and latitude in WGS 84): " + counts.toString().replace("=", " ")
+        .replace("{", "").replace("}", ""));
+  }
+
+  private static void count(Map<String, Integer> counts, String kind) {
+    counts.put(kind, Integer.valueOf(counts.containsKey(kind) ? counts.get(kind).intValue() + 1 : 1));
   }
 
   private void slopeMap(AssistantCommand command, List<String> notes) throws IOException {
