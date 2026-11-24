@@ -536,7 +536,7 @@ build again, and `find_floating` the pieces to put back on it.
 - Heights from a web service come through `fetch_elevation`, with the permission of the user.
 - BigTIFF, JPEG or LERC compressed rasters and LAZ point clouds aren't read.
 - The ground is one surface: a patch refines its points, it isn't a ground of its own.
-- `grade_path` builds no curb, and `add_pad` no wall: `add_fence` with `retaining_wall` draws one.
+- `grade_path` builds no curb (`add_curb` does), and `add_pad` no wall (`add_retaining_wall` does).
 - A ground of 100 000 points takes about 5 seconds to build and makes a heavy 3D model.
 
 ## Site: lot lines, setbacks and georeference
@@ -1068,7 +1068,8 @@ A gate is given in `openings` when the fence is built, or added later by `add_ga
 
 - The meshes, the lattices and the pierced sheets are pictures one sees through, drawn on a flat
   surface: they have no thickness, and from far away their wires fade.
-- `retaining_wall` and `ha_ha` don't cut or fill the terrain.
+- The styles `retaining_wall` and `ha_ha` of `add_fence` don't change the terrain: `add_retaining_wall`
+  cuts the step in the ground and builds the wall.
 - `"pattern":"custom_svg"` isn't read: the panels are plain.
 - The lights of posts are drawn but light nothing.
 - A fence follows the ground from post to post: closer posts follow a rough ground better.
