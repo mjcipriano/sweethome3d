@@ -85,13 +85,14 @@ public final class FurniturePlanVisibility {
 
   /**
    * Returns <code>true</code> if the plan draws <code>piece</code> with its picture seen from the
-   * top whatever the preference of the user: a slab or a piece made of parts has such a picture,
+   * top whatever the preference of the user: a slab, a piece made of parts or a plant has such a picture,
    * and the icon of a catalog would show it in perspective in a white square.
    */
   public static boolean isDrawnFromTop(HomePieceOfFurniture piece) {
     return piece.getPlanIcon() != null
         && (piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY) != null
-            || piece.getProperty(AssistantShapeCommands.PARTS_PROPERTY) != null);
+            || piece.getProperty(AssistantShapeCommands.PARTS_PROPERTY) != null
+            || piece.getProperty(AssistantPlantCommands.PLANT_PROPERTY) != null);
   }
 
   /**

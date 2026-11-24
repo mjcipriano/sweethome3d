@@ -2012,6 +2012,7 @@ public class OpenGLSceneRenderer {
       gl.glUniform4fv(getUniform(gl, "materialEmissive"), 1, state.emissive, 0);
       gl.glUniform1f(getUniform(gl, "shininess"), Math.max(1, state.shininess));
       gl.glUniform1i(getUniform(gl, "twoSided"), state.backFaceNormalFlip ? 1 : 0);
+      gl.glUniform1i(getUniform(gl, "shadowed"), state.shadowed ? 1 : 0);
     } else {
       gl.glUniform4f(getUniform(gl, "flatColor"), state.color [0], state.color [1], state.color [2], state.alpha);
     }
@@ -2933,6 +2934,7 @@ public class OpenGLSceneRenderer {
       + "uniform vec3 sunDirection;\n"
       + "uniform vec3 upDirection;\n"
       + "uniform bool sunShadows;\n"
+      + "uniform bool shadowed;\n"
       + "varying vec3 eyePosition;\n"
       + "varying vec3 eyeNormal;\n"
       + "varying vec4 shadowCoordinates;\n"
@@ -2972,7 +2974,7 @@ public class OpenGLSceneRenderer {
       + "      vec3 light = directionalLightDirection[i];\n"
       + "      float normalDotLight = dot(normal, light);\n"
       + "      if (normalDotLight > 0.) {\n"
-      + "        float lit = i == shadowLight ? getLitPart(normalDotLight) : 1.;\n"
+      + "        float lit = i == shadowLight && shadowed ? getLitPart(normalDotLight) : 1.;\n"
       + "        diffuse += lit * normalDotLight * directionalLightColor[i];\n"
       + "        specular += lit * pow(max(dot(normal, normalize(light + viewer)), 0.), shininess) * directionalLightColor[i];\n"
       + "      }\n"
@@ -3004,12 +3006,12 @@ public class OpenGLSceneRenderer {
       + "          + 0.2 * (sunIlluminance * sunHeight + skyIlluminance) * (0.5 - 0.5 * upward);\n"
       + "      float normalDotSun = dot(normal, sunDirection);\n"
       + "      if (normalDotSun > 0. && sunIlluminance > 0.) {\n"
-      + "        illuminance += sunIlluminance * normalDotSun * (sunShadows ? getLitPart(normalDotSun) : 1.);\n"
+      + "        illuminance += sunIlluminance * normalDotSun * (sunShadows && shadowed ? getLitPart(normalDotSun) : 1.);\n"
       + "      }\n"
       + "      if (falseColorsMaximum < 0.) {\n"
       + "        // Red where the Sun reaches the surface, black in the shade\n"
       + "        float sunLit = normalDotSun > 0. && sunIlluminance > 0.\n"
-      + "            ? smoothstep(0., 0.05, normalDotSun) * (sunShadows ? getLitPart(normalDotSun) : 1.)\n"
+      + "            ? smoothstep(0., 0.05, normalDotSun) * (sunShadows && shadowed ? getLitPart(normalDotSun) : 1.)\n"
       + "            : 0.;\n"
       + "        color = vec4(sunLit, 0., 0., materialDiffuse.a);\n"
       + "      } else {\n"
@@ -3310,6 +3312,8 @@ public class OpenGLSceneRenderer {
     private boolean   transparency;
     private int       cullFace = PolygonAttributes.CULL_BACK;
     private boolean   backFaceNormalFlip;
+    // false if the shadows cast by the other shapes aren't drawn on the shapes in this state
+    private boolean   shadowed = true;
     private int       polygonMode = PolygonAttributes.POLYGON_FILL;
     private float     polygonOffset;
     private float     polygonOffsetFactor;
@@ -3327,6 +3331,8 @@ public class OpenGLSceneRenderer {
 
     public State(Appearance appearance) {
       if (appearance != null) {
+        String name = appearance.getName();
+        this.shadowed = name == null || !name.startsWith(ModelManager.UNSHADOWED_MATERIAL_PREFIX);
         TransparencyAttributes transparencyAttributes = appearance.getTransparencyAttributes();
         if (transparencyAttributes != null
             && transparencyAttributes.getTransparencyMode() != TransparencyAttributes.NONE) {
@@ -3426,6 +3432,7 @@ public class OpenGLSceneRenderer {
           && this.transparency == state.transparency
           && this.cullFace == state.cullFace
           && this.backFaceNormalFlip == state.backFaceNormalFlip
+          && this.shadowed == state.shadowed
           && this.polygonMode == state.polygonMode
           && this.polygonOffset == state.polygonOffset
           && this.polygonOffsetFactor == state.polygonOffsetFactor

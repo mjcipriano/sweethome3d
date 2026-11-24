@@ -234,6 +234,119 @@ public class AssistantPlantCommandsTest {
   /**
    * A plant shown by a piece of the catalog keeps what a plant has.
    */
+  /**
+   * A plant shown by pictures of it: 8 views from its sides on 4 crossed cards and its view from the top.
+   */
+  @Test
+  public void testImpostors() throws Exception {
+    String summary = run("{\"action\":\"add_tree\",\"species\":\"red_maple\",\"x\":0,\"y\":0,\"height\":1200,\"seed\":1,\"lod\":\"impostor\"}");
+    assertFalse(summary, summary.contains("Couldn't"));
+    HomePieceOfFurniture maple = getPlants().get(0);
+    String obj = getObj(maple);
+    assertEquals(9, count(obj, "f "));
+    assertEquals(36, count(obj, "vt "));
+    assertEquals(1, count(obj, "usemtl "));
+    // No shadow of a card on the other ones
+    assertTrue(obj, obj.contains("usemtl unshadowed_texture"));
+    assertEquals(1200, maple.getHeight(), 0.5f);
+    assertNotNull(maple.getPlanIcon());
+    assertNotNull(maple.getIcon());
+    assertTrue(maple.getProperty("assistantPlant"), maple.getProperty("assistantPlant").contains("\"lod\":\"impostor\""));
+    // The plan shows a plant seen from the top, not its icon in a square
+    assertTrue(com.eteks.sweethome3d.viewcontroller.FurniturePlanVisibility.isDrawnFromTop(maple));
+
+    // The other plants become pictures too, palms and plain shapes included
+    run("{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":3000,\"y\":0,\"height\":1500,\"seed\":1}");
+    run("{\"action\":\"add_tree\",\"species\":\"sabal_palm\",\"x\":6000,\"y\":0,\"height\":900}");
+    run("{\"action\":\"add_tree\",\"species\":\"white_oak\",\"x\":9000,\"y\":0,\"height\":1500,\"style\":\"simple\"}");
+    assertTrue(count(getObj(getPlants().get(1)), "f ") > 1000);
+    summary = run("{\"action\":\"set_season\",\"lod\":\"impostor\"}");
+    assertFalse(summary, summary.contains("Couldn't"));
+    for (HomePieceOfFurniture plant : getPlants()) {
+      assertEquals(plant.getName(), 9, count(getObj(plant), "f "));
+    }
+    assertEquals(1500, getPlants().get(1).getHeight(), 0.5f);
+    assertEquals(1425, getPlants().get(1).getWidth(), 0.5f);
+
+    summary = run("{\"action\":\"add_tree\",\"species\":\"red_maple\",\"x\":0,\"y\":3000,\"lod\":\"flat\"}");
+    assertTrue(summary, summary.contains("impostor, low, medium or high"));
+  }
+
+  /**
+   * The models of plants are kept in a folder, and found there by another home.
+   */
+  @Test
+  public void testModelsKeptOnDisk() throws Exception {
+    String property = "com.eteks.sweethome3d.assistantModelCache";
+    String previousFolder = System.getProperty(property);
+    java.io.File folder = java.io.File.createTempFile("models", "");
+    folder.delete();
+    try {
+      System.setProperty(property, folder.getPath());
+      String command = "{\"action\":\"add_tree\",\"species\":\"river_birch\",\"x\":0,\"y\":0,\"height\":1000,\"seed\":3}";
+      run(command);
+      String obj = getObj(getPlants().get(0));
+      assertEquals(1, folder.listFiles().length);
+      java.io.File file = folder.listFiles() [0];
+      assertTrue(file.getName(), file.getName().matches("[0-9a-f]{40}\\.zip"));
+
+      // Another home gets the model that was kept, with its names: built again they would differ
+      java.io.InputStream in = getPlants().get(0).getModel().openStream();
+      in.close();
+      String name1 = getModelName(getPlants().get(0));
+      String name2 = getModelName(addInOtherHome(command));
+      assertEquals(name1, name2);
+      assertEquals(1, folder.listFiles().length);
+      // Another tree, another file
+      run("{\"action\":\"add_tree\",\"species\":\"river_birch\",\"x\":3000,\"y\":0,\"height\":1000,\"seed\":4}");
+      assertEquals(2, folder.listFiles().length);
+
+      // A file that can't be read is replaced
+      java.io.FileOutputStream out = new java.io.FileOutputStream(file);
+      out.write(new byte [] {1, 2, 3});
+      out.close();
+      HomePieceOfFurniture rebuilt = addInOtherHome(command);
+      assertEquals(obj, getObj(rebuilt));
+      assertFalse(name1.equals(getModelName(rebuilt)));
+      assertTrue(file.length() > 1000);
+
+      // Nothing kept when it's refused
+      System.setProperty(property, "false");
+      run("{\"action\":\"add_tree\",\"species\":\"river_birch\",\"x\":6000,\"y\":0,\"height\":1000,\"seed\":5}");
+      assertEquals(2, folder.listFiles().length);
+    } finally {
+      if (previousFolder == null) {
+        System.clearProperty(property);
+      } else {
+        System.setProperty(property, previousFolder);
+      }
+      java.io.File [] files = folder.listFiles();
+      if (files != null) {
+        for (java.io.File file : files) {
+          file.delete();
+        }
+      }
+      folder.delete();
+    }
+  }
+
+  private HomePieceOfFurniture addInOtherHome(String command) {
+    Home otherHome = new Home(250);
+    HomeController otherController = new HomeController(otherHome, this.preferences, new SwingViewFactory());
+    otherController.getView();
+    new AssistantCommandExecutor(otherHome, this.preferences, otherController).execute(
+        AssistantCommandParser.parse("{\"commands\":[" + command + "]}").getCommands());
+    return otherHome.getFurniture().get(0);
+  }
+
+  /**
+   * Returns the name of the OBJ file of a piece in its archive.
+   */
+  private static String getModelName(HomePieceOfFurniture piece) {
+    String url = ((com.eteks.sweethome3d.tools.URLContent)piece.getModel()).getURL().toString();
+    return url.substring(url.indexOf("!/") + 2);
+  }
+
   @Test
   public void testTreesOfTheCatalog() throws Exception {
     // No tree in this catalog: the plant is generated and the answer tells it

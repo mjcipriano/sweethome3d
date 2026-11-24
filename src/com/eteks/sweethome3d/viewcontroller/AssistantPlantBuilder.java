@@ -19,6 +19,7 @@
  */
 package com.eteks.sweethome3d.viewcontroller;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -342,13 +343,34 @@ final class AssistantPlantBuilder {
   static AssistantMeshBuilder build(Plant plant) {
     AssistantPlantBuilder builder = new AssistantPlantBuilder(plant);
     builder.build();
+    if (isImpostor(plant)) {
+      try {
+        // Pictures of the plant at its medium detail on a few flat faces
+        return builder.mesh.createImpostor(IMPOSTOR_TILE_SIZE);
+      } catch (IOException ex) {
+        // The plant itself
+      }
+    }
     return builder.mesh;
+  }
+
+  /** The size in pixels of each of the 9 pictures of an impostor. */
+  static final int IMPOSTOR_TILE_SIZE = 256;
+
+  /**
+   * Returns <code>true</code> if the plant is shown by pictures of it on flat faces.
+   */
+  static boolean isImpostor(Plant plant) {
+    return "impostor".equals(plant.lod) && !plant.ghost;
   }
 
   /**
    * Returns the count of triangles of the last model of a plant like the given one.
    */
   static int countTriangles(Plant plant) {
+    if (isImpostor(plant)) {
+      return AssistantMeshBuilder.IMPOSTOR_TRIANGLES;
+    }
     AssistantPlantBuilder builder = new AssistantPlantBuilder(plant);
     builder.build();
     return builder.triangles;

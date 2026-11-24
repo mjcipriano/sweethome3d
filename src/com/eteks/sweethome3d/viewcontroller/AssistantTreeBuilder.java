@@ -776,11 +776,12 @@ final class AssistantTreeBuilder {
         continue;
       }
       try {
-        byte [] image = AssistantLeafTextures.create(kind, colors, species.bark, flowering ? species.flower : 0, flowerShare, leafShare,
+        int [] pixels = AssistantLeafTextures.createPixels(kind, colors, species.bark, flowering ? species.flower : 0, flowerShare, leafShare,
             tones [i], this.detail == 0 ? 0.5f : 1, this.plant.seed * 31 + species.name.hashCode() + i * 7);
+        byte [] image = AssistantLeafTextures.encode(pixels, AssistantLeafTextures.SIZE);
         int iconColor = flowering && bare ? species.flower : bare ? AssistantPlantBuilder.shade(species.bark, 1.1f)
             : AssistantPlantBuilder.shade(colors [0], tones [i]);
-        materials [i] = this.mesh.getImageMaterial(kind + "_" + season + "_" + i, image, iconColor);
+        materials [i] = this.mesh.getImageMaterial(kind + "_" + season + "_" + i, image, iconColor, pixels, AssistantLeafTextures.SIZE);
       } catch (IOException ex) {
         materials [i] = this.mesh.getMaterial(AssistantPlantBuilder.shade(colors [0], tones [i]));
       }

@@ -1215,7 +1215,7 @@ Sizes are in cm. What isn't given is the usual size of the species, in proportio
 | `trunk_lean` | `{"angle":N,"dir":N}`: degrees from upright, towards a direction of the plan (0 is up the plan, 90 its right) |
 | `multi_trunk` | The number of its trunks |
 | `season` | `spring`, `summer`, `autumn` or `winter`. By default the season of the home |
-| `lod` | `low` (2 000 triangles at most), `medium` (10 000 at most, the default) or `high` |
+| `lod` | `impostor` (pictures of the plant on 9 flat faces), `low` (2 000 triangles at most), `medium` (10 000 at most, the default) or `high` |
 | `seed` | A number that gives another shape of the same species. Without it, the place of the tree chooses among 5 shapes |
 | `pruned_shape` | `natural`, `ball`, `box`, `cone` or `hedge_section`, for a clipped shrub |
 | `offset` | Raises it above the ground |
@@ -1254,6 +1254,24 @@ A generated tree is grown, not assembled from shapes:
   beeches keep. In spring the trees that bloom carry their flowers, before their leaves for some.
 - **Detail.** `low` keeps the trunk, the main limbs and a few large clusters (about 1 000
   triangles), `medium` about 6 000 to 8 000, `high` 15 000 to 30 000 with twigs and small clusters.
+- **Impostors.** `"lod":"impostor"` shows a plant with pictures of it: the plant is built at its
+  medium detail, drawn from 8 sides and from the top, and the 9 pictures are laid on 4 crossed
+  upright cards and a horizontal one (18 triangles, one image of 768 x 768 pixels). Each side
+  of a card shows what is seen from there, and the horizontal card is seen from above only.
+  The cards show no shadow cast on them in the OpenGL renderer, but cast theirs on the ground.
+  Impostors are for the many trees seen from far: from close they are flat, their image weighs
+  about 300 KB in the file of the home for each different tree, and they are the same tree at
+  every season until `set_season` builds them again. Palms, grasses and the plants of
+  `"style":"simple"` have impostors too.
+- **In the plan** a plant is drawn with its picture seen from the top, its leaves cut out as
+  in the 3D view, whether the furniture is displayed with its icons or not.
+- **Models kept.** A model is kept in the folder `cache/models` of the folder of the
+  application of the user (`.eteks/sweethome3d` in the home folder under Linux), under a name
+  computed from what it was built with and from the program that built it: the same tree asked
+  later, in any home, is read from this folder instead of being grown again. The folder is
+  limited to 256 MB, the models used the longest time ago leaving first. The Java property
+  `com.eteks.sweethome3d.assistantModelCache` gives another folder, or `false` to keep nothing,
+  and `com.eteks.sweethome3d.assistantModelCacheSize` another limit in bytes.
 - The same species, sizes and `seed` give the same tree. Its height and the width of its crown
   are the ones asked.
 

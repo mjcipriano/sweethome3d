@@ -58,13 +58,29 @@ final class AssistantLeafTextures {
    */
   static byte [] create(String kind, int [] colors, int bark, int flower, float flowerShare, float leafShare,
                         float shade, float scale, long seed) throws IOException {
+    return encode(createPixels(kind, colors, bark, flower, flowerShare, leafShare, shade, scale, seed), SIZE);
+  }
+
+  /**
+   * Returns the ARGB pixels of the picture of a cluster of leaves, its first row at its top.
+   * @see #create(String, int[], int, int, float, float, float, float, long)
+   */
+  static int [] createPixels(String kind, int [] colors, int bark, int flower, float flowerShare, float leafShare,
+                             float shade, float scale, long seed) {
     AssistantLeafTextures texture = new AssistantLeafTextures(seed, scale);
     texture.draw(kind, colors, bark, flower, flowerShare, leafShare, shade);
-    byte [] bytes = new byte [SIZE * (SIZE * 4 + 1)];
-    for (int y = 0; y < SIZE; y++) {
-      int row = y * (SIZE * 4 + 1);
-      for (int x = 0; x < SIZE; x++) {
-        int argb = texture.pixels [y * SIZE + x];
+    return texture.pixels;
+  }
+
+  /**
+   * Returns the PNG picture of <code>size</code> x <code>size</code> ARGB pixels.
+   */
+  static byte [] encode(int [] pixels, int size) throws IOException {
+    byte [] bytes = new byte [size * (size * 4 + 1)];
+    for (int y = 0; y < size; y++) {
+      int row = y * (size * 4 + 1);
+      for (int x = 0; x < size; x++) {
+        int argb = pixels [y * size + x];
         int index = row + 1 + x * 4;
         bytes [index] = (byte)(argb >> 16);
         bytes [index + 1] = (byte)(argb >> 8);
@@ -72,7 +88,7 @@ final class AssistantLeafTextures {
         bytes [index + 3] = (byte)(argb >>> 24);
       }
     }
-    return AssistantGeneratedModel.encodePng(bytes, SIZE);
+    return AssistantGeneratedModel.encodePng(bytes, size);
   }
 
   /**
