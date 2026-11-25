@@ -805,7 +805,7 @@ public class HomeMCPHandler {
         + "To model a house without helper levels: add_roof with \"points\" builds one roof over any polygon with a hip or a gable "
         + "at each edge (add_dormer, fit_walls_to_roof), add_slab a raised, sunken or sloped slab, set_terrain the ground, "
         + "modify_wall, modify_level, delete_level and merge_levels change walls and levels, "
-        + "modify_roof, modify_dormer and remove_dormer change a roof without building it again, modify_room with "
+        + "modify_roof, modify_dormer and remove_dormer change a roof without building it again (an edge of type clip stops it at a taller wall, set_gutters chooses its gutters by edge), modify_room with "
         + "\"ceiling\":\"follow_roof\" lines a room under the slopes and headroom measures it, add_polyline, add_property_line, "
         + "add_setback, set_compass, set_georeference and import_parcel draw the site and place the home on the Earth, "
         + "every reply lists the ids of what was created, apply_commands takes a \"file\" of commands, begin_group and end_group "

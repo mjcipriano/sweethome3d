@@ -40,7 +40,7 @@ public final class AssistantHelp {
       {"Changing items", "move rotate resize set_elevation set_visible rename delete select set_plan_visibility describe_item "
           + "reduce_detail restore_detail group align distribute mirror lock add_tags hide_layer"},
       {"Colors, textures and materials", "set_color set_texture apply_style import_texture list_materials set_material"},
-      {"Roofs", "add_roof add_dormer modify_dormer remove_dormer modify_roof fit_walls_to_roof headroom auto_roof"},
+      {"Roofs", "add_roof add_dormer modify_dormer remove_dormer modify_roof set_gutters fit_walls_to_roof headroom auto_roof"},
       {"Grading and terrain measures", "add_terrain_patch shift_terrain reseat_all add_pad flatten_area smooth_area add_berm grade_path extend_terrain "
           + "cut_fill_report contours spot_elevations slope_map site_report export_site trees_from_lidar"},
       {"Ground and site", "add_slab set_terrain set_site_defaults add_polyline add_property_line add_setback modify_polyline set_compass "

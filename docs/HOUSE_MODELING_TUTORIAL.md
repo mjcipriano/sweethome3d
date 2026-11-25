@@ -219,6 +219,61 @@ where the slope changes, as under the peak of a gable (4 walls added).
 
 ![The roof with its dormers](images/tut-5-dormers.jpg)
 
+### A roof against a taller wall, gutters and downspouts
+
+A one-story roof often runs into the wall of a taller part of the house. Three
+ways stop it there; the first two keep its shape.
+
+| What you have | Command | Result |
+| --- | --- | --- |
+| An edge of the roof runs along the tall wall | `{"action":"modify_roof","roof":"F52","edge":{"index":4,"type":"clip"}}` | The roof is the one a hip at that edge gives, and it stops at the vertical plane of the edge: no overhang, fascia, soffit, gutter nor downspout there. Its top doesn't move |
+| The roof was drawn over the taller part | `{"action":"modify_roof","roof":"F52","clip_to_walls":["W52","W78"]}` | The roof is cut at the face of each wall, and its slopes keep their planes. `"clip_to_rooms":["R11"]` cuts it around a room and its walls. `"clip":"taller_walls"` finds the rooms most of whose walls rise through the roof. `"clip":false` removes the cut |
+| The roof should lean on the wall | `"type":"abut"` | A lean-to rising toward the wall: the shape changes |
+
+`clip_to_walls` removes what is behind each wall, seen from the middle of the
+roof, however far; `"clip_depth":N` limits it to N cm. `"clip":"taller_walls"`
+is a guess from the heights of the walls: the answer names the rooms it used.
+With an attic whose walls weren't fitted to the roof yet, it would take the
+attic for a taller part, so fit the walls first or name the rooms.
+
+Gutters are chosen for the whole roof, for an edge, or for spans of an edge,
+and `set_gutters` changes them without changing the shape of the roof:
+
+```json
+[{"action":"set_gutters","roof":"F52","gutters":true,
+  "edges":[{"index":2,"gutter":false},
+           {"index":3,"gutter_spans":[[0,320],[700,1447]]}],
+  "downspouts":[{"edge":3,"at":120},{"edge":1,"at":40}]}]
+```
+
+- Edges are numbered from 1: the edge 1 goes from the first point of the roof
+  to the second one. `describe_item` on the roof lists them with their type,
+  their gutters and what walls cut.
+- `gutter_spans` are distances in cm from the start of the edge.
+  `"gutter_spans":null` gives the edge its whole gutter back.
+- `"downspouts":[...]` puts a downspout at each given place and nowhere else.
+  With `true`, one stands at the start of each gutter longer than 1 m.
+- `"fascia":false` on an edge draws its band in the color of the roof.
+
+When the points or the edges of a roof change, its dormers stay on their edge,
+at the same point of the plan. A dormer whose edge is no longer an eave isn't
+built, and the answer says so instead of moving it to another edge:
+`modify_dormer` with `"side"` or `"edge"` moves it.
+
+The answer of `modify_roof`, `add_dormer`, `modify_dormer` and `remove_dormer`
+names the walls the change left above the roof, with the command that fits
+them:
+
+```
+3 walls now rise above this roof: W12, W14, W15. Fit them with
+{"action":"fit_walls_to_roof","roof":"F51","ids":["W12","W14","W15"]}
+```
+
+A key that an edge, a dormer, a dormer window or a downspout doesn't have is
+reported and dropped, as the unknown keys of a command are, and a value that
+is out of range is reported with the value used in its place:
+`the setback -18 of the dormer 1 was changed to 0: a dormer can't stand in front of its edge`.
+
 ## 6. The site
 
 *"The plot slopes down toward the street at the south. Add a lawn, a sloped

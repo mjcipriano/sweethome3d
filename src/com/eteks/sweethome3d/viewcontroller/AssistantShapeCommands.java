@@ -130,6 +130,8 @@ class AssistantShapeCommands {
         modifyDormer(command, false, tally, notes);
       } else if ("modify_roof".equals(action)) {
         modifyRoof(command, tally, notes);
+      } else if ("set_gutters".equals(action) || "modify_gutters".equals(action)) {
+        setGutters(command, tally, notes);
       } else if ("headroom".equals(action) || "room_headroom".equals(action)) {
         reportHeadroom(command, notes);
       } else if ("fit_walls_to_roof".equals(action)) {
@@ -1387,7 +1389,528 @@ class AssistantShapeCommands {
   private static final String [] ROOF_PARAMETERS = {"points", "eave_height", "overhang", "pitch", "thickness", "type",
       "ridge", "low_side", "edges", "color", "texture", "texture_id", "texture_category", "texture_scale", "texture_angle",
       "gable_color", "fascia_color", "underside_color", "gutter_color", "fascia", "soffit", "ridge_cap", "gutters",
-      "downspouts", "gable_walls", "dormers"};
+      "downspouts", "gable_walls", "dormers", "clip", "clip_to_walls", "clip_to_rooms", "clip_depth"};
+  // The keys of the objects nested in the commands of roofs
+  private static final List<String> EDGE_KEYS = java.util.Arrays.asList(
+      "type", "pitch", "overhang", "gutter", "gutter_spans", "fascia");
+  private static final List<String> DORMER_KEYS = java.util.Arrays.asList(
+      "side", "edge", "position", "offset", "width", "height", "setback", "type", "pitch", "ridge", "overhang",
+      "window", "windows", "window_width", "window_height");
+  private static final List<String> DORMER_WINDOW_KEYS = java.util.Arrays.asList("name", "width", "height", "sill");
+  private static final List<String> DOWNSPOUT_KEYS = java.util.Arrays.asList("edge", "at");
+  /** The place a dormer had the last time its roof was built, kept in its description. */
+  private static final String DORMER_PLACE_KEY = "at";
+
+  /**
+   * Removes the keys of an object nested in a command that the command doesn't read, and reports them.
+   */
+  private void dropUnknownKeys(String action, String where, Map<String, Object> object, List<String> knownKeys,
+                               List<String> hiddenKeys, List<String> notes) {
+    String remark = AssistantCommand.describeUnknownKeys(where, object, knownKeys, hiddenKeys);
+    if (remark != null) {
+      notes.add("Warning: " + action + " " + remark);
+      List<String> known = new ArrayList<String>(knownKeys);
+      if (hiddenKeys != null) {
+        known.addAll(hiddenKeys);
+      }
+      object.keySet().retainAll(known);
+    }
+  }
+
+  /**
+   * Returns a copy of the edges of the description of a roof without the keys an edge doesn't have,
+   * which are reported.
+   */
+  private List<Object> cleanEdges(String action, Object edges, List<String> notes) {
+    List<Object> cleanEdges = new ArrayList<Object>();
+    int index = 0;
+    for (Object edge : (List<?>)edges) {
+      index++;
+      if (edge instanceof Map) {
+        Map<String, Object> cleanEdge = new LinkedHashMap<String, Object>();
+        for (Map.Entry<?, ?> entry : ((Map<?, ?>)edge).entrySet()) {
+          cleanEdge.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        dropUnknownKeys(action, "the edge " + index, cleanEdge, EDGE_KEYS, null, notes);
+        cleanEdges.add(cleanEdge);
+      } else {
+        cleanEdges.add(edge);
+      }
+    }
+    return cleanEdges;
+  }
+
+  /**
+   * Returns a copy of the downspouts of the description of a roof, checked as its edges are.
+   */
+  private Object cleanDownspouts(String action, Object downspouts, List<String> notes) {
+    if (!(downspouts instanceof List)) {
+      return downspouts;
+    }
+    List<Object> cleanDownspouts = new ArrayList<Object>();
+    int index = 0;
+    for (Object downspout : (List<?>)downspouts) {
+      index++;
+      if (downspout instanceof Map) {
+        Map<String, Object> cleanDownspout = new LinkedHashMap<String, Object>();
+        for (Map.Entry<?, ?> entry : ((Map<?, ?>)downspout).entrySet()) {
+          cleanDownspout.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        dropUnknownKeys(action, "the downspout " + index, cleanDownspout, DOWNSPOUT_KEYS, null, notes);
+        cleanDownspouts.add(cleanDownspout);
+      } else {
+        notes.add("Warning: " + action + " ignored the downspout " + index
+            + ": a downspout is {\"edge\":N,\"at\":N}, with the number of its edge and the distance in cm from the start of that edge");
+      }
+    }
+    return cleanDownspouts;
+  }
+
+  /**
+   * Keeps in the description of a roof the place where each of its dormers was built, so they stay
+   * on their side, at the same point of the plan, when the corners or the edges of the roof change.
+   */
+  @SuppressWarnings("unchecked")
+  private static void keepDormerPlaces(Map<String, Object> spec, AssistantRoofModel roof) {
+    if (spec.get("dormers") instanceof List) {
+      List<Object> dormers = new ArrayList<Object>();
+      int index = 0;
+      for (Object dormer : (List<?>)spec.get("dormers")) {
+        if (dormer instanceof Map) {
+          Map<String, Object> copy = new LinkedHashMap<String, Object>((Map<String, Object>)dormer);
+          double [] place = index < roof.getDormerPlaces().size() ? roof.getDormerPlaces().get(index) : null;
+          if (place != null) {
+            List<Object> values = new ArrayList<Object>();
+            for (double value : place) {
+              values.add(Double.valueOf(Math.round(value * 1000) / 1000.));
+            }
+            copy.put(DORMER_PLACE_KEY, values);
+          }
+          dormers.add(copy);
+        } else {
+          dormers.add(dormer);
+        }
+        index++;
+      }
+      spec.put("dormers", dormers);
+    }
+  }
+
+  /**
+   * Returns the walls that come out of the top of a roof, as a remark for the answer of the commands
+   * that change it, or an empty string.
+   */
+  private String describeWallsAbove(HomePieceOfFurniture roofPiece, AssistantRoofModel roof) {
+    List<Wall> walls = HomeRoofs.getWallsAbove(this.home, new HomeRoofs.Roof(roofPiece, roof,
+        roofPiece.getLevel() != null ? roofPiece.getLevel().getElevation() : 0));
+    if (walls.isEmpty()) {
+      return "";
+    }
+    StringBuilder ids = new StringBuilder();
+    StringBuilder list = new StringBuilder();
+    for (int i = 0; i < walls.size() && i < 30; i++) {
+      ids.append(i > 0 ? ", " : "").append(this.executor.getId(walls.get(i)));
+      list.append(i > 0 ? "," : "").append('"').append(this.executor.getId(walls.get(i))).append('"');
+    }
+    return ". " + walls.size() + (walls.size() == 1 ? " wall now rises" : " walls now rise") + " above this roof: " + ids
+        + (walls.size() > 30 ? "..." : "") + ". Fit them with {\"action\":\"fit_walls_to_roof\",\"roof\":\""
+        + this.executor.getId(roofPiece) + "\",\"ids\":[" + list + "]}";
+  }
+
+  // ---- Roofs clipped by taller walls ----
+
+  /**
+   * Computes what the walls of the taller parts of the building cut out of a roof, from the keys
+   * <code>clip_to_walls</code>, <code>clip_to_rooms</code> and <code>clip</code> of its description,
+   * and stores it in <code>clip_areas</code>.
+   * @return what was cut, to tell in the answer, or <code>null</code>
+   */
+  private String resolveClip(Map<String, Object> spec, Level level, List<String> notes) throws IOException {
+    Object mode = spec.get("clip");
+    String modeText = mode != null ? mode.toString().trim().toLowerCase(Locale.ENGLISH).replace('-', '_').replace(' ', '_') : null;
+    if (Boolean.FALSE.equals(mode) || "none".equals(modeText) || "off".equals(modeText) || "false".equals(modeText)) {
+      boolean clipped = spec.get("clip_areas") != null;
+      for (String key : new String [] {"clip", "clip_to_walls", "clip_to_rooms", "clip_depth", "clip_areas"}) {
+        spec.remove(key);
+      }
+      return clipped ? "it isn't clipped by walls anymore" : null;
+    }
+    if (modeText != null && !"taller_walls".equals(modeText) && !"taller".equals(modeText) && !"walls".equals(modeText)
+        && !"true".equals(modeText)) {
+      throw new IOException("\"clip\" is \"taller_walls\" to cut the roof where it would enter the rooms with walls "
+          + "taller than its eaves, or false to remove what walls cut; \"clip_to_walls\":[\"W1\"] and "
+          + "\"clip_to_rooms\":[\"R1\"] name the walls and the rooms that cut it");
+    }
+    Map<String, Object> bareSpec = new LinkedHashMap<String, Object>(spec);
+    bareSpec.remove("clip_areas");
+    AssistantRoofModel bare = AssistantRoofModel.create(bareSpec);
+    float roofElevation = level != null ? level.getElevation() : 0;
+    double [] center = AssistantRoofGeometry.getCenter(bare.getPoints());
+    double depth = AssistantFurnitureBuilder.getNumber(spec, "clip_depth", 100000);
+    if (!(depth > 0)) {
+      depth = 100000;
+    }
+    Area cut = new Area();
+    List<String> used = new ArrayList<String>();
+    for (Object id : toList(spec.get("clip_to_walls"))) {
+      HomeObject item = HomeItemIds.find(this.home, String.valueOf(id));
+      if (!(item instanceof Wall)) {
+        throw new IOException("\"clip_to_walls\" lists the ids of walls: \"" + id + "\" isn't a wall");
+      }
+      Wall wall = (Wall)item;
+      double length = wall.getLength();
+      if (length < 1) {
+        continue;
+      }
+      cut.add(AssistantMeshBuilder.getArea(wall.getPoints()));
+      // What is behind the wall, seen from the roof
+      double ux = (wall.getXEnd() - wall.getXStart()) / length;
+      double uy = (wall.getYEnd() - wall.getYStart()) / length;
+      double nx = -uy;
+      double ny = ux;
+      if (nx * (center [0] - wall.getXStart()) + ny * (center [1] - wall.getYStart()) > 0) {
+        nx = -nx;
+        ny = -ny;
+      }
+      double half = wall.getThickness() / 2;
+      cut.add(AssistantMeshBuilder.getArea(new float [][] {
+          {(float)(wall.getXStart() - ux * half), (float)(wall.getYStart() - uy * half)},
+          {(float)(wall.getXEnd() + ux * half), (float)(wall.getYEnd() + uy * half)},
+          {(float)(wall.getXEnd() + ux * half + nx * depth), (float)(wall.getYEnd() + uy * half + ny * depth)},
+          {(float)(wall.getXStart() - ux * half + nx * depth), (float)(wall.getYStart() - uy * half + ny * depth)}}));
+      used.add(this.executor.getId(wall));
+    }
+    List<Room> rooms = new ArrayList<Room>();
+    for (Object id : toList(spec.get("clip_to_rooms"))) {
+      HomeObject item = HomeItemIds.find(this.home, String.valueOf(id));
+      if (!(item instanceof Room)) {
+        throw new IOException("\"clip_to_rooms\" lists the ids of rooms: \"" + id + "\" isn't a room");
+      }
+      rooms.add((Room)item);
+    }
+    if (modeText != null) {
+      // The rooms most of whose walls go through the roof or rise above its eaves
+      Area footprint = bare.getGeometry().getFootprint();
+      for (Room room : this.home.getRooms()) {
+        if (rooms.contains(room)) {
+          continue;
+        }
+        Area roomArea = AssistantMeshBuilder.getArea(room.getPoints());
+        roomArea.intersect(footprint);
+        if (roomArea.isEmpty()) {
+          continue;
+        }
+        float [][] points = room.getPoints();
+        double perimeter = 0;
+        double tall = 0;
+        for (int i = 0; i < points.length; i++) {
+          float [] point = points [i];
+          float [] next = points [(i + 1) % points.length];
+          double sideLength = Math.hypot(next [0] - point [0], next [1] - point [1]);
+          perimeter += sideLength;
+          Wall wall = getWallAlong(room, (point [0] + next [0]) / 2, (point [1] + next [1]) / 2);
+          if (wall != null && isTallerWall(wall, bare, roofElevation)) {
+            tall += sideLength;
+          }
+        }
+        if (perimeter > 0 && tall >= 0.6 * perimeter) {
+          rooms.add(room);
+        }
+      }
+    }
+    for (Room room : rooms) {
+      cut.add(AssistantMeshBuilder.getArea(room.getPoints()));
+      // With the walls around it: the roof stops at their face
+      float [][] points = room.getPoints();
+      for (int i = 0; i < points.length; i++) {
+        float [] point = points [i];
+        float [] next = points [(i + 1) % points.length];
+        Wall wall = getWallAlong(room, (point [0] + next [0]) / 2, (point [1] + next [1]) / 2);
+        if (wall != null) {
+          cut.add(AssistantMeshBuilder.getArea(wall.getPoints()));
+        }
+      }
+      used.add(this.executor.getId(room));
+    }
+    cut = getCutWithOverhangs(bare, cut);
+    List<Object> areas = new ArrayList<Object>();
+    for (float [][] outline : AssistantMeshBuilder.getOutlines(cut)) {
+      if (outline.length >= 3) {
+        List<Object> area = new ArrayList<Object>();
+        for (float [] point : outline) {
+          List<Object> coordinates = new ArrayList<Object>();
+          coordinates.add(Double.valueOf(Math.round(point [0] * 100) / 100.));
+          coordinates.add(Double.valueOf(Math.round(point [1] * 100) / 100.));
+          area.add(coordinates);
+        }
+        areas.add(area);
+      }
+    }
+    if (areas.isEmpty()) {
+      spec.remove("clip_areas");
+      return used.isEmpty()
+          ? "no room with walls taller than its eaves is under it: nothing was clipped"
+          : "nothing of it is behind " + used + ": nothing was clipped";
+    }
+    spec.put("clip_areas", areas);
+    return "clipped at the face of " + used + ", where it has no fascia, gutter nor overhang";
+  }
+
+  /**
+   * Returns what is cut out of a roof once its overhangs are cut with it: beside what
+   * <code>cut</code> removes, the roof keeps its overhang only along the parts of its edges that remain,
+   * so nothing of it goes beyond the walls that cut it.
+   */
+  private static Area getCutWithOverhangs(AssistantRoofModel roof, Area cut) {
+    Area footprint = roof.getGeometry().getFootprint();
+    double [][] points = roof.getPoints();
+    // What remains over the walls of the roof
+    Area kept = AssistantMeshBuilder.getArea(AssistantRoofGeometry.toFloats(points));
+    kept.subtract(cut);
+    double sign = Math.signum(AssistantRoofGeometry.getSignedArea(points));
+    Area strips = new Area();
+    for (int edge = 0; edge < points.length; edge++) {
+      double [] point = points [edge];
+      double [] next = points [(edge + 1) % points.length];
+      double length = Math.hypot(next [0] - point [0], next [1] - point [1]);
+      double overhang = roof.getEdgeOverhang(edge);
+      if (length < 0.5 || overhang < 0.01) {
+        continue;
+      }
+      double ux = (next [0] - point [0]) / length;
+      double uy = (next [1] - point [1]) / length;
+      // Toward the inside of the roof
+      double nx = -sign * uy;
+      double ny = sign * ux;
+      // The parts of the edge that remain, found a hair inside the roof
+      Area along = AssistantMeshBuilder.getArea(new float [][] {
+          {(float)point [0], (float)point [1]}, {(float)next [0], (float)next [1]},
+          {(float)(next [0] + nx * 0.5), (float)(next [1] + ny * 0.5)},
+          {(float)(point [0] + nx * 0.5), (float)(point [1] + ny * 0.5)}});
+      along.subtract(cut);
+      for (float [][] outline : AssistantMeshBuilder.getOutlines(along)) {
+        double from = Double.POSITIVE_INFINITY;
+        double to = Double.NEGATIVE_INFINITY;
+        for (float [] outlinePoint : outline) {
+          double t = ux * (outlinePoint [0] - point [0]) + uy * (outlinePoint [1] - point [1]);
+          from = Math.min(from, t);
+          to = Math.max(to, t);
+        }
+        if (to - from < 0.05) {
+          continue;
+        }
+        // At a corner of the roof, the overhang goes around it
+        if (from < 0.05) {
+          from = -roof.getEdgeOverhang((edge + points.length - 1) % points.length);
+        }
+        if (to > length - 0.05) {
+          to = length + roof.getEdgeOverhang((edge + 1) % points.length);
+        }
+        strips.add(AssistantMeshBuilder.getArea(new float [][] {
+            {(float)(point [0] + ux * from + nx * 0.5), (float)(point [1] + uy * from + ny * 0.5)},
+            {(float)(point [0] + ux * to + nx * 0.5), (float)(point [1] + uy * to + ny * 0.5)},
+            {(float)(point [0] + ux * to - nx * (overhang + 1)), (float)(point [1] + uy * to - ny * (overhang + 1))},
+            {(float)(point [0] + ux * from - nx * (overhang + 1)), (float)(point [1] + uy * from - ny * (overhang + 1))}}));
+      }
+    }
+    kept.add(strips);
+    Area removed = (Area)footprint.clone();
+    removed.subtract(kept);
+    // Nothing more than what the walls ask for when they cut nothing
+    Area asked = (Area)cut.clone();
+    asked.intersect(footprint);
+    return asked.isEmpty() ? asked : removed;
+  }
+
+  private static List<?> toList(Object value) {
+    return value instanceof List ? (List<?>)value
+        : value != null ? Collections.singletonList(value) : Collections.emptyList();
+  }
+
+  /**
+   * Returns the wall of the level of <code>room</code> that runs along the point of one of its sides, or <code>null</code>.
+   */
+  private Wall getWallAlong(Room room, double x, double y) {
+    Wall best = null;
+    double bestDistance = Double.MAX_VALUE;
+    for (Wall wall : this.home.getWalls()) {
+      if (wall.getLevel() == room.getLevel()) {
+        double distance = java.awt.geom.Line2D.ptSegDist(wall.getXStart(), wall.getYStart(), wall.getXEnd(), wall.getYEnd(), x, y);
+        if (distance <= wall.getThickness() / 2 + 5 && distance < bestDistance) {
+          bestDistance = distance;
+          best = wall;
+        }
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Returns <code>true</code> if most of a wall goes through the top of a roof, or rises above its eaves beside it.
+   */
+  private boolean isTallerWall(Wall wall, AssistantRoofModel roof, float roofElevation) {
+    float elevation = wall.getLevel() != null ? wall.getLevel().getElevation() : 0;
+    float height = wall.getHeight() != null ? wall.getHeight() : this.home.getWallHeight();
+    float heightAtEnd = wall.getHeightAtEnd() != null ? wall.getHeightAtEnd() : height;
+    double roofTop = roof.getGeometry().getMaxHeight() + roofElevation;
+    int taller = 0;
+    for (int i = 1; i < 10; i++) {
+      double t = i / 10.;
+      double x = wall.getXStart() + (wall.getXEnd() - wall.getXStart()) * t;
+      double y = wall.getYStart() + (wall.getYEnd() - wall.getYStart()) * t;
+      double wallTop = elevation + height + (heightAtEnd - height) * t;
+      double top = roof.getGeometry().getHeight(x, y, false) + roofElevation;
+      if (elevation < roofTop
+          && (Double.isNaN(top) ? wallTop > roofElevation + roof.getEaveHeight() + 30 : wallTop > top + 10)) {
+        taller++;
+      }
+    }
+    return taller >= 5;
+  }
+
+  /**
+   * Changes the gutters, the downspouts and the fascia of a roof, whose shape doesn't change.
+   */
+  @SuppressWarnings("unchecked")
+  private void setGutters(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
+    String action = command.getAction();
+    HomePieceOfFurniture roofPiece = getRoof(command, action);
+    this.executor.warnUnknownKeys(command, java.util.Arrays.asList("action", "roof", "id", "gutters", "downspouts",
+        "gutter_color", "fascia", "fascia_color", "edges", "edge"));
+    Map<String, Object> oldSpec = getRoofSpec(roofPiece);
+    Map<String, Object> spec = new LinkedHashMap<String, Object>(oldSpec);
+    int changes = 0;
+    for (String parameter : new String [] {"gutters", "gutter_color", "fascia", "fascia_color"}) {
+      if (command.getParameters().get(parameter) != null) {
+        spec.put(parameter, command.getParameters().get(parameter));
+        changes++;
+      }
+    }
+    if (command.getParameters().get("downspouts") != null) {
+      spec.put("downspouts", cleanDownspouts(action, command.getParameters().get("downspouts"), notes));
+      changes++;
+    }
+    List<Object> edgeChanges = new ArrayList<Object>();
+    for (String key : new String [] {"edge", "edges"}) {
+      if (command.getParameters().get(key) instanceof Map) {
+        edgeChanges.add(command.getParameters().get(key));
+      } else if (command.getParameters().get(key) instanceof List) {
+        edgeChanges.addAll((List<?>)command.getParameters().get(key));
+      }
+    }
+    if (!edgeChanges.isEmpty()) {
+      changes += changeEdges(action, spec, edgeChanges, java.util.Arrays.asList("gutter", "gutter_spans", "fascia"), notes);
+    }
+    if (changes == 0) {
+      throw new IOException("give what changes: \"gutters\":true|false for the whole roof, "
+          + "\"edges\":[{\"index\":N,\"gutter\":true|false,\"gutter_spans\":[[from,to],...],\"fascia\":true|false}] "
+          + "for some edges, \"downspouts\":true|false or [{\"edge\":N,\"at\":N}], \"gutter_color\", \"fascia_color\"");
+    }
+    AssistantRoofModel roof = rebuildRoof(roofPiece, oldSpec, spec, -1, tally, notes);
+    notes.add("Changed the gutters of the roof " + this.executor.getId(roofPiece) + ", whose shape didn't change: "
+        + describeGutters(spec, roof));
+  }
+
+  /**
+   * Returns the gutters and the downspouts of a roof.
+   */
+  private String describeGutters(Map<String, Object> spec, AssistantRoofModel roof) {
+    boolean gutters = Boolean.TRUE.equals(spec.get("gutters")) || "true".equalsIgnoreCase(String.valueOf(spec.get("gutters")));
+    StringBuilder with = new StringBuilder();
+    StringBuilder without = new StringBuilder();
+    for (int i = 0; i < roof.getEdgeCount(); i++) {
+      if (!roof.isEdgeSloped(i) || roof.isEdgeClipped(i)) {
+        continue;
+      }
+      double [][] spans = roof.getEdgeGutterSpans(i);
+      boolean gutter = roof.getEdgeGutter(i) != null ? roof.getEdgeGutter(i).booleanValue() : gutters || spans != null;
+      StringBuilder list = gutter ? with : without;
+      list.append(list.length() > 0 ? ", " : "").append(i + 1);
+      if (gutter && spans != null) {
+        list.append(" (");
+        for (int j = 0; j < spans.length; j++) {
+          list.append(j > 0 ? ", " : "").append(format(spans [j][0])).append(" to ").append(format(spans [j][1]));
+        }
+        list.append(" cm)");
+      }
+    }
+    Object downspouts = spec.get("downspouts");
+    return (with.length() > 0 ? "gutters along the edges " + with : "no gutter")
+        + (without.length() > 0 && with.length() > 0 ? ", none along the edges " + without : "")
+        + (with.length() == 0 ? ""
+            : downspouts instanceof List ? "; " + ((List<?>)downspouts).size() + " downspouts where the description puts them"
+            : Boolean.FALSE.equals(downspouts) || "false".equalsIgnoreCase(String.valueOf(downspouts)) ? "; no downspout"
+            : "; a downspout at the start of each gutter longer than 1 m");
+  }
+
+  /**
+   * Changes some edges of the description of a roof, each one given with its <code>index</code>.
+   * @param changedKeys the keys that may change, or <code>null</code> for all the ones of an edge
+   * @return the count of edges changed
+   */
+  @SuppressWarnings("unchecked")
+  private int changeEdges(String action, Map<String, Object> spec, List<Object> edgeChanges, List<String> changedKeys,
+                          List<String> notes) throws IOException {
+    // The edges as they are, by their number
+    AssistantRoofModel current = AssistantRoofModel.create(spec);
+    List<?> oldEdges = spec.get("edges") instanceof List ? (List<?>)spec.get("edges") : null;
+    List<Object> edges = new ArrayList<Object>();
+    for (int i = 0; i < current.getEdgeCount(); i++) {
+      Map<String, Object> edge = new LinkedHashMap<String, Object>();
+      if (oldEdges != null && oldEdges.size() == current.getEdgeCount() && oldEdges.get(i) instanceof Map) {
+        // With its gutter and its fascia
+        for (Map.Entry<?, ?> entry : ((Map<?, ?>)oldEdges.get(i)).entrySet()) {
+          if (EDGE_KEYS.contains(String.valueOf(entry.getKey()))) {
+            edge.put(String.valueOf(entry.getKey()), entry.getValue());
+          }
+        }
+      }
+      edge.put("type", current.getEdgeTypeName(i));
+      edge.put("pitch", Double.valueOf(current.getEdgePitch(i)));
+      edge.put("overhang", Double.valueOf(current.getEdgeOverhang(i)));
+      edges.add(edge);
+    }
+    int changes = 0;
+    for (Object edgeChange : edgeChanges) {
+      if (edgeChange instanceof Map && ((Map<?, ?>)edgeChange).get("index") instanceof Number) {
+        int index = ((Number)((Map<?, ?>)edgeChange).get("index")).intValue() - 1;
+        if (index < 0 || index >= edges.size()) {
+          throw new IOException("the edges of this roof are numbered from 1 to " + edges.size()
+              + " (the edge 1 goes from its first point to the second one)");
+        }
+        Map<String, Object> change = new LinkedHashMap<String, Object>();
+        for (Map.Entry<?, ?> entry : ((Map<?, ?>)edgeChange).entrySet()) {
+          change.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        dropUnknownKeys(action, "the edge " + (index + 1), change,
+            changedKeys != null ? changedKeys : EDGE_KEYS, Collections.singletonList("index"), notes);
+        change.remove("index");
+        if (change.isEmpty()) {
+          continue;
+        }
+        Map<String, Object> edge = (Map<String, Object>)edges.get(index);
+        String oldType = String.valueOf(edge.get("type"));
+        edge.putAll(change);
+        if (change.get("type") != null && change.get("overhang") == null) {
+          String type = String.valueOf(change.get("type")).trim().toLowerCase(Locale.ENGLISH);
+          if ("abut".equals(type) || AssistantRoofModel.isClip(type)) {
+            edge.put("overhang", Double.valueOf(0));
+          } else if ("abut".equals(oldType) || "clip".equals(oldType)) {
+            // The overhang of the roof again
+            edge.remove("overhang");
+          }
+        }
+        if (Boolean.FALSE.equals(change.get("gutter_spans")) || change.containsKey("gutter_spans") && change.get("gutter_spans") == null) {
+          edge.remove("gutter_spans");
+        }
+        changes++;
+      } else {
+        throw new IOException("\"edge\" must give the \"index\" of the edge to change, from 1");
+      }
+    }
+    spec.put("edges", edges);
+    return changes;
+  }
 
   private void addRoof(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
     Level level = getLevel(command, "add_roof", notes);
@@ -1407,6 +1930,15 @@ class AssistantShapeCommands {
       }
       spec.put("eave_height", Double.valueOf(wallTop > 0 ? wallTop : level != null ? level.getHeight() : this.home.getWallHeight()));
     }
+    List<String> commandKeys = new ArrayList<String>(java.util.Arrays.asList(ROOF_PARAMETERS));
+    commandKeys.addAll(java.util.Arrays.asList("action", "level", "name"));
+    this.executor.warnUnknownKeys(command, commandKeys);
+    if (spec.get("edges") instanceof List) {
+      spec.put("edges", cleanEdges("add_roof", spec.get("edges"), notes));
+    }
+    if (spec.get("downspouts") != null) {
+      spec.put("downspouts", cleanDownspouts("add_roof", spec.get("downspouts"), notes));
+    }
     if (spec.get("dormers") instanceof List) {
       List<Object> dormers = new ArrayList<Object>();
       for (Object dormer : (List<?>)spec.get("dormers")) {
@@ -1416,7 +1948,10 @@ class AssistantShapeCommands {
       }
       spec.put("dormers", dormers);
     }
+    String clipped = spec.get("clip") != null || spec.get("clip_to_walls") != null || spec.get("clip_to_rooms") != null
+        ? resolveClip(spec, level, notes) : null;
     AssistantRoofModel roof = AssistantRoofModel.create(spec);
+    keepDormerPlaces(spec, roof);
     AssistantGeneratedModel model = roof.build(spec, getTextureFinder(), getGroundHeight(level));
     String name = command.getString("name") != null && command.getString("name").trim().length() > 0
         ? command.getString("name").trim() : "Roof";
@@ -1432,6 +1967,7 @@ class AssistantShapeCommands {
     }
     notes.add("Added the roof " + this.executor.getId(piece) + " \"" + name + "\": " + describe(roof, piece, level)
         + (windows > 0 ? ", with " + windows + (windows == 1 ? " dormer window" : " dormer windows") : "")
+        + (clipped != null ? "; " + clipped : "")
         + (allLevelsShown || this.home.getLevels().size() < 2 ? "" : "; the 3D view now displays all levels so the roof shows")
         + ". The plans of the levels above show it as a dashed outline. Hide the ceiling of the rooms under its slopes "
         + "with modify_room if they are open to it, and close the walls under its gables with "
@@ -1477,6 +2013,8 @@ class AssistantShapeCommands {
     }
     resolved.remove("action");
     resolved.remove("roof");
+    resolved.remove("id");
+    dropUnknownKeys("add_dormer", "the dormer", resolved, DORMER_KEYS, Collections.singletonList(DORMER_PLACE_KEY), notes);
     // Its windows: "window":"<name>" with an optional "windows":N for N of them side by side,
     // or "windows":[...] with a name or {"name","width","height","sill"} for each one
     List<Object> windows = new ArrayList<Object>();
@@ -1490,6 +2028,12 @@ class AssistantShapeCommands {
           name = window;
         }
         Map<String, Object> resolvedWindow = resolveWindow(name, notes);
+        if (itemMap != null) {
+          String remark = AssistantCommand.describeUnknownKeys("a window of the dormer", itemMap, DORMER_WINDOW_KEYS, null);
+          if (remark != null) {
+            notes.add("Warning: add_dormer " + remark);
+          }
+        }
         if (resolvedWindow != null) {
           if (itemMap != null) {
             for (String size : new String [] {"width", "height", "sill"}) {
@@ -1696,6 +2240,7 @@ class AssistantShapeCommands {
                                          int [] tally, List<String> notes) throws IOException {
     AssistantRoofModel oldRoof = AssistantRoofModel.create(oldSpec);
     AssistantRoofModel roof = AssistantRoofModel.create(spec);
+    keepDormerPlaces(spec, roof);
     Level level = roofPiece.getLevel();
     AssistantGeneratedModel model = roof.build(spec, getTextureFinder(), getGroundHeight(level));
     float [] bounds = model.getBounds();
@@ -1738,6 +2283,13 @@ class AssistantShapeCommands {
           text.append(' ').append(format(roof.getEdgePitch(i))).append(" deg");
         }
       }
+      Map<String, Object> roofSpec = getRoofSpec(piece);
+      text.append("; ").append(describeGutters(roofSpec, roof));
+      if (roofSpec.get("clip_areas") instanceof List) {
+        text.append("; clipped by walls in ").append(((List<?>)roofSpec.get("clip_areas")).size())
+            .append(((List<?>)roofSpec.get("clip_areas")).size() == 1 ? " place" : " places")
+            .append(" (modify_roof with \"clip\":false removes it)");
+      }
       return text.append("; ").append(describeDormers(roof)).toString();
     } catch (IOException ex) {
       return null;
@@ -1772,9 +2324,38 @@ class AssistantShapeCommands {
       for (String key : new String [] {"action", "roof", "id", "index", "dormer"}) {
         changes.remove(key);
       }
+      dropUnknownKeys(action, "the dormer", changes, DORMER_KEYS, null, notes);
       if (changes.isEmpty()) {
         throw new IOException("give what changes: width, height, offset or position, setback, type, pitch, ridge, "
             + "side or edge, overhang, window, windows");
+      }
+      if (changes.containsKey("offset") || changes.containsKey("position") || changes.containsKey("side")
+          || changes.containsKey("edge")) {
+        // A new place
+        dormer.remove(DORMER_PLACE_KEY);
+        if (!changes.containsKey("side") && !changes.containsKey("edge") && !dormer.containsKey("edge")
+            && index < oldRoof.getDormerPlaces().size() && oldRoof.getDormerPlaces().get(index) != null) {
+          // On the edge it stands on, whatever the edge its side would give now
+          double [] place = oldRoof.getDormerPlaces().get(index);
+          double [][] points = oldRoof.getPoints();
+          int placeEdge = -1;
+          double placeDistance = 1;
+          for (int i = 0; i < points.length; i++) {
+            double [] next = points [(i + 1) % points.length];
+            double distance = java.awt.geom.Line2D.ptSegDist(points [i][0], points [i][1], next [0], next [1], place [0], place [1]);
+            if (distance < placeDistance) {
+              placeDistance = distance;
+              placeEdge = i;
+            }
+          }
+          if (placeEdge >= 0 && (dormer.get("side") == null
+                  || oldRoof.getEdgeFacing(String.valueOf(dormer.get("side")).trim().toLowerCase(Locale.ENGLISH), true) != placeEdge)) {
+            dormer.remove("side");
+            dormer.put("edge", Integer.valueOf(placeEdge + 1));
+            notes.add("The place of the dormer " + (index + 1) + " is measured from the start of the edge " + (placeEdge + 1)
+                + " it stands on");
+          }
+        }
       }
       // A place given one way replaces the place given the other way
       if (changes.containsKey("offset")) {
@@ -1818,7 +2399,7 @@ class AssistantShapeCommands {
     notes.add((remove ? "Removed the dormer " : "Modified the dormer ") + (index + 1) + " of the roof "
         + this.executor.getId(roofPiece) + "; " + describeDormers(roof)
         + (remove && !roof.getDormerDescriptions().isEmpty() ? " (the dormers after the removed one were numbered again)" : "")
-        + ". Run fit_walls_to_roof again if walls were fitted to this roof");
+        + getFitAdvice(roofPiece, roof));
     refreshCeilings(notes);
   }
 
@@ -1828,9 +2409,14 @@ class AssistantShapeCommands {
   @SuppressWarnings("unchecked")
   private void modifyRoof(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
     final HomePieceOfFurniture roofPiece = getRoof(command, "modify_roof");
+    List<String> commandKeys = new ArrayList<String>(java.util.Arrays.asList(ROOF_PARAMETERS));
+    commandKeys.addAll(java.util.Arrays.asList("action", "roof", "id", "edge", "raise_walls"));
+    this.executor.warnUnknownKeys(command, commandKeys);
     Map<String, Object> oldSpec = getRoofSpec(roofPiece);
     AssistantRoofModel oldRoof = AssistantRoofModel.create(oldSpec);
     Map<String, Object> spec = new LinkedHashMap<String, Object>(oldSpec);
+    // Its dormers stay where they are, whatever the edges become
+    keepDormerPlaces(spec, oldRoof);
     int changes = 0;
     for (String parameter : ROOF_PARAMETERS) {
       Object value = command.getParameters().get(parameter);
@@ -1843,6 +2429,12 @@ class AssistantShapeCommands {
       // The type gives the kind of every edge
       spec.remove("edges");
     }
+    if (command.has("edges") && spec.get("edges") instanceof List) {
+      spec.put("edges", cleanEdges("modify_roof", spec.get("edges"), notes));
+    }
+    if (command.has("downspouts")) {
+      spec.put("downspouts", cleanDownspouts("modify_roof", spec.get("downspouts"), notes));
+    }
     // One edge: {"edge":{"index":2,"type":"gable","pitch":35,"overhang":20}}, or a list of such edges
     List<Object> edgeChanges = new ArrayList<Object>();
     if (command.getParameters().get("edge") instanceof Map) {
@@ -1851,48 +2443,18 @@ class AssistantShapeCommands {
       edgeChanges.addAll((List<?>)command.getParameters().get("edge"));
     }
     if (!edgeChanges.isEmpty()) {
-      // The edges as they are, by their number
-      AssistantRoofModel current = AssistantRoofModel.create(spec);
-      List<Object> edges = new ArrayList<Object>();
-      for (int i = 0; i < current.getEdgeCount(); i++) {
-        Map<String, Object> edge = new LinkedHashMap<String, Object>();
-        edge.put("type", current.getEdgeTypeName(i));
-        edge.put("pitch", Double.valueOf(current.getEdgePitch(i)));
-        edge.put("overhang", Double.valueOf(current.getEdgeOverhang(i)));
-        edges.add(edge);
-      }
-      for (Object edgeChange : edgeChanges) {
-        if (edgeChange instanceof Map && ((Map<?, ?>)edgeChange).get("index") instanceof Number) {
-          int index = ((Number)((Map<?, ?>)edgeChange).get("index")).intValue() - 1;
-          if (index < 0 || index >= edges.size()) {
-            throw new IOException("the edges of this roof are numbered from 1 to " + edges.size()
-                + " (the edge 1 goes from its first point to the second one)");
-          }
-          Map<String, Object> edge = (Map<String, Object>)edges.get(index);
-          for (Map.Entry<?, ?> entry : ((Map<?, ?>)edgeChange).entrySet()) {
-            if (!"index".equals(entry.getKey())) {
-              edge.put(String.valueOf(entry.getKey()), entry.getValue());
-            }
-          }
-          if (((Map<?, ?>)edgeChange).get("type") != null && ((Map<?, ?>)edgeChange).get("overhang") == null
-              && "abut".equals(String.valueOf(((Map<?, ?>)edgeChange).get("type")))) {
-            edge.put("overhang", Double.valueOf(0));
-          }
-          changes++;
-        } else {
-          throw new IOException("\"edge\" must give the \"index\" of the edge to change, from 1");
-        }
-      }
-      spec.put("edges", edges);
+      changes += changeEdges("modify_roof", spec, edgeChanges, null, notes);
     }
     if (changes == 0) {
-      throw new IOException("give what changes: eave_height, pitch, overhang, type, edges, \"edge\":{\"index\":N,\"type\":\"hip|gable|abut\"}, "
-          + "points, thickness, color, texture, gutters, soffit, ridge_cap, gable_walls...");
+      throw new IOException("give what changes: eave_height, pitch, overhang, type, edges, \"edge\":{\"index\":N,\"type\":\"hip|gable|abut|clip\"}, "
+          + "points, thickness, color, texture, gutters, soffit, ridge_cap, gable_walls, clip_to_walls...");
     }
     if (spec.get("dormers") instanceof List) {
       // The windows of dormers keep their size
       spec.put("dormers", new ArrayList<Object>((List<?>)spec.get("dormers")));
     }
+    String clipped = command.has("clip") || command.has("clip_to_walls") || command.has("clip_to_rooms")
+        ? resolveClip(spec, roofPiece.getLevel(), notes) : null;
     AssistantRoofModel roof = rebuildRoof(roofPiece, oldSpec, spec, -1, tally, notes);
     final float raise = (float)(roof.getEaveHeight() - oldRoof.getEaveHeight());
     int raised = 0;
@@ -1929,8 +2491,19 @@ class AssistantShapeCommands {
         + (raised > 0 ? "; " + raised + " walls under it were " + (raise > 0 ? "raised" : "lowered") + " by "
             + format(Math.abs(raise)) + " cm" : Math.abs(raise) > 0.01f
             ? "; its eaves moved by " + format(raise) + " cm: the walls under it didn't (\"raise_walls\":true moves them too)" : "")
-        + ". Run fit_walls_to_roof again if walls were fitted to this roof");
+        + (clipped != null ? "; " + clipped : "")
+        + (!roof.getDormerDescriptions().isEmpty() ? "; " + describeDormers(roof) : "")
+        + getFitAdvice(roofPiece, roof));
     refreshCeilings(notes);
+  }
+
+  /**
+   * Returns the end of the answer of a command that changed a roof: the walls it leaves above the roof,
+   * or the advice to fit walls again.
+   */
+  private String getFitAdvice(HomePieceOfFurniture roofPiece, AssistantRoofModel roof) {
+    String wallsAbove = describeWallsAbove(roofPiece, roof);
+    return wallsAbove.length() > 0 ? wallsAbove : ". Run fit_walls_to_roof again if walls were fitted to this roof";
   }
 
   /**
@@ -1999,7 +2572,8 @@ class AssistantShapeCommands {
     notes.add("Added the dormer " + dormers.size() + " to the roof " + this.executor.getId(roofPiece) + "; "
         + describeDormers(roof) + ". The windows the other dormers had are kept. \"offset\" is measured in cm along the "
         + "side, from its west or north end for a \"side\" given by a cardinal point and from the start of the edge for "
-        + "an \"edge\" number, to the center of the dormer; \"position\" is the same from 0 to 1");
+        + "an \"edge\" number, to the center of the dormer; \"position\" is the same from 0 to 1"
+        + describeWallsAbove(roofPiece, roof));
     refreshCeilings(notes);
   }
 
