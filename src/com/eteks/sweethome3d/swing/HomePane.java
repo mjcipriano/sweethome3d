@@ -6564,7 +6564,7 @@ public class HomePane extends JRootPane implements HomeView {
               }
               if (request.isLabels()) {
                 // A grid of pixels, to find the items in sight
-                int step = Math.max(10, Math.round(Math.max(width, height) / 56f));
+                int step = Math.max(10, Math.round(Math.max(width, height) / 40f));
                 for (int y = step / 2; y < height; y += step) {
                   for (int x = step / 2; x < width; x += step) {
                     pixels.add(new int [] {x, y});

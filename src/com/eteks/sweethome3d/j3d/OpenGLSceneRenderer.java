@@ -973,6 +973,28 @@ public class OpenGLSceneRenderer {
     if (dx * dx + dy * dy + dz * dz > (double)mesh.radius * mesh.radius) {
       return Double.POSITIVE_INFINITY;
     }
+    // Then the box around the shape, much smaller than its sphere for a long or flat shape
+    double enter = Double.NEGATIVE_INFINITY;
+    double exit = Double.POSITIVE_INFINITY;
+    for (int axis = 0; mesh.boundsKnown && axis < 3; axis++) {
+      double start = axis == 0 ? origin.x : axis == 1 ? origin.y : origin.z;
+      double slope = axis == 0 ? direction.x : axis == 1 ? direction.y : direction.z;
+      double lower = mesh.lower [axis] - 1E-3;
+      double upper = mesh.upper [axis] + 1E-3;
+      if (slope > -1E-12 && slope < 1E-12) {
+        if (start < lower || start > upper) {
+          return Double.POSITIVE_INFINITY;
+        }
+      } else {
+        double t1 = (lower - start) / slope;
+        double t2 = (upper - start) / slope;
+        enter = Math.max(enter, Math.min(t1, t2));
+        exit = Math.min(exit, Math.max(t1, t2));
+      }
+    }
+    if (enter > exit || exit < 0 || enter > maxDistance) {
+      return Double.POSITIVE_INFINITY;
+    }
 
     if (positions == null) {
       positions = mesh.getPositions();

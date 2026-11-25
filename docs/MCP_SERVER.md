@@ -138,6 +138,8 @@ check its work with a picture.
 | `save_version`, `list_versions`, `compare_versions`, `restore_version` | Versions of the home ([below](#versions-and-saving)) |
 | `save_home` | Saves the home in its file if you allowed it, or writes a copy in a new file |
 | `list_homes`, `open_home`, `new_home`, `switch_home` | The homes open in the application, and which one Claude works on |
+| `new_home` with `"scratch":true`, `close_home` | A scratch home to try things out, which doesn't take the connection over (see [Scratch homes](#scratch-homes)) |
+| `inspect_room` | Six pictures of a room from its middle, looking up at its walls and its ceiling |
 | `export_home` | Writes the home as PDF, SVG, OBJ, glTF (`glb`, in meters, with the georeference of the home), CSV, a 3D web page or a 360 degree panorama |
 | `add_note` | Pins a review note to an item or a place |
 | `start_visit` | Opens the game mode or the walk-through in your browser |
@@ -202,6 +204,32 @@ Three safeguards keep the commands meant for a home out of another one:
 wall you drew, a sofa you moved - with ids. When there are such changes, the
 answers of `get_home`, `apply_commands`, `check_home`, `undo` and `redo` end
 with a note that says so.
+
+### Scratch homes
+
+`new_home {"scratch":true}` creates an empty home in its own window to try
+things out: a model to import, a roof to shape. Unlike `new_home`, it doesn't
+take the connection over:
+
+- The answer gives its name, `scratch-1`. The connection stays on your home.
+- A call reaches the scratch home only when it names it:
+  `{"home":"scratch-1", ...}` among the arguments of `apply_commands`,
+  `get_home`, `get_3d_image`, `undo` or any other tool, except the ones that
+  choose the home of the connection.
+- Its ids are its own and start at F1, W1, R1.
+- It's never saved, and closing it asks nothing. It's closed by
+  `close_home {"home":"scratch-1"}`, when the session of the client ends, or
+  after 30 minutes without a call (the system property
+  `com.eteks.sweethome3d.mcp.scratchIdleMinutes` changes that delay).
+  `save_home` with `copy_to` and `"home":"scratch-1"` keeps a copy.
+- Four scratch homes at most are open at a time.
+- When the server is set to start with each home, a scratch home doesn't
+  start a server of its own, so the program launched by Claude keeps talking
+  to your home.
+
+On any tool, `"home"` may also be a part of the file name of the home the
+call is meant for, as on `apply_commands`: nothing is run when the home of
+the connection is another one.
 
 ## Exports
 
@@ -459,6 +487,95 @@ photo. The overlay only stretches the photo: it doesn't match its
 perspective, so choose a `view` or a `camera` close to where the photo was
 taken.
 
+### What is at a pixel
+
+When something in a picture is wrong and you can't tell which item it is,
+`get_3d_image` names it. Draw the picture once, read the pixel of what
+puzzles you, then ask the same picture again with `identify`:
+
+```json
+{"view":"inside","target":"R1","identify":[[400,250],[400,30]]}
+```
+
+The answer gives, for each pixel (x from the left of the picture, y from its
+top, 60 pixels at most), the id and the name of the item drawn there, its
+part, and the point of the home it shows:
+
+```
+[400,250]: W1 wall, its right side (color #3355AA), at x 590, y 8, elevation 57 cm, 6.28 m from the camera
+[400,30]: R1 room "Living", its ceiling, at x 312, y 193, elevation 250 cm, 2.99 m from the camera
+```
+
+| Item | Part told |
+| --- | --- |
+| A wall | Its left or right side with the color or the texture of that side, its baseboard, its top, or one of its ends |
+| A room | Its floor or its ceiling |
+| A piece of furniture | The material of its model at that point, and the piece of a group |
+| A roof built by `add_roof` | Its material (slope, fascia, gutter...) and the distance to the closest edge of its outline, with the number of that edge |
+
+`"labels":true` draws the id of each item in sight on the picture, and lists
+them in the answer. An item seen in a few pixels only may get no label.
+
+How it works: once the OpenGL renderer drew the picture, a ray is cast
+through each pixel in the triangles of the scene, on the processor. Labels
+cast a grid of about 1000 rays, which added less than 0.2 s to the picture of
+a furnished room under WSLg; the cost in a home with models of hundreds of
+thousands of triangles wasn't measured. Limits:
+
+- The ray tracer can't tell: the answer says so when a picture wasn't drawn
+  by the OpenGL renderer.
+- A glass or another material seen through is the item named. `hide_ids`
+  with its id shows what is behind.
+- The ground around the home and the sky are both "nothing of the home".
+
+### Some items alone
+
+`"only_ids":["F946"]` draws those items and nothing else: no wall, no room,
+no other piece, no ground. Without a view, they are seen entirely from the
+south east; `view` and `camera` work as usual. Use it to look at a piece
+without the trees, the walls or the roof around it.
+
+### A saved version, without restoring it
+
+`get_3d_image`, `get_plan_image` and `inspect_room` take a `version`: its
+number in `list_versions` (1 = the most recent) or a part of its label. The
+picture shows that version; the home doesn't change and nothing is added to
+its undo history. Ids, targets and levels are the ones of the version.
+
+Without a view, `get_3d_image` draws the version from the camera of the home
+as it is now, so the two pictures can be compared. `store_as` is refused: a
+point of view is stored in the home, not in a version.
+
+`compare_versions` with a `view` (or a `target`) adds the picture of the
+version at the left and of the home now, or of another version, at the right.
+
+### Inspecting a room
+
+Most defects of a room are near its ceiling: a gap over a wall, a roof or a
+gutter coming through, a wall left one story tall in a two-story room.
+`inspect_room {"room":"R11"}` returns six pictures in one image, taken from
+the middle of the room at eye height:
+
+1. to 4. toward the north, the east, the south and the west of the plan,
+   the camera tilted up so that the top of each wall is in the picture;
+5. straight up;
+6. from a corner of the room, as `"view":"inside"`.
+
+The answer gives the camera of each picture, to ask `get_3d_image` for one
+of them with `identify` or `labels`. In a room whose ceiling is hidden, the
+pictures look up to twice the height of the level, where the walls of a room
+open to the floor above should reach.
+
+### The inside view
+
+`"view":"inside"` puts the camera in the outline of the room, under its
+ceiling and under the roof over it: at 160 cm above the floor where there is
+room for it, otherwise 25 cm under the lowest of the ceiling and the roof.
+The ceiling is the height given to the room (its property
+`com.eteks.sweethome3d.ceilingHeight`), otherwise the top of its level when
+its ceiling is shown. Among the corners of the room, the camera goes to one
+where a visitor can stand.
+
 ### Catalog pictures
 
 `get_catalog_image` returns the icons (256 pixels at most) of up to 8 catalog
@@ -535,6 +652,15 @@ your preferences: the renderer of the 3D view and its shadows.
   `X-SweetHome3D-Home`. The bridge program sends back the one of its last
   tool call in `X-SweetHome3D-Expected-Home`, and `handle(request, expectedHomeId)`
   refuses a tool call meant for another home.
+- Scratch homes: the handler of the home of the connection runs a call that
+  names a scratch home in the handler of that home (`HomeOperations.getHandler`),
+  so no second server is started and the port of the connection doesn't change.
+  The bridge program sends an identifier of its session in the header
+  `X-SweetHome3D-Session`, and the notification
+  `notifications/sweethome3d/session_ended` when its client goes away;
+  `swing/HomePane` closes the idle ones with a timer.
+- Pixels are identified by `j3d/OpenGLSceneRenderer.pickShape`, called by
+  `HomeComponent3D.createOpenGLImage` once the image is drawn.
 - `tools/ImageProviders` - puts the readers and writers of images of Java
   ahead of the ones registered by plug-ins, after the plug-ins of a home are
   created and before each tool call.
