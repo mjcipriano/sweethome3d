@@ -1592,6 +1592,38 @@ public class HomeController implements Controller {
   }
 
   /**
+   * The property of a home created to try things out: it's closed without asking whether
+   * it should be saved, and isn't shared with MCP clients as the home of their connection.
+   */
+  public static final String SCRATCH_HOME_PROPERTY = "com.eteks.sweethome3d.scratchHome";
+
+  /**
+   * Creates at once, in its own window, an empty home that will be closed without being
+   * saved, and returns it.
+   */
+  public Home createScratchHomeNow() throws RecorderException {
+    if (this.application == null) {
+      throw new RecorderException("Homes can't be created here");
+    }
+    Home newHome = this.application.createHome();
+    // Known before its window is displayed
+    newHome.setProperty(SCRATCH_HOME_PROPERTY, "true");
+    this.application.addHome(newHome);
+    return newHome;
+  }
+
+  /**
+   * Closes at once an other home open in the application, without saving it nor asking
+   * the user whether it should be. Meant for the homes created by {@link #createScratchHomeNow()}.
+   */
+  public void closeHomeNow(Home openHome) {
+    if (this.application != null && this.application.getHomes().contains(openHome)) {
+      openHome.setRecovered(false);
+      this.application.deleteHome(openHome);
+    }
+  }
+
+  /**
    * Creates an empty home at once in its own window and returns it.
    */
   public Home createHomeNow() throws RecorderException {
@@ -2759,7 +2791,9 @@ public class HomeController implements Controller {
         }
       };
 
-    if (this.home.isModified() || this.home.isRecovered() || this.home.isRepaired()) {
+    if ((this.home.isModified() || this.home.isRecovered() || this.home.isRepaired())
+        // A home created to try things out isn't worth a question
+        && this.home.getProperty(SCRATCH_HOME_PROPERTY) == null) {
       switch (getView().confirmSave(this.home.getName())) {
         case SAVE   : save(HomeRecorder.Type.DEFAULT, closeTask); // Falls through
         case CANCEL : return;

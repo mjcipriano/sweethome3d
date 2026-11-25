@@ -62,6 +62,9 @@ public class HomeMCPHandler {
   // Tells this home from the other ones a client may have worked on
   private final String                   homeId = java.util.UUID.randomUUID().toString();
   private String                         expectedHomeId;
+  // Set for the handler of a version of a home, which draws pictures of it and nothing else
+  private boolean                        detached;
+  private boolean                        pictureSavingAllowed;
 
   /**
    * Puts two pictures in one for this handler, which can't draw any itself.
@@ -96,6 +99,15 @@ public class HomeMCPHandler {
      *              in centimeters, or <code>null</code> for the whole plan
      */
     byte [] getPlanImage(int maxSize, Level level, float [] area);
+
+    /**
+     * Returns a PNG image of the plan of <code>drawnHome</code>, a home which isn't the displayed
+     * one (one of its versions), or <code>null</code> if this provider can't draw it.
+     * @param level a level of <code>drawnHome</code>, or <code>null</code> for its selected one
+     */
+    default byte [] getPlanImage(Home drawnHome, int maxSize, Level level, float [] area) {
+      return null;
+    }
 
     /**
      * Returns an image of the home in 3D, or <code>null</code> if it can't be rendered.
@@ -245,6 +257,108 @@ public class HomeMCPHandler {
     public int getTimeout() {
       return this.timeout;
     }
+
+    private List<int []> identifiedPixels;
+    private boolean      labels;
+
+    /**
+     * Sets the {x, y} pixels of the image whose item should be {@linkplain Image3D#getIdentifiedItems() identified}.
+     */
+    public void setIdentifiedPixels(List<int []> identifiedPixels) {
+      this.identifiedPixels = identifiedPixels;
+    }
+
+    /**
+     * Returns the {x, y} pixels of the image whose item should be identified, or <code>null</code>.
+     */
+    public List<int []> getIdentifiedPixels() {
+      return this.identifiedPixels;
+    }
+
+    /**
+     * Sets whether the id of each item in sight should be drawn in the image.
+     */
+    public void setLabels(boolean labels) {
+      this.labels = labels;
+    }
+
+    /**
+     * Returns <code>true</code> if the id of each item in sight should be drawn in the image.
+     */
+    public boolean isLabels() {
+      return this.labels;
+    }
+  }
+
+  /**
+   * What is drawn at a pixel of an image of the home in 3D.
+   */
+  public static class IdentifiedItem {
+    private final int      x;
+    private final int      y;
+    private final Object   item;
+    private final String   materialName;
+    private final float [] point;
+    private final float    distance;
+
+    /**
+     * @param item         the wall, the room or the piece of furniture of the drawn home at the pixel,
+     *                     an other object for what isn't an item of the home, or <code>null</code> for the sky
+     * @param materialName the name of the material of the model drawn at the pixel, or <code>null</code>
+     * @param point        the point drawn at the pixel as {x, y, elevation} in centimeters, or <code>null</code>
+     * @param distance     the distance from the camera to that point
+     */
+    public IdentifiedItem(int x, int y, Object item, String materialName, float [] point, float distance) {
+      this(x, y, item, null, materialName, point, distance);
+    }
+
+    /**
+     * @param item         the wall, the room or the piece of furniture of the drawn home at the pixel, the group
+     *                     for a piece of a group of furniture
+     * @param pieceName    the name of the piece of the group drawn at the pixel, or <code>null</code>
+     */
+    public IdentifiedItem(int x, int y, Object item, String pieceName, String materialName, float [] point, float distance) {
+      this.x = x;
+      this.y = y;
+      this.item = item;
+      this.pieceName = pieceName;
+      this.materialName = materialName;
+      this.point = point;
+      this.distance = distance;
+    }
+
+    private final String pieceName;
+
+    /**
+     * Returns the name of the piece drawn at the pixel when the item is a group of furniture, or <code>null</code>.
+     */
+    public String getPieceName() {
+      return this.pieceName;
+    }
+
+    public int getX() {
+      return this.x;
+    }
+
+    public int getY() {
+      return this.y;
+    }
+
+    public Object getItem() {
+      return this.item;
+    }
+
+    public String getMaterialName() {
+      return this.materialName;
+    }
+
+    public float [] getPoint() {
+      return this.point;
+    }
+
+    public float getDistance() {
+      return this.distance;
+    }
   }
 
   /**
@@ -277,6 +391,62 @@ public class HomeMCPHandler {
     public String getDescription() {
       return this.description;
     }
+
+    private List<IdentifiedItem> identifiedItems;
+    private List<IdentifiedItem> labeledItems;
+
+    /**
+     * Sets what is drawn at the pixels the request asked to identify, in the same order.
+     */
+    public void setIdentifiedItems(List<IdentifiedItem> identifiedItems) {
+      this.identifiedItems = identifiedItems;
+    }
+
+    /**
+     * Returns what is drawn at the pixels the request asked to identify, or <code>null</code>
+     * if the renderer of the image can't tell.
+     */
+    public List<IdentifiedItem> getIdentifiedItems() {
+      return this.identifiedItems;
+    }
+
+    /**
+     * Sets the items whose id was drawn in the image, each at the pixel of its label.
+     */
+    public void setLabeledItems(List<IdentifiedItem> labeledItems) {
+      this.labeledItems = labeledItems;
+    }
+
+    /**
+     * Returns the items whose id was drawn in the image, or <code>null</code> if no label was drawn.
+     */
+    public List<IdentifiedItem> getLabeledItems() {
+      return this.labeledItems;
+    }
+  }
+
+  /**
+   * Returns the id of an item drawn in a picture of <code>home</code>: its own, or the one of
+   * the group of furniture it belongs to, or <code>null</code> if it isn't an item of the home.
+   */
+  public static String getDrawnItemId(Home home, Object item) {
+    return HomeItemIds.getId(getDrawnItem(home, item));
+  }
+
+  /**
+   * Returns the item of <code>home</code> which has an id for an object drawn in a picture of
+   * that home: the object itself, or the group of furniture of <code>home</code> it belongs to.
+   */
+  public static Object getDrawnItem(Home home, Object item) {
+    if (item instanceof HomePieceOfFurniture && !home.getFurniture().contains(item)) {
+      for (HomePieceOfFurniture piece : home.getFurniture()) {
+        if (piece instanceof com.eteks.sweethome3d.model.HomeFurnitureGroup
+            && ((com.eteks.sweethome3d.model.HomeFurnitureGroup)piece).getAllFurniture().contains(item)) {
+          return piece;
+        }
+      }
+    }
+    return item;
   }
 
   /**
@@ -312,6 +482,240 @@ public class HomeMCPHandler {
      * Starts a visit of the home in the browser of the user: <code>game</code> or <code>walk</code>.
      */
     String startVisit(String mode) throws Exception;
+
+    /**
+     * Returns the handler of <code>otherHome</code>, open in the application, without making
+     * the MCP server answer for it, or <code>null</code> if this object can't give it.
+     */
+    default HomeMCPHandler getHandler(Home otherHome) throws Exception {
+      return null;
+    }
+
+    /**
+     * Called once a scratch home was created: the application should call
+     * {@link HomeMCPHandler#closeIdleScratchHomes()} from time to time.
+     */
+    default void scratchHomeCreated() {
+    }
+  }
+
+  /**
+   * A home created by a client to try things out, which isn't the home of its connection.
+   */
+  private static final class ScratchHome {
+    private final String         name;
+    private final Home           home;
+    private final HomeMCPHandler handler;
+    private final HomeController creator;
+    private final String         sessionId;
+    private long                 lastUseTime = System.currentTimeMillis();
+
+    ScratchHome(String name, Home home, HomeMCPHandler handler, HomeController creator, String sessionId) {
+      this.name = name;
+      this.home = home;
+      this.handler = handler;
+      this.creator = creator;
+      this.sessionId = sessionId;
+    }
+  }
+
+  /** The method of the notification sent by the program launched by a client when its session ends. */
+  public static final String SESSION_ENDED_METHOD = "notifications/sweethome3d/session_ended";
+  /** The property that gives the count of minutes without a call after which a scratch home is closed, 30 by default. */
+  public static final String SCRATCH_IDLE_MINUTES_PROPERTY = "com.eteks.sweethome3d.mcp.scratchIdleMinutes";
+  private static final int MAX_SCRATCH_HOMES = 4;
+
+  // The scratch homes of the application, used in the event dispatch thread as the handlers are
+  private static final Map<String, ScratchHome> SCRATCH_HOMES = new LinkedHashMap<String, ScratchHome>();
+  private static int scratchHomeCount;
+
+  // The name of the home of this handler if it's a scratch home
+  private String scratchName;
+  // The session of the client whose message is handled
+  private String sessionId;
+
+  /**
+   * Returns <code>true</code> if <code>name</code> is written like the handle of a scratch home.
+   */
+  private static boolean isScratchName(Object name) {
+    return name instanceof String && ((String)name).trim().toLowerCase().matches("scratch-\\d+");
+  }
+
+  private static String describeScratchHomes() {
+    forgetClosedScratchHomes();
+    if (SCRATCH_HOMES.isEmpty()) {
+      return "No scratch home is open: new_home with \"scratch\":true creates one.";
+    }
+    return "Scratch homes open: " + SCRATCH_HOMES.keySet().toString().replace("[", "").replace("]", "") + ".";
+  }
+
+  /**
+   * Forgets the scratch homes whose window was closed by the user.
+   */
+  private static void forgetClosedScratchHomes() {
+    for (java.util.Iterator<ScratchHome> it = SCRATCH_HOMES.values().iterator(); it.hasNext(); ) {
+      ScratchHome scratchHome = it.next();
+      if (!scratchHome.creator.getOpenHomes().contains(scratchHome.home)) {
+        it.remove();
+      }
+    }
+  }
+
+  private static void closeScratchHome(ScratchHome scratchHome) {
+    SCRATCH_HOMES.remove(scratchHome.name);
+    scratchHome.handler.commandExecutor.endGroup();
+    scratchHome.creator.closeHomeNow(scratchHome.home);
+  }
+
+  /**
+   * Closes, without saving them, the scratch homes that got no call for the count of minutes of
+   * {@link #SCRATCH_IDLE_MINUTES_PROPERTY}. Called in the event dispatch thread.
+   * @return the count of scratch homes still open
+   */
+  public static int closeIdleScratchHomes() {
+    long idleDelay = 30;
+    try {
+      idleDelay = Math.max(1, Long.getLong(SCRATCH_IDLE_MINUTES_PROPERTY, 30).longValue());
+    } catch (RuntimeException ex) {
+      // The default delay
+    }
+    return closeIdleScratchHomes(idleDelay * 60000);
+  }
+
+  /**
+   * Closes, without saving them, the scratch homes that got no call for <code>idleDelay</code> milliseconds.
+   * @return the count of scratch homes still open
+   */
+  public static int closeIdleScratchHomes(long idleDelay) {
+    forgetClosedScratchHomes();
+    long time = System.currentTimeMillis();
+    for (ScratchHome scratchHome : new ArrayList<ScratchHome>(SCRATCH_HOMES.values())) {
+      if (time - scratchHome.lastUseTime >= idleDelay) {
+        closeScratchHome(scratchHome);
+      }
+    }
+    return SCRATCH_HOMES.size();
+  }
+
+  /**
+   * Closes, without saving them, the scratch homes created by the session of a client which ended.
+   */
+  private static void closeScratchHomesOfSession(String sessionId) {
+    forgetClosedScratchHomes();
+    for (ScratchHome scratchHome : new ArrayList<ScratchHome>(SCRATCH_HOMES.values())) {
+      if (sessionId == null ? scratchHome.sessionId == null : sessionId.equals(scratchHome.sessionId)) {
+        closeScratchHome(scratchHome);
+      }
+    }
+  }
+
+  /**
+   * Returns the name of the scratch home of this handler, or <code>null</code> if its home isn't one.
+   */
+  public String getScratchName() {
+    return this.scratchName;
+  }
+
+  /**
+   * Creates a scratch home in its own window. It doesn't become the home of the connection.
+   */
+  private Map<String, Object> createScratchHome() throws Exception {
+    HomeOperations operations = this.homeOperations;
+    if (operations == null) {
+      return toolResult("Homes can't be opened here.", true);
+    }
+    closeIdleScratchHomes();
+    if (SCRATCH_HOMES.size() >= MAX_SCRATCH_HOMES) {
+      return toolResult(MAX_SCRATCH_HOMES + " scratch homes are open already: close one with close_home. "
+          + describeScratchHomes(), true);
+    }
+    Home scratch = this.homeController.createScratchHomeNow();
+    HomeMCPHandler scratchHandler = operations.getHandler(scratch);
+    if (scratchHandler == null) {
+      this.homeController.closeHomeNow(scratch);
+      return toolResult("The window of the scratch home couldn't be reached: nothing was created.", true);
+    }
+    String name = "scratch-" + ++scratchHomeCount;
+    scratchHandler.scratchName = name;
+    scratchHandler.setEditingAllowed(true);
+    scratchHandler.setSavingAllowed(false);
+    scratchHandler.setWebAccessAllowed(isWebAccessAllowed());
+    SCRATCH_HOMES.put(name, new ScratchHome(name, scratch, scratchHandler, this.homeController, this.sessionId));
+    operations.scratchHomeCreated();
+    return toolResult("Created the scratch home \"" + name + "\" in its own window. This connection still reads and edits "
+        + getHomeLabel() + ": a call reaches the scratch home only when it names it, with \"home\":\"" + name
+        + "\" among its arguments (apply_commands, get_home, get_3d_image, undo... any tool but the ones that choose a home). "
+        + "Its ids start at F1, W1, R1 and are its own. It's closed without being saved by close_home, when your session ends, "
+        + "or after " + Math.max(1, Long.getLong(SCRATCH_IDLE_MINUTES_PROPERTY, 30).longValue()) + " minutes without a call; "
+        + "save_home with copy_to and \"home\":\"" + name + "\" keeps a copy of it.", false);
+  }
+
+  /**
+   * Runs a tool in the scratch home that the call names.
+   */
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> callScratchTool(String name, Map<String, Object> arguments) {
+    forgetClosedScratchHomes();
+    String scratchName = ((String)arguments.get("home")).trim().toLowerCase();
+    ScratchHome scratchHome = SCRATCH_HOMES.get(scratchName);
+    if (scratchHome == null) {
+      return toolResult("Nothing was done: no scratch home is named \"" + scratchName + "\" (it was closed by the user, "
+          + "by close_home, at the end of a session or after a while without a call). " + describeScratchHomes()
+          + " Without \"home\", a call reaches the home of this connection, " + getHomeLabel() + ".", true);
+    } else if (isHomeChoiceTool(name) || "list_homes".equals(name)) {
+      return toolResult("\"home\":\"" + scratchName + "\" can't be given to " + name
+          + ": the home of this connection isn't changed from a scratch home.", true);
+    } else if (scratchHome.handler == this) {
+      return null;
+    }
+    scratchHome.lastUseTime = System.currentTimeMillis();
+    Map<String, Object> scratchArguments = new LinkedHashMap<String, Object>(arguments);
+    scratchArguments.remove("home");
+    Map<String, Object> params = new LinkedHashMap<String, Object>();
+    params.put("name", name);
+    params.put("arguments", scratchArguments);
+    Map<String, Object> request = new LinkedHashMap<String, Object>();
+    request.put("jsonrpc", "2.0");
+    request.put("id", Integer.valueOf(1));
+    request.put("method", "tools/call");
+    request.put("params", params);
+    scratchHome.handler.setWebAccessAllowed(isWebAccessAllowed());
+    Map<String, Object> response = scratchHome.handler.handleMessage(request);
+    Object result = response != null ? response.get("result") : null;
+    if (!(result instanceof Map)) {
+      Object error = response != null ? response.get("error") : null;
+      return toolResult("The tool " + name + " failed in the scratch home \"" + scratchName + "\": "
+          + (error instanceof Map ? ((Map<String, Object>)error).get("message") : "no answer"), true);
+    }
+    Map<String, Object> toolResult = (Map<String, Object>)result;
+    if (toolResult.get("content") instanceof List) {
+      ((List<Object>)toolResult.get("content")).add(textContent("Run in the scratch home \"" + scratchName
+          + "\", not in the home of this connection."));
+    }
+    return toolResult;
+  }
+
+  /**
+   * Closes a scratch home without saving it.
+   */
+  private Map<String, Object> closeHome(Map<String, Object> arguments) {
+    forgetClosedScratchHomes();
+    String name = string(arguments, "home") != null ? string(arguments, "home").trim().toLowerCase() : "";
+    if ("all".equals(name)) {
+      int count = SCRATCH_HOMES.size();
+      for (ScratchHome scratchHome : new ArrayList<ScratchHome>(SCRATCH_HOMES.values())) {
+        closeScratchHome(scratchHome);
+      }
+      return toolResult("Closed " + count + (count == 1 ? " scratch home" : " scratch homes") + " without saving.", false);
+    }
+    ScratchHome scratchHome = SCRATCH_HOMES.get(name);
+    if (scratchHome == null) {
+      return toolResult("close_home closes scratch homes only (the user closes the other homes): \"home\" is the name of one, "
+          + "or all. " + describeScratchHomes(), true);
+    }
+    closeScratchHome(scratchHome);
+    return toolResult("Closed the scratch home \"" + name + "\" without saving it. This connection reads and edits "
+        + getHomeLabel() + ".", false);
   }
 
   /**
@@ -544,11 +948,23 @@ public class HomeMCPHandler {
    *          expects, or <code>null</code> if it expects none
    */
   public String handle(String requestBody, String expectedHomeId) {
+    return handle(requestBody, expectedHomeId, null);
+  }
+
+  /**
+   * Handles a JSON-RPC message or batch as {@link #handle(String, String)} does, for the session
+   * of a client identified by <code>sessionId</code>: the scratch homes it creates are closed
+   * when the notification {@link #SESSION_ENDED_METHOD} of the same session is handled.
+   * @param sessionId an identifier of the session of the client, or <code>null</code> if it has none
+   */
+  public String handle(String requestBody, String expectedHomeId, String sessionId) {
     this.expectedHomeId = expectedHomeId;
+    this.sessionId = sessionId;
     try {
       return handle(requestBody);
     } finally {
       this.expectedHomeId = null;
+      this.sessionId = null;
     }
   }
 
@@ -571,7 +987,8 @@ public class HomeMCPHandler {
   }
 
   private String getHomeLabel() {
-    return this.home.getName() != null ? "\"" + this.home.getName() + "\"" : "a home never saved";
+    return this.scratchName != null ? "the scratch home \"" + this.scratchName + "\""
+        : this.home.getName() != null ? "\"" + this.home.getName() + "\"" : "a home never saved";
   }
 
   /**
@@ -672,6 +1089,10 @@ public class HomeMCPHandler {
           : null;
     }
     if (!request.containsKey("id")) {
+      if (SESSION_ENDED_METHOD.equals(method)) {
+        // The client went away: what it created to try things out is closed
+        closeScratchHomesOfSession(this.sessionId);
+      }
       // Notifications (notifications/initialized, notifications/cancelled...) get no response
       return null;
     }
@@ -709,6 +1130,22 @@ public class HomeMCPHandler {
               + "The ids you know belong to the other home and designate other items here: call get_home before "
               + "using any id, or list_homes, switch_home or open_home to work on another home. "
               + "Then repeat your call if it still applies.", true));
+        }
+        if (!isHomeChoiceTool((String)name) && !"close_home".equals(name) && arguments.get("home") != null) {
+          if (isScratchName(arguments.get("home"))) {
+            // Run in the scratch home it names
+            Map<String, Object> scratchResult = callScratchTool((String)name, arguments);
+            if (scratchResult != null) {
+              return result(id, scratchResult);
+            }
+            arguments = new LinkedHashMap<String, Object>(arguments);
+            arguments.remove("home");
+          } else if (!(arguments.get("home") instanceof String) || !isHomeNamed(((String)arguments.get("home")).trim())) {
+            return result(id, toolResult("Nothing was done: this call is meant for the home \"" + arguments.get("home")
+                + "\" but this connection reads and edits " + getHomeLabel() + ". " + describeHomes()
+                + "\nswitch_home or open_home chooses the home of this connection; \"home\" is a part of the name of its file, "
+                + "\"unsaved\" for a home never saved, or the name of a scratch home.", true));
+          }
         }
         // A group of calls left open by a client that went away mustn't keep the changes of the user out of Undo
         this.commandExecutor.endIdleGroup(AssistantCommandExecutor.GROUP_IDLE_DELAY);
@@ -864,6 +1301,7 @@ public class HomeMCPHandler {
         || "search_textures".equals(name) || "check_home".equals(name) || "get_report".equals(name) || "get_plan_image".equals(name)
         || "get_3d_image".equals(name) || "get_3d_info".equals(name) || "get_catalog_image".equals(name)
         || "preview_model".equals(name)
+        || "inspect_room".equals(name)
         || "help".equals(name) || "get_capabilities".equals(name)
         || "export_blender".equals(name) || "get_sun_study_image".equals(name) || "sun_study".equals(name)
         || "get_notes".equals(name) || "update_note".equals(name)
@@ -872,7 +1310,8 @@ public class HomeMCPHandler {
         || "restore_version".equals(name) || "save_home".equals(name) || "list_homes".equals(name)
         || "open_home".equals(name) || "new_home".equals(name) || "switch_home".equals(name)
         || "export_home".equals(name) || "get_history".equals(name) || "get_changes".equals(name)
-        || "add_note".equals(name) || "start_visit".equals(name) || "get_elevation_image".equals(name);
+        || "add_note".equals(name) || "start_visit".equals(name) || "get_elevation_image".equals(name)
+        || "close_home".equals(name);
   }
 
   /**
@@ -1001,6 +1440,8 @@ public class HomeMCPHandler {
     annotateProperty.put("items", property("object", "A mark"));
     imageProperties.put("annotate", annotateProperty);
     imageProperties.put("level", property("string", "Name of the level to draw (default: the selected level)"));
+    imageProperties.put("version", property("string", "Draws a saved version instead of the home as it is now, without restoring it: "
+        + "its number in list_versions or a part of its label"));
     Map<String, Object> areaProperty = property("object",
         "Part of the plan to draw, enlarged, in centimeters: {\"x\":N,\"y\":N,\"width\":N,\"height\":N} "
         + "(x, y = its top left corner). Default: the whole plan");
@@ -1049,6 +1490,19 @@ public class HomeMCPHandler {
     Map<String, Object> hideProperty = property("array", "Leaves out of this picture the items with these ids (F#, W#, R#)");
     hideProperty.put("items", property("string", "An id"));
     image3DProperties.put("hide_ids", hideProperty);
+    Map<String, Object> onlyProperty = property("array", "Ids of the only items to draw (pieces, walls, rooms): everything else, "
+        + "the ground included, is left out of this picture. Without a view, they are seen entirely from the south east");
+    onlyProperty.put("items", property("string", "An id"));
+    image3DProperties.put("only_ids", onlyProperty);
+    Map<String, Object> identifyProperty = property("array", "Pixels of this picture to identify, as [[x,y],...] (x from its left, y from its top, "
+        + "60 at most): the answer gives for each the id and the name of the item drawn there and its part (the side of a wall with its color, "
+        + "the floor or the ceiling of a room, the material of a piece, the closest edge of a roof) and the point of the home it shows. "
+        + "Draw the picture once, read the pixel of what puzzles you, and ask the same picture again with identify");
+    identifyProperty.put("items", property("array", "[x, y]"));
+    image3DProperties.put("identify", identifyProperty);
+    image3DProperties.put("labels", property("boolean", "true draws the id of each item in sight on the picture, and lists them"));
+    image3DProperties.put("version", property("string", "Draws a saved version instead of the home as it is now, without restoring it: "
+        + "its number in list_versions (1 = the most recent) or a part of its label. From the camera of the home unless a view is given"));
     image3DProperties.put("xray", property("boolean", "true draws the trees and the shrubs built by add_tree and add_shrub pale "
         + "and seen through, to see what is behind them"));
     image3DProperties.put("season", enumProperty("Draws the generated trees and shrubs in this season for this picture, "
@@ -1089,6 +1543,21 @@ public class HomeMCPHandler {
         "Absolute path of a .png file to write the picture to, at up to 4096 pixels; a smaller copy is returned. "
         + "Needs the permission to change things"));
     image3DProperties.put("replace", property("boolean", "true to overwrite the file of save_to if it exists (default false)"));
+    Map<String, Object> inspectProperties = new LinkedHashMap<String, Object>();
+    inspectProperties.put("room", property("string", "The id of the room (R3)"));
+    inspectProperties.put("width", property("number", "Width of each of the pictures in pixels (default 480, from 240 to 800)"));
+    inspectProperties.put("renderer", enumProperty("As in get_3d_image", "auto", "opengl", "raytrace"));
+    inspectProperties.put("version", property("string", "A saved version to inspect instead of the home as it is now, as in get_3d_image"));
+    Map<String, Object> inspectHideProperty = property("array", "Ids of items left out of these pictures");
+    inspectHideProperty.put("items", property("string", "An id"));
+    inspectProperties.put("hide_ids", inspectHideProperty);
+    tools.add(tool("inspect_room", "Pictures of a room looking up at its walls",
+        "Returns six pictures of a room in one image, taken from its middle at eye height: toward the north, the east, the south "
+        + "and the west with the camera tilted up to where the walls meet the ceiling, straight up, and from a corner. "
+        + "Most defects of a room are near its ceiling: a gap above a wall, a roof or a gutter coming through, a ceiling that is missing, "
+        + "a wall left one story tall in a two-story room. Use it after building or changing a room, then get_3d_image with "
+        + "\"identify\" on what looks wrong.",
+        schema(inspectProperties, "room"), true));
     tools.add(tool("get_3d_image", "Picture of the home in 3D",
         "Renders a PNG picture of the home in 3D. By default from its current camera with all levels "
         + "and the roof; \"view\" and \"target\" choose an other point of view for this picture without moving "
@@ -1224,7 +1693,8 @@ public class HomeMCPHandler {
         + "\"commands\" array), for long lists written by a script; up to "
         + AssistantCommandExecutor.MAX_COMMANDS_PER_FILE + " commands, run as one undoable change"));
     commandsProperties.put("home", property("string",
-        "Optional safeguard: a part of the file name of the home these commands are meant for, or \"unsaved\" for a home "
+        "Optional: the name of a scratch home (scratch-1) to run these commands in, or as a safeguard a part of the file name "
+        + "of the home these commands are meant for, or \"unsaved\" for a home "
         + "never saved. When the home of this connection is an other one, nothing is run and the answer tells it"));
     commandsProperties.put("stop_on_error", property("boolean",
         "true stops at the first command that fails and tells which ones weren't run. By default a command that fails "
@@ -1275,7 +1745,8 @@ public class HomeMCPHandler {
     compareProperties.put("version", property("string", "The version: its number in list_versions (1 = the most recent) or a part of its label"));
     compareProperties.put("with", property("string", "Another version to compare it with (default: the home as it is now)"));
     compareProperties.put("picture", property("boolean", "true to add a picture: the version at the left, the other state at the right"));
-    compareProperties.put("view", property("string", "The view of that picture, as in get_3d_image (default south_east)"));
+    compareProperties.put("view", property("string", "The view of that picture, as in get_3d_image (default south_east); giving it asks for the picture"));
+    compareProperties.put("target", property("string", "What that picture looks at, as in get_3d_image: ids of the home as it is now, or building"));
     tools.add(tool("compare_versions", "Compare versions",
         "Says what changed from a version to the home as it is now, or to another version: counts and areas, "
         + "then the items added, removed, moved or resized with their ids. Optionally with a side by side picture.",
@@ -1304,9 +1775,20 @@ public class HomeMCPHandler {
         "Opens a .sh3d file in a new window of Sweet Home 3D and makes this connection read and edit it "
         + "(the home open before stays open). To work on a copy: save_home with copy_to, then open_home on the copy.",
         schema(openProperties, "path"), false));
+    Map<String, Object> newProperties = new LinkedHashMap<String, Object>();
+    newProperties.put("scratch", property("boolean", "true creates a scratch home to try things out (a model to import, a roof to shape) "
+        + "without touching the home of the user: the connection stays on its home, and a call reaches the scratch home only "
+        + "when it names it with \"home\":\"scratch-N\", the name the answer gives. A scratch home is never saved: it's closed by "
+        + "close_home, at the end of the session, or after 30 minutes without a call"));
     tools.add(tool("new_home", "New home",
-        "Creates an empty home in a new window of Sweet Home 3D and makes this connection read and edit it.",
-        schema(null), false));
+        "Creates an empty home in a new window of Sweet Home 3D and makes this connection read and edit it, "
+        + "or with \"scratch\":true creates a scratch home which doesn't take the connection over.",
+        schema(newProperties), false));
+    Map<String, Object> closeProperties = new LinkedHashMap<String, Object>();
+    closeProperties.put("home", property("string", "The name of the scratch home (scratch-1), or all for every scratch home"));
+    tools.add(tool("close_home", "Close a scratch home",
+        "Closes a scratch home created by new_home with \"scratch\":true, without saving it. The other homes are closed by the user only.",
+        schema(closeProperties, "home"), false));
     Map<String, Object> switchProperties = new LinkedHashMap<String, Object>();
     switchProperties.put("home", property("string", "The number of the home in list_homes, or a part of its file name"));
     tools.add(tool("switch_home", "Switch home",
@@ -1348,6 +1830,16 @@ public class HomeMCPHandler {
         "Opens the visit of the home in the web browser of the user, from the place of the virtual visitor "
         + "(set_camera with mode visitor moves it). Only when the user asks to see or visit the home.",
         schema(visitProperties), false));
+    // Any tool but the ones that choose a home may be run in a scratch home
+    for (Object tool : tools) {
+      Map<String, Object> description = (Map<String, Object>)tool;
+      String name = (String)description.get("name");
+      Map<String, Object> properties = (Map<String, Object>)((Map<String, Object>)description.get("inputSchema")).get("properties");
+      if (!isHomeChoiceTool(name) && !"close_home".equals(name) && !"list_homes".equals(name) && !properties.containsKey("home")) {
+        properties.put("home", property("string", "Optional: the name of a scratch home (scratch-1) to run this call in, "
+            + "or a part of the file name of the home this call is meant for: nothing is run when the home of the connection is another one"));
+      }
+    }
     return tools;
   }
 
@@ -1475,6 +1967,8 @@ public class HomeMCPHandler {
       return searchCatalog(arguments);
     } else if ("get_3d_image".equals(name)) {
       return get3DImage(arguments);
+    } else if ("inspect_room".equals(name)) {
+      return inspectRoom(arguments);
     } else if ("help".equals(name)) {
       return toolResult(AssistantHelp.getHelp(arguments.get("command") != null ? arguments.get("command").toString() : null,
           arguments.get("search") != null ? arguments.get("search").toString() : null,
@@ -1554,6 +2048,8 @@ public class HomeMCPHandler {
       } catch (Exception ex) {
         return toolResult("Couldn't export the home: " + ex.getMessage(), true);
       }
+    } else if ("close_home".equals(name)) {
+      return closeHome(arguments);
     } else if ("save_version".equals(name) || "restore_version".equals(name) || "save_home".equals(name)
                || "open_home".equals(name) || "new_home".equals(name) || "switch_home".equals(name)
                || "export_home".equals(name) || "add_note".equals(name) || "start_visit".equals(name)) {
@@ -1723,6 +2219,9 @@ public class HomeMCPHandler {
 
   @SuppressWarnings("unchecked")
   private Map<String, Object> getPlanImage(Map<String, Object> arguments) {
+    if (token(arguments, "version") != null) {
+      return getVersionImage("get_plan_image", arguments);
+    }
     ImageProvider provider = this.imageProvider;
     int maxSize = (int)Math.max(200, Math.min(2000, number(arguments, "max_size", 1000)));
     Level level = null;
@@ -1795,9 +2294,13 @@ public class HomeMCPHandler {
                              bounds [3] - bounds [1] + 2 * margin};
       }
     }
-    byte [] image = provider != null ? provider.getPlanImage(maxSize, level, area) : null;
+    byte [] image = provider == null ? null
+        : this.detached ? provider.getPlanImage(this.home, maxSize, level, area)
+        : provider.getPlanImage(maxSize, level, area);
     if (image == null) {
-      return toolResult("No picture of the plan is available (the plan is empty or not displayed).", true);
+      return toolResult(this.detached
+          ? "No picture of the plan of a version is available here (or its plan is empty)."
+          : "No picture of the plan is available (the plan is empty or not displayed).", true);
     }
     String overlayText = "";
     if (overlays && area != null) {
@@ -2066,7 +2569,327 @@ public class HomeMCPHandler {
 
   @SuppressWarnings("unchecked")
   private Map<String, Object> get3DImage(Map<String, Object> arguments) {
+    if (token(arguments, "version") != null) {
+      return getVersionImage("get_3d_image", arguments);
+    }
     return get3DImage(arguments, null);
+  }
+
+  /**
+   * Returns a handler which draws the pictures of <code>drawnHome</code>, a home that isn't
+   * displayed, with the objects that draw the pictures of this handler.
+   */
+  private HomeMCPHandler createPictureHandler(Home drawnHome) {
+    HomeItemIds.ensureIds(drawnHome);
+    HomeMCPHandler handler = new HomeMCPHandler(drawnHome, this.preferences, null, this.serverVersion);
+    handler.detached = true;
+    handler.pictureSavingAllowed = isEditingAllowed();
+    handler.imageProvider = this.imageProvider;
+    handler.imageComposer = this.imageComposer;
+    handler.imageAnnotator = this.imageAnnotator;
+    handler.planOverlayPainter = this.planOverlayPainter;
+    handler.sunStudyView = this.sunStudyView;
+    return handler;
+  }
+
+  /**
+   * Draws a picture of a saved version of the home, which isn't restored.
+   */
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> getVersionImage(String tool, Map<String, Object> arguments) {
+    if (this.homeController == null || this.detached) {
+      return toolResult("Versions aren't available here.", true);
+    } else if (arguments.get("store_as") != null) {
+      return toolResult("\"store_as\" stores a point of view in the home as it is now: call it without \"version\".", true);
+    }
+    java.io.File version = HomeVersions.find(this.home, token(arguments, "version"));
+    if (version == null) {
+      return toolResult("No version, or several, match \"" + token(arguments, "version") + "\". "
+          + HomeVersions.describe(this.home), true);
+    }
+    Home versionHome;
+    try {
+      versionHome = this.homeController.readHomeVersion(version);
+    } catch (com.eteks.sweethome3d.model.RecorderException ex) {
+      return toolResult("Couldn't read the version \"" + HomeVersions.getLabel(version) + "\": " + ex.getMessage(), true);
+    }
+    Map<String, Object> versionArguments = new LinkedHashMap<String, Object>(arguments);
+    versionArguments.remove("version");
+    if ("get_3d_image".equals(tool) && versionArguments.get("view") == null && versionArguments.get("camera") == null
+        && versionArguments.get("point_of_view") == null && versionArguments.get("photo") == null
+        && versionArguments.get("only_ids") == null) {
+      // From the camera of the home as it is now, to compare the two pictures
+      Camera camera = this.home.getCamera();
+      Map<String, Object> cameraArguments = new LinkedHashMap<String, Object>();
+      cameraArguments.put("x", Double.valueOf(camera.getX()));
+      cameraArguments.put("y", Double.valueOf(camera.getY()));
+      cameraArguments.put("z", Double.valueOf(camera.getZ()));
+      cameraArguments.put("yaw", Double.valueOf(Math.toDegrees(camera.getYaw())));
+      cameraArguments.put("pitch", Double.valueOf(Math.max(-90, Math.min(90, Math.toDegrees(camera.getPitch())))));
+      cameraArguments.put("fov", Double.valueOf(Math.max(20, Math.min(120, Math.toDegrees(camera.getFieldOfView())))));
+      versionArguments.put("camera", cameraArguments);
+    }
+    HomeMCPHandler versionHandler = createPictureHandler(versionHome);
+    Map<String, Object> result = "get_3d_image".equals(tool)
+        ? versionHandler.get3DImage(versionArguments, null)
+        : versionHandler.getPlanImage(versionArguments);
+    if (!Boolean.TRUE.equals(result.get("isError"))) {
+      ((List<Object>)result.get("content")).add(textContent("This is the version \"" + HomeVersions.getLabel(version)
+          + "\" of the home, which wasn't restored: the home didn't change. Ids are the ones of that version."));
+    }
+    return result;
+  }
+
+  /**
+   * Returns pictures of a room taken from its middle, toward each side of the plan with the camera
+   * tilted up to the ceiling, straight up, and from one of its corners.
+   */
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> inspectRoom(Map<String, Object> arguments) {
+    if (token(arguments, "version") != null) {
+      if (this.homeController == null || this.detached) {
+        return toolResult("Versions aren't available here.", true);
+      }
+      java.io.File version = HomeVersions.find(this.home, token(arguments, "version"));
+      if (version == null) {
+        return toolResult("No version, or several, match \"" + token(arguments, "version") + "\". "
+            + HomeVersions.describe(this.home), true);
+      }
+      try {
+        Map<String, Object> versionArguments = new LinkedHashMap<String, Object>(arguments);
+        versionArguments.remove("version");
+        Map<String, Object> result = createPictureHandler(this.homeController.readHomeVersion(version)).inspectRoom(versionArguments);
+        if (!Boolean.TRUE.equals(result.get("isError"))) {
+          ((List<Object>)result.get("content")).add(textContent("This is the version \"" + HomeVersions.getLabel(version)
+              + "\" of the home, which wasn't restored."));
+        }
+        return result;
+      } catch (com.eteks.sweethome3d.model.RecorderException ex) {
+        return toolResult("Couldn't read the version \"" + HomeVersions.getLabel(version) + "\": " + ex.getMessage(), true);
+      }
+    }
+    Object item = token(arguments, "room") != null ? HomeItemIds.find(this.home, token(arguments, "room")) : null;
+    if (!(item instanceof Room)) {
+      return toolResult("\"room\" is the id of a room (R3): no room " + token(arguments, "room") + ".", true);
+    }
+    Room room = (Room)item;
+    HomeViewpoints.RoomInspection inspection = HomeViewpoints.inspectRoom(this.home, room);
+    if (inspection == null) {
+      return toolResult("The room " + HomeItemIds.getId(room) + " has no area to stand in.", true);
+    }
+    int width = (int)Math.max(240, Math.min(800, number(arguments, "width", 480)));
+    int height = width * 3 / 4;
+    byte [][] images = new byte [inspection.getPoses().length][];
+    String rendererText = null;
+    for (int i = 0; i < images.length; i++) {
+      HomeViewpoints.Pose pose = inspection.getPoses() [i];
+      Map<String, Object> pictureArguments = new LinkedHashMap<String, Object>();
+      Map<String, Object> camera = new LinkedHashMap<String, Object>();
+      camera.put("x", Double.valueOf(pose.getX()));
+      camera.put("y", Double.valueOf(pose.getY()));
+      camera.put("z", Double.valueOf(pose.getZ()));
+      camera.put("yaw", Double.valueOf(Math.toDegrees(pose.getYaw())));
+      camera.put("pitch", Double.valueOf(Math.max(-90, Math.min(90, Math.toDegrees(pose.getPitch())))));
+      camera.put("fov", Double.valueOf(Math.max(20, Math.min(120, Math.toDegrees(pose.getFieldOfView())))));
+      pictureArguments.put("camera", camera);
+      pictureArguments.put("width", Integer.valueOf(width));
+      pictureArguments.put("height", Integer.valueOf(height));
+      if (arguments.get("renderer") != null) {
+        pictureArguments.put("renderer", arguments.get("renderer"));
+      }
+      if (arguments.get("hide_ids") != null) {
+        pictureArguments.put("hide_ids", arguments.get("hide_ids"));
+      }
+      Map<String, Object> picture = get3DImage(pictureArguments, null);
+      if (Boolean.TRUE.equals(picture.get("isError"))) {
+        return picture;
+      }
+      for (Object content : (List<Object>)picture.get("content")) {
+        Map<String, Object> contentMap = (Map<String, Object>)content;
+        if ("image".equals(contentMap.get("type"))) {
+          images [i] = java.util.Base64.getDecoder().decode((String)contentMap.get("data"));
+        } else if (rendererText == null && contentMap.get("text") != null) {
+          // What comes before the size of the picture
+          rendererText = ((String)contentMap.get("text")).split(", \\d+ x \\d+ pixels", 2) [0];
+        }
+      }
+      if (images [i] == null) {
+        return toolResult("The room can't be rendered in 3D here.", true);
+      }
+    }
+    String description = "Room " + HomeItemIds.getId(room) + (room.getName() != null ? " \"" + room.getName() + "\"" : "")
+        + " seen from x " + Math.round(inspection.getX()) + ", y " + Math.round(inspection.getY())
+        + ", " + Math.round(inspection.getEyeElevation() - inspection.getFloorElevation()) + " cm above its floor"
+        + (inspection.getCeilingElevation() > inspection.getFloorElevation()
+            ? ", its ceiling expected " + Math.round(inspection.getCeilingElevation() - inspection.getFloorElevation()) + " cm above its floor"
+            : "")
+        + ". " + (rendererText != null ? rendererText + ". " : "");
+    SunStudyView view = this.sunStudyView;
+    byte [] sheet = view != null ? view.createContactSheet(images, inspection.getCaptions(), 3) : null;
+    Map<String, Object> result;
+    if (sheet != null) {
+      result = imageResult(sheet);
+      description += "The pictures of " + width + " x " + height + " pixels are, from left to right then top to bottom: ";
+    } else {
+      // The pictures one after the other
+      result = imageResult(images [0]);
+      for (int i = 1; i < images.length; i++) {
+        ((List<Object>)result.get("content")).addAll((List<Object>)imageResult(images [i]).get("content"));
+      }
+      description += "The pictures of " + width + " x " + height + " pixels are, in this order: ";
+    }
+    for (int i = 0; i < images.length; i++) {
+      description += (i > 0 ? "; " : "") + (i + 1) + ". " + inspection.getDescriptions() [i];
+    }
+    description += ". To know what an item is, call get_3d_image with one of these cameras and \"identify\" or \"labels\": ";
+    for (int i = 0; i < images.length; i++) {
+      HomeViewpoints.Pose pose = inspection.getPoses() [i];
+      description += (i > 0 ? "; " : "") + (i + 1) + ". {\"x\":" + Math.round(pose.getX()) + ",\"y\":" + Math.round(pose.getY())
+          + ",\"z\":" + Math.round(pose.getZ()) + ",\"yaw\":" + (Math.round(Math.toDegrees(pose.getYaw())) % 360 + 360) % 360
+          + ",\"pitch\":" + Math.round(Math.toDegrees(pose.getPitch())) + ",\"fov\":" + Math.round(Math.toDegrees(pose.getFieldOfView())) + "}";
+    }
+    ((List<Object>)result.get("content")).add(textContent(description + "."));
+    return result;
+  }
+
+  /**
+   * Returns the pixels of the argument <code>identify</code>, an empty list if there's none,
+   * or <code>null</code> if they aren't written as expected.
+   */
+  private static List<int []> getIdentifiedPixels(Object value) {
+    List<int []> pixels = new ArrayList<int []>();
+    if (value == null) {
+      return pixels;
+    } else if (!(value instanceof List)) {
+      return null;
+    }
+    List<?> points = (List<?>)value;
+    if (points.size() == 2 && points.get(0) instanceof Number && points.get(1) instanceof Number) {
+      // One point written without the brackets of the list
+      points = Arrays.asList(new Object [] {points});
+    }
+    for (Object point : points) {
+      Object x = null;
+      Object y = null;
+      if (point instanceof List && ((List<?>)point).size() == 2) {
+        x = ((List<?>)point).get(0);
+        y = ((List<?>)point).get(1);
+      } else if (point instanceof Map) {
+        x = ((Map<?, ?>)point).get("x");
+        y = ((Map<?, ?>)point).get("y");
+      }
+      if (!(x instanceof Number) || !(y instanceof Number)) {
+        return null;
+      }
+      pixels.add(new int [] {(int)Math.round(((Number)x).doubleValue()), (int)Math.round(((Number)y).doubleValue())});
+    }
+    return pixels;
+  }
+
+  private static String formatColor(Integer color) {
+    return String.format("#%06X", color.intValue() & 0xFFFFFF);
+  }
+
+  /**
+   * Returns a description of what is drawn at a pixel of a picture of <code>drawnHome</code>:
+   * the id and the name of the item, and its part.
+   */
+  @SuppressWarnings("unchecked")
+  static String describeIdentifiedItem(Home drawnHome, IdentifiedItem identifiedItem) {
+    Object item = identifiedItem.getItem();
+    float [] point = identifiedItem.getPoint();
+    if (item == null || point == null) {
+      return "nothing of the home (the ground around it, the sky or the background)";
+    }
+    String place = ", at x " + Math.round(point [0]) + ", y " + Math.round(point [1]) + ", elevation " + Math.round(point [2])
+        + " cm, " + Math.round(identifiedItem.getDistance()) / 100f + " m from the camera";
+    if (item instanceof Wall) {
+      Wall wall = (Wall)item;
+      float [][] points = wall.getPoints();
+      String part = "";
+      if (points.length >= 4) {
+        // The points of a wall go along its left side, then come back along its right side
+        int half = points.length / 2;
+        double leftDistance = Double.MAX_VALUE;
+        double rightDistance = Double.MAX_VALUE;
+        for (int i = 0; i < half - 1; i++) {
+          leftDistance = Math.min(leftDistance, java.awt.geom.Line2D.ptSegDist(points [i][0], points [i][1],
+              points [i + 1][0], points [i + 1][1], point [0], point [1]));
+          rightDistance = Math.min(rightDistance, java.awt.geom.Line2D.ptSegDist(points [half + i][0], points [half + i][1],
+              points [half + i + 1][0], points [half + i + 1][1], point [0], point [1]));
+        }
+        double startDistance = java.awt.geom.Line2D.ptSegDist(points [0][0], points [0][1],
+            points [points.length - 1][0], points [points.length - 1][1], point [0], point [1]);
+        double endDistance = java.awt.geom.Line2D.ptSegDist(points [half - 1][0], points [half - 1][1],
+            points [half][0], points [half][1], point [0], point [1]);
+        float elevation = wall.getLevel() != null ? wall.getLevel().getElevation() : 0;
+        float top = elevation + (wall.getHeight() != null ? wall.getHeight().floatValue() : drawnHome.getWallHeight());
+        if (wall.getHeightAtEnd() != null) {
+          top = Math.max(top, elevation + wall.getHeightAtEnd().floatValue());
+        }
+        double sideDistance = Math.min(leftDistance, rightDistance);
+        if (sideDistance > 0.5 && point [2] >= top - 0.5 && wall.getHeightAtEnd() == null) {
+          part = ", its top";
+        } else if (Math.min(startDistance, endDistance) < sideDistance - 0.01) {
+          part = startDistance < endDistance ? ", its end at its start point" : ", its end at its end point";
+        } else {
+          boolean left = leftDistance <= rightDistance;
+          Integer color = left ? wall.getLeftSideColor() : wall.getRightSideColor();
+          com.eteks.sweethome3d.model.HomeTexture texture = left ? wall.getLeftSideTexture() : wall.getRightSideTexture();
+          com.eteks.sweethome3d.model.Baseboard baseboard = left ? wall.getLeftSideBaseboard() : wall.getRightSideBaseboard();
+          part = ", its " + (left ? "left" : "right") + " side"
+              + (baseboard != null && point [2] <= elevation + baseboard.getHeight() + 0.5 ? " at its baseboard" : "")
+              + (texture != null ? " (texture \"" + texture.getName() + "\")"
+                  : color != null ? " (color " + formatColor(color) + ")" : " (no color nor texture)");
+        }
+      }
+      return HomeItemIds.getId(wall) + " wall" + part + place;
+    } else if (item instanceof Room) {
+      Room room = (Room)item;
+      float elevation = room.getLevel() != null ? room.getLevel().getElevation() : 0;
+      return HomeItemIds.getId(room) + " room" + (room.getName() != null ? " \"" + room.getName() + "\"" : "")
+          + (point [2] > elevation + 20 ? ", its ceiling" : ", its floor") + place;
+    } else if (item instanceof HomePieceOfFurniture) {
+      HomePieceOfFurniture topPiece = (HomePieceOfFurniture)item;
+      String id = HomeItemIds.getId(topPiece);
+      String part = "";
+      if (identifiedItem.getPieceName() != null) {
+        part += ", its piece \"" + identifiedItem.getPieceName() + "\"";
+      }
+      if (identifiedItem.getMaterialName() != null) {
+        part += ", material \"" + identifiedItem.getMaterialName() + "\"";
+      }
+      String structure = topPiece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY);
+      String roofSpec = topPiece.getProperty(AssistantShapeCommands.ROOF_SPEC_PROPERTY);
+      if (roofSpec != null) {
+        // The edge of the outline of the roof the closest to the point
+        try {
+          Object spec = JSONParser.parse(roofSpec);
+          List<float []> outline = spec instanceof Map
+              ? AssistantFurnitureBuilder.getPoints((Map<String, Object>)spec, "points", 2) : null;
+          if (outline != null && outline.size() >= 3) {
+            int closestEdge = -1;
+            double closestDistance = Double.MAX_VALUE;
+            for (int i = 0; i < outline.size(); i++) {
+              float [] start = outline.get(i);
+              float [] end = outline.get((i + 1) % outline.size());
+              double distance = java.awt.geom.Line2D.ptSegDist(start [0], start [1], end [0], end [1], point [0], point [1]);
+              if (distance < closestDistance) {
+                closestDistance = distance;
+                closestEdge = i;
+              }
+            }
+            part += ", " + Math.round(closestDistance) + " cm from its edge " + (closestEdge + 1);
+          }
+        } catch (Exception ex) {
+          // A roof without a description to read
+        }
+      }
+      return (id != null ? id : "a piece without id") + " \"" + topPiece.getName() + "\""
+          + (structure != null ? " (" + structure + ")" : "") + part + place;
+    } else {
+      return "the ground or the background of the scene" + place;
+    }
   }
 
   /**
@@ -2454,11 +3277,44 @@ public class HomeMCPHandler {
     if (provider == null) {
       return toolResult("The home can't be rendered in 3D here.", true);
     }
+    List<String> onlyIds = strings(arguments.get("only_ids"));
+    if (arguments.get("only_ids") != null) {
+      if (onlyIds.isEmpty() || sweep != null) {
+        return toolResult("\"only_ids\" is the list of the ids of the items to draw alone, as [\"F12\",\"W3\"].", true);
+      }
+      for (int i = 0; i < onlyIds.size(); i++) {
+        Object item = HomeItemIds.find(this.home, onlyIds.get(i));
+        if (item == null || item instanceof Level) {
+          return toolResult("No piece, wall or room has the id \"" + onlyIds.get(i) + "\" (ids are the ones of the last get_home).", true);
+        }
+        onlyIds.set(i, HomeItemIds.getId(item));
+      }
+      if (arguments.get("camera") == null && arguments.get("point_of_view") == null && arguments.get("photo") == null) {
+        // Seen entirely, from the view asked or from the south east
+        arguments = new LinkedHashMap<String, Object>(arguments);
+        if (string(arguments, "target") == null) {
+          arguments.put("target", onlyIds.toString().replace("[", "").replace("]", ""));
+        }
+        if (string(arguments, "view") == null || "current".equalsIgnoreCase(string(arguments, "view"))) {
+          arguments.put("view", "south_east");
+        }
+      }
+    }
+    List<int []> identifiedPixels = getIdentifiedPixels(arguments.get("identify"));
+    boolean labels = bool(arguments, "labels", false);
+    if (identifiedPixels == null || identifiedPixels.size() > 60) {
+      return toolResult("\"identify\" is a list of 60 pixels at most of the picture, as [[x,y],[x,y]], x from its left and y from its top.", true);
+    } else if ((!identifiedPixels.isEmpty() || labels) && sweep != null) {
+      return toolResult("Items are identified in the pictures of get_3d_image.", true);
+    } else if (!identifiedPixels.isEmpty() || labels) {
+      // The ids of the items of a home are given when they are asked for
+      HomeItemIds.ensureIds(this.home);
+    }
     String saveTo = string(arguments, "save_to");
     java.io.File savedFile = null;
     if (saveTo != null) {
       savedFile = new java.io.File(saveTo);
-      if (!isEditingAllowed()) {
+      if (!isEditingAllowed() && !this.pictureSavingAllowed) {
         return toolResult("Saving a picture needs the permission to change things: the user didn't allow changes "
             + "to this home (Tools > Claude MCP server). Call get_3d_image without save_to.", true);
       } else if (!savedFile.isAbsolute() || !saveTo.toLowerCase().endsWith(".png")) {
@@ -2654,7 +3510,13 @@ public class HomeMCPHandler {
     // What the picture leaves out or shows another way, in a copy of the home
     Home drawnHome = null;
     String hiddenDescription = "";
-    if (sweep == null && (!occludingPieces.isEmpty()
+    for (int [] pixel : identifiedPixels) {
+      if (pixel [0] < 0 || pixel [0] >= width || pixel [1] < 0 || pixel [1] >= height) {
+        return toolResult("The pixel [" + pixel [0] + "," + pixel [1] + "] of \"identify\" is out of the picture of "
+            + width + " x " + height + " pixels.", true);
+      }
+    }
+    if (sweep == null && (!occludingPieces.isEmpty() || !onlyIds.isEmpty() || this.detached
                           || arguments.get("exclude_tags") != null || arguments.get("include_tags") != null
                           || arguments.get("hide_ids") != null || arguments.get("xray") != null
                           || arguments.get("season") != null || arguments.get("cutaway") != null
@@ -2718,7 +3580,8 @@ public class HomeMCPHandler {
           continue;
         }
         boolean structure = piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY) != null;
-        boolean hide = hiddenIds.contains(HomeItemIds.getId(piece)) || occludingPieces.contains(piece);
+        boolean hide = hiddenIds.contains(HomeItemIds.getId(piece)) || occludingPieces.contains(piece)
+            || !onlyIds.isEmpty() && !onlyIds.contains(HomeItemIds.getId(piece));
         for (String tag : excludedTags) {
           hide |= HomeItemTags.hasTag(piece, tag);
         }
@@ -2748,7 +3611,8 @@ public class HomeMCPHandler {
       int index = 0;
       List<Wall> drawnWalls = new ArrayList<Wall>(drawnHome.getWalls());
       for (Wall wall : this.home.getWalls()) {
-        if (hiddenIds.contains(HomeItemIds.getId(wall)) && index < drawnWalls.size()) {
+        if ((hiddenIds.contains(HomeItemIds.getId(wall)) || !onlyIds.isEmpty() && !onlyIds.contains(HomeItemIds.getId(wall)))
+            && index < drawnWalls.size()) {
           drawnHome.deleteWall(drawnWalls.get(index));
           hidden++;
         }
@@ -2757,16 +3621,20 @@ public class HomeMCPHandler {
       index = 0;
       List<Room> drawnRooms = new ArrayList<Room>(drawnHome.getRooms());
       for (Room room : this.home.getRooms()) {
-        if (hiddenIds.contains(HomeItemIds.getId(room)) && index < drawnRooms.size()) {
+        if ((hiddenIds.contains(HomeItemIds.getId(room)) || !onlyIds.isEmpty() && !onlyIds.contains(HomeItemIds.getId(room)))
+            && index < drawnRooms.size()) {
           drawnHome.deleteRoom(drawnRooms.get(index));
           hidden++;
         }
         index++;
       }
-      hiddenDescription = " " + hidden + (hidden == 1 ? " item" : " items") + " left out of this picture"
+      hiddenDescription = (!onlyIds.isEmpty() ? " Only " + onlyIds.toString().replace("[", "").replace("]", "")
+              + (onlyIds.size() == 1 ? " is" : " are") + " drawn (only_ids):" : "")
+          + (hidden == 0 && onlyIds.isEmpty() && occludingPieces.isEmpty() && season == null && !xray && Double.isNaN(cutaway)
+              ? sunText : " " + hidden + (hidden == 1 ? " item" : " items") + " left out of this picture"
           + (changed > 0 ? ", " + changed + " generated plants drawn " + (xray ? "pale and seen through" : "in " + season) : "")
           + (xray && changed == 0 ? " (no generated plant to see through: catalog trees are left out with exclude_tags)" : "")
-          + (!Double.isNaN(cutaway) ? "; the walls aren't cut by \"cutaway\"" : "") + "." + sunText;
+          + (!Double.isNaN(cutaway) ? "; the walls aren't cut by \"cutaway\"" : "") + "." + sunText);
       if (!occludingPieces.isEmpty()) {
         StringBuilder ids = new StringBuilder();
         for (int i = 0; i < occludingPieces.size() && i < 12; i++) {
@@ -2784,6 +3652,10 @@ public class HomeMCPHandler {
         (int)Math.max(0, Math.min(3600, number(arguments, "timeout", 0))));
     if (imageRequest != null && drawnHome != null) {
       imageRequest.setDrawnHome(drawnHome);
+    }
+    if (imageRequest != null) {
+      imageRequest.setIdentifiedPixels(identifiedPixels.isEmpty() ? null : identifiedPixels);
+      imageRequest.setLabels(labels);
     }
     Image3D image = sweep != null
         ? drawSunSweep(provider, sweep, width, height, renderer,
@@ -2805,6 +3677,47 @@ public class HomeMCPHandler {
         + hiddenDescription;
     if (sweep != null) {
       description += "\n" + sweep.text;
+    }
+    Home identifiedHome = drawnHome != null ? drawnHome : this.home;
+    if (!identifiedPixels.isEmpty()) {
+      List<IdentifiedItem> identifiedItems = image.getIdentifiedItems();
+      if (identifiedItems == null || identifiedItems.size() != identifiedPixels.size()) {
+        description += "\nWhat is at the pixels of \"identify\" can't be told: this picture wasn't drawn by the OpenGL renderer.";
+      } else {
+        StringBuilder text = new StringBuilder("\nAt the pixels of \"identify\":");
+        for (IdentifiedItem identifiedItem : identifiedItems) {
+          text.append("\n[").append(identifiedItem.getX()).append(",").append(identifiedItem.getY()).append("]: ")
+              .append(describeIdentifiedItem(identifiedHome, identifiedItem));
+        }
+        description += text + "\nA glass or another material seen through is the one named; \"hide_ids\" shows what is behind an item.";
+      }
+    }
+    if (labels) {
+      List<IdentifiedItem> labeledItems = image.getLabeledItems();
+      if (labeledItems == null) {
+        description += "\nNo label was drawn: this picture wasn't drawn by the OpenGL renderer.";
+      } else {
+        StringBuilder text = new StringBuilder("\n" + labeledItems.size() + (labeledItems.size() == 1 ? " item" : " items")
+            + " in sight labeled with " + (labeledItems.size() == 1 ? "its id" : "their ids") + " in the picture"
+            + " (an item seen in a few pixels only may have no label):");
+        int count = 0;
+        for (IdentifiedItem labeledItem : labeledItems) {
+          if (count++ == 80) {
+            text.append(" ...");
+            break;
+          }
+          Object item = labeledItem.getItem();
+          String id = HomeItemIds.getId(item);
+          String name = item instanceof Wall ? "wall" : null;
+          if (item instanceof Room) {
+            name = ((Room)item).getName() != null ? "room \"" + ((Room)item).getName() + "\"" : "room";
+          } else if (item instanceof HomePieceOfFurniture) {
+            name = "\"" + ((HomePieceOfFurniture)item).getName() + "\"";
+          }
+          text.append(count > 1 ? ", " : " ").append(id).append(' ').append(name);
+        }
+        description += text + ".";
+      }
     }
     String storeAs = string(arguments, "store_as");
     if (storeAs != null) {
@@ -3361,6 +4274,11 @@ public class HomeMCPHandler {
       text.append('\n').append(i + 1).append(". ").append(openHome.getName() != null ? openHome.getName() : "(never saved)")
           .append(openHome.isModified() ? ", with unsaved changes" : "")
           .append(openHome == this.home ? "  <- the home of this connection" : "");
+      for (ScratchHome scratchHome : SCRATCH_HOMES.values()) {
+        if (scratchHome.home == openHome) {
+          text.append("  (scratch home: a call reaches it with \"home\":\"").append(scratchHome.name).append("\")");
+        }
+      }
     }
     return text.toString();
   }
@@ -3412,11 +4330,20 @@ public class HomeMCPHandler {
           + AssistantTerrainCommands.compareSites(oldHome, newHome);
       ImageProvider provider = this.imageProvider;
       ImageComposer composer = this.imageComposer;
-      if (bool(arguments, "picture", false) && provider != null && composer != null) {
+      if (bool(arguments, "picture", string(arguments, "view") != null || string(arguments, "target") != null)
+          && provider != null && composer != null) {
         String view = string(arguments, "view") != null ? string(arguments, "view") : "south_east";
         HomeViewpoints.Pose pose;
         try {
-          pose = HomeViewpoints.getPose(this.home, view, new ArrayList<com.eteks.sweethome3d.model.Selectable>(), null, 700f / 440, 0);
+          List<Selectable> targets = new ArrayList<Selectable>();
+          if (string(arguments, "target") != null) {
+            targets = resolveTarget(string(arguments, "target"));
+            if (targets.isEmpty()) {
+              return toolResult(text + "\nNo picture: no item of the home as it is now matches the target \""
+                  + string(arguments, "target") + "\".", false);
+            }
+          }
+          pose = HomeViewpoints.getPose(this.home, view, targets, null, 700f / 440, 0);
         } catch (RuntimeException ex) {
           return toolResult(text + "\nNo picture: " + ex.getMessage(), false);
         }
@@ -3509,7 +4436,9 @@ public class HomeMCPHandler {
         return toolResult("Homes can't be opened here.", true);
       }
       Home otherHome;
-      if ("new_home".equals(name)) {
+      if ("new_home".equals(name) && bool(arguments, "scratch", false)) {
+        return createScratchHome();
+      } else if ("new_home".equals(name)) {
         otherHome = this.homeController.createHomeNow();
       } else if ("open_home".equals(name)) {
         String path = string(arguments, "path");
