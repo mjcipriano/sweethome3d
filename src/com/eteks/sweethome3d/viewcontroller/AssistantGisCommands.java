@@ -196,7 +196,10 @@ public class AssistantGisCommands {
       } else if ("web_sources".equals(action)) {
         notes.add((this.webAccessAllowed ? "Web services may be used." : "Web services aren't allowed: the user ticks \"Allow web "
             + "services\" in Sweet Home 3D (Tools > Claude MCP server...) to allow them.")
-            + " What each command sends: fetch_elevation sends the corners of the area asked to the USGS (elevation.nationalmap.gov); "
+            + " What each command sends: find_model sends the words of the search to Sketchfab (api.sketchfab.com) and asks "
+            + "Poly Haven (api.polyhaven.com) for its list of models; import_model with \"source\" sends the id of the model to "
+            + "its library, with the token of the user for Sketchfab, sent to api.sketchfab.com only, or asks the https address given; "
+            + "fetch_elevation sends the corners of the area asked to the USGS (elevation.nationalmap.gov); "
             + "import_osm without path sends them to the Overpass service of OpenStreetMap (overpass-api.de); import_parcels with "
             + "\"url\" sends them to that server; set_basemap asks the tiles around the home to Esri (server.arcgisonline.com), the "
             + "USGS (imagery.nationalmap.gov for usgs_naip, basemap.nationalmap.gov for usgs_imagery), OpenStreetMap (tile.openstreetmap.org) or the server of an xyz template. Nothing "

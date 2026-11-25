@@ -64,6 +64,52 @@ final class AssistantModelImporter {
     boolean   blend;
     /** <code>false</code> for the material given to the shapes that have none in their file. */
     boolean   defined = true;
+    /** The color that multiplies the image, or <code>null</code>. */
+    float []  imageTint;
+    /** The offset in x and y, the rotation and the scale in x and y of the coordinates in the image, or <code>null</code>. */
+    float []  imageTransform;
+  }
+
+  /**
+   * Changes the pixels of the images of materials.
+   */
+  interface ImageFilter {
+    /**
+     * Returns <code>image</code> with the red, green and blue of its pixels multiplied by the given factors.
+     */
+    byte [] tint(byte [] image, float red, float green, float blue) throws IOException;
+  }
+
+  /**
+   * Multiplies the images of the materials by the color that tints them in the file of the model.
+   * @param filter the object that changes images, or <code>null</code> if there's none here
+   * @return what was done or couldn't be, in sentences
+   */
+  List<String> applyImageTints(ImageFilter filter) {
+    List<String> done = new ArrayList<String>();
+    for (Material material : this.materials) {
+      if (material.imageTint != null && material.image != null) {
+        byte [] image = null;
+        if (filter != null) {
+          try {
+            image = filter.tint(material.image, material.imageTint [0], material.imageTint [1], material.imageTint [2]);
+          } catch (IOException ex) {
+            // Told below
+          } catch (RuntimeException ex) {
+            // Told below
+          }
+        }
+        if (image != null) {
+          material.image = image;
+          material.color [0] = material.color [1] = material.color [2] = 1;
+          done.add("the image of the material " + material.name + " was tinted with its color");
+        } else {
+          done.add("the color that tints the image of the material " + material.name + " isn't applied to it");
+        }
+        material.imageTint = null;
+      }
+    }
+    return done;
   }
 
   /**
@@ -388,6 +434,7 @@ final class AssistantModelImporter {
         material.color [1] = ((color >> 8) & 0xFF) / 255f;
         material.color [2] = (color & 0xFF) / 255f;
         material.image = null;
+        material.imageTint = null;
       }
     }
     return unknownNames;
@@ -395,8 +442,10 @@ final class AssistantModelImporter {
 
   /**
    * Reduces this model to <code>targetTriangles</code> triangles at most, by merging the
-   * vertices which are in the same cell of a grid, as small as the target allows. The outline
-   * of the model is kept; its thin details and the sharpness of its edges aren't.
+   * vertices which are in the same cell of a grid, as small as the target allows. The vertex
+   * that replaces the ones of a cell is put where it's closest to the planes of the triangles
+   * they belonged to, which keeps the edges and the corners of the model better than their
+   * average and doesn't shrink it. The thin details smaller than a cell are lost.
    * @return the count of triangles left
    */
   int simplify(int targetTriangles) {
@@ -511,6 +560,7 @@ final class AssistantModelImporter {
         }
       }
     }
+    placeClusters(mesh, vertexClusters, positions, bounds, cell);
     // The triangles which still have three corners, once each
     int [] indices = new int [mesh.indices.length];
     int count = 0;
@@ -537,6 +587,94 @@ final class AssistantModelImporter {
     mesh.uvs = uvs;
     mesh.normals = normals;
     mesh.indices = Arrays.copyOf(indices, count);
+  }
+
+  /**
+   * Moves each of the given clusters of vertices of <code>mesh</code> from the average of its vertices
+   * to the point of its cell with the smallest sum of squared distances to the planes of the
+   * triangles of these vertices, when that point is well defined.
+   * @param vertexClusters the cluster of each vertex of the mesh
+   * @param positions the average of the vertices of each cluster, changed by this method
+   */
+  private static void placeClusters(Mesh mesh, int [] vertexClusters, float [] positions, float [] bounds, double cell) {
+    int clusterCount = positions.length / 3;
+    // For each cluster, the sum of the squared distances to planes n.p + d = 0, with p counted from its
+    // average: p.A.p + 2 b.p + c, A being symmetric (xx, xy, xz, yy, yz, zz) and b a vector
+    double [] quadrics = new double [clusterCount * 9];
+    float [] vertices = mesh.positions;
+    for (int i = 0; i + 2 < mesh.indices.length; i += 3) {
+      int v1 = mesh.indices [i] * 3;
+      int v2 = mesh.indices [i + 1] * 3;
+      int v3 = mesh.indices [i + 2] * 3;
+      double ux = vertices [v2] - vertices [v1];
+      double uy = vertices [v2 + 1] - vertices [v1 + 1];
+      double uz = vertices [v2 + 2] - vertices [v1 + 2];
+      double wx = vertices [v3] - vertices [v1];
+      double wy = vertices [v3 + 1] - vertices [v1 + 1];
+      double wz = vertices [v3 + 2] - vertices [v1 + 2];
+      double nx = uy * wz - uz * wy;
+      double ny = uz * wx - ux * wz;
+      double nz = ux * wy - uy * wx;
+      double area = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      if (!(area > 0)) {
+        continue;
+      }
+      nx /= area;
+      ny /= area;
+      nz /= area;
+      int cluster1 = vertexClusters [mesh.indices [i]];
+      int cluster2 = vertexClusters [mesh.indices [i + 1]];
+      int cluster3 = vertexClusters [mesh.indices [i + 2]];
+      for (int j = 0; j < 3; j++) {
+        int cluster = j == 0 ? cluster1 : j == 1 ? cluster2 : cluster3;
+        if (j == 1 && cluster == cluster1 || j == 2 && (cluster == cluster1 || cluster == cluster2)) {
+          continue;
+        }
+        // The plane of the triangle, from the average of the cluster, weighted by its surface
+        double d = nx * (vertices [v1] - positions [cluster * 3]) + ny * (vertices [v1 + 1] - positions [cluster * 3 + 1])
+            + nz * (vertices [v1 + 2] - positions [cluster * 3 + 2]);
+        int q = cluster * 9;
+        quadrics [q] += area * nx * nx;
+        quadrics [q + 1] += area * nx * ny;
+        quadrics [q + 2] += area * nx * nz;
+        quadrics [q + 3] += area * ny * ny;
+        quadrics [q + 4] += area * ny * nz;
+        quadrics [q + 5] += area * nz * nz;
+        quadrics [q + 6] += area * nx * d;
+        quadrics [q + 7] += area * ny * d;
+        quadrics [q + 8] += area * nz * d;
+      }
+    }
+    for (int i = 0; i < clusterCount; i++) {
+      int q = i * 9;
+      double a = quadrics [q], b = quadrics [q + 1], c = quadrics [q + 2];
+      double d = quadrics [q + 3], e = quadrics [q + 4], f = quadrics [q + 5];
+      double trace = a + d + f;
+      if (!(trace > 0)) {
+        continue;
+      }
+      // A little of the average, which decides along the directions that the planes leave free
+      // (a flat part, a straight edge)
+      double weight = trace * 1E-3;
+      a += weight;
+      d += weight;
+      f += weight;
+      double determinant = a * (d * f - e * e) - b * (b * f - e * c) + c * (b * e - d * c);
+      if (!(Math.abs(determinant) > 1E-12 * trace * trace * trace)) {
+        continue;
+      }
+      double rx = quadrics [q + 6], ry = quadrics [q + 7], rz = quadrics [q + 8];
+      double x = (rx * (d * f - e * e) - b * (ry * f - e * rz) + c * (ry * e - d * rz)) / determinant;
+      double y = (a * (ry * f - e * rz) - rx * (b * f - e * c) + c * (b * rz - ry * c)) / determinant;
+      double z = (a * (d * rz - ry * e) - b * (b * rz - ry * c) + rx * (b * e - d * c)) / determinant;
+      // Kept near its cell: a point far from it would fold the triangles around
+      double limit = cell;
+      if (Math.abs(x) <= limit && Math.abs(y) <= limit && Math.abs(z) <= limit) {
+        positions [i * 3] += (float)x;
+        positions [i * 3 + 1] += (float)y;
+        positions [i * 3 + 2] += (float)z;
+      }
+    }
   }
 
   // ---- OBJ output ----
@@ -726,7 +864,9 @@ final class AssistantModelImporter {
             + ", which isn't read: export it again without mesh compression");
       } else if (name.contains("basisu") || name.contains("webp")) {
         note("its images use " + name + ", which isn't read: the materials keep their colors only");
-      } else if (!name.contains("texture_transform") && !name.contains("pbrSpecularGlossiness")) {
+      } else if (!name.contains("texture_transform") && !name.contains("pbrSpecularGlossiness")
+                 && !name.startsWith("KHR_materials_")) {
+        // The extensions of materials (clearcoat, transmission, sheen...) change how they shine, not their color
         note("the extension " + name + " isn't read");
       }
     }
@@ -1020,9 +1160,6 @@ final class AssistantModelImporter {
         note("a texture uses its second set of coordinates, which isn't read");
         return null;
       }
-      if (map(info.get("extensions")).get("KHR_texture_transform") != null) {
-        note("the offset, the scale and the rotation of a texture (KHR_texture_transform) aren't applied");
-      }
       List<Object> textures = list(this.gltf.get("textures"));
       int textureIndex = integer(info, "index", -1);
       if (textureIndex < 0 || textureIndex >= textures.size()) {
@@ -1085,7 +1222,22 @@ final class AssistantModelImporter {
         material.image = readTextureImage(colorTexture);
         if (material.image != null && !factor.isEmpty()
             && (material.color [0] < 0.98f || material.color [1] < 0.98f || material.color [2] < 0.98f)) {
-          note("the color that tints the image of the material " + material.name + " isn't applied to it");
+          // Applied to the pixels of the image later, as a material shows its image or its color
+          material.imageTint = new float [] {material.color [0], material.color [1], material.color [2]};
+        }
+        Map<String, Object> transform = map(map(map(colorTexture).get("extensions")).get("KHR_texture_transform"));
+        if (material.image != null && !transform.isEmpty()) {
+          List<Object> offset = list(transform.get("offset"));
+          List<Object> scale = list(transform.get("scale"));
+          material.imageTransform = new float [] {
+              offset.size() >= 2 && offset.get(0) instanceof Number ? ((Number)offset.get(0)).floatValue() : 0,
+              offset.size() >= 2 && offset.get(1) instanceof Number ? ((Number)offset.get(1)).floatValue() : 0,
+              (float)number(transform, "rotation", 0),
+              scale.size() >= 2 && scale.get(0) instanceof Number ? ((Number)scale.get(0)).floatValue() : 1,
+              scale.size() >= 2 && scale.get(1) instanceof Number ? ((Number)scale.get(1)).floatValue() : 1};
+          if (integer(transform, "texCoord", 0) != 0) {
+            note("a texture uses its second set of coordinates, which isn't read");
+          }
         }
         if (pbr.get("metallicRoughnessTexture") != null) {
           note("the images of roughness and metal aren't read: the factors of the materials are used");
@@ -1237,6 +1389,18 @@ final class AssistantModelImporter {
       }
       if (uvs != null && uvs.length != vertexCount * 2) {
         uvs = null;
+      }
+      float [] imageTransform = getMaterial(primitive.get("material")).imageTransform;
+      if (uvs != null && imageTransform != null) {
+        // Scaled, turned then moved in the image (KHR_texture_transform)
+        double cos = Math.cos(imageTransform [2]);
+        double sin = Math.sin(imageTransform [2]);
+        for (int i = 0; i < vertexCount; i++) {
+          double u = uvs [i * 2] * imageTransform [3];
+          double v = uvs [i * 2 + 1] * imageTransform [4];
+          uvs [i * 2] = (float)(cos * u + sin * v + imageTransform [0]);
+          uvs [i * 2 + 1] = (float)(-sin * u + cos * v + imageTransform [1]);
+        }
       }
       if (attributes.get("COLOR_0") != null) {
         note("the colors of its vertices aren't read");
