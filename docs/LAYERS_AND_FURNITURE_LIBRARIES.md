@@ -248,10 +248,10 @@ lists the models that can be downloaded, 8 by default and 24 at most, one per
 line:
 
 ```
-sketchfab:78f7...5ab  "Oldsmobile Cutlass Supreme Sedan '71" by Barbo (https://sketchfab.com/barbo-autos),
+sketchfab:<uid>  "<name of the model>" by <author> (<page of the author>),
   license CC BY (attribution required), 70258 triangles, download glb 29.4 MB / gltf 27.5 MB,
   page https://sketchfab.com/3d-models/..., preview https://media.sketchfab.com/...
-polyhaven:ArmChair_01  "Arm Chair 01" by Kirill Sannikov, license CC0 (nothing required), 5626 triangles, ...
+polyhaven:ArmChair_01  "Arm Chair 01" by <author>, license CC0 (nothing required), 5626 triangles, ...
 ```
 
 | Key | Meaning |

@@ -7,34 +7,34 @@
  "previous": null,
  "results": [
   {
-   "uri": "https://api.sketchfab.com/v3/models/78f76d386a4341b0b71745bdc50fd5ab",
-   "uid": "78f76d386a4341b0b71745bdc50fd5ab",
-   "name": "Oldsmobile Cutlass Supreme Sedan '71",
-   "viewerUrl": "https://sketchfab.com/3d-models/none-78f76d386a4341b0b71745bdc50fd5ab",
+   "uri": "https://api.sketchfab.com/v3/models/00000000000000000000000000000001",
+   "uid": "00000000000000000000000000000001",
+   "name": "Sample sedan of 1971",
+   "viewerUrl": "https://sketchfab.com/3d-models/none-00000000000000000000000000000001",
    "isDownloadable": true,
    "thumbnails": {
     "images": [
      {
       "width": 64,
       "height": 36,
-      "url": "https://media.sketchfab.com/models/78f76d386a4341b0b71745bdc50fd5ab/thumbnails/3d7b0e16e2934a258e9176bb881c1c52/e9103b3eaf6440a9a73db3fae2482a99.jpeg"
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000001/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
      },
      {
       "width": 256,
       "height": 144,
-      "url": "https://media.sketchfab.com/models/78f76d386a4341b0b71745bdc50fd5ab/thumbnails/3d7b0e16e2934a258e9176bb881c1c52/68f0a1c7ae044d10a1011987d530cd29.jpeg"
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000001/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
      },
      {
       "width": 720,
       "height": 405,
-      "url": "https://media.sketchfab.com/models/78f76d386a4341b0b71745bdc50fd5ab/thumbnails/3d7b0e16e2934a258e9176bb881c1c52/915e44e7864c4f56b6c353b185e0e298.jpeg"
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000001/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
      }
     ]
    },
    "user": {
-    "username": "barbo-autos",
-    "displayName": "Barbo",
-    "profileUrl": "https://sketchfab.com/barbo-autos"
+    "username": "example-maker-1",
+    "displayName": "Example Maker One",
+    "profileUrl": "https://sketchfab.com/example-maker-1"
    },
    "faceCount": 70258,
    "vertexCount": 41220,
@@ -66,34 +66,34 @@
    }
   },
   {
-   "uri": "https://api.sketchfab.com/v3/models/20f9af9b8a404d5cb022ac6fe87f21f5",
-   "uid": "20f9af9b8a404d5cb022ac6fe87f21f5",
-   "name": "Generic passenger car pack",
-   "viewerUrl": "https://sketchfab.com/3d-models/none-20f9af9b8a404d5cb022ac6fe87f21f5",
+   "uri": "https://api.sketchfab.com/v3/models/00000000000000000000000000000002",
+   "uid": "00000000000000000000000000000002",
+   "name": "Sample passenger car pack",
+   "viewerUrl": "https://sketchfab.com/3d-models/none-00000000000000000000000000000002",
    "isDownloadable": true,
    "thumbnails": {
     "images": [
      {
       "width": 64,
       "height": 36,
-      "url": "https://media.sketchfab.com/models/20f9af9b8a404d5cb022ac6fe87f21f5/thumbnails/0c4ea7182f24445da4da30e7d6b3faa9/f45f3c3c1d0a49d8a00aa096a3801d9d.jpeg"
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000002/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
      },
      {
       "width": 256,
       "height": 144,
-      "url": "https://media.sketchfab.com/models/20f9af9b8a404d5cb022ac6fe87f21f5/thumbnails/0c4ea7182f24445da4da30e7d6b3faa9/9c650f2ea36146ebab227d7c3cef2720.jpeg"
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000002/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
      },
      {
       "width": 720,
       "height": 405,
-      "url": "https://media.sketchfab.com/models/20f9af9b8a404d5cb022ac6fe87f21f5/thumbnails/0c4ea7182f24445da4da30e7d6b3faa9/2c73a8e90b5748c9bb9d153906bdf190.jpeg"
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000002/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
      }
     ]
    },
    "user": {
-    "username": "comrade1280",
-    "displayName": "Comrade1280",
-    "profileUrl": "https://sketchfab.com/comrade1280"
+    "username": "example-maker-2",
+    "displayName": "Example Maker Two",
+    "profileUrl": "https://sketchfab.com/example-maker-2"
    },
    "faceCount": 69312,
    "vertexCount": 41463,
@@ -125,34 +125,34 @@
    }
   },
   {
-   "uri": "https://api.sketchfab.com/v3/models/5818270ead0649498ab6120604b19f7f",
-   "uid": "5818270ead0649498ab6120604b19f7f",
-   "name": "Sedan car covered with a gray car cloth 3D scan",
-   "viewerUrl": "https://sketchfab.com/3d-models/none-5818270ead0649498ab6120604b19f7f",
+   "uri": "https://api.sketchfab.com/v3/models/00000000000000000000000000000003",
+   "uid": "00000000000000000000000000000003",
+   "name": "Sample sedan under a gray cloth",
+   "viewerUrl": "https://sketchfab.com/3d-models/none-00000000000000000000000000000003",
    "isDownloadable": false,
    "thumbnails": {
     "images": [
      {
       "width": 64,
       "height": 36,
-      "url": "https://media.sketchfab.com/models/5818270ead0649498ab6120604b19f7f/thumbnails/c32e38dce33c47b18e7204599274d2c2/62282779b4d3417dbdaec587ed5d8f7d.jpeg"
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000003/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
      },
      {
       "width": 256,
       "height": 144,
-      "url": "https://media.sketchfab.com/models/5818270ead0649498ab6120604b19f7f/thumbnails/c32e38dce33c47b18e7204599274d2c2/5706ff1492314cf8a043a88f3d330af7.jpeg"
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000003/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
      },
      {
       "width": 720,
       "height": 405,
-      "url": "https://media.sketchfab.com/models/5818270ead0649498ab6120604b19f7f/thumbnails/c32e38dce33c47b18e7204599274d2c2/5bc192d3fbdd484c928b114e978a232f.jpeg"
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000003/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
      }
     ]
    },
    "user": {
-    "username": "albentan2012",
-    "displayName": "Alben Tan",
-    "profileUrl": "https://sketchfab.com/albentan2012"
+    "username": "example-maker-3",
+    "displayName": "Example Maker Three",
+    "profileUrl": "https://sketchfab.com/example-maker-3"
    },
    "faceCount": 36313,
    "vertexCount": 18587,

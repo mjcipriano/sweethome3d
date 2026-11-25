@@ -75,7 +75,7 @@ import com.eteks.sweethome3d.viewcontroller.JSONParser;
  */
 public class AssistantOnlineModelsTest {
   private static final String TOKEN = "0123456789abcdef0123456789abcdef";
-  private static final String SKETCHFAB_UID = "78f76d386a4341b0b71745bdc50fd5ab";
+  private static final String SKETCHFAB_UID = "00000000000000000000000000000001";
 
   private String                   previousNo3D;
   private Locale                   previousLocale;
@@ -340,7 +340,7 @@ public class AssistantOnlineModelsTest {
   public void testFindModels() {
     String summary = run("{\"action\":\"find_model\",\"query\":\"sedan car\",\"library\":\"sketchfab\"}");
     assertTrue(summary, summary.contains("sketchfab:" + SKETCHFAB_UID));
-    assertTrue(summary, summary.contains("\"Oldsmobile Cutlass Supreme Sedan '71\" by Barbo (https://sketchfab.com/barbo-autos)"));
+    assertTrue(summary, summary.contains("\"Sample sedan of 1971\" by Example Maker One (https://sketchfab.com/example-maker-1)"));
     assertTrue(summary, summary.contains("license CC BY (attribution required)"));
     assertTrue(summary, summary.contains("70258 triangles"));
     assertTrue(summary, summary.contains("download glb 29.4 MB / gltf 27.5 MB"));
@@ -362,11 +362,11 @@ public class AssistantOnlineModelsTest {
     this.fetcher.requests.clear();
     summary = run("{\"action\":\"find_model\",\"query\":\"sedan\",\"library\":\"sketchfab\",\"license\":[\"cc0\",\"by-nc-sa\"]}");
     assertFalse(this.fetcher.requests.get(0), this.fetcher.requests.get(0).contains("license="));
-    assertFalse(summary, summary.contains("Oldsmobile"));
-    assertTrue(summary, summary.contains("Generic passenger car pack"));
+    assertFalse(summary, summary.contains("Sample sedan of 1971"));
+    assertTrue(summary, summary.contains("Sample passenger car pack"));
     summary = run("{\"action\":\"find_model\",\"query\":\"sedan\",\"library\":\"sketchfab\",\"max_triangles\":70000}");
-    assertFalse(summary, summary.contains("Oldsmobile"));
-    assertTrue(summary, summary.contains("Generic passenger car pack"));
+    assertFalse(summary, summary.contains("Sample sedan of 1971"));
+    assertTrue(summary, summary.contains("Sample passenger car pack"));
     summary = run("{\"action\":\"find_model\",\"query\":\"sedan\",\"license\":\"gpl\"}");
     assertTrue(summary, summary.contains("\"license\" is among"));
 
@@ -380,7 +380,7 @@ public class AssistantOnlineModelsTest {
     int school = summary.indexOf("polyhaven:SchoolChair_01");
     assertTrue(summary, green > 0 && arm > green && school > arm);
     assertFalse(summary, summary.contains("Barrel"));
-    assertTrue(summary, summary.contains("\"Arm Chair 01\" by Kirill Sannikov, license CC0 (nothing required), 5626 triangles"));
+    assertTrue(summary, summary.contains("\"Arm Chair 01\" by Example Maker Four, license CC0 (nothing required), 5626 triangles"));
     assertTrue(summary, summary.contains("page https://polyhaven.com/a/ArmChair_01"));
     assertTrue(summary, summary.contains("preview https://cdn.polyhaven.com/asset_img/thumbs/ArmChair_01.png"));
     summary = run("{\"action\":\"find_model\",\"query\":\"chair\",\"library\":\"polyhaven\",\"license\":\"by\"}");
@@ -435,7 +435,7 @@ public class AssistantOnlineModelsTest {
     assertEquals(75, piece.getHeight(), 0.5f);
     assertEquals(300, piece.getX(), 0.01f);
     assertEquals("https://polyhaven.com/a/ArmChair_01", piece.getProperty("com.eteks.sweethome3d.modelSource"));
-    assertEquals("Kirill Sannikov", piece.getProperty("com.eteks.sweethome3d.modelAuthor"));
+    assertEquals("Example Maker Four", piece.getProperty("com.eteks.sweethome3d.modelAuthor"));
     assertEquals("CC0", piece.getProperty("com.eteks.sweethome3d.modelLicense"));
     assertTrue(summary, summary.contains("Downloaded from polyhaven: license CC0 (nothing required)"));
     assertFalse("The folder of the download isn't told: " + summary, summary.contains(System.getProperty("java.io.tmpdir")));
@@ -524,13 +524,13 @@ public class AssistantOnlineModelsTest {
 
     summary = run("{\"action\":\"import_model\",\"source\":\"sketchfab:" + SKETCHFAB_UID + "\",\"token\":\"" + TOKEN
         + "\",\"length\":480,\"front\":\"+x\",\"materials\":{\"paint\":\"#285A6B\"}}");
-    HomePieceOfFurniture piece = getPiece("Oldsmobile Cutlass Supreme Sedan '71");
+    HomePieceOfFurniture piece = getPiece("Sample sedan of 1971");
     assertNotNull(summary, piece);
     assertEquals(480, piece.getDepth(), 0.5f);
     assertEquals(240, piece.getWidth(), 0.5f);
     assertTrue(new String(readModelFile(piece, "model.mtl"), "US-ASCII").contains("Kd 0.15686275 0.3529412 0.41960785"));
     assertEquals("https://sketchfab.com/3d-models/none-" + SKETCHFAB_UID, piece.getProperty("com.eteks.sweethome3d.modelSource"));
-    assertEquals("Barbo (https://sketchfab.com/barbo-autos)", piece.getProperty("com.eteks.sweethome3d.modelAuthor"));
+    assertEquals("Example Maker One (https://sketchfab.com/example-maker-1)", piece.getProperty("com.eteks.sweethome3d.modelAuthor"));
     assertEquals("CC BY", piece.getProperty("com.eteks.sweethome3d.modelLicense"));
     assertTrue(summary, summary.contains("license CC BY (attribution required)"));
     assertTrue(summary, summary.contains("The token is kept"));
