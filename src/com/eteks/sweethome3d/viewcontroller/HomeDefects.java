@@ -312,15 +312,63 @@ final class HomeDefects {
         // A roof without edges to name
       }
       this.points = points;
-      if (gutters && !this.footprint.isEmpty()) {
+      Area gutterArea = null;
+      if (!this.footprint.isEmpty()) {
         // Gutters and downspouts hang along the edges, out of the roof
         Area around = new Area(new BasicStroke(2 * GUTTER_WIDTH, BasicStroke.CAP_SQUARE, BasicStroke.JOIN_MITER)
             .createStrokedShape(this.footprint));
         around.subtract(this.footprint);
-        this.gutters = around;
-      } else {
-        this.gutters = null;
+        if (points == null || points.length != roof.model.getEdgeCount()) {
+          gutterArea = gutters ? around : null;
+        } else {
+          // Only along the edges and the spans that have a gutter: an edge may have its own choice,
+          // and an edge where the roof stops at a taller wall has none
+          double signedArea = 0;
+          for (int i = 0; i < points.length; i++) {
+            double [] next = points [(i + 1) % points.length];
+            signedArea += points [i][0] * next [1] - next [0] * points [i][1];
+          }
+          Area along = new Area();
+          for (int i = 0; i < points.length; i++) {
+            Boolean edgeGutter = roof.model.getEdgeGutter(i);
+            double [][] spans = roof.model.getEdgeGutterSpans(i);
+            if (roof.model.isEdgeClipped(i)
+                || !(edgeGutter != null ? edgeGutter.booleanValue() || spans != null : gutters)) {
+              continue;
+            }
+            double [] start = points [i];
+            double [] end = points [(i + 1) % points.length];
+            double length = Math.hypot(end [0] - start [0], end [1] - start [1]);
+            if (length < 1) {
+              continue;
+            }
+            double ux = (end [0] - start [0]) / length;
+            double uy = (end [1] - start [1]) / length;
+            // Out of the roof
+            double nx = signedArea > 0 ? uy : -uy;
+            double ny = signedArea > 0 ? -ux : ux;
+            double out = Math.max(0, roof.model.getEdgeOverhang(i)) + 3 * GUTTER_WIDTH;
+            if (spans == null) {
+              // Up to the corners: the gutter of the next edge, if it has one, goes on from there
+              spans = new double [][] {{0, length}};
+            }
+            for (double [] span : spans) {
+              if (span != null && span.length >= 2 && span [1] > span [0]) {
+                java.awt.geom.Path2D band = new java.awt.geom.Path2D.Double();
+                band.moveTo(start [0] + ux * span [0] - nx * GUTTER_WIDTH, start [1] + uy * span [0] - ny * GUTTER_WIDTH);
+                band.lineTo(start [0] + ux * span [1] - nx * GUTTER_WIDTH, start [1] + uy * span [1] - ny * GUTTER_WIDTH);
+                band.lineTo(start [0] + ux * span [1] + nx * out, start [1] + uy * span [1] + ny * out);
+                band.lineTo(start [0] + ux * span [0] + nx * out, start [1] + uy * span [0] + ny * out);
+                band.closePath();
+                along.add(new Area(band));
+              }
+            }
+          }
+          around.intersect(along);
+          gutterArea = around.isEmpty() ? null : around;
+        }
       }
+      this.gutters = gutterArea;
       Rectangle2D bounds = this.footprint.getBounds2D();
       this.bounds = new Rectangle2D.Double(bounds.getX() - GUTTER_WIDTH, bounds.getY() - GUTTER_WIDTH,
           bounds.getWidth() + 2 * GUTTER_WIDTH, bounds.getHeight() + 2 * GUTTER_WIDTH);
@@ -533,7 +581,9 @@ final class HomeDefects {
               + " and " + format(Math.round(lowest - floor)) + " cm above its floor, under its ceiling at "
               + format(Math.round(ceiling - floor)) + " cm"
               + (under == 0 ? " (its gutter and its downspouts)" : gutter > 0 ? " (with its gutter)" : "")
-              + (edge >= 0 ? ". Its edge " + edge + " is the one to stop at the wall of the room (modify_roof)" : ""),
+              // Edges are numbered from 1 in the commands of roofs
+              + (edge >= 0 ? ". Its edge " + (edge + 1) + " is the one to stop at the wall of the room: modify_roof with "
+                  + "\"edge\":{\"index\":" + (edge + 1) + ",\"type\":\"clip\"}, or fix_home, which cuts the roof along the walls of the room" : ""),
               roof.roof.piece, item));
         }
       }

@@ -77,7 +77,7 @@ public class HomeDiagnostics {
     /** The ground changed under the posts of a fence. */
     FENCE_OFF_GROUND(false),
     /** A roof, its overhang or its gutters come into a room under its ceiling. */
-    ROOF_IN_ROOM(false),
+    ROOF_IN_ROOM(true),
     /** Two walls are drawn over each other along a part of their length. */
     OVERLAPPING_WALL(true),
     /** A door or a window stands in a wall without being lined up with it. */

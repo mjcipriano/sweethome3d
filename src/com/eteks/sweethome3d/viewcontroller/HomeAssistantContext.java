@@ -804,7 +804,7 @@ public class HomeAssistantContext {
         + "\"wall_color\":\"#RRGGBB\" or \"wall_texture\":\"<texture name>\" stores the finish of the "
         + "walls of the room and paints the wall sides that face it: see paint_rooms)\n"
         + "  {\"action\":\"open_to_above\",\"room\":\"R1\",\"to_level\":\"<level above>\",\"overlook\":{\"along\":\"north|south|east|west\","
-        + "\"railing\":\"<catalog name>\",\"height\":91}}  (makes a two-story room: puts its ceiling at the ceiling of \"to_level\", "
+        + "\"railing\":\"square|turned_balusters|cable|glass|<catalog name>\",\"height\":91}}  (makes a two-story room: puts its ceiling at the ceiling of \"to_level\", "
         + "the next level above by default, without thickness unless \"ceiling_thickness\":N is given, or under the roof with "
         + "\"ceiling\":\"follow_roof\"; hides or cuts the floors of the rooms above it; "
         + "raises the walls of its outline, or adds walls above its open sides, so it is closed up to that ceiling; \"overlook\" "

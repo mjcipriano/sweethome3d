@@ -1236,6 +1236,8 @@ class AssistantBuildingCommands {
     final List<Selectable> deletedItems = new ArrayList<Selectable>();
     // The walls to fit again to each roof they pass
     final java.util.Map<Selectable, List<Wall>> roofWalls = new java.util.LinkedHashMap<Selectable, List<Wall>>();
+    // The rooms that each roof comes into, where it's cut
+    final java.util.Map<Selectable, List<Selectable>> roofRooms = new java.util.LinkedHashMap<Selectable, List<Selectable>>();
     for (Issue issue : issues) {
       switch (issue.getType()) {
         case OVERLAPPING_WALL :
@@ -1250,6 +1252,12 @@ class AssistantBuildingCommands {
               }
             }
           }
+          break;
+        case ROOF_IN_ROOM :
+          if (roofRooms.get(issue.getItem()) == null) {
+            roofRooms.put(issue.getItem(), new ArrayList<Selectable>());
+          }
+          addOnce(roofRooms.get(issue.getItem()), issue.getOtherItem());
           break;
         case WALL_ABOVE_ROOF :
           if (roofWalls.get(issue.getOtherItem()) == null) {
@@ -1357,6 +1365,51 @@ class AssistantBuildingCommands {
           fixed [0] += ids.size();
         }
         notes.addAll(fitNotes);
+      }
+    }
+    // The roofs that come into a room are cut along the walls of that room, their shape kept
+    for (java.util.Map.Entry<Selectable, List<Selectable>> entry : roofRooms.entrySet()) {
+      if (!(entry.getKey() instanceof HomePieceOfFurniture) || deletedItems.contains(entry.getKey())) {
+        continue;
+      }
+      List<Object> ids = new ArrayList<Object>();
+      try {
+        Object spec = JSONParser.parse(((HomePieceOfFurniture)entry.getKey()).getProperty(AssistantShapeCommands.ROOF_SPEC_PROPERTY));
+        if (spec instanceof java.util.Map && ((java.util.Map<?, ?>)spec).get("clip_to_rooms") instanceof List) {
+          // The rooms that cut it already
+          for (Object id : (List<?>)((java.util.Map<?, ?>)spec).get("clip_to_rooms")) {
+            if (HomeItemIds.find(this.home, String.valueOf(id)) instanceof Room) {
+              ids.add(String.valueOf(id));
+            }
+          }
+        }
+      } catch (RuntimeException ex) {
+        // A roof without a description that is read
+      }
+      int count = 0;
+      for (Selectable room : entry.getValue()) {
+        if (this.home.getRooms().contains(room) && !ids.contains(this.executor.getId(room))) {
+          ids.add(this.executor.getId(room));
+          count++;
+        }
+      }
+      if (count > 0) {
+        java.util.Map<String, Object> parameters = new java.util.LinkedHashMap<String, Object>();
+        parameters.put("action", "modify_roof");
+        parameters.put("roof", this.executor.getId(entry.getKey()));
+        parameters.put("clip_to_rooms", ids);
+        List<String> clipNotes = new ArrayList<String>();
+        int [] clipTally = new int [tally.length];
+        this.executor.applySubCommand(new AssistantCommand("modify_roof", parameters), clipTally, clipNotes);
+        int changes = 0;
+        for (int i = 0; i < tally.length; i++) {
+          tally [i] += clipTally [i];
+          changes += clipTally [i];
+        }
+        if (changes > 0) {
+          fixed [0] += count;
+        }
+        notes.addAll(clipNotes);
       }
     }
     notes.add("Fixed " + fixed [0] + (fixed [0] == 1 ? " issue" : " issues"));

@@ -159,13 +159,14 @@ public class HomeDiagnosticsDefectsTest {
     assertEquals(roof, issue.getItem());
     assertEquals(this.home.getRooms().get(0), issue.getOtherItem());
     assertEquals(2, issue.getType().getSeverity());
-    assertFalse(issue.isFixable());
+    assertTrue(issue.isFixable());
     String message = issue.getMessage();
     assertTrue(message, message.contains("comes into " + HomeItemIds.getId(this.home.getRooms().get(0)) + " \"Hall\""));
     assertTrue(message, message.contains("west side"));
     assertTrue(message, message.contains("ceiling at 520 cm"));
     // The edge along the hall is named
-    assertTrue(message, message.contains("Its edge 1 is the one to stop"));
+    assertTrue(message, message.contains("Its edge 2 is the one to stop"));
+    assertTrue(message, message.contains("\"edge\":{\"index\":2,\"type\":\"clip\"}"));
     // Listed with the items that cross another item
     Map<String, Object> options = new LinkedHashMap<String, Object>();
     String report = this.executor.checkHome(options);
@@ -174,7 +175,29 @@ public class HomeDiagnosticsDefectsTest {
     report = this.executor.checkHome(options);
     assertTrue(report, report.contains("Items that cross another item ("));
     assertTrue(report, report.contains("- The roof " + HomeItemIds.getId(roof) + " \"Wing roof\" comes into"));
+    // The edge named, clipped as the message says: the roof keeps its shape and stops at that edge
+    float roofHeight = roof.getHeight();
+    run("{\"action\":\"modify_roof\",\"roof\":\"" + HomeItemIds.getId(roof) + "\",\"edge\":{\"index\":2,\"type\":\"clip\"}}");
+    roof = getPiece("Wing roof");
+    assertEquals(roofHeight, roof.getHeight(), 1f);
+    // Still 20 cm into the room, where its points put it
     run("{\"action\":\"delete\",\"ids\":[\"" + HomeItemIds.getId(roof) + "\"]}");
+
+    // fix_home cuts the roof along the walls of the room, and keeps its shape
+    run("{\"action\":\"add_roof\",\"name\":\"Wing roof\",\"points\":[[-600,0],[20,0],[20,400],[-600,400]],"
+        + "\"eave_height\":250,\"pitch\":30,\"overhang\":30,\"type\":\"hip\",\"gutters\":true}");
+    roof = getPiece("Wing roof");
+    roofHeight = roof.getHeight();
+    assertEquals(describe(), 1, getIssues(HomeDiagnostics.Type.ROOF_IN_ROOM).size());
+    String fixed = run("{\"action\":\"fix_home\",\"types\":[\"roof_in_room\"]}");
+    assertTrue(fixed, fixed.contains("Fixed 1 issue"));
+    assertTrue(describe(), getIssues(HomeDiagnostics.Type.ROOF_IN_ROOM).isEmpty());
+    roof = getPiece("Wing roof");
+    assertEquals("The top of the roof didn't move", roofHeight, roof.getHeight(), 1f);
+    // One step to undo
+    this.homeController.undo();
+    assertEquals(describe(), 1, getIssues(HomeDiagnostics.Type.ROOF_IN_ROOM).size());
+    run("{\"action\":\"delete\",\"ids\":[\"" + HomeItemIds.getId(getPiece("Wing roof")) + "\"]}");
 
     // A roof that stops at the wall but whose gutter hangs in the room
     run("{\"action\":\"add_roof\",\"name\":\"Wing roof\",\"points\":[[-600,0],[5,0],[5,400],[-600,400]],"
@@ -182,6 +205,24 @@ public class HomeDiagnosticsDefectsTest {
     issues = getIssues(HomeDiagnostics.Type.ROOF_IN_ROOM);
     assertEquals(describe(), 1, issues.size());
     assertTrue(issues.get(0).getMessage(), issues.get(0).getMessage().contains("gutter"));
+    // Without gutter on that edge, only the 5 cm of the roof itself are in the room; with a gutter on a
+    // span of the edge beside the hall, the gutter is reported again
+    String roofId = HomeItemIds.getId(getPiece("Wing roof"));
+    run("{\"action\":\"set_gutters\",\"roof\":\"" + roofId + "\",\"edges\":[{\"index\":2,\"gutter\":false}]}");
+    assertFalse(describe(), describe().contains("gutter"));
+    roofId = HomeItemIds.getId(getPiece("Wing roof"));
+    run("{\"action\":\"set_gutters\",\"roof\":\"" + roofId + "\",\"edges\":[{\"index\":2,\"gutter\":true}]}");
+    assertTrue(describe(), describe().contains("gutter"));
+    roofId = HomeItemIds.getId(getPiece("Wing roof"));
+    run("{\"action\":\"set_gutters\",\"roof\":\"" + roofId + "\",\"edges\":[{\"index\":2,\"gutter_spans\":[[100,300]]}]}");
+    assertTrue(describe(), describe().contains("gutter"));
+    // An edge clipped at the wall has no gutter at all
+    roofId = HomeItemIds.getId(getPiece("Wing roof"));
+    run("{\"action\":\"modify_roof\",\"roof\":\"" + roofId + "\",\"edge\":{\"index\":2,\"type\":\"clip\"}}");
+    assertFalse(describe(), describe().contains("gutter"));
+    // And fix_home cuts what is left of the roof in the room
+    run("{\"action\":\"fix_home\",\"types\":[\"roof_in_room\"]}");
+    assertTrue(describe(), getIssues(HomeDiagnostics.Type.ROOF_IN_ROOM).isEmpty());
 
     // A room of one story under its own roof has no roof in it
     this.home.getRooms().get(0).setProperty(CEILING_HEIGHT, null);

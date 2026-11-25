@@ -819,6 +819,44 @@ class AssistantCeilingCommands {
   }
 
   /**
+   * Builds a railing along the side of an overlook with the command <code>add_railing</code>.
+   * @return a sentence about the railing, or <code>null</code> if it couldn't be built
+   */
+  private String addBuiltRailing(float [] start, float [] end, Level level, String style, float height, int [] tally) {
+    java.util.Map<String, Object> parameters = new java.util.LinkedHashMap<String, Object>();
+    parameters.put("action", "add_railing");
+    List<Object> points = new ArrayList<Object>();
+    for (float [] point : new float [][] {start, end}) {
+      List<Object> coordinates = new ArrayList<Object>();
+      coordinates.add(Double.valueOf(point [0]));
+      coordinates.add(Double.valueOf(point [1]));
+      points.add(coordinates);
+    }
+    parameters.put("points", points);
+    parameters.put("height", Double.valueOf(height));
+    parameters.put("style", style);
+    if (level != null) {
+      parameters.put("level", level.getName());
+    }
+    List<String> railingNotes = new ArrayList<String>();
+    int [] railingTally = new int [tally.length];
+    this.executor.applySubCommand(new AssistantCommand("add_railing", parameters), railingTally, railingNotes);
+    int changes = 0;
+    for (int i = 0; i < tally.length; i++) {
+      tally [i] += railingTally [i];
+      changes += railingTally [i];
+    }
+    if (changes == 0) {
+      return null;
+    }
+    StringBuilder text = new StringBuilder("A railing of style " + style + " was built along the overlook (add_railing)");
+    for (String note : railingNotes) {
+      text.append(": ").append(note);
+    }
+    return text.toString();
+  }
+
+  /**
    * Places a railing along the side of an overlook: the catalog piece of the given name,
    * repeated along the side rather than stretched. The only place where the railing of an
    * overlook is built, to be replaced by the command which builds railings along any line.
@@ -827,6 +865,14 @@ class AssistantCeilingCommands {
   private String addOverlookRailing(float [] start, float [] end, Level level, String railingName,
                                     float height, int [] tally) {
     String query = railingName != null && railingName.trim().length() > 0 ? railingName.trim() : null;
+    String style = query != null ? query.toLowerCase(Locale.ENGLISH).replace(' ', '_').replace('-', '_') : null;
+    if ("square".equals(style) || "turned_balusters".equals(style) || "cable".equals(style) || "glass".equals(style)) {
+      // A railing built along the side, its balusters repeated
+      String built = addBuiltRailing(start, end, level, style, height, tally);
+      if (built != null) {
+        return built;
+      }
+    }
     CatalogPieceOfFurniture catalogPiece = null;
     String [] defaultNames = {"Railing", "Handrail", "Balustrade", "Guardrail"};
     String [] names = defaultNames;
@@ -847,6 +893,10 @@ class AssistantCeilingCommands {
       }
     }
     if (catalogPiece == null) {
+      String built = addBuiltRailing(start, end, level, "square", height, tally);
+      if (built != null) {
+        return (query != null ? "The catalog has no piece named \"" + query + "\" and no railing: " : "") + built;
+      }
       return "No railing: " + (query != null ? "the catalog has no piece named \"" + query + "\" and no railing"
           : "the catalog has no railing, give the name of a piece with \"railing\" (search_catalog finds one)")
           + ". The overlook is open and unguarded";
