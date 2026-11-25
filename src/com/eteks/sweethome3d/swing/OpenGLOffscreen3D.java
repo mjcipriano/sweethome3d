@@ -132,6 +132,13 @@ class OpenGLOffscreen3D {
   }
 
   /**
+   * Returns the shape drawn at the pixel (x, y) of the last image created, or <code>null</code>.
+   */
+  public OpenGLSceneRenderer.PickedShape pickShape(int x, int y) {
+    return this.renderer.pickShape(x, y);
+  }
+
+  /**
    * Frees the resources of the OpenGL context.
    */
   public void dispose() {

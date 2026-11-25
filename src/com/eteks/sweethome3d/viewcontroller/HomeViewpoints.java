@@ -10,6 +10,7 @@
  */
 package com.eteks.sweethome3d.viewcontroller;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -45,6 +46,11 @@ public class HomeViewpoints {
       {(float)Math.PI / 4, (float)Math.PI / 6}, {(float)Math.PI * 7 / 4, (float)Math.PI / 6}};
 
   private static final float EYE_HEIGHT = 160;
+  /** The room property that gives the height of the ceiling of a room above its floor, in centimeters. */
+  static final String ROOM_CEILING_HEIGHT_PROPERTY = "com.eteks.sweethome3d.ceilingHeight";
+  // What is kept between the eyes of the visitor and the ceiling or the roof over them
+  private static final float CEILING_MARGIN = 25;
+  private static final float MIN_EYE_HEIGHT = 40;
 
   /**
    * The location and the direction of a camera.
@@ -267,23 +273,33 @@ public class HomeViewpoints {
         centerY = (minY + maxY) / 2;
       }
       float elevation = room.getLevel() != null ? room.getLevel().getElevation() : 0;
-      // The corner of the room the farthest from its center where a visitor can stand
+      List<HomeRoofs.Roof> roofs = HomeRoofs.get(home);
+      // The corner of the room the farthest from its center where a visitor can stand,
+      // under a ceiling or a roof high enough if there's such a corner
       float [][] corners = {{minX, maxY}, {maxX, maxY}, {maxX, minY}, {minX, minY}};
       float bestX = centerX;
       float bestY = centerY;
       double bestDistance = -1;
+      boolean bestStanding = false;
       for (float [] corner : corners) {
+        boolean cornerFound = false;
         for (float inset = 0.12f; inset < 0.5f; inset += 0.08f) {
           float x = corner [0] + (centerX - corner [0]) * inset * 2;
           float y = corner [1] + (centerY - corner [1]) * inset * 2;
           if (room.containsPoint(x, y, 0)) {
+            boolean standing = getEyeElevation(home, roofs, room, x, y) >= elevation + EYE_HEIGHT - 0.5f;
             double distance = Math.hypot(x - centerX, y - centerY);
-            if (distance > bestDistance) {
+            if (standing && !bestStanding
+                || standing == bestStanding && !cornerFound && distance > bestDistance) {
               bestDistance = distance;
               bestX = x;
               bestY = y;
+              bestStanding = standing;
             }
-            break;
+            cornerFound = true;
+            if (standing) {
+              break;
+            }
           }
         }
       }
@@ -294,11 +310,25 @@ public class HomeViewpoints {
         if (Math.abs(bestY - centerY) < 1) {
           bestY = centerY + 50;
         }
+        if (!room.containsPoint(bestX, bestY, 0)) {
+          // Never out of the room
+          float [] place = getPlaceInside(room, centerX, centerY);
+          bestX = place [0];
+          bestY = place [1];
+        }
       }
-      // Look a little down, whatever the size of the room
+      // Under the ceiling and the roof, and looking a little down, whatever the size of the room
+      float eyeElevation = getEyeElevation(home, roofs, room, bestX, bestY);
       double distance = Math.hypot(bestX - centerX, bestY - centerY);
-      return lookAt(bestX, bestY, elevation + EYE_HEIGHT, centerX, centerY,
-          elevation + EYE_HEIGHT - (float)Math.min(45, distance * 0.2), fieldOfView, false);
+      if (distance < 1) {
+        // Nowhere else to stand: toward the longest side of the room
+        boolean wide = maxX - minX >= maxY - minY;
+        return lookAt(bestX, bestY, eyeElevation, bestX + (wide ? 100 : 0), bestY + (wide ? 0 : 100),
+            eyeElevation - 20, fieldOfView, false);
+      }
+      float targetElevation = Math.min(eyeElevation - (float)Math.min(45, distance * 0.2),
+          getEyeElevation(home, roofs, room, centerX, centerY));
+      return lookAt(bestX, bestY, eyeElevation, centerX, centerY, targetElevation, fieldOfView, false);
     } else if (target instanceof HomePieceOfFurniture) {
       HomePieceOfFurniture piece = (HomePieceOfFurniture)target;
       float elevation = piece.getGroundElevation();
@@ -328,7 +358,10 @@ public class HomeViewpoints {
         }
       }
       float pieceLevelElevation = piece.getLevel() != null ? piece.getLevel().getElevation() : 0;
-      return lookAt(x, y, pieceLevelElevation + EYE_HEIGHT,
+      // Under the ceiling of the room and the roof over the place
+      float eyeElevation = getEyeElevation(home, HomeRoofs.get(home), getRoomAt(home, x, y, piece.getLevel()),
+          x, y, pieceLevelElevation);
+      return lookAt(x, y, eyeElevation,
           piece.getX(), piece.getY(), elevation + piece.getHeight() / 2, fieldOfView, false);
     } else if (target instanceof Wall) {
       Wall wall = (Wall)target;
@@ -358,9 +391,236 @@ public class HomeViewpoints {
         }
       }
       float elevation = wall.getLevel() != null ? wall.getLevel().getElevation() : 0;
-      return lookAt(x, y, elevation + EYE_HEIGHT, centerX, centerY, elevation + 120, fieldOfView, false);
+      float eyeElevation = getEyeElevation(home, HomeRoofs.get(home), getRoomAt(home, x, y, wall.getLevel()),
+          x, y, elevation);
+      return lookAt(x, y, eyeElevation, centerX, centerY,
+          elevation + Math.min(120, (eyeElevation - elevation) * 0.75f), fieldOfView, false);
     }
     throw new IllegalArgumentException("The view \"inside\" needs the id of a room, a piece of furniture or a wall as target");
+  }
+
+  /**
+   * Returns the elevation of the ceiling over a point of a room: the lowest of the ceiling of the
+   * room (at the height its property gives, otherwise at the top of its level when it's shown) and of
+   * the underside of the roofs over the point, or NaN if nothing is known to be over it.
+   */
+  static float getCeilingElevation(Home home, List<HomeRoofs.Roof> roofs, Room room, float x, float y, float floorElevation) {
+    double ceiling = Double.NaN;
+    if (room != null) {
+      String ceilingHeight = room.getProperty(ROOM_CEILING_HEIGHT_PROPERTY);
+      if (ceilingHeight != null) {
+        try {
+          double height = Double.parseDouble(ceilingHeight.trim());
+          if (height > 0) {
+            ceiling = floorElevation + height;
+          }
+        } catch (NumberFormatException ex) {
+          // The ceiling of the level
+        }
+      }
+      if (Double.isNaN(ceiling) && room.isCeilingVisible()) {
+        ceiling = floorElevation + (room.getLevel() != null && room.getLevel().getHeight() > 0
+            ? room.getLevel().getHeight() : home.getWallHeight());
+      }
+    }
+    double roofCeiling = HomeRoofs.getCeilingElevation(roofs, x, y, floorElevation + 1);
+    if (!Double.isNaN(roofCeiling) && !(ceiling <= roofCeiling)) {
+      ceiling = roofCeiling;
+    }
+    return (float)ceiling;
+  }
+
+  /**
+   * Returns the elevation of the eyes of a visitor who stands at a point of a room: at
+   * their usual height, or lower to stay under the ceiling of the room and the roof over it.
+   */
+  private static float getEyeElevation(Home home, List<HomeRoofs.Roof> roofs, Room room, float x, float y) {
+    return getEyeElevation(home, roofs, room, x, y, room.getLevel() != null ? room.getLevel().getElevation() : 0);
+  }
+
+  private static float getEyeElevation(Home home, List<HomeRoofs.Roof> roofs, Room room, float x, float y, float floorElevation) {
+    float ceiling = getCeilingElevation(home, roofs, room, x, y, floorElevation);
+    float eyeElevation = floorElevation + EYE_HEIGHT;
+    if (!Float.isNaN(ceiling) && ceiling - CEILING_MARGIN < eyeElevation) {
+      eyeElevation = Math.max(floorElevation + MIN_EYE_HEIGHT, ceiling - CEILING_MARGIN);
+    }
+    return eyeElevation;
+  }
+
+  /**
+   * Returns a point inside <code>room</code>, the given one if it's inside.
+   */
+  private static float [] getPlaceInside(Room room, float x, float y) {
+    if (room.containsPoint(x, y, 0)) {
+      return new float [] {x, y};
+    }
+    float [][] points = room.getPoints();
+    float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+    for (float [] point : points) {
+      minX = Math.min(minX, point [0]);
+      minY = Math.min(minY, point [1]);
+      maxX = Math.max(maxX, point [0]);
+      maxY = Math.max(maxY, point [1]);
+    }
+    // The point of a grid the farthest from the outline of the room
+    float [] best = null;
+    double bestDistance = -1;
+    java.awt.geom.GeneralPath path = new java.awt.geom.GeneralPath();
+    for (int i = 0; i < points.length; i++) {
+      if (i == 0) {
+        path.moveTo(points [i][0], points [i][1]);
+      } else {
+        path.lineTo(points [i][0], points [i][1]);
+      }
+    }
+    path.closePath();
+    for (int i = 1; i < 24; i++) {
+      for (int j = 1; j < 24; j++) {
+        float gridX = minX + (maxX - minX) * i / 24;
+        float gridY = minY + (maxY - minY) * j / 24;
+        if (path.contains(gridX, gridY)) {
+          double distance = Double.MAX_VALUE;
+          for (int k = 0; k < points.length; k++) {
+            float [] start = points [k];
+            float [] end = points [(k + 1) % points.length];
+            distance = Math.min(distance, java.awt.geom.Line2D.ptSegDist(start [0], start [1], end [0], end [1], gridX, gridY));
+          }
+          if (distance > bestDistance) {
+            bestDistance = distance;
+            best = new float [] {gridX, gridY};
+          }
+        }
+      }
+    }
+    return best != null ? best : new float [] {x, y};
+  }
+
+  /**
+   * The points of view from which a room is inspected.
+   */
+  public static final class RoomInspection {
+    private final float     x;
+    private final float     y;
+    private final float     floorElevation;
+    private final float     eyeElevation;
+    private final float     ceilingElevation;
+    private final Pose []   poses;
+    private final String [] captions;
+    private final String [] descriptions;
+
+    private RoomInspection(float x, float y, float floorElevation, float eyeElevation, float ceilingElevation,
+                           Pose [] poses, String [] captions, String [] descriptions) {
+      this.descriptions = descriptions;
+      this.x = x;
+      this.y = y;
+      this.floorElevation = floorElevation;
+      this.eyeElevation = eyeElevation;
+      this.ceilingElevation = ceilingElevation;
+      this.poses = poses;
+      this.captions = captions;
+    }
+
+    public float getX() {
+      return this.x;
+    }
+
+    public float getY() {
+      return this.y;
+    }
+
+    public float getFloorElevation() {
+      return this.floorElevation;
+    }
+
+    public float getEyeElevation() {
+      return this.eyeElevation;
+    }
+
+    /**
+     * Returns the elevation where the ceiling of the room is expected over its middle,
+     * or the one of its floor if nothing tells it.
+     */
+    public float getCeilingElevation() {
+      return this.ceilingElevation;
+    }
+
+    public Pose [] getPoses() {
+      return this.poses;
+    }
+
+    /**
+     * Returns the short names of the points of view.
+     */
+    public String [] getCaptions() {
+      return this.captions;
+    }
+
+    /**
+     * Returns the descriptions of the points of view.
+     */
+    public String [] getDescriptions() {
+      return this.descriptions;
+    }
+  }
+
+  /**
+   * Returns the points of view that show the walls of <code>room</code> up to its ceiling: from
+   * its middle toward the north, the east, the south and the west of the plan, the camera tilted
+   * up to where each wall meets the ceiling, straight up, and from one of its corners.
+   * @return the points of view, or <code>null</code> if the room has no area
+   */
+  public static RoomInspection inspectRoom(Home home, Room room) {
+    float [][] points = room.getPoints();
+    if (points.length < 3 || !(room.getArea() > 1)) {
+      return null;
+    }
+    float [] place = getPlaceInside(room, room.getXCenter(), room.getYCenter());
+    float floorElevation = room.getLevel() != null ? room.getLevel().getElevation() : 0;
+    List<HomeRoofs.Roof> roofs = HomeRoofs.get(home);
+    float eyeElevation = getEyeElevation(home, roofs, room, place [0], place [1]);
+    float ceilingElevation = getCeilingElevation(home, roofs, room, place [0], place [1], floorElevation);
+    // The height the pictures should reach: the ceiling when it's known, otherwise the top of the walls
+    // of the level above, as in a room open to the floor above
+    float topElevation = ceilingElevation;
+    if (Float.isNaN(topElevation)) {
+      float levelHeight = room.getLevel() != null && room.getLevel().getHeight() > 0
+          ? room.getLevel().getHeight() : home.getWallHeight();
+      topElevation = floorElevation + 2 * levelHeight;
+    }
+    float fieldOfView = (float)Math.toRadians(90);
+    // The yaw of a camera is 0 when it looks toward the bottom of the plan, and turns clockwise
+    String [] directions = {"north (top of the plan)", "east (right of the plan)", "south (bottom of the plan)", "west (left of the plan)"};
+    String [] shortDirections = {"North (top of plan)", "East (right of plan)", "South (bottom of plan)", "West (left of plan)"};
+    String [] descriptions = new String [6];
+    float [] yaws = {(float)Math.PI, (float)Math.PI * 3 / 2, 0, (float)Math.PI / 2};
+    float [][] vectors = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
+    Pose [] poses = new Pose [6];
+    String [] captions = new String [6];
+    for (int i = 0; i < 4; i++) {
+      // The distance to the side of the room in this direction
+      float distance = 10;
+      while (distance < 5000
+             && room.containsPoint(place [0] + vectors [i][0] * (distance + 10), place [1] + vectors [i][1] * (distance + 10), 0)) {
+        distance += 10;
+      }
+      // The middle of the picture at two thirds of the height of the wall over the eyes
+      double pitch = -Math.atan2((topElevation - eyeElevation) * 0.67, Math.max(60, distance));
+      pitch = Math.max(-Math.toRadians(55), Math.min(-Math.toRadians(8), pitch));
+      poses [i] = new Pose(place [0], place [1], eyeElevation, yaws [i], (float)pitch, fieldOfView, false);
+      captions [i] = shortDirections [i];
+      descriptions [i] = "toward the " + directions [i] + ", " + Math.round(Math.toDegrees(-pitch)) + " degrees up, the side of the room "
+          + Math.round(distance) + " cm away";
+    }
+    poses [4] = new Pose(place [0], place [1], eyeElevation, (float)Math.PI, -(float)Math.PI / 2, fieldOfView, false);
+    captions [4] = "Straight up (north at top)";
+    descriptions [4] = "straight up, the north at the top of the picture";
+    List<Room> target = new ArrayList<Room>();
+    target.add(room);
+    poses [5] = getInsidePose(home, target, null, 0);
+    captions [5] = "From a corner";
+    descriptions [5] = "from a corner of the room";
+    return new RoomInspection(place [0], place [1], floorElevation, eyeElevation,
+        Float.isNaN(ceilingElevation) ? floorElevation : ceilingElevation, poses, captions, descriptions);
   }
 
   /**

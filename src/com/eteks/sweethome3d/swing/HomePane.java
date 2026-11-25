@@ -366,7 +366,9 @@ public class HomePane extends JRootPane implements HomeView {
           removeAncestorListener(this);
           try {
             if (HomeMCPServer.isAutoStart(OperatingSystem.getDefaultApplicationFolder())
-                && mcpServer == null) {
+                && mcpServer == null
+                // A scratch home doesn't take over the connection of the clients
+                && home.getProperty(HomeController.SCRATCH_HOME_PROPERTY) == null) {
               startMCPServer();
             }
           } catch (IOException ex) {
@@ -5393,7 +5395,11 @@ public class HomePane extends JRootPane implements HomeView {
           public byte [] getPlanImage(int maxSize, Level level, float [] area) {
             return level == null && area == null
                 ? createPlanImage(maxSize)
-                : createPlanImage(maxSize, level, area);
+                : createPlanImage(home, maxSize, level, area);
+          }
+
+          public byte [] getPlanImage(Home drawnHome, int maxSize, Level level, float [] area) {
+            return createPlanImage(drawnHome, maxSize, level, area);
           }
 
           public HomeMCPHandler.Image3D get3DImage(HomeMCPHandler.Image3DRequest request) {
@@ -5553,6 +5559,15 @@ public class HomePane extends JRootPane implements HomeView {
           public String startVisit(String mode) throws Exception {
             return startVisitForMCP(mode);
           }
+
+          public HomeMCPHandler getHandler(Home otherHome) throws Exception {
+            HomePane otherPane = HOME_PANES.get(otherHome);
+            return otherPane != null ? otherPane.getMCPHandler() : null;
+          }
+
+          public void scratchHomeCreated() {
+            watchScratchHomes();
+          }
         });
     }
     return this.mcpHandler;
@@ -5706,6 +5721,26 @@ public class HomePane extends JRootPane implements HomeView {
       }
     }
     throw new IOException("This visit isn't available");
+  }
+
+  private static javax.swing.Timer scratchHomesTimer;
+
+  /**
+   * Closes from time to time the scratch homes that MCP clients left without any call.
+   */
+  private static void watchScratchHomes() {
+    if (scratchHomesTimer == null) {
+      scratchHomesTimer = new javax.swing.Timer(60000, new ActionListener() {
+          public void actionPerformed(ActionEvent ev) {
+            if (HomeMCPHandler.closeIdleScratchHomes() == 0) {
+              scratchHomesTimer.stop();
+            }
+          }
+        });
+    }
+    if (!scratchHomesTimer.isRunning()) {
+      scratchHomesTimer.start();
+    }
   }
 
   /**
@@ -5962,11 +5997,11 @@ public class HomePane extends JRootPane implements HomeView {
    * @param level the level to draw, or <code>null</code> for the selected one
    * @param area  the part of the plan to draw as <code>{x, y, width, height}</code>, or <code>null</code>
    */
-  private byte [] createPlanImage(int maxSize, Level level, float [] area) {
+  private byte [] createPlanImage(Home sourceHome, int maxSize, Level level, float [] area) {
     try {
-      Home drawnHome = this.home.clone();
+      Home drawnHome = sourceHome.clone();
       if (level != null) {
-        int levelIndex = this.home.getLevels().indexOf(level);
+        int levelIndex = sourceHome.getLevels().indexOf(level);
         if (levelIndex < 0 || levelIndex >= drawnHome.getLevels().size()) {
           return null;
         }
@@ -6518,9 +6553,31 @@ public class HomePane extends JRootPane implements HomeView {
             int height = request.getHeight();
             BufferedImage image = null;
             String description = null;
+            List<int []> pixels = null;
+            List<HomeComponent3D.DrawnItem> drawnItems = null;
+            int identifiedCount = request.getIdentifiedPixels() != null ? request.getIdentifiedPixels().size() : 0;
+            if (identifiedCount > 0 || request.isLabels()) {
+              pixels = new ArrayList<int []>();
+              drawnItems = new ArrayList<HomeComponent3D.DrawnItem>();
+              if (identifiedCount > 0) {
+                pixels.addAll(request.getIdentifiedPixels());
+              }
+              if (request.isLabels()) {
+                // A grid of pixels, to find the items in sight
+                int step = Math.max(10, Math.round(Math.max(width, height) / 56f));
+                for (int y = step / 2; y < height; y += step) {
+                  for (int x = step / 2; x < width; x += step) {
+                    pixels.add(new int [] {x, y});
+                  }
+                }
+              }
+            }
             if (openGL) {
               image = HomeComponent3D.createOpenGLImage(renderedHome, preferences, width, height,
-                  request.isShadows(), request.isAmbientOcclusion());
+                  request.isShadows(), request.isAmbientOcclusion(), pixels, drawnItems);
+              if (image == null) {
+                drawnItems = null;
+              }
               if (image != null) {
                 description = "Drawn by the OpenGL renderer (antialiasing"
                     + (request.isShadows() ? ", shadows" : "")
@@ -6558,6 +6615,20 @@ public class HomePane extends JRootPane implements HomeView {
               g2D.dispose();
               image = opaqueImage;
             }
+            // What is drawn at the pixels to identify, and the labels of the items in sight
+            List<HomeMCPHandler.IdentifiedItem> identifiedItems = null;
+            List<HomeMCPHandler.IdentifiedItem> labeledItems = null;
+            if (openGL && drawnItems != null && drawnItems.size() == (pixels != null ? pixels.size() : -1)) {
+              if (identifiedCount > 0) {
+                identifiedItems = new ArrayList<HomeMCPHandler.IdentifiedItem>();
+                for (HomeComponent3D.DrawnItem drawnItem : drawnItems.subList(0, identifiedCount)) {
+                  identifiedItems.add(createIdentifiedItem(renderedHome, drawnItem));
+                }
+              }
+              if (request.isLabels()) {
+                labeledItems = paintItemLabels(image, renderedHome, drawnItems.subList(identifiedCount, drawnItems.size()));
+              }
+            }
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ImageIO.write(image, "png", out);
             byte [] preview = null;
@@ -6574,6 +6645,12 @@ public class HomePane extends JRootPane implements HomeView {
               preview = previewOut.toByteArray();
             }
             result [0] = new HomeMCPHandler.Image3D(out.toByteArray(), preview, description);
+            if (identifiedItems != null) {
+              result [0].setIdentifiedItems(identifiedItems);
+            }
+            if (labeledItems != null) {
+              result [0].setLabeledItems(labeledItems);
+            }
           } catch (Exception ex) {
             // No picture, with the reason for the client
             result [0] = new HomeMCPHandler.Image3D(null, null, "The 3D picture couldn't be created: " + ex + ".");
@@ -6630,6 +6707,99 @@ public class HomePane extends JRootPane implements HomeView {
       }
     }
     return result [0];
+  }
+
+  /**
+   * Draws in <code>image</code> the id of each item of <code>drawnHome</code> found at the given pixels,
+   * once per item, near the middle of the pixels where it's seen, and returns the items labeled
+   * with the pixel of their label.
+   */
+  private static List<HomeMCPHandler.IdentifiedItem> paintItemLabels(BufferedImage image, Home drawnHome,
+                                                                    List<HomeComponent3D.DrawnItem> drawnItems) {
+    // The pixels of each item, by its id
+    Map<String, List<HomeComponent3D.DrawnItem>> itemsPixels = new java.util.LinkedHashMap<String, List<HomeComponent3D.DrawnItem>>();
+    for (HomeComponent3D.DrawnItem drawnItem : drawnItems) {
+      String id = drawnItem.getItem() != null ? HomeMCPHandler.getDrawnItemId(drawnHome, drawnItem.getItem()) : null;
+      if (id != null && !(drawnItem.getItem() instanceof Level)) {
+        List<HomeComponent3D.DrawnItem> itemPixels = itemsPixels.get(id);
+        if (itemPixels == null) {
+          itemPixels = new ArrayList<HomeComponent3D.DrawnItem>();
+          itemsPixels.put(id, itemPixels);
+        }
+        itemPixels.add(drawnItem);
+      }
+    }
+    List<HomeMCPHandler.IdentifiedItem> labeledItems = new ArrayList<HomeMCPHandler.IdentifiedItem>();
+    Graphics2D g2D = image.createGraphics();
+    g2D.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+    g2D.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+    g2D.setFont(new Font(Font.SANS_SERIF, Font.BOLD, Math.max(10, image.getWidth() / 75)));
+    java.awt.FontMetrics metrics = g2D.getFontMetrics();
+    List<Rectangle> labelsBounds = new ArrayList<Rectangle>();
+    for (Map.Entry<String, List<HomeComponent3D.DrawnItem>> entry : itemsPixels.entrySet()) {
+      List<HomeComponent3D.DrawnItem> itemPixels = entry.getValue();
+      // The pixel of the item the closest to the middle of its pixels: a point where it's seen
+      double centerX = 0;
+      double centerY = 0;
+      for (HomeComponent3D.DrawnItem pixel : itemPixels) {
+        centerX += pixel.getX();
+        centerY += pixel.getY();
+      }
+      centerX /= itemPixels.size();
+      centerY /= itemPixels.size();
+      HomeComponent3D.DrawnItem labelPixel = itemPixels.get(0);
+      for (HomeComponent3D.DrawnItem pixel : itemPixels) {
+        if (Math.hypot(pixel.getX() - centerX, pixel.getY() - centerY)
+            < Math.hypot(labelPixel.getX() - centerX, labelPixel.getY() - centerY)) {
+          labelPixel = pixel;
+        }
+      }
+      String id = entry.getKey();
+      int textWidth = metrics.stringWidth(id);
+      Rectangle bounds = new Rectangle(labelPixel.getX() - textWidth / 2 - 3, labelPixel.getY() - metrics.getAscent() / 2 - 2,
+          textWidth + 6, metrics.getHeight() + 2);
+      // Under the labels it would cover
+      for (int tries = 0; tries < 6; tries++) {
+        boolean covered = false;
+        for (Rectangle other : labelsBounds) {
+          if (other.intersects(bounds)) {
+            bounds.y = other.y + other.height + 1;
+            covered = true;
+          }
+        }
+        if (!covered) {
+          break;
+        }
+      }
+      bounds.x = Math.max(0, Math.min(image.getWidth() - bounds.width, bounds.x));
+      bounds.y = Math.max(0, Math.min(image.getHeight() - bounds.height, bounds.y));
+      labelsBounds.add(bounds);
+      // A dot where the item is, tied to its label when the label was moved
+      g2D.setColor(new Color(20, 20, 20));
+      g2D.fillOval(labelPixel.getX() - 2, labelPixel.getY() - 2, 5, 5);
+      if (!bounds.contains(labelPixel.getX(), labelPixel.getY())) {
+        g2D.drawLine(labelPixel.getX(), labelPixel.getY(), bounds.x + bounds.width / 2, bounds.y);
+      }
+      g2D.setColor(new Color(255, 255, 255, 215));
+      g2D.fill(bounds);
+      g2D.setColor(new Color(20, 20, 20));
+      g2D.drawString(id, bounds.x + 3, bounds.y + metrics.getAscent() + 1);
+      labeledItems.add(createIdentifiedItem(drawnHome, labelPixel));
+    }
+    g2D.dispose();
+    return labeledItems;
+  }
+
+  /**
+   * Returns what is drawn at a pixel of a picture of <code>drawnHome</code>, a piece of a group
+   * of furniture being replaced by its group, which has an id.
+   */
+  private static HomeMCPHandler.IdentifiedItem createIdentifiedItem(Home drawnHome, HomeComponent3D.DrawnItem drawnItem) {
+    Object item = drawnItem.getItem();
+    Object homeItem = item != null ? HomeMCPHandler.getDrawnItem(drawnHome, item) : null;
+    return new HomeMCPHandler.IdentifiedItem(drawnItem.getX(), drawnItem.getY(), homeItem,
+        homeItem != item && item instanceof HomePieceOfFurniture ? ((HomePieceOfFurniture)item).getName() : null,
+        drawnItem.getMaterialName(), drawnItem.getPoint(), drawnItem.getDistance());
   }
 
   /**
