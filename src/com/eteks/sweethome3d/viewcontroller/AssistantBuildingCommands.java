@@ -1195,7 +1195,7 @@ class AssistantBuildingCommands {
     }
     final List<Issue> issues = new ArrayList<Issue>();
     for (Issue issue : check()) {
-      if (issue.getType().isFixable()
+      if (issue.isFixable()
           && (types.isEmpty() || types.contains(issue.getType().name().toLowerCase(Locale.ENGLISH)))) {
         issues.add(issue);
       }
@@ -1207,8 +1207,29 @@ class AssistantBuildingCommands {
     // Items changed in place, then items removed
     final List<Selectable> modifiedItems = new ArrayList<Selectable>();
     final List<Selectable> deletedItems = new ArrayList<Selectable>();
+    // The walls to fit again to each roof they pass
+    final java.util.Map<Selectable, List<Wall>> roofWalls = new java.util.LinkedHashMap<Selectable, List<Wall>>();
     for (Issue issue : issues) {
       switch (issue.getType()) {
+        case OVERLAPPING_WALL :
+          // The wall kept may be the one to delete of another pair
+          if (!deletedItems.contains(issue.getItem()) && !deletedItems.contains(issue.getOtherItem())) {
+            deletedItems.add(issue.getItem());
+            addOnce(modifiedItems, issue.getOtherItem());
+            for (Wall wall : this.home.getWalls()) {
+              if (wall.getWallAtStart() == issue.getItem() || wall.getWallAtEnd() == issue.getItem()
+                  || wall.getWallAtStart() == issue.getOtherItem() || wall.getWallAtEnd() == issue.getOtherItem()) {
+                addOnce(modifiedItems, wall);
+              }
+            }
+          }
+          break;
+        case WALL_ABOVE_ROOF :
+          if (roofWalls.get(issue.getOtherItem()) == null) {
+            roofWalls.put(issue.getOtherItem(), new ArrayList<Wall>());
+          }
+          roofWalls.get(issue.getOtherItem()).add((Wall)issue.getItem());
+          break;
         case TINY_WALL :
         case DUPLICATE_WALL :
         case EMPTY_ROOM :
@@ -1251,6 +1272,27 @@ class AssistantBuildingCommands {
               } else if (issue.getType() == HomeDiagnostics.Type.FURNITURE_BELOW_FLOOR) {
                 ((HomePieceOfFurniture)issue.getItem()).setElevation(0);
                 fixed [0]++;
+              } else if (issue.getType() == HomeDiagnostics.Type.DOOR_MISALIGNED) {
+                alignWithWall((HomePieceOfFurniture)issue.getItem(), (Wall)issue.getOtherItem());
+                fixed [0]++;
+              } else if (issue.getType() == HomeDiagnostics.Type.OPEN_TWO_STORY_ROOM) {
+                Wall wall = (Wall)issue.getItem();
+                // Up to the ceiling of the tallest room it closes
+                if (issue.getValue() > HomeDefects.getWallHeight(home, wall, 0)) {
+                  wall.setHeight(Float.valueOf(issue.getValue()));
+                }
+                if (wall.getHeightAtEnd() != null && issue.getValue() > wall.getHeightAtEnd().floatValue()) {
+                  wall.setHeightAtEnd(Float.valueOf(issue.getValue()));
+                }
+                fixed [0]++;
+              }
+            }
+            // The wall kept of two walls drawn over each other takes the place of both
+            for (Issue issue : issues) {
+              if (issue.getType() == HomeDiagnostics.Type.OVERLAPPING_WALL
+                  && deletedItems.contains(issue.getItem()) && modifiedItems.contains(issue.getOtherItem())
+                  && !deletedItems.contains(issue.getOtherItem())) {
+                replaceWall((Wall)issue.getItem(), (Wall)issue.getOtherItem());
               }
             }
           }
@@ -1263,7 +1305,163 @@ class AssistantBuildingCommands {
       tally [5] += deletedItems.size();
       fixed [0] += deletedItems.size();
     }
+    // The walls that pass a roof get the height of its underside again
+    for (java.util.Map.Entry<Selectable, List<Wall>> entry : roofWalls.entrySet()) {
+      List<Object> ids = new ArrayList<Object>();
+      for (Wall wall : entry.getValue()) {
+        if (!deletedItems.contains(wall) && this.home.getWalls().contains(wall)) {
+          ids.add(this.executor.getId(wall));
+        }
+      }
+      if (!ids.isEmpty()) {
+        java.util.Map<String, Object> parameters = new java.util.LinkedHashMap<String, Object>();
+        parameters.put("action", "fit_walls_to_roof");
+        parameters.put("roof", this.executor.getId(entry.getKey()));
+        parameters.put("ids", ids);
+        List<String> fitNotes = new ArrayList<String>();
+        int [] fitTally = new int [tally.length];
+        this.executor.applySubCommand(new AssistantCommand("fit_walls_to_roof", parameters), fitTally, fitNotes);
+        int changes = 0;
+        for (int i = 0; i < tally.length; i++) {
+          tally [i] += fitTally [i];
+          changes += fitTally [i];
+        }
+        if (changes > 0) {
+          fixed [0] += ids.size();
+        }
+        notes.addAll(fitNotes);
+      }
+    }
     notes.add("Fixed " + fixed [0] + (fixed [0] == 1 ? " issue" : " issues"));
+  }
+
+  /**
+   * Turns a door or a window parallel to its wall, facing the side it faced the most, and brings it
+   * back on the middle line of the wall if it comes out of one of its faces.
+   */
+  private static void alignWithWall(HomePieceOfFurniture piece, Wall wall) {
+    double wallAngle = Math.atan2(wall.getYEnd() - wall.getYStart(), wall.getXEnd() - wall.getXStart());
+    double difference = Math.abs(Math.IEEEremainder(piece.getAngle() - wallAngle, 2 * Math.PI));
+    piece.setAngle((float)(difference <= Math.PI / 2 ? wallAngle : wallAngle + Math.PI));
+    double ux = Math.cos(wallAngle);
+    double uy = Math.sin(wallAngle);
+    double offset = (piece.getX() - wall.getXStart()) * -uy + (piece.getY() - wall.getYStart()) * ux;
+    if (HomeDefects.isOffMiddleLine(piece, wall, offset)) {
+      piece.setX((float)(piece.getX() + uy * offset));
+      piece.setY((float)(piece.getY() - ux * offset));
+    }
+  }
+
+  /**
+   * Makes <code>kept</code> stand for <code>deleted</code> too, a wall drawn over it: it's put
+   * on the line of the deleted wall if that one follows the axes of the plan better, it's made as long
+   * as both, and it joins the walls the deleted one was joined to.
+   */
+  private void replaceWall(Wall deleted, Wall kept) {
+    if (getAxisDeviation(deleted) < 0.05 && getAxisDeviation(kept) >= 0.05 && getAxisDeviation(kept) < 3) {
+      // The wall kept is a little crooked: on the line of the straight one
+      float [] start = getPointOnLine(deleted, kept.getXStart(), kept.getYStart());
+      float [] end = getPointOnLine(deleted, kept.getXEnd(), kept.getYEnd());
+      moveWallEnd(kept, true, start [0], start [1]);
+      moveWallEnd(kept, false, end [0], end [1]);
+    }
+    double length = kept.getLength();
+    double ux = (kept.getXEnd() - kept.getXStart()) / length;
+    double uy = (kept.getYEnd() - kept.getYStart()) / length;
+    double s1 = (deleted.getXStart() - kept.getXStart()) * ux + (deleted.getYStart() - kept.getYStart()) * uy;
+    double s2 = (deleted.getXEnd() - kept.getXStart()) * ux + (deleted.getYEnd() - kept.getYStart()) * uy;
+    double from = Math.min(s1, s2);
+    double to = Math.max(s1, s2);
+    float xStart = kept.getXStart();
+    float yStart = kept.getYStart();
+    if (from < -1 && kept.getWallAtStart() == null) {
+      kept.setXStart((float)(xStart + ux * from));
+      kept.setYStart((float)(yStart + uy * from));
+    }
+    if (to > length + 1 && kept.getWallAtEnd() == null) {
+      kept.setXEnd((float)(xStart + ux * to));
+      kept.setYEnd((float)(yStart + uy * to));
+    }
+    // The walls joined to the deleted one are joined to the one kept where they meet it
+    for (Wall wall : this.home.getWalls()) {
+      if (wall == deleted || wall == kept) {
+        continue;
+      }
+      for (int end = 0; end < 2; end++) {
+        if ((end == 0 ? wall.getWallAtStart() : wall.getWallAtEnd()) != deleted) {
+          continue;
+        }
+        float x = end == 0 ? wall.getXStart() : wall.getXEnd();
+        float y = end == 0 ? wall.getYStart() : wall.getYEnd();
+        if (end == 0) {
+          wall.setWallAtStart(null);
+        } else {
+          wall.setWallAtEnd(null);
+        }
+        for (int keptEnd = 0; keptEnd < 2; keptEnd++) {
+          if ((keptEnd == 0 ? kept.getWallAtStart() : kept.getWallAtEnd()) == null
+              && Math.hypot(x - (keptEnd == 0 ? kept.getXStart() : kept.getXEnd()),
+                    y - (keptEnd == 0 ? kept.getYStart() : kept.getYEnd())) <= HomeDiagnostics.WALL_GAP_TOLERANCE) {
+            if (end == 0) {
+              wall.setXStart(keptEnd == 0 ? kept.getXStart() : kept.getXEnd());
+              wall.setYStart(keptEnd == 0 ? kept.getYStart() : kept.getYEnd());
+              wall.setWallAtStart(kept);
+            } else {
+              wall.setXEnd(keptEnd == 0 ? kept.getXStart() : kept.getXEnd());
+              wall.setYEnd(keptEnd == 0 ? kept.getYStart() : kept.getYEnd());
+              wall.setWallAtEnd(kept);
+            }
+            if (keptEnd == 0) {
+              kept.setWallAtStart(wall);
+            } else {
+              kept.setWallAtEnd(wall);
+            }
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Returns the angle in degrees between a wall and the closest axis of the plan.
+   */
+  private static double getAxisDeviation(Wall wall) {
+    double angle = Math.toDegrees(Math.atan2(wall.getYEnd() - wall.getYStart(), wall.getXEnd() - wall.getXStart()));
+    return Math.abs(Math.IEEEremainder(angle, 90));
+  }
+
+  private static float [] getPointOnLine(Wall wall, float x, float y) {
+    double length = wall.getLength();
+    double ux = (wall.getXEnd() - wall.getXStart()) / length;
+    double uy = (wall.getYEnd() - wall.getYStart()) / length;
+    double s = (x - wall.getXStart()) * ux + (y - wall.getYStart()) * uy;
+    return new float [] {(float)(wall.getXStart() + ux * s), (float)(wall.getYStart() + uy * s)};
+  }
+
+  /**
+   * Moves an end of a wall with the end of the wall joined to it there.
+   */
+  private static void moveWallEnd(Wall wall, boolean start, float x, float y) {
+    Wall joined = start ? wall.getWallAtStart() : wall.getWallAtEnd();
+    float oldX = start ? wall.getXStart() : wall.getXEnd();
+    float oldY = start ? wall.getYStart() : wall.getYEnd();
+    if (joined != null) {
+      if (joined.getWallAtStart() == wall && Math.hypot(joined.getXStart() - oldX, joined.getYStart() - oldY) < 0.5) {
+        joined.setXStart(x);
+        joined.setYStart(y);
+      } else if (joined.getWallAtEnd() == wall && Math.hypot(joined.getXEnd() - oldX, joined.getYEnd() - oldY) < 0.5) {
+        joined.setXEnd(x);
+        joined.setYEnd(y);
+      }
+    }
+    if (start) {
+      wall.setXStart(x);
+      wall.setYStart(y);
+    } else {
+      wall.setXEnd(x);
+      wall.setYEnd(y);
+    }
   }
 
   private static void addOnce(List<Selectable> items, Selectable item) {

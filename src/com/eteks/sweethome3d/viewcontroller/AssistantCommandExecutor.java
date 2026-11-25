@@ -298,6 +298,14 @@ public class AssistantCommandExecutor {
     List<HomeDiagnostics.Issue> kept = HomeDiagnostics.filter(issues, ignoredIds, ignoredTags, 0);
     int ignoredCount = issues.size() - kept.size();
     kept = HomeDiagnostics.filter(kept, Collections.<String>emptyList(), Collections.<String>emptyList(), minSeverity);
+    // The items that cross another item, listed on request and counted otherwise
+    String crossings = HomeDefects.describeCrossings(this.home, issues, 60);
+    if (crossings.length() > 0) {
+      note = "\n" + (Boolean.TRUE.equals(options.get("crossings"))
+          ? crossings
+          : HomeDefects.countCrossings(crossings) + (HomeDefects.countCrossings(crossings) == 1 ? " item crosses" : " items cross")
+              + " another item: {\"crossings\":true} lists them level by level.") + note;
+    }
     return HomeDiagnostics.describe(kept, ignoredCount) + note;
   }
 
