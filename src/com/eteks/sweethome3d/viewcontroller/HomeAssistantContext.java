@@ -246,6 +246,8 @@ public class HomeAssistantContext {
         // What isn't drawn in 3D, as under a sloped roof or for a paved area outdoors
         if (!room.isCeilingVisible()) {
           brief.append(", ceiling hidden");
+        } else if (!Double.isNaN(AssistantCeilingCommands.getCeilingHeight(room))) {
+          brief.append(", ceiling at ").append(format.format(AssistantCeilingCommands.getCeilingHeight(room))).append(" cm");
         }
         if (!room.isFloorVisible()) {
           brief.append(", floor hidden");
@@ -677,8 +679,10 @@ public class HomeAssistantContext {
         + "  {\"action\":\"add_level\",\"name\":\"<name>\",\"elevation\":N,\"height\":N}  (adds a floor above and selects it)\n"
         + "  {\"action\":\"select_level\",\"name\":\"<level name or id L#>\"}  (new items go to the selected level)\n"
         + "  {\"action\":\"modify_level\",\"id\":\"L1\",\"new_name\":\"<name>\",\"elevation\":N,\"height\":N,\"floor_thickness\":N,"
-        + "\"viewable\":true|false,\"elevation_index\":N}  (renames, moves, resizes or hides a level, designated by its id or "
-        + "by \"name\" if no other level has it)\n"
+        + "\"viewable\":true|false,\"elevation_index\":N,\"keep_wall_heights\":true}  (renames, moves, resizes or hides a level, "
+        + "designated by its id or by \"name\" if no other level has it. A new \"height\" moves the ceilings at the top of the level and "
+        + "leaves the walls as they are; \"keep_wall_heights\":false gives the new height to the walls that were as tall as the level, "
+        + "and the reply lists them. For a ceiling lower than the walls, prefer modify_room with \"ceiling_height\")\n"
         + "  {\"action\":\"delete_level\",\"id\":\"L2\"}  (or \"ids\":[\"L2\",\"L3\"], or \"name\"; deletes an empty level; one that isn't empty is "
         + "refused with the list of what is on it, unless \"move_contents_to\":\"<level>\" or \"delete_contents\":true)\n"
         + "  {\"action\":\"merge_levels\",\"from\":\"<level>\",\"into\":\"<level>\"}  (moves everything of a level to an other one, "
@@ -782,7 +786,20 @@ public class HomeAssistantContext {
         + "or of a terrace, garden or paved area outdoors, which would otherwise show as a flat slab at the height of the level; "
         + "\"points\" reshapes one room. \"ceiling\":\"follow_roof\" gives a room under a roof built by add_roof a ceiling under its slopes, "
         + "dormers included, and \"flat_ceiling_at\":N makes it flat from the height N, as under collar ties; \"ceiling\":\"flat\" removes it. "
-        + "The reply gives the headroom)\n"
+        + "The reply gives the headroom. \"ceiling_height\":N puts the ceiling of the room N cm above its floor instead of the top "
+        + "of its level: a lower ceiling in a level whose walls must stay taller, or a higher one; \"ceiling_level\":\"<level>\" "
+        + "puts it at the ceiling of a level above, or \"ceiling_height\" cm above the floor of that level. It stays the ceiling of "
+        + "the room, with its color and its texture, drawn from both sides and \"ceiling_thickness\":N cm thick (5 by default); "
+        + "\"ceiling_height\":\"level\" puts it back at the top of the level)\n"
+        + "  {\"action\":\"open_to_above\",\"room\":\"R1\",\"to_level\":\"<level above>\",\"overlook\":{\"along\":\"north|south|east|west\","
+        + "\"railing\":\"<catalog name>\",\"height\":91}}  (makes a two-story room: puts its ceiling at the ceiling of \"to_level\", "
+        + "the next level above by default, without thickness unless \"ceiling_thickness\":N is given, or under the roof with "
+        + "\"ceiling\":\"follow_roof\"; hides or cuts the floors of the rooms above it; "
+        + "raises the walls of its outline, or adds walls above its open sides, so it is closed up to that ceiling; \"overlook\" "
+        + "removes the wall of the upper level along one side, with the doors used as openings in it, or cuts it down with "
+        + "\"upper_wall\":\"low\", and puts a railing there, its pieces repeated rather than stretched; \"wall\":\"W5\" gives that "
+        + "side by a wall of the upper level. The reply lists what is still inside the opened space: roofs with their gutters, "
+        + "slabs, walls and furniture of the upper level)\n"
         + "  {\"action\":\"duplicate\",\"id\":\"F1\",\"dx\":N,\"dy\":N,\"count\":N}  (copies of furniture, each shifted by dx,dy)\n"
         + "  {\"action\":\"set_camera\",\"x\":N,\"y\":N,\"height\":N,\"look_at_x\":N,\"look_at_y\":N,\"mode\":\"visitor|aerial\"}  "
         + "(moves the virtual visitor, also the starting point of the VR preview; or \"view\":\"top|south|north|east|west|"

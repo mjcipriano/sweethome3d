@@ -172,6 +172,7 @@ public class AssistantCommandExecutor {
   private boolean groupOpen;
   private long    groupActivityTime;
   private final AssistantStructureCommands structureCommands;
+  private final AssistantCeilingCommands ceilingCommands;
   private final AssistantShapeCommands     shapeCommands;
   // Remarks of the commands of a turn about the items they designate
   private List<String>               turnWarnings;
@@ -202,6 +203,7 @@ public class AssistantCommandExecutor {
     this.libraryCommands = new AssistantLibraryCommands(home, preferences, homeController, this);
     this.designCommands = new AssistantDesignCommands(home, preferences, homeController, this, this.buildingCommands);
     this.structureCommands = new AssistantStructureCommands(home, preferences, homeController, this);
+    this.ceilingCommands = new AssistantCeilingCommands(home, homeController, this);
     this.shapeCommands = new AssistantShapeCommands(home, preferences, homeController, this);
   }
 
@@ -446,6 +448,10 @@ public class AssistantCommandExecutor {
 
   AssistantStructureCommands getStructureCommands() {
     return this.structureCommands;
+  }
+
+  AssistantCeilingCommands getCeilingCommands() {
+    return this.ceilingCommands;
   }
 
   int getTurnUnresolvedIdCount() {
@@ -982,6 +988,7 @@ public class AssistantCommandExecutor {
                && !this.gisCommands.apply(action, command, tally, notes)
                && !this.photoCommands.apply(action, command, tally, notes)
                && !this.structureCommands.apply(action, command, tally, notes)
+               && !this.ceilingCommands.apply(action, command, tally, notes)
                && !this.shapeCommands.apply(action, command, tally, notes)
                && !this.buildingCommands.apply(action, command, tally, notes)
                && !this.objectCommands.apply(action, command, tally, notes)

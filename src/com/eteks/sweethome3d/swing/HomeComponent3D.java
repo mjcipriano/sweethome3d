@@ -4779,6 +4779,10 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
               || Room.Property.CEILING_SHININESS.name().equals(propertyName)
               || Room.Property.CEILING_FLAT.name().equals(propertyName)) {
             updateObjects(Collections.singletonList(updatedRoom));
+          } else if (com.eteks.sweethome3d.j3d.Room3D.CEILING_HEIGHT_PROPERTY.equals(propertyName)
+              || com.eteks.sweethome3d.j3d.Room3D.CEILING_THICKNESS_PROPERTY.equals(propertyName)) {
+            // The ceilings at the top of the level may show again where this one was
+            updateObjects(home.getRooms());
           } else if (Room.Property.FLOOR_VISIBLE.name().equals(propertyName)
               || Room.Property.CEILING_VISIBLE.name().equals(propertyName)
               || Room.Property.LEVEL.name().equals(propertyName)) {
