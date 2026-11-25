@@ -816,6 +816,14 @@ class AssistantStructureCommands {
     if (piece.getModelSize() != null) {
       text.append(", model file of ").append(format(piece.getModelSize() / 1024f)).append(" KB");
     }
+    String modelSource = AssistantObjectCommands.describeModelSource(piece);
+    if (modelSource.length() > 0) {
+      text.append(", ").append(modelSource);
+    }
+    if (piece.getProperty(AssistantObjectCommands.MODEL_MATERIALS_PROPERTY) != null) {
+      text.append(", materials recolored when it was imported: ")
+          .append(piece.getProperty(AssistantObjectCommands.MODEL_MATERIALS_PROPERTY));
+    }
     if (piece.isModelMirrored()) {
       text.append(", mirrored");
     }

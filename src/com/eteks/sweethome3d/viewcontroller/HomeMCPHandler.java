@@ -560,7 +560,7 @@ public class HomeMCPHandler {
     return "list_homes".equals(name) || isHomeChoiceTool(name)
         || "help".equals(name) || "get_capabilities".equals(name)
         || "list_catalog".equals(name) || "search_catalog".equals(name) || "search_textures".equals(name)
-        || "get_catalog_image".equals(name);
+        || "get_catalog_image".equals(name) || "preview_model".equals(name);
   }
 
   /**
@@ -863,6 +863,7 @@ public class HomeMCPHandler {
     return "get_home".equals(name) || "list_catalog".equals(name) || "search_catalog".equals(name)
         || "search_textures".equals(name) || "check_home".equals(name) || "get_report".equals(name) || "get_plan_image".equals(name)
         || "get_3d_image".equals(name) || "get_3d_info".equals(name) || "get_catalog_image".equals(name)
+        || "preview_model".equals(name)
         || "help".equals(name) || "get_capabilities".equals(name)
         || "export_blender".equals(name) || "get_sun_study_image".equals(name) || "sun_study".equals(name)
         || "get_notes".equals(name) || "update_note".equals(name)
@@ -1173,6 +1174,28 @@ public class HomeMCPHandler {
         "Returns the pictures of pieces of the furniture catalog, or of textures, to see what they look like "
         + "and choose between the results of search_catalog or search_textures before adding one.",
         schema(catalogImageProperties, "names"), true));
+    Map<String, Object> previewProperties = new LinkedHashMap<String, Object>();
+    previewProperties.put("path", property("string", "Absolute path of a GLB, glTF, OBJ, DAE, 3DS, KMZ or ZIP model file"));
+    previewProperties.put("name", property("string", "Instead of path: the exact name of a piece of the furniture catalog"));
+    previewProperties.put("length", property("number", "Longest side on the floor in cm (model files)"));
+    previewProperties.put("width", property("number", "Width in cm"));
+    previewProperties.put("depth", property("number", "Depth in cm"));
+    previewProperties.put("height", property("number", "Height in cm"));
+    previewProperties.put("front", enumProperty("The side of a model file that is its front, turned to the front of the piece",
+        "+x", "-x", "+y", "-y"));
+    previewProperties.put("materials", property("object", "Colors given to materials: {\"<material name>\":\"#RRGGBB\"}"));
+    previewProperties.put("color", property("string", "#RRGGBB color of the whole piece (catalog pieces)"));
+    previewProperties.put("target_triangles", property("number", "Simplifies a GLB, glTF or OBJ model to that count of triangles"));
+    previewProperties.put("keep_helpers", property("boolean", "true keeps the ground planes, spheres and shapes without material of a model file"));
+    Map<String, Object> viewsProperty = property("array", "The views to draw, 4 at most (default: front_left, front, side, top)");
+    viewsProperty.put("items", enumProperty("A view", "front_left", "front_right", "front", "back", "side", "left", "top"));
+    previewProperties.put("views", viewsProperty);
+    previewProperties.put("size", property("number", "Width of each view in pixels (default 420, from 200 to 800)"));
+    tools.add(tool("preview_model", "Preview a 3D model",
+        "Draws a 3D model file, or a piece of the furniture catalog, alone on a neutral ground from several views, without "
+        + "adding it to any home: to check its size, its front, its colors and its count of triangles before import_furniture "
+        + "or add_furniture, with the same options as import_furniture. The front of the piece is the side shown by the view \"front\".",
+        schema(previewProperties), true));
     Map<String, Object> blenderProperties = new LinkedHashMap<String, Object>();
     blenderProperties.put("folder", property("string", "Absolute path of the folder to write to (created if needed)"));
     tools.add(tool("export_blender", "Export for Blender",
@@ -1460,6 +1483,8 @@ public class HomeMCPHandler {
       return sunStudy(arguments);
     } else if ("get_catalog_image".equals(name)) {
       return getCatalogImages(arguments);
+    } else if ("preview_model".equals(name)) {
+      return previewModel(arguments);
     } else if ("search_textures".equals(name)) {
       Object query = arguments.get("query");
       if (!(query instanceof String) || ((String)query).trim().length() == 0) {
@@ -2940,6 +2965,195 @@ public class HomeMCPHandler {
     result.put("content", contents);
     result.put("isError", Boolean.valueOf(count == 0));
     return result;
+  }
+
+  /**
+   * Draws a model file or a piece of the catalog alone, in a home which holds nothing else.
+   */
+  private Map<String, Object> previewModel(Map<String, Object> arguments) {
+    ImageProvider provider = this.imageProvider;
+    String path = string(arguments, "path");
+    String name = string(arguments, "name");
+    if (path == null && name == null || path != null && !new java.io.File(path).isAbsolute()) {
+      return toolResult("Give \"path\", the absolute path of a 3D model file, or \"name\", the exact name of a catalog piece.", true);
+    }
+    List<String> notes = new ArrayList<String>();
+    com.eteks.sweethome3d.model.HomePieceOfFurniture piece;
+    try {
+      if (path != null) {
+        // The piece that import_furniture would add, read by an executor which has no home to change
+        Map<String, Object> parameters = new LinkedHashMap<String, Object>(arguments);
+        parameters.remove("views");
+        parameters.remove("size");
+        parameters.remove("color");
+        parameters.put("action", "import_furniture");
+        piece = this.commandExecutor.createImportedPiece(new AssistantCommand("import_furniture", parameters), notes, false);
+        if (piece == null) {
+          return toolResult(notes.isEmpty() ? "The model couldn't be read." : notes.get(0), true);
+        }
+      } else {
+        com.eteks.sweethome3d.model.CatalogPieceOfFurniture catalogPiece = this.commandExecutor.findCatalogPiece(name, false);
+        if (catalogPiece == null) {
+          catalogPiece = this.commandExecutor.findCatalogPiece(name, true);
+        }
+        if (catalogPiece == null) {
+          return toolResult("No catalog piece is named \"" + name + "\": search_catalog gives the names.", true);
+        }
+        piece = new com.eteks.sweethome3d.model.HomePieceOfFurniture(catalogPiece);
+        double width = number(arguments, "width", 0);
+        double depth = number(arguments, "depth", 0);
+        double height = number(arguments, "height", 0);
+        if (piece.isResizable()) {
+          if (width > 0 && width < 1E5) {
+            piece.setWidth((float)width);
+          }
+          if (depth > 0 && depth < 1E5) {
+            piece.setDepth((float)depth);
+          }
+          if (height > 0 && height < 1E5) {
+            piece.setHeight((float)height);
+          }
+        }
+        Integer color = AssistantCommandExecutor.parseColor(string(arguments, "color"));
+        if (color != null && piece.isTexturable()) {
+          piece.setColor(color);
+        }
+        String note = "Catalog piece \"" + catalogPiece.getName() + "\" at " + Math.round(piece.getWidth()) + " x "
+            + Math.round(piece.getDepth()) + " x " + Math.round(piece.getHeight()) + " cm (width x depth x height)";
+        if (arguments.get("materials") instanceof Map) {
+          note += recolorMaterials(piece, (Map<?, ?>)arguments.get("materials"));
+        }
+        notes.add(note);
+      }
+    } catch (java.io.IOException ex) {
+      return toolResult("The model can't be shown: " + ex.getMessage(), true);
+    }
+    String description = notes.isEmpty() ? "" : notes.get(notes.size() - 1);
+    description += ". The front of the piece is toward +y of the plan when its angle is 0: the view \"front\" shows it.";
+    if (provider == null) {
+      return toolResult(description + "\nNo picture: the home can't be rendered in 3D here.", false);
+    }
+    // Alone at the center of an empty home, on a plain ground
+    Home previewHome = new Home();
+    previewHome.getEnvironment().setGroundColor(0xC9CDD1);
+    previewHome.getEnvironment().setGroundTexture(null);
+    previewHome.getEnvironment().setSkyColor(0xEEF1F4);
+    previewHome.getEnvironment().setSkyTexture(null);
+    piece.setX(0);
+    piece.setY(0);
+    piece.setAngle(0);
+    piece.setElevation(0);
+    piece.setLevel(null);
+    previewHome.addPieceOfFurniture(piece);
+    List<String> views = new ArrayList<String>();
+    if (arguments.get("views") instanceof List) {
+      for (Object view : (List<?>)arguments.get("views")) {
+        String viewName = String.valueOf(view).trim().toLowerCase();
+        if (getPreviewDirection(viewName) == null) {
+          return toolResult("\"views\" are front_left, front_right, front, back, side, left or top.", true);
+        } else if (views.size() < 4 && !views.contains(viewName)) {
+          views.add(viewName);
+        }
+      }
+    }
+    if (views.isEmpty()) {
+      views.addAll(Arrays.asList("front_left", "front", "side", "top"));
+    }
+    int size = (int)Math.max(200, Math.min(800, number(arguments, "size", 420)));
+    float fieldOfView = (float)Math.toRadians(40);
+    float radius = (float)Math.sqrt(piece.getWidth() * piece.getWidth() + piece.getDepth() * piece.getDepth()
+        + piece.getHeight() * piece.getHeight()) / 2;
+    float distance = Math.max(30, radius / (float)Math.sin(fieldOfView / 2) * 1.4f);
+    float centerHeight = piece.getHeight() / 2;
+    List<byte []> images = new ArrayList<byte []>();
+    String failure = null;
+    for (String view : views) {
+      float [] direction = getPreviewDirection(view);
+      HomeViewpoints.Pose pose = HomeViewpoints.lookAt(direction [0] * distance, direction [1] * distance,
+          Math.max(5, centerHeight + direction [2] * distance), 0, 0, centerHeight, fieldOfView, true);
+      Image3DRequest request = new Image3DRequest(size, size * 3 / 4, Image3DRequest.AUTO, true, true, false,
+          pose, null, true, 0, 120);
+      request.setDrawnHome(previewHome);
+      Image3D image = provider.get3DImage(request);
+      if (image != null && image.getImage() != null) {
+        images.add(image.getImage());
+      } else {
+        failure = image != null && image.getDescription() != null ? image.getDescription()
+            : "The home can't be rendered in 3D here.";
+        break;
+      }
+    }
+    List<Object> contents = new ArrayList<Object>();
+    if (failure != null) {
+      contents.add(textContent(description + "\nNo picture: " + failure));
+    } else {
+      SunStudyView composer = this.sunStudyView;
+      byte [] sheet = composer != null && images.size() > 1
+          ? composer.createContactSheet(images.toArray(new byte [images.size()][]), views.toArray(new String [views.size()]),
+              Math.min(2, images.size()))
+          : null;
+      contents.add(textContent(description + "\nViews: " + views + (sheet != null ? ", in this order in the picture." : ".")));
+      for (byte [] image : sheet != null ? java.util.Collections.singletonList(sheet) : images) {
+        Map<String, Object> content = new LinkedHashMap<String, Object>();
+        content.put("type", "image");
+        content.put("data", java.util.Base64.getEncoder().encodeToString(image));
+        content.put("mimeType", "image/png");
+        contents.add(content);
+      }
+    }
+    Map<String, Object> result = new LinkedHashMap<String, Object>();
+    result.put("content", contents);
+    result.put("isError", Boolean.FALSE);
+    return result;
+  }
+
+  /**
+   * Returns where the camera of a view of <code>preview_model</code> is from the piece, in the
+   * axes of the plan and upward, or <code>null</code> if there's no such view.
+   */
+  private static float [] getPreviewDirection(String view) {
+    // The front of a piece is toward +y
+    float [] direction = "front_left".equals(view) ? new float [] {-0.62f, 0.62f, 0.48f}
+        : "front_right".equals(view) ? new float [] {0.62f, 0.62f, 0.48f}
+        : "front".equals(view) ? new float [] {0, 0.98f, 0.2f}
+        : "back".equals(view) ? new float [] {0, -0.98f, 0.2f}
+        : "side".equals(view) || "right".equals(view) ? new float [] {0.98f, 0, 0.2f}
+        : "left".equals(view) ? new float [] {-0.98f, 0, 0.2f}
+        : "top".equals(view) ? new float [] {0, 0.02f, 1} : null;
+    return direction;
+  }
+
+  /**
+   * Gives colors to the materials of the model of <code>piece</code> whose name contains
+   * one of the keys of <code>colors</code>, and returns a note about it.
+   */
+  private String recolorMaterials(com.eteks.sweethome3d.model.HomePieceOfFurniture piece, Map<?, ?> colors) {
+    AssistantCommandExecutor.ModelInspector inspector = this.commandExecutor.getModelInspector();
+    if (inspector == null) {
+      return "; its materials can't be read here";
+    }
+    try {
+      List<String> names = inspector.getMaterialNames(piece.getModel());
+      com.eteks.sweethome3d.model.HomeMaterial [] materials = new com.eteks.sweethome3d.model.HomeMaterial [names.size()];
+      List<String> unknownNames = new ArrayList<String>();
+      for (Map.Entry<?, ?> entry : colors.entrySet()) {
+        Integer color = AssistantCommandExecutor.parseColor(String.valueOf(entry.getValue()));
+        boolean found = false;
+        for (int i = 0; color != null && i < names.size(); i++) {
+          if (names.get(i).toLowerCase().contains(String.valueOf(entry.getKey()).trim().toLowerCase())) {
+            materials [i] = new com.eteks.sweethome3d.model.HomeMaterial(names.get(i), Integer.valueOf(color | 0xFF000000), null, null);
+            found = true;
+          }
+        }
+        if (!found) {
+          unknownNames.add(String.valueOf(entry.getKey()));
+        }
+      }
+      piece.setModelMaterials(materials);
+      return "; materials " + names + (unknownNames.isEmpty() ? "" : "; no material named " + unknownNames + " or not a color");
+    } catch (java.io.IOException ex) {
+      return "; its materials couldn't be read (" + ex.getMessage() + ")";
+    }
   }
 
   private static String formatMeters(double centimeters) {

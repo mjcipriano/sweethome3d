@@ -406,6 +406,18 @@ public class AssistantCommandExecutor {
   }
 
   /**
+   * Returns the piece of furniture that the <code>import_furniture</code> command creates from the
+   * 3D model file and the options of <code>command</code>, without adding it to the home, or
+   * <code>null</code> if its values are out of range. Used to show a model before it's imported,
+   * and by the commands that fetch a model before they import it.
+   * @param place <code>true</code> to choose the level of the piece and stand it on what is under it
+   */
+  public HomePieceOfFurniture createImportedPiece(AssistantCommand command, List<String> notes,
+                                                  boolean place) throws java.io.IOException {
+    return this.objectCommands.createImportedPiece(command, notes, place);
+  }
+
+  /**
    * Runs a command for another one, its notes going to <code>notes</code>.
    */
   void applySubCommand(AssistantCommand command, int [] tally, List<String> notes) {
