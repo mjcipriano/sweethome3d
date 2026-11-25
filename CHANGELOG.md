@@ -1,5 +1,14 @@
 # Changelog
 
+## [7.33.1](https://github.com/mjcipriano/sweethome3d/compare/v7.33.0...v7.33.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* capture the mouse pointer during mouse look ([5f9a97d](https://github.com/mjcipriano/sweethome3d/commit/5f9a97d2b098b56125745843f0dee0a5d7d30356))
+* keep MCP pictures working with plug-in image writers and refuse calls meant for another home ([f0b008b](https://github.com/mjcipriano/sweethome3d/commit/f0b008b867ba1de8b403cede6f0582c9bf528734)), closes [#192](https://github.com/mjcipriano/sweethome3d/issues/192) [#193](https://github.com/mjcipriano/sweethome3d/issues/193)
+* MCP pictures with plug-in image writers, calls meant for another home, mouse capture in mouse look ([7d0f050](https://github.com/mjcipriano/sweethome3d/commit/7d0f0503bbbb1e963918f50b95dae186c689dcc3))
+
 ## [7.33.0](https://github.com/mjcipriano/sweethome3d/compare/v7.32.1...v7.33.0) (2026-11-24)
 
 
