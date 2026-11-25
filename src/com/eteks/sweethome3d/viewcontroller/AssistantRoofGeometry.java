@@ -246,6 +246,34 @@ final class AssistantRoofGeometry {
   private final List<Part> parts = new ArrayList<Part>();
   private List<Cell>       cells;
   private List<Cell>       mainCells;
+  // What is cut out of the roof, where it would enter a taller part of the building
+  private Area             cut;
+
+  /**
+   * Cuts the roof along the vertical sides of the given polygon of the plan: nothing of the roof
+   * remains over it, and the slopes around it keep their shape.
+   */
+  void addCut(double [][] polygon) {
+    if (polygon.length >= 3 && Math.abs(getSignedArea(polygon)) > 0.01) {
+      if (this.cut == null) {
+        this.cut = new Area();
+      }
+      this.cut.add(AssistantMeshBuilder.getArea(toFloats(polygon)));
+      this.cells = null;
+      this.mainCells = null;
+    }
+  }
+
+  /**
+   * Returns <code>true</code> if the roof was cut away at a point.
+   */
+  boolean isCut(double x, double y) {
+    return this.cut != null && this.cut.contains(x, y);
+  }
+
+  boolean hasCut() {
+    return this.cut != null;
+  }
 
   void addPart(Part part) {
     if (part.footprint.length >= 3) {
@@ -265,6 +293,9 @@ final class AssistantRoofGeometry {
    */
   double getHeight(double x, double y, boolean withDormers) {
     double height = Double.NaN;
+    if (isCut(x, y)) {
+      return height;
+    }
     for (Part part : this.parts) {
       if (withDormers || !part.dormer) {
         double partHeight = part.getHeight(x, y);
@@ -282,6 +313,9 @@ final class AssistantRoofGeometry {
    */
   double getUndersideHeight(double x, double y) {
     double height = Double.NaN;
+    if (isCut(x, y)) {
+      return height;
+    }
     for (Part part : this.parts) {
       if (!part.dormer) {
         double partHeight = part.getHeight(x, y) - part.thickness;
@@ -299,6 +333,9 @@ final class AssistantRoofGeometry {
    */
   double getCeilingHeight(double x, double y) {
     double height = Double.NaN;
+    if (isCut(x, y)) {
+      return height;
+    }
     for (Part part : this.parts) {
       if (part.dormer && !contains(part.polygon, x, y, 1E-4)) {
         continue;
@@ -341,6 +378,17 @@ final class AssistantRoofGeometry {
 
   double getMaxHeight() {
     double height = Double.NEGATIVE_INFINITY;
+    if (this.cut != null) {
+      // The highest point of what remains
+      for (Cell cell : getCells(true)) {
+        for (double [] point : cell.polygon) {
+          height = Math.max(height, cell.getHeight(point [0], point [1]));
+        }
+      }
+      if (height != Double.NEGATIVE_INFINITY) {
+        return height;
+      }
+    }
     for (Part part : this.parts) {
       height = Math.max(height, part.getMaxHeight());
     }
@@ -421,6 +469,32 @@ final class AssistantRoofGeometry {
         }
       }
     }
+    if (this.cut != null) {
+      // The slopes keep their planes: only their outline changes
+      Rectangle2D cutBounds = this.cut.getBounds2D();
+      List<Cell> remaining = new ArrayList<Cell>();
+      for (Cell cell : cells) {
+        if (!cutBounds.intersects(getBounds(cell.polygon))) {
+          remaining.add(cell);
+          continue;
+        }
+        Area area = AssistantMeshBuilder.getArea(toFloats(cell.polygon));
+        Area removed = (Area)area.clone();
+        removed.intersect(this.cut);
+        if (removed.isEmpty()) {
+          remaining.add(cell);
+          continue;
+        }
+        area.subtract(this.cut);
+        for (float [][] trapezoid : AssistantMeshBuilder.getTrapezoids(area)) {
+          double [][] polygon = toDoubles(trapezoid);
+          if (Math.abs(getSignedArea(polygon)) > 0.005) {
+            remaining.add(new Cell(polygon, cell.plane, cell.part));
+          }
+        }
+      }
+      cells = remaining;
+    }
     return cells;
   }
 
@@ -431,6 +505,9 @@ final class AssistantRoofGeometry {
     Area footprint = new Area();
     for (Part part : this.parts) {
       footprint.add(AssistantMeshBuilder.getArea(toFloats(part.footprint)));
+    }
+    if (this.cut != null) {
+      footprint.subtract(this.cut);
     }
     return footprint;
   }

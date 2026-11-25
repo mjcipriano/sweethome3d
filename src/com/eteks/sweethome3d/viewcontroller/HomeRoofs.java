@@ -27,6 +27,7 @@ import java.util.Map;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.Room;
+import com.eteks.sweethome3d.model.Wall;
 
 /**
  * The roofs built by the <code>add_roof</code> command in a home, for what needs the height
@@ -93,6 +94,51 @@ final class HomeRoofs {
       }
     }
     return ceiling;
+  }
+
+  /**
+   * Returns the walls of <code>home</code> that come out of the top of a roof: their bottom is under the
+   * roof and their top above it, as walls fitted to a roof that changed since. The walls along an edge
+   * where the roof stops at a taller wall (<code>clip</code>, <code>abut</code>) and the ones in what
+   * such walls cut out of the roof aren't counted.
+   */
+  static List<Wall> getWallsAbove(Home home, Roof roof) {
+    List<Wall> walls = new ArrayList<Wall>();
+    AssistantRoofGeometry geometry = roof.model.getGeometry();
+    double [][] points = roof.model.getPoints();
+    for (Wall wall : home.getWalls()) {
+      if (wall.getArcExtent() != null && wall.getArcExtent() != 0 || wall.getLength() < 1) {
+        continue;
+      }
+      float elevation = wall.getLevel() != null ? wall.getLevel().getElevation() : 0;
+      float height = wall.getHeight() != null ? wall.getHeight() : home.getWallHeight();
+      float heightAtEnd = wall.getHeightAtEnd() != null ? wall.getHeightAtEnd() : height;
+      int above = 0;
+      for (int i = 1; i < 12; i++) {
+        double t = i / 12.;
+        double x = wall.getXStart() + (wall.getXEnd() - wall.getXStart()) * t;
+        double y = wall.getYStart() + (wall.getYEnd() - wall.getYStart()) * t;
+        double top = geometry.getHeight(x, y, true) + roof.elevation;
+        if (Double.isNaN(top) || !(elevation < top) || !(elevation + height + (heightAtEnd - height) * t > top + 2)) {
+          continue;
+        }
+        // Not the taller wall the roof runs up to
+        boolean alongTallerWall = false;
+        for (int edge = 0; edge < points.length && !alongTallerWall; edge++) {
+          double [] next = points [(edge + 1) % points.length];
+          alongTallerWall = roof.model.isEdgeClipped(edge)
+              && java.awt.geom.Line2D.ptSegDist(points [edge][0], points [edge][1], next [0], next [1], x, y)
+                  <= wall.getThickness() / 2 + 2;
+        }
+        if (!alongTallerWall) {
+          above++;
+        }
+      }
+      if (above >= 2) {
+        walls.add(wall);
+      }
+    }
+    return walls;
   }
 
   /**
