@@ -443,6 +443,8 @@ a file, shape it, and measure it. The ground takes up to 100 000 points.
 | `trees_from_lidar` | Finds the treetops of a LAS point cloud and plants a tree at each one |
 | `shift_terrain` | Moves the whole ground up by `offset` cm (down if negative), or puts it at a height at a place with `pin` |
 | `reseat_all` | Puts the plants and the pieces back on the ground, and builds the fences again on it |
+| `modify_terrain_area` | Changes the finish of one area of the ground, or of a part of it, without touching the heights |
+| `terrain_areas` | Lists the areas of the ground and the grading recorded with it |
 | `add_pad` | A flat or sloped pad cut or filled under a polygon, the ground joining it around |
 | `flatten_area` | A pad at the mean height of the ground in a polygon |
 | `smooth_area` | Softens the bumps of the ground in a polygon |
@@ -545,6 +547,73 @@ under all of it. What stands on the floor of a room, or out of the ground, isn't
 | `add_swale` | `points`, `depth` (30), `width` (200) |
 | `grade_path` | `points` of the center line, `width` (300); the ground goes straight from the height of a point to the next one, or through `"heights":[one per point]`; `cross_slope` in % towards the right of the direction walked, `crown` in cm, `"ditch":{"depth":30,"width":100}`, `blend_distance` (150). It shapes the ground only: `add_path` or `add_slab` lays the surface |
 | `extend_terrain` | `margin` (500). The new part is at the height of the closest edge: no height is fetched for it |
+
+### Areas of the ground and their finish
+
+The ground has a finish of its own, and `areas` with another one: a driveway, a lawn, a path.
+Each area has an id, `A1`, `A2`..., in the order they were given. The last one is drawn above the
+others.
+
+- `{"action":"terrain_areas"}` lists them: id, name, finish, bounding box and surface. So does
+  `describe_item` with the id of the ground. The surface of an area is the one of its outline,
+  counted whole even where another area covers it.
+- `modify_terrain_area` changes the finish of one area. The ground is built again from the same
+  points, so its heights, its grading and what stands on it don't change.
+
+| Parameter | Meaning |
+| --- | --- |
+| `area` | The id of the area (`A2`), its name, its `surface` or its texture, or `base` for the ground around the areas |
+| `at` | In place of `area`: a point `[x,y]` in the area. The area drawn at that point is the one changed; a point out of every area designates the ground around them |
+| `color`, or `texture` with `texture_scale` and `texture_angle` | The new finish. A color replaces a texture, and a texture a color |
+| `name`, `surface` | The name of the area, and what it is for `site_report` (driveway, patio, lawn...) |
+| `split` | A polygon `[[x,y],...]`: only the part of the area inside it gets the finish, and becomes a new area just above it. With `base`, the polygon itself becomes an area |
+| `remove` | `true` gives the area back to what is under it |
+
+```json
+{"commands":[
+  {"action":"terrain_areas"},
+  {"action":"modify_terrain_area","area":"Yard","texture":"Grass"},
+  {"action":"modify_terrain_area","at":[1200,2600],
+   "split":[[1000,2400],[1600,2400],[1600,3800],[1000,3800]],"color":"#7A5A3A","name":"Bed"}
+]}
+```
+
+The ids of the areas after the change are in the answer: a split adds an area after the one it is
+a part of, and the ids of the following ones go up by one. The id of the ground itself (`F12`)
+may change too, as after a grading command.
+
+### Grading kept when the ground is rebuilt
+
+`add_pad`, `flatten_area`, `smooth_area`, `add_berm`, `add_swale`, `grade_path` and the step
+that `add_retaining_wall` cuts are recorded with the ground, in the order they were run.
+`terrain_areas` lists them. When `set_terrain` or `fetch_elevation` replaces the ground, they are
+run again in that order on the new one, and the areas keep their finish.
+
+- A pad is recorded at the height it was built at, also when that height was the mean of the
+  ground: the house that stands on it doesn't move when the heights around it change.
+- A path without `heights`, a berm, a swale and a smoothed area follow the new ground.
+- `"grading"` on `set_terrain` chooses what happens:
+
+| `grading` | What `set_terrain` does |
+| --- | --- |
+| `replay` (default) | Runs the grading again. If one operation can't be, nothing is changed and the answer names it and tells why |
+| `keep_possible` | Replaces the ground, runs again what can be, and names what was lost |
+| `drop` | Replaces the ground without any grading |
+
+An operation can't be run again when some of its points are out of the new ground, or of its
+`clip`. A smoothed area is lost only when none of the new ground is in its polygon. The check
+is made on the new points before their long edge triangles are left out (`max_edge`): an
+operation in such a triangle is tried, and named in the answer if it fails.
+
+**A ground graded with 7.33.1 or earlier** has no recorded grading: its pads and paths are only
+in its points. `modify_terrain_area` and `terrain_areas` work on it as on any ground. A
+`set_terrain` with new points would lose that grading, so it changes nothing and says so, unless
+`"grading":"drop"` or `"keep_possible"` is given. What is graded from this version on is recorded
+after it. A ground that was never graded is replaced as before.
+
+What isn't recorded: `add_terrain_patch`, `shift_terrain` and `extend_terrain` change the points
+of the ground, not its grading, and aren't run again. The grading recorded for a structure
+deleted since then, as the step of a retaining wall, is still run again.
 
 ### Measures
 
