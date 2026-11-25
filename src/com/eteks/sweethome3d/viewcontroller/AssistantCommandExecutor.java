@@ -174,6 +174,8 @@ public class AssistantCommandExecutor {
   private final AssistantStructureCommands structureCommands;
   private final AssistantCeilingCommands ceilingCommands;
   private final AssistantShapeCommands     shapeCommands;
+  private final AssistantWallFinishCommands wallFinishCommands;
+  private final AssistantRailingCommands   railingCommands;
   // Remarks of the commands of a turn about the items they designate
   private List<String>               turnWarnings;
   // Ids of the commands of a turn that designate no item of the home
@@ -205,6 +207,8 @@ public class AssistantCommandExecutor {
     this.structureCommands = new AssistantStructureCommands(home, preferences, homeController, this);
     this.ceilingCommands = new AssistantCeilingCommands(home, homeController, this);
     this.shapeCommands = new AssistantShapeCommands(home, preferences, homeController, this);
+    this.wallFinishCommands = new AssistantWallFinishCommands(home, homeController, this);
+    this.railingCommands = new AssistantRailingCommands(home, homeController, this);
   }
 
   /**
@@ -368,6 +372,10 @@ public class AssistantCommandExecutor {
       id = HomeItemIds.getId(item);
     }
     return id;
+  }
+
+  AssistantWallFinishCommands getWallFinishCommands() {
+    return this.wallFinishCommands;
   }
 
   AssistantBuildingCommands getBuildingCommands() {
@@ -1000,7 +1008,9 @@ public class AssistantCommandExecutor {
                && !this.fenceCommands.apply(action, command, tally, notes)
                && !this.gardenCommands.apply(action, command, tally, notes)
                && !this.scheduleCommands.apply(action, command, tally, notes)
-               && !this.sceneCommands.apply(action, command, tally, notes)) {
+               && !this.sceneCommands.apply(action, command, tally, notes)
+               && !this.wallFinishCommands.apply(action, command, tally, notes)
+               && !this.railingCommands.apply(action, command, tally, notes)) {
       this.planCommands.apply(action, command, tally, notes);
     }
     // Unknown actions are ignored so a single bad command doesn't break a turn

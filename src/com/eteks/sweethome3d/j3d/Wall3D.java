@@ -65,6 +65,7 @@ import com.eteks.sweethome3d.model.Level;
 import com.eteks.sweethome3d.model.PieceOfFurniture;
 import com.eteks.sweethome3d.model.UserPreferences;
 import com.eteks.sweethome3d.model.Wall;
+import com.eteks.sweethome3d.viewcontroller.WallFinishBands;
 import com.sun.j3d.utils.geometry.GeometryInfo;
 import com.sun.j3d.utils.geometry.NormalGenerator;
 
@@ -77,6 +78,12 @@ public class Wall3D extends Object3DBranch {
 
   private static final int WALL_LEFT_SIDE  = 0;
   private static final int WALL_RIGHT_SIDE = 1;
+  // The groups of the finish bands of the left side then of the right side come after the selection node
+  private static final int FINISH_BANDS_FIRST_CHILD = 9;
+
+  // The finish band which geometry is being created
+  private WallFinishBands.Band finishBand;
+  private float                finishBandThickness;
 
   private static Map<HomePieceOfFurniture, ModelRotationTuple> doorOrWindowRotatedModels = new WeakHashMap<HomePieceOfFurniture, ModelRotationTuple>();
   private static Map<ModelRotationTuple, Area>                 rotatedModelsFrontAreas   = new WeakHashMap<ModelRotationTuple, Area>();
@@ -128,6 +135,17 @@ public class Wall3D extends Object3DBranch {
     wallSelectionShape.setCapability(Shape3D.ALLOW_APPEARANCE_READ);
     wallSelectionShape.setPickable(false);
     addChild(wallSelectionShape);
+
+    // Add the shapes of the finish bands of the left side then of the right side
+    for (int i = 0; i < 2 * WallFinishBands.MAX_BANDS; i++) {
+      Group bandGroup = new Group();
+      bandGroup.setCapability(Group.ALLOW_CHILDREN_READ);
+      bandGroup.addChild(createWallPartShape(false));
+      if (!ignoreDrawingMode) {
+        bandGroup.addChild(createWallPartShape(true));
+      }
+      addChild(bandGroup);
+    }
 
     // Set wall shape geometry and appearance
     updateWallGeometry(waitModelAndTextureLoadingEnd);
@@ -183,6 +201,8 @@ public class Wall3D extends Object3DBranch {
   private void updateWallGeometry(boolean waitDoorOrWindowModelsLoadingEnd) {
     updateWallSideGeometry(WALL_LEFT_SIDE, waitDoorOrWindowModelsLoadingEnd);
     updateWallSideGeometry(WALL_RIGHT_SIDE, waitDoorOrWindowModelsLoadingEnd);
+    updateWallSideFinishBandsGeometry(WALL_LEFT_SIDE, waitDoorOrWindowModelsLoadingEnd);
+    updateWallSideFinishBandsGeometry(WALL_RIGHT_SIDE, waitDoorOrWindowModelsLoadingEnd);
     setPickable(getHome().getEnvironment().getWallsAlpha() == 0);
 
     Shape3D wallSelectionShape = (Shape3D)getChild(8);
@@ -256,6 +276,81 @@ public class Wall3D extends Object3DBranch {
   }
 
   /**
+   * Sets the geometry of the finish bands of a side of this wall: each band is drawn
+   * as a very thin baseboard from the floor up to its height, the lowest band in front
+   * of the higher ones, so doors and windows cut it as they cut the wall.
+   */
+  private void updateWallSideFinishBandsGeometry(int wallSide,
+                                                 boolean waitDoorOrWindowModelsLoadingEnd) {
+    Wall wall = (Wall)getUserData();
+    List<WallFinishBands.Band> bands = wall.getLevel() == null || wall.getLevel().isViewableAndVisible()
+        ? WallFinishBands.getBands(wall, wallSide == WALL_LEFT_SIDE)
+        : java.util.Collections.<WallFinishBands.Band>emptyList();
+    for (int i = 0; i < WallFinishBands.MAX_BANDS; i++) {
+      Group bandGroup = (Group)getChild(FINISH_BANDS_FIRST_CHILD + wallSide * WallFinishBands.MAX_BANDS + i);
+      Shape3D filledShape = (Shape3D)bandGroup.getChild(0);
+      Shape3D outlineShape = bandGroup.numChildren() > 1 ? (Shape3D)bandGroup.getChild(1) : null;
+      int currentGeometriesCount = filledShape.numGeometries();
+      if (i < bands.size()) {
+        WallFinishBands.Band band = bands.get(i);
+        List<Geometry> geometries = new ArrayList<Geometry>();
+        // The lowest band is the thickest one
+        this.finishBand = band;
+        this.finishBandThickness = WallFinishBands.BAND_THICKNESS * (bands.size() - i);
+        try {
+          createWallGeometries(geometries, geometries, geometries, wallSide,
+              Baseboard.getInstance(this.finishBandThickness, band.getTop(), band.getColor(), band.getTexture()),
+              band.getTexture(), waitDoorOrWindowModelsLoadingEnd);
+        } finally {
+          this.finishBand = null;
+        }
+        for (Geometry geometry : geometries) {
+          if (geometry != null) {
+            filledShape.addGeometry(geometry);
+            if (outlineShape != null) {
+              outlineShape.addGeometry(geometry);
+            }
+          }
+        }
+      }
+      for (int j = currentGeometriesCount - 1; j >= 0; j--) {
+        filledShape.removeGeometry(j);
+        if (outlineShape != null) {
+          outlineShape.removeGeometry(j);
+        }
+      }
+    }
+  }
+
+  /**
+   * Returns the points of a finish band of this wall: the ones of its side
+   * moved away from the wall by the thickness of the band.
+   */
+  private float [][] getWallFinishBandPoints(int wallSide, float thickness) {
+    Wall wall = (Wall)getUserData();
+    float [][] wallPoints = wall.getPoints();
+    float [][] bandPoints = new float [wallPoints.length][];
+    int halfLength = wallPoints.length / 2;
+    for (int i = 0; i < wallPoints.length; i++) {
+      float [] opposite = wallPoints [wallPoints.length - i - 1];
+      boolean sidePoint = wallSide == WALL_LEFT_SIDE ? i < halfLength : i >= halfLength;
+      if (sidePoint) {
+        double dx = wallPoints [i][0] - opposite [0];
+        double dy = wallPoints [i][1] - opposite [1];
+        double length = Math.hypot(dx, dy);
+        bandPoints [i] = length > 1E-4
+            ? new float [] {(float)(wallPoints [i][0] + dx / length * thickness),
+                            (float)(wallPoints [i][1] + dy / length * thickness)}
+            : wallPoints [i].clone();
+      } else {
+        // The back of the band is the side of the wall itself, as for baseboards
+        bandPoints [i] = opposite.clone();
+      }
+    }
+    return bandPoints;
+  }
+
+  /**
    * Creates <code>wall</code> or baseboard geometries computed with windows or doors
    * that intersect wall.
    */
@@ -272,7 +367,9 @@ public class Wall3D extends Object3DBranch {
     Shape wallSideShape = getShape(wallSidePoints);
     final float [][] wallSideOrBaseboardPoints = baseboard == null
         ? wallSidePoints
-        : getWallBaseboardPoints(wallSide);
+        : (this.finishBand != null
+            ? getWallFinishBandPoints(wallSide, this.finishBandThickness)
+            : getWallBaseboardPoints(wallSide));
     Shape wallSideOrBaseboardShape = getShape(wallSideOrBaseboardPoints);
     Area wallSideOrBaseboardArea = new Area(wallSideOrBaseboardShape);
     final float [] textureReferencePoint = wallSide == WALL_LEFT_SIDE
@@ -284,6 +381,10 @@ public class Wall3D extends Object3DBranch {
     if (baseboard == null) {
       topElevationAtStart = getWallTopElevationAtStart();
       topElevationAtEnd = getWallTopElevationAtEnd();
+    } else if (this.finishBand != null) {
+      // A band never rises above the top of its wall
+      topElevationAtStart = Math.min(this.finishBand.getTop() + getWallElevation(true), getWallTopElevationAtStart());
+      topElevationAtEnd = Math.min(this.finishBand.getTopAtEnd() + getWallElevation(true), getWallTopElevationAtEnd());
     } else {
       topElevationAtStart =
       topElevationAtEnd = getBaseboardTopElevation(baseboard);
@@ -1504,6 +1605,23 @@ public class Wall3D extends Object3DBranch {
       if (wallLeftSideGroups [i].numChildren() > 1) {
         updateOutlineWallSideAppearance(((Shape3D)wallLeftSideGroups [i].getChild(1)).getAppearance());
         updateOutlineWallSideAppearance(((Shape3D)wallRightSideGroups [i].getChild(1)).getAppearance());
+      }
+    }
+
+    // Fill the finish bands
+    for (int side = WALL_LEFT_SIDE; side <= WALL_RIGHT_SIDE; side++) {
+      List<WallFinishBands.Band> bands = WallFinishBands.getBands(wall, side == WALL_LEFT_SIDE);
+      for (int i = 0; i < WallFinishBands.MAX_BANDS; i++) {
+        Group bandGroup = (Group)getChild(FINISH_BANDS_FIRST_CHILD + side * WallFinishBands.MAX_BANDS + i);
+        if (i < bands.size()) {
+          updateFilledWallSideAppearance(((Shape3D)bandGroup.getChild(0)).getAppearance(),
+              bands.get(i).getTexture(), waitTextureLoadingEnd, bands.get(i).getColor(),
+              side == WALL_LEFT_SIDE ? wall.getLeftSideShininess() : wall.getRightSideShininess(),
+              bandGroup.numChildren() == 1);
+        }
+        if (bandGroup.numChildren() > 1) {
+          updateOutlineWallSideAppearance(((Shape3D)bandGroup.getChild(1)).getAppearance());
+        }
       }
     }
 
