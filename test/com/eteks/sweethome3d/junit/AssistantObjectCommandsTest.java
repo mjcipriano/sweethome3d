@@ -404,7 +404,7 @@ public class AssistantObjectCommandsTest {
     File document = new File(this.folder, "letter.txt");
     Files.write(document.toPath(), "private".getBytes("UTF-8"));
     assertTrue(run("{\"action\":\"import_furniture\",\"path\":" + json(document) + "}")
-        .contains("only OBJ, DAE, 3DS, KMZ and ZIP files"));
+        .contains("only glTF, GLB, OBJ, DAE, 3DS, KMZ and ZIP files"));
     assertEquals(2, this.home.getFurniture().size());
   }
 

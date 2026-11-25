@@ -316,6 +316,17 @@ final class AssistantMeshBuilder {
     return this.faces.size();
   }
 
+  /**
+   * Returns the count of triangles that the faces of the model make.
+   */
+  int getTriangleCount() {
+    int count = 0;
+    for (Face face : this.faces) {
+      count += face.indices.length - 2;
+    }
+    return count;
+  }
+
   float [] getVertex(int index) {
     return this.vertices.get(index);
   }

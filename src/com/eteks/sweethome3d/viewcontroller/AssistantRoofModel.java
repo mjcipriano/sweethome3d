@@ -47,7 +47,12 @@ final class AssistantRoofModel {
   private final List<float []>        windows = new ArrayList<float []>();
   private final List<String>          windowNames = new ArrayList<String>();
   private final List<String>          dormerDescriptions = new ArrayList<String>();
+  private final List<double []>       dormerPlaces = new ArrayList<double []>();
   private boolean []                  edgeAbuts;
+  private boolean []                  edgeClips;
+  private Boolean []                  edgeGutters;
+  private Boolean []                  edgeFascias;
+  private double [][][]               edgeGutterSpans;
   private double [][]                 points;
   private int []                      edgeTypes;
   private double []                   edgeSlopes;
@@ -94,10 +99,49 @@ final class AssistantRoofModel {
   }
 
   /**
-   * Returns the type of an edge as descriptions give it: hip, gable or abut.
+   * Returns the place of each dormer of the description, built or not: {x, y, nx, ny} where (x, y) is the
+   * point of the edge of the roof in front of the center of the dormer and (nx, ny) the direction the
+   * dormer looks at, or <code>null</code> for a dormer that has no place. A dormer keeps this place
+   * when the corners or the edges of its roof change.
+   */
+  List<double []> getDormerPlaces() {
+    return this.dormerPlaces;
+  }
+
+  /**
+   * Returns the type of an edge as descriptions give it: hip, gable, abut or clip.
    */
   String getEdgeTypeName(int edge) {
-    return this.edgeAbuts [edge] ? "abut" : this.edgeTypes [edge] == AssistantRoofGeometry.HIP ? "hip" : "gable";
+    return this.edgeAbuts [edge] ? "abut" : this.edgeClips [edge] ? "clip"
+        : this.edgeTypes [edge] == AssistantRoofGeometry.HIP ? "hip" : "gable";
+  }
+
+  /**
+   * Returns <code>true</code> if the roof stops at the vertical plane of an edge, along a taller wall.
+   */
+  boolean isEdgeClipped(int edge) {
+    return this.edgeClips [edge] || this.edgeAbuts [edge];
+  }
+
+  /**
+   * Returns the corners of the roof.
+   */
+  double [][] getPoints() {
+    return this.points;
+  }
+
+  /**
+   * Returns the choice of the description for the gutter of an edge, or <code>null</code> if it has none.
+   */
+  Boolean getEdgeGutter(int edge) {
+    return this.edgeGutters [edge];
+  }
+
+  /**
+   * Returns the spans of the gutter of an edge, or <code>null</code> if it runs all along it.
+   */
+  double [][] getEdgeGutterSpans(int edge) {
+    return this.edgeGutterSpans [edge];
   }
 
   double getEdgePitch(int edge) {
@@ -160,7 +204,8 @@ final class AssistantRoofModel {
   private static int parseType(String type) {
     if (type == null) {
       return -1;
-    } else if (type.equals("hip") || type.equals("hipped") || type.equals("eave") || type.equals("slope")) {
+    } else if (type.equals("hip") || type.equals("hipped") || type.equals("eave") || type.equals("slope")
+               || isClip(type)) {
       return AssistantRoofGeometry.HIP;
     } else if (type.equals("gable") || type.equals("shed") || type.equals("flat") || type.equals("vertical")
                || type.equals("rake") || type.equals("none") || isAbut(type)) {
@@ -176,6 +221,36 @@ final class AssistantRoofModel {
    */
   private static boolean isAbut(String type) {
     return type.equals("abut") || type.equals("abutting") || type.equals("wall") || type.equals("against_wall");
+  }
+
+  /**
+   * Returns <code>true</code> for the type of an edge where the roof is clipped by the wall of a taller
+   * part of the building without changing shape: the roof is the one a hip at that edge gives, and it
+   * stops at the vertical plane of the edge, without overhang, fascia, soffit nor gutter there.
+   */
+  static boolean isClip(String type) {
+    return type.equals("clip") || type.equals("clipped") || type.equals("trim") || type.equals("cut");
+  }
+
+  /**
+   * Returns the spans {from, to} in cm of a list like [[0,320],[700,1447]], or <code>null</code>.
+   */
+  private static double [][] parseSpans(Object value) {
+    if (!(value instanceof List)) {
+      return null;
+    }
+    List<double []> spans = new ArrayList<double []>();
+    for (Object span : (List<?>)value) {
+      if (span instanceof List && ((List<?>)span).size() >= 2
+          && ((List<?>)span).get(0) instanceof Number && ((List<?>)span).get(1) instanceof Number) {
+        double from = ((Number)((List<?>)span).get(0)).doubleValue();
+        double to = ((Number)((List<?>)span).get(1)).doubleValue();
+        if (to > from) {
+          spans.add(new double [] {from, to});
+        }
+      }
+    }
+    return spans.toArray(new double [spans.size()][]);
   }
 
   private void parse(Map<?, ?> spec) throws IOException {
@@ -218,6 +293,10 @@ final class AssistantRoofModel {
     this.edgeSlopes = new double [count];
     this.edgeOverhangs = new double [count];
     this.edgeAbuts = new boolean [count];
+    this.edgeClips = new boolean [count];
+    this.edgeGutters = new Boolean [count];
+    this.edgeFascias = new Boolean [count];
+    this.edgeGutterSpans = new double [count][][];
     List<?> edges = spec.get("edges") instanceof List ? (List<?>)spec.get("edges") : null;
     for (int i = 0; i < count; i++) {
       double edgePitch = pitch;
@@ -229,24 +308,42 @@ final class AssistantRoofModel {
         if (type >= 0) {
           this.edgeTypes [i] = type;
           this.edgeAbuts [i] = isAbut(text(edgeSpec, "type"));
+          this.edgeClips [i] = isClip(text(edgeSpec, "type"));
         } else if (edgeSpec.get("type") != null) {
           this.notes.add("unknown type \"" + edgeSpec.get("type") + "\" of the edge " + (edgeIndices.get(i) + 1)
-              + " (hip, gable, shed, flat or abut)");
+              + " (hip, gable, shed, flat, abut or clip)");
         }
         edgePitch = number(edgeSpec, "pitch", pitch);
         if (!(edgePitch >= 1 && edgePitch <= 80)) {
+          this.notes.add("the pitch " + format(number(edgeSpec, "pitch", pitch)) + " of the edge " + (edgeIndices.get(i) + 1)
+              + " isn't between 1 and 80 degrees: " + Math.round(pitch) + " was used");
           edgePitch = pitch;
         }
         edgeOverhang = number(edgeSpec, "overhang", this.edgeAbuts [i] ? 0 : overhang);
         if (!(edgeOverhang >= 0 && edgeOverhang <= 300)) {
+          this.notes.add("the overhang " + format(number(edgeSpec, "overhang", overhang)) + " of the edge " + (edgeIndices.get(i) + 1)
+              + " isn't between 0 and 300 cm: " + Math.round(overhang) + " was used");
           edgeOverhang = overhang;
         }
+        if (this.edgeClips [i]) {
+          // The roof stops at the plane of the edge
+          edgeOverhang = 0;
+        }
+        if (edgeSpec.get("gutter") != null) {
+          this.edgeGutters [i] = Boolean.valueOf(flag(edgeSpec, "gutter", true));
+        }
+        if (edgeSpec.get("fascia") != null) {
+          this.edgeFascias [i] = Boolean.valueOf(flag(edgeSpec, "fascia", true));
+        }
+        this.edgeGutterSpans [i] = parseSpans(edgeSpec.get("gutter_spans"));
       } else if (edge instanceof String) {
-        int type = parseType(((String)edge).trim().toLowerCase(Locale.ENGLISH));
+        String edgeType = ((String)edge).trim().toLowerCase(Locale.ENGLISH);
+        int type = parseType(edgeType);
         if (type >= 0) {
           this.edgeTypes [i] = type;
-          this.edgeAbuts [i] = isAbut(((String)edge).trim().toLowerCase(Locale.ENGLISH));
-          if (this.edgeAbuts [i]) {
+          this.edgeAbuts [i] = isAbut(edgeType);
+          this.edgeClips [i] = isClip(edgeType);
+          if (this.edgeAbuts [i] || this.edgeClips [i]) {
             edgeOverhang = 0;
           }
         }
@@ -295,9 +392,31 @@ final class AssistantRoofModel {
       this.notes.add("the corners of this roof aren't all square: it was cut in parts that may meet with a step; "
           + "a roof made of one add_roof per wing gives a better result");
     }
+    // What the walls of a taller part of the building cut out of the roof
+    if (spec.get("clip_areas") instanceof List) {
+      for (Object area : (List<?>)spec.get("clip_areas")) {
+        if (area instanceof List) {
+          List<double []> areaPoints = new ArrayList<double []>();
+          for (Object point : (List<?>)area) {
+            if (point instanceof List && ((List<?>)point).size() >= 2
+                && ((List<?>)point).get(0) instanceof Number && ((List<?>)point).get(1) instanceof Number) {
+              areaPoints.add(new double [] {((Number)((List<?>)point).get(0)).doubleValue(),
+                                            ((Number)((List<?>)point).get(1)).doubleValue()});
+            }
+          }
+          this.geometry.addCut(areaPoints.toArray(new double [areaPoints.size()][]));
+        }
+      }
+      if (this.geometry.getCells(false).isEmpty()) {
+        throw new IOException("nothing remains of the roof once clipped");
+      }
+    }
     if (spec.get("dormers") instanceof List) {
       int index = 0;
       for (Object dormer : (List<?>)spec.get("dormers")) {
+        while (this.dormerPlaces.size() <= index) {
+          this.dormerPlaces.add(null);
+        }
         if (dormer instanceof Map) {
           int noteCount = this.notes.size();
           String description = addDormer((Map<?, ?>)dormer, index);
@@ -473,7 +592,38 @@ final class AssistantRoofModel {
   private String addDormer(Map<?, ?> dormer, int dormerIndex) {
     int edge = -1;
     String side = text(dormer, "side");
-    if (dormer.get("edge") instanceof Number) {
+    // The place the dormer had the last time its roof was built: it stays on that side, at that point
+    double [] place = getPlace(dormer.get("at"));
+    double placePosition = Double.NaN;
+    if (place != null) {
+      double bestDistance = Double.POSITIVE_INFINITY;
+      for (int i = 0; i < this.points.length; i++) {
+        double [] edgeNormal = getInwardNormal(i);
+        double [] next = this.points [(i + 1) % this.points.length];
+        double distance = java.awt.geom.Line2D.ptSegDist(this.points [i][0], this.points [i][1], next [0], next [1],
+            place [0], place [1]);
+        if (-edgeNormal [0] * place [2] - edgeNormal [1] * place [3] > 0.7 && distance < bestDistance) {
+          bestDistance = distance;
+          edge = i;
+        }
+      }
+      if (edge >= 0) {
+        double [] next = this.points [(edge + 1) % this.points.length];
+        double edgeLength = Math.hypot(next [0] - this.points [edge][0], next [1] - this.points [edge][1]);
+        placePosition = ((place [0] - this.points [edge][0]) * (next [0] - this.points [edge][0])
+            + (place [1] - this.points [edge][1]) * (next [1] - this.points [edge][1])) / edgeLength;
+        if (this.edgeTypes [edge] != AssistantRoofGeometry.HIP || this.edgeClips [edge]) {
+          this.dormerPlaces.set(dormerIndex, place);
+          this.notes.add("the dormer " + (dormerIndex + 1) + " wasn't built: the edge " + (edge + 1)
+              + " it stands on is now a " + getEdgeTypeName(edge) + ", without a slope rising from an eave "
+              + "(modify_dormer with \"side\" or \"edge\" moves it to another edge, remove_dormer removes it)");
+          return null;
+        }
+      }
+    }
+    if (edge >= 0) {
+      // Placed above
+    } else if (dormer.get("edge") instanceof Number) {
       edge = ((Number)dormer.get("edge")).intValue() - 1;
     } else if (side != null) {
       edge = getEdgeFacing(side, true);
@@ -490,8 +640,20 @@ final class AssistantRoofModel {
     double uy = (end [1] - start [1]) / length;
     double [] normal = getInwardNormal(edge);
     double width = Math.max(40, Math.min(length - 20, number(dormer, "width", 120)));
+    if (Math.abs(width - number(dormer, "width", 120)) > 0.01) {
+      this.notes.add("the width " + format(number(dormer, "width", 120)) + " of the dormer " + (dormerIndex + 1)
+          + " was changed to " + format(width) + ": a dormer is 40 cm wide at least and 20 cm shorter than its edge at most");
+    }
     double height = Math.max(20, Math.min(400, number(dormer, "height", 110)));
+    if (Math.abs(height - number(dormer, "height", 110)) > 0.01) {
+      this.notes.add("the height " + format(number(dormer, "height", 110)) + " of the dormer " + (dormerIndex + 1)
+          + " was changed to " + format(height) + ": the front wall of a dormer is 20 to 400 cm high");
+    }
     double setback = Math.max(0, number(dormer, "setback", 40));
+    if (number(dormer, "setback", 40) < 0) {
+      this.notes.add("the setback " + format(number(dormer, "setback", 40)) + " of the dormer " + (dormerIndex + 1)
+          + " was changed to 0: a dormer can't stand in front of its edge");
+    }
     // "offset" is a distance in cm to the center of the dormer, "position" a part of the side from 0 to 1;
     // a position larger than 1 can only be a distance
     double position;
@@ -504,11 +666,20 @@ final class AssistantRoofModel {
     } else {
       position = Math.max(0, Math.min(1, number(dormer, "position", 0.5))) * length;
     }
-    if (!(dormer.get("edge") instanceof Number) && (Math.abs(ux) >= Math.abs(uy) ? ux < 0 : uy < 0)) {
+    if (!Double.isNaN(placePosition)) {
+      position = placePosition;
+    } else if (!(dormer.get("edge") instanceof Number) && (Math.abs(ux) >= Math.abs(uy) ? ux < 0 : uy < 0)) {
       // Along a side given by a cardinal point, places are measured from the west or from the north
       position = length - position;
     }
+    double askedPosition = position;
     position = Math.max(width / 2, Math.min(length - width / 2, position));
+    if (Math.abs(position - askedPosition) > 0.5) {
+      this.notes.add("the dormer " + (dormerIndex + 1) + " was moved from " + format(askedPosition) + " to "
+          + format(position) + " cm along its edge to stand entirely on it");
+    }
+    this.dormerPlaces.set(dormerIndex, new double [] {start [0] + ux * position, start [1] + uy * position,
+        -normal [0], -normal [1]});
     String type = text(dormer, "type");
     if (type == null) {
       type = "gable";
@@ -570,6 +741,10 @@ final class AssistantRoofModel {
       return null;
     }
     double overhang = Math.max(0, Math.min(60, number(dormer, "overhang", 10)));
+    if (Math.abs(overhang - number(dormer, "overhang", 10)) > 0.01) {
+      this.notes.add("the overhang " + format(number(dormer, "overhang", 10)) + " of the dormer " + (dormerIndex + 1)
+          + " was changed to " + format(overhang) + ": the roof of a dormer overhangs by 0 to 60 cm");
+    }
     double [][] polygon = {
         {centerX - ux * width / 2, centerY - uy * width / 2},
         {centerX + ux * width / 2, centerY + uy * width / 2},
@@ -631,6 +806,60 @@ final class AssistantRoofModel {
         + (sizes.isEmpty() ? "" : ", " + sizes.size() + (sizes.size() == 1 ? " window" : " windows"));
   }
 
+  private static String format(double value) {
+    return Math.abs(value - Math.rint(value)) < 0.005 ? String.valueOf((long)Math.rint(value))
+        : String.format(Locale.ENGLISH, "%.2f", value);
+  }
+
+  /**
+   * Returns the place {x, y, nx, ny} kept in the description of a dormer, or <code>null</code>.
+   */
+  private static double [] getPlace(Object value) {
+    if (value instanceof List && ((List<?>)value).size() >= 4) {
+      double [] place = new double [4];
+      for (int i = 0; i < 4; i++) {
+        if (!(((List<?>)value).get(i) instanceof Number)) {
+          return null;
+        }
+        place [i] = ((Number)((List<?>)value).get(i)).doubleValue();
+      }
+      return place;
+    }
+    return null;
+  }
+
+  /**
+   * Returns the edge of the roof along which a side of its outline runs, with the distances in cm
+   * from the start of that edge to the ends of the side, as {edge, from, to}, or <code>null</code>
+   * if the side isn't the one of an edge (a step between two parts of the roof, a side cut by a wall).
+   */
+  private double [] getEdgeOfSide(double ax, double ay, double bx, double by) {
+    double [] best = null;
+    double bestOverlap = 0.1;
+    for (int i = 0; i < this.points.length; i++) {
+      double [] point = this.points [i];
+      double [] next = this.points [(i + 1) % this.points.length];
+      double length = Math.hypot(next [0] - point [0], next [1] - point [1]);
+      double ux = (next [0] - point [0]) / length;
+      double uy = (next [1] - point [1]) / length;
+      double [] normal = getInwardNormal(i);
+      // The side runs at the distance of the overhang, out of the edge
+      double distanceA = -normal [0] * (ax - point [0]) - normal [1] * (ay - point [1]);
+      double distanceB = -normal [0] * (bx - point [0]) - normal [1] * (by - point [1]);
+      if (Math.abs(distanceA - this.edgeOverhangs [i]) < 1 && Math.abs(distanceB - this.edgeOverhangs [i]) < 1) {
+        double tA = ux * (ax - point [0]) + uy * (ay - point [1]);
+        double tB = ux * (bx - point [0]) + uy * (by - point [1]);
+        double margin = 310;
+        double overlap = Math.min(length + margin, Math.max(tA, tB)) - Math.max(-margin, Math.min(tA, tB));
+        if (overlap > bestOverlap) {
+          bestOverlap = overlap;
+          best = new double [] {i, tA, tB};
+        }
+      }
+    }
+    return best;
+  }
+
   // ---- 3D model ----
 
   /**
@@ -656,6 +885,8 @@ final class AssistantRoofModel {
     AssistantMeshBuilder.Material gableMaterial = mesh.getMaterial(getColor(spec, "gable_color", 0xECE6DA));
     AssistantMeshBuilder.Material fasciaMaterial = flag(spec, "fascia", true)
         ? mesh.getMaterial(getColor(spec, "fascia_color", 0xF4F2EE)) : roofMaterial;
+    // The band of an edge that asks for one when the roof has none
+    AssistantMeshBuilder.Material edgeFasciaMaterial = mesh.getMaterial(getColor(spec, "fascia_color", 0xF4F2EE));
     AssistantMeshBuilder.Material undersideMaterial = mesh.getMaterial(getColor(spec, "underside_color", 0xE4E0D8));
     AssistantMeshBuilder.Material metalMaterial = mesh.getMaterial(getColor(spec, "gutter_color", 0x9A9C9E));
 
@@ -697,6 +928,8 @@ final class AssistantRoofModel {
         double y1 = point [1] + ny * 0.02;
         double x2 = next [0] + nx * 0.02;
         double y2 = next [1] + ny * 0.02;
+        // Where a wall cut the roof, it has no band and no gutter: the wall closes it
+        boolean cutSide = this.geometry.isCut((point [0] + next [0]) / 2 - nx * 0.05, (point [1] + next [1]) / 2 - ny * 0.05);
         for (AssistantRoofGeometry.Cell cell : cells) {
           double [] range = AssistantRoofGeometry.clipSegment(x1, y1, x2, y2, cell.polygon);
           if (range == null) {
@@ -709,14 +942,22 @@ final class AssistantRoofModel {
           double heightA = cell.getHeight(ax, ay);
           double heightB = cell.getHeight(bx, by);
           double cellThickness = cell.part.getThickness();
+          double [] side = cell.part.isDormer() ? null : getEdgeOfSide(ax, ay, bx, by);
+          int edge = side != null ? (int)side [0] : -1;
+          if (cutSide || edge >= 0 && this.edgeClips [edge]) {
+            continue;
+          }
           mesh.addPolygon(new float [][] {
               {(float)ax, (float)(heightA - cellThickness), (float)ay}, {(float)bx, (float)(heightB - cellThickness), (float)by},
               {(float)bx, (float)heightB, (float)by}, {(float)ax, (float)heightA, (float)ay}},
-              fasciaMaterial, (float)-nx, 0, (float)-ny);
+              edge >= 0 && Boolean.FALSE.equals(this.edgeFascias [edge]) ? roofMaterial
+                  : edge >= 0 && Boolean.TRUE.equals(this.edgeFascias [edge]) ? edgeFasciaMaterial : fasciaMaterial,
+              (float)-nx, 0, (float)-ny);
           // An eave: a level edge the roof rises from
           if (!cell.part.isDormer() && Math.abs(heightA - heightB) < 0.3
               && cell.plane [1] * nx + cell.plane [2] * ny > 0.01 && Math.hypot(bx - ax, by - ay) > 30) {
-            gutters.add(new double [] {ax, ay, bx, by, heightA - cellThickness, -nx, -ny});
+            gutters.add(new double [] {ax, ay, bx, by, heightA - cellThickness, -nx, -ny,
+                edge, side != null ? side [1] : 0, side != null ? side [2] : 0});
           }
         }
       }
@@ -842,30 +1083,106 @@ final class AssistantRoofModel {
       addSoffit(mesh, footprint, undersideMaterial);
     }
     boolean gutter = flag(spec, "gutters", false);
-    if (gutter) {
-      boolean downspouts = flag(spec, "downspouts", true);
-      for (double [] eave : gutters) {
-        // Hung under the edge of the roof
-        double ox = eave [5] * 6;
-        double oy = eave [6] * 6;
-        float top = (float)eave [4] + 5;
-        mesh.addBar(new float [] {(float)(eave [0] + ox), top, (float)(eave [1] + oy)},
-            new float [] {(float)(eave [2] + ox), top, (float)(eave [3] + oy)}, 12, 10, metalMaterial);
-        if (downspouts && Math.hypot(eave [2] - eave [0], eave [3] - eave [1]) > 100) {
-          // A pipe from the end of the gutter back to the wall, then down to the ground
-          double length = Math.hypot(eave [2] - eave [0], eave [3] - eave [1]);
-          double ux = (eave [2] - eave [0]) / length;
-          double uy = (eave [3] - eave [1]) / length;
-          double [] wallPoint = getWallPoint(eave [0] + ux * 12, eave [1] + uy * 12, -eave [5], -eave [6]);
-          float [] start = {(float)(eave [0] + ux * 12 + ox), top - 8, (float)(eave [1] + uy * 12 + oy)};
-          float [] bend = {(float)(wallPoint [0] + eave [5] * 6), (float)Math.min(top - 12, this.eaveHeight - 10),
-                           (float)(wallPoint [1] + eave [6] * 6)};
-          mesh.addBar(start, bend, 7, 7, metalMaterial);
-          mesh.addBar(bend, new float [] {bend [0], Math.min(groundHeight, bend [1] - 10), bend [2]}, 7, 7, metalMaterial);
+    // Downspouts at the start of each gutter, or where the description puts them
+    boolean downspouts = !(spec.get("downspouts") instanceof List) && flag(spec, "downspouts", true);
+    for (double [] eave : gutters) {
+      int edge = (int)eave [7];
+      boolean edgeGutter = edge >= 0 && this.edgeGutters [edge] != null ? this.edgeGutters [edge].booleanValue() : gutter;
+      double [][] spans = edge >= 0 ? this.edgeGutterSpans [edge] : null;
+      if (spans != null && this.edgeGutters [edge] == null) {
+        // Spans ask for a gutter
+        edgeGutter = true;
+      }
+      if (!edgeGutter) {
+        continue;
+      }
+      double eaveLength = Math.hypot(eave [2] - eave [0], eave [3] - eave [1]);
+      List<double []> pieces = new ArrayList<double []>();
+      if (spans == null) {
+        pieces.add(new double [] {0, 1});
+      } else {
+        // The parts of this eave in the spans, measured from the start of its edge
+        double edgeLength = getEdgeLength(edge);
+        for (double [] span : spans) {
+          double from = span [0] <= 0.5 ? Double.NEGATIVE_INFINITY : span [0];
+          double to = span [1] >= edgeLength - 0.5 ? Double.POSITIVE_INFINITY : span [1];
+          double t1 = (from - eave [8]) / (eave [9] - eave [8]);
+          double t2 = (to - eave [8]) / (eave [9] - eave [8]);
+          double start = Math.max(0, Math.min(t1, t2));
+          double end = Math.min(1, Math.max(t1, t2));
+          if ((end - start) * eaveLength > 1) {
+            pieces.add(new double [] {start, end});
+          }
+        }
+      }
+      // Hung under the edge of the roof
+      double ox = eave [5] * 6;
+      double oy = eave [6] * 6;
+      float top = (float)eave [4] + 5;
+      for (double [] piece : pieces) {
+        double x1 = eave [0] + (eave [2] - eave [0]) * piece [0];
+        double y1 = eave [1] + (eave [3] - eave [1]) * piece [0];
+        double x2 = eave [0] + (eave [2] - eave [0]) * piece [1];
+        double y2 = eave [1] + (eave [3] - eave [1]) * piece [1];
+        mesh.addBar(new float [] {(float)(x1 + ox), top, (float)(y1 + oy)},
+            new float [] {(float)(x2 + ox), top, (float)(y2 + oy)}, 12, 10, metalMaterial);
+        double length = Math.hypot(x2 - x1, y2 - y1);
+        if (downspouts && length > 100) {
+          double ux = (x2 - x1) / length;
+          double uy = (y2 - y1) / length;
+          addDownspout(mesh, x1 + ux * 12, y1 + uy * 12, eave [5], eave [6], top, groundHeight, metalMaterial);
         }
       }
     }
+    if (spec.get("downspouts") instanceof List) {
+      int index = 0;
+      for (Object downspout : (List<?>)spec.get("downspouts")) {
+        index++;
+        if (!(downspout instanceof Map)) {
+          continue;
+        }
+        int edge = (int)Math.round(number((Map<?, ?>)downspout, "edge", 0)) - 1;
+        if (edge < 0 || edge >= this.points.length) {
+          this.notes.add("the downspout " + index + " was ignored: \"edge\" is the number of an edge, from 1 to " + this.points.length);
+          continue;
+        }
+        double [] point = this.points [edge];
+        double [] next = this.points [(edge + 1) % this.points.length];
+        double length = getEdgeLength(edge);
+        double at = number((Map<?, ?>)downspout, "at", length / 2);
+        if (at < 0 || at > length) {
+          this.notes.add("the place " + format(at) + " of the downspout " + index + " was changed to "
+              + format(Math.max(0, Math.min(length, at))) + ": the edge " + (edge + 1) + " is " + format(length) + " cm long");
+          at = Math.max(0, Math.min(length, at));
+        }
+        double [] normal = getInwardNormal(edge);
+        double x = point [0] + (next [0] - point [0]) * at / length - normal [0] * this.edgeOverhangs [edge];
+        double y = point [1] + (next [1] - point [1]) * at / length - normal [1] * this.edgeOverhangs [edge];
+        double underside = this.geometry.getUndersideHeight(x + normal [0] * 0.05, y + normal [1] * 0.05);
+        if (Double.isNaN(underside) || this.edgeTypes [edge] != AssistantRoofGeometry.HIP || this.edgeClips [edge]) {
+          this.notes.add("the downspout " + index + " was ignored: the roof has no eave at " + format(at)
+              + " cm of the edge " + (edge + 1));
+          continue;
+        }
+        addDownspout(mesh, x, y, -normal [0], -normal [1], (float)underside + 5, groundHeight, metalMaterial);
+      }
+    }
     return mesh.store("roof");
+  }
+
+  /**
+   * Adds a pipe from a point of the eave back to the wall, then down to the ground.
+   * @param ox the direction pointing out of the roof at that point
+   * @param top the height of the top of the gutter
+   */
+  private void addDownspout(AssistantMeshBuilder mesh, double x, double y, double ox, double oy, float top,
+                            float groundHeight, AssistantMeshBuilder.Material material) {
+    double [] wallPoint = getWallPoint(x, y, -ox, -oy);
+    float [] start = {(float)(x + ox * 6), top - 8, (float)(y + oy * 6)};
+    float [] bend = {(float)(wallPoint [0] + ox * 6), (float)Math.min(top - 12, this.eaveHeight - 10),
+                     (float)(wallPoint [1] + oy * 6)};
+    mesh.addBar(start, bend, 7, 7, material);
+    mesh.addBar(bend, new float [] {bend [0], Math.min(groundHeight, bend [1] - 10), bend [2]}, 7, 7, material);
   }
 
   private static int getColor(Map<?, ?> spec, String key, int defaultColor) {

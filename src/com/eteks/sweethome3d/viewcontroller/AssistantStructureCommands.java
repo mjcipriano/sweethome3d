@@ -345,6 +345,12 @@ class AssistantStructureCommands {
       return;
     }
     final Object [] before = getState(level);
+    final float oldHeight = level.getHeight();
+    // The walls keep their heights, unless the ones as tall as the level are asked to follow it
+    final boolean keepWallHeights = command.getBoolean("keep_wall_heights", true);
+    final List<Wall> movedWalls = !Double.isNaN(height) && !keepWallHeights && Math.abs(height - oldHeight) >= 0.5
+        ? this.executor.getCeilingCommands().getWallsAsTallAsLevel(level, oldHeight)
+        : new ArrayList<Wall>();
     if (newName != null && newName.trim().length() > 0) {
       level.setName(newName.trim());
     }
@@ -376,6 +382,18 @@ class AssistantStructureCommands {
       }
     }
     this.executor.beginTurnUpdate();
+    if (!movedWalls.isEmpty()) {
+      this.executor.postModification(new ArrayList<Selectable>(movedWalls), new Runnable() {
+          public void run() {
+            for (Wall wall : movedWalls) {
+              wall.setHeight((float)height);
+              if (wall.getHeightAtEnd() != null) {
+                wall.setHeightAtEnd(null);
+              }
+            }
+          }
+        });
+    }
     this.homeController.getUndoableEditSupport().postEdit(new AbstractUndoableEdit() {
         @Override
         public void undo() {
@@ -403,7 +421,10 @@ class AssistantStructureCommands {
     notes.add("Modified the level " + describe(level) + ": height " + format(level.getHeight()) + " cm, floor thickness "
         + format(level.getFloorThickness()) + " cm, " + (level.isViewable() ? "viewable" : "not viewable (hidden in the plan and in the 3D view)")
         + (homonyms > 0 ? "; " + homonyms + (homonyms == 1 ? " other level has" : " other levels have")
-            + " the same name, use ids to tell them apart" : ""));
+            + " the same name, use ids to tell them apart" : "")
+        + (!Double.isNaN(height) && Math.abs(level.getHeight() - oldHeight) >= 0.5
+            ? this.executor.getCeilingCommands().describeLevelHeightChange(level, oldHeight, movedWalls, command.has("keep_wall_heights"))
+            : ""));
   }
 
   private static Object [] getState(Level level) {
@@ -512,8 +533,13 @@ class AssistantStructureCommands {
         baseboardChanged [1] = true;
       }
     }
+    // Finishes that change with the height and openings without door
+    boolean finishChanged = this.executor.getWallFinishCommands().modifyWalls(command, walls, tally, notes);
     if (Double.isNaN(height) && !command.has("height_at_end") && Double.isNaN(thickness) && !command.has("arc_extent")
         && !moved && !command.has("top_color") && !baseboardChanged [0] && !baseboardChanged [1]) {
+      if (finishChanged) {
+        return;
+      }
       notes.add("Ignored modify_wall: give at least one of \"height\", \"height_at_end\", \"thickness\", \"arc_extent\", "
           + "\"top_color\", \"baseboard\", \"x1\", \"y1\", \"x2\" and \"y2\"");
       return;
@@ -564,6 +590,10 @@ class AssistantStructureCommands {
         }
       });
     tally [4] += walls.size();
+    if (moved || !Double.isNaN(thickness)) {
+      // The openings without door and the headers of the walls follow them
+      this.executor.getWallFinishCommands().wallsChanged(walls, notes);
+    }
     StringBuilder note = new StringBuilder("Modified ");
     for (int i = 0; i < walls.size() && i < 10; i++) {
       note.append(i > 0 ? "; " : "").append(describeWall((Wall)walls.get(i), false));
@@ -601,6 +631,7 @@ class AssistantStructureCommands {
       text.append(", length ").append(format(wall.getLength())).append(" cm");
       text.append(", left side").append(describeFinish(wall.getLeftSideColor(), wall.getLeftSideTexture()));
       text.append(", right side").append(describeFinish(wall.getRightSideColor(), wall.getRightSideTexture()));
+      text.append(this.executor.getWallFinishCommands().describeWall(wall));
       if (wall.getWallAtStart() != null) {
         text.append(", joined at start to ").append(this.executor.getId(wall.getWallAtStart()));
       }
@@ -816,6 +847,14 @@ class AssistantStructureCommands {
     if (piece.getModelSize() != null) {
       text.append(", model file of ").append(format(piece.getModelSize() / 1024f)).append(" KB");
     }
+    String modelSource = AssistantObjectCommands.describeModelSource(piece);
+    if (modelSource.length() > 0) {
+      text.append(", ").append(modelSource);
+    }
+    if (piece.getProperty(AssistantObjectCommands.MODEL_MATERIALS_PROPERTY) != null) {
+      text.append(", materials recolored when it was imported: ")
+          .append(piece.getProperty(AssistantObjectCommands.MODEL_MATERIALS_PROPERTY));
+    }
     if (piece.isModelMirrored()) {
       text.append(", mirrored");
     }
@@ -831,6 +870,9 @@ class AssistantStructureCommands {
     }
     if (roof == null) {
       roof = this.executor.getPlantCommands().describePlant(piece);
+    }
+    if (roof == null) {
+      roof = this.executor.getTerrainCommands().describeTerrain(piece);
     }
     if (roof != null) {
       text.append(", ").append(roof);
@@ -865,6 +907,10 @@ class AssistantStructureCommands {
         .append(describeFinish(room.getFloorColor(), room.getFloorTexture()));
     text.append(", ceiling ").append(room.isCeilingVisible() ? "visible" : "hidden")
         .append(describeFinish(room.getCeilingColor(), room.getCeilingTexture()));
+    String ceiling = this.executor.getCeilingCommands().describeCeiling(room);
+    if (ceiling != null) {
+      text.append(", ").append(ceiling);
+    }
     text.append(room.isAreaVisible() ? ", area displayed" : ", area not displayed");
     return text.append(describeProperties(room)).toString();
   }

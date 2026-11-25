@@ -93,6 +93,7 @@ public class AssistantCommandExecutor {
   private boolean                    turnUpdateBegun;
   private final AssistantBuildingCommands buildingCommands;
   private final AssistantObjectCommands   objectCommands;
+  private final AssistantOnlineModels     onlineModels;
   private final AssistantPlanCommands     planCommands;
   private final AssistantSiteCommands      siteCommands;
   private final AssistantArrangeCommands arrangeCommands;
@@ -111,6 +112,7 @@ public class AssistantCommandExecutor {
   private final AssistantLibraryCommands  libraryCommands;
   private final AssistantDesignCommands   designCommands;
   private ModelSizeProvider               modelSizeProvider;
+  private ModelImageFilter                modelImageFilter;
   private java.io.File                    attachedImage;
 
   /**
@@ -172,7 +174,10 @@ public class AssistantCommandExecutor {
   private boolean groupOpen;
   private long    groupActivityTime;
   private final AssistantStructureCommands structureCommands;
+  private final AssistantCeilingCommands ceilingCommands;
   private final AssistantShapeCommands     shapeCommands;
+  private final AssistantWallFinishCommands wallFinishCommands;
+  private final AssistantRailingCommands   railingCommands;
   // Remarks of the commands of a turn about the items they designate
   private List<String>               turnWarnings;
   // Ids of the commands of a turn that designate no item of the home
@@ -185,6 +190,7 @@ public class AssistantCommandExecutor {
     this.homeController = homeController;
     this.buildingCommands = new AssistantBuildingCommands(home, preferences, homeController, this);
     this.objectCommands = new AssistantObjectCommands(home, preferences, homeController, this);
+    this.onlineModels = new AssistantOnlineModels(home, this, this.objectCommands);
     this.planCommands = new AssistantPlanCommands(home, homeController, this,
         this.buildingCommands, this.objectCommands);
     this.siteCommands = new AssistantSiteCommands(home, homeController, this);
@@ -202,7 +208,10 @@ public class AssistantCommandExecutor {
     this.libraryCommands = new AssistantLibraryCommands(home, preferences, homeController, this);
     this.designCommands = new AssistantDesignCommands(home, preferences, homeController, this, this.buildingCommands);
     this.structureCommands = new AssistantStructureCommands(home, preferences, homeController, this);
+    this.ceilingCommands = new AssistantCeilingCommands(home, homeController, this);
     this.shapeCommands = new AssistantShapeCommands(home, preferences, homeController, this);
+    this.wallFinishCommands = new AssistantWallFinishCommands(home, homeController, this);
+    this.railingCommands = new AssistantRailingCommands(home, homeController, this);
   }
 
   /**
@@ -210,6 +219,32 @@ public class AssistantCommandExecutor {
    */
   public void setModelSizeProvider(ModelSizeProvider modelSizeProvider) {
     this.modelSizeProvider = modelSizeProvider;
+    if (modelSizeProvider instanceof ModelImageFilter) {
+      // The object that reads models may change their images too
+      this.modelImageFilter = (ModelImageFilter)modelSizeProvider;
+    }
+  }
+
+  /**
+   * Changes the images of the materials of the 3D models imported by <code>import_furniture</code>.
+   */
+  public interface ModelImageFilter {
+    /**
+     * Returns the PNG or JPEG <code>image</code> with the red, green and blue of its pixels
+     * multiplied by the given factors, at PNG or JPEG format.
+     */
+    byte [] tint(byte [] image, float red, float green, float blue) throws java.io.IOException;
+  }
+
+  /**
+   * Sets the object that changes the images of the imported 3D models.
+   */
+  public void setModelImageFilter(ModelImageFilter modelImageFilter) {
+    this.modelImageFilter = modelImageFilter;
+  }
+
+  ModelImageFilter getModelImageFilter() {
+    return this.modelImageFilter;
   }
 
   ModelSizeProvider getModelSizeProvider() {
@@ -298,6 +333,14 @@ public class AssistantCommandExecutor {
     List<HomeDiagnostics.Issue> kept = HomeDiagnostics.filter(issues, ignoredIds, ignoredTags, 0);
     int ignoredCount = issues.size() - kept.size();
     kept = HomeDiagnostics.filter(kept, Collections.<String>emptyList(), Collections.<String>emptyList(), minSeverity);
+    // The items that cross another item, listed on request and counted otherwise
+    String crossings = HomeDefects.describeCrossings(this.home, issues, 60);
+    if (crossings.length() > 0) {
+      note = "\n" + (Boolean.TRUE.equals(options.get("crossings"))
+          ? crossings
+          : HomeDefects.countCrossings(crossings) + (HomeDefects.countCrossings(crossings) == 1 ? " item crosses" : " items cross")
+              + " another item: {\"crossings\":true} lists them level by level.") + note;
+    }
     return HomeDiagnostics.describe(kept, ignoredCount) + note;
   }
 
@@ -368,6 +411,10 @@ public class AssistantCommandExecutor {
     return id;
   }
 
+  AssistantWallFinishCommands getWallFinishCommands() {
+    return this.wallFinishCommands;
+  }
+
   AssistantBuildingCommands getBuildingCommands() {
     return this.buildingCommands;
   }
@@ -403,6 +450,41 @@ public class AssistantCommandExecutor {
 
   AssistantTerrainCommands getTerrainCommands() {
     return this.terrainCommands;
+  }
+
+  /**
+   * Sets the object that asks the libraries of 3D models of the web, for <code>find_model</code>
+   * and <code>import_model</code>.
+   */
+  public void setModelFetcher(AssistantOnlineModels.Fetcher fetcher) {
+    this.onlineModels.setFetcher(fetcher);
+  }
+
+  /**
+   * Sets the object that keeps the tokens of the libraries of 3D models which ask for an account.
+   */
+  public void setModelTokenStore(AssistantOnlineModels.TokenStore tokenStore) {
+    this.onlineModels.setTokenStore(tokenStore);
+  }
+
+  /**
+   * Returns the credits of the models of the home that have an author, a license or a source,
+   * or <code>null</code> if it has none.
+   */
+  public String getModelCredits() {
+    return AssistantOnlineModels.hasCredits(this.home) ? AssistantOnlineModels.getCredits(this.home) : null;
+  }
+
+  /**
+   * Returns the piece of furniture that the <code>import_furniture</code> command creates from the
+   * 3D model file and the options of <code>command</code>, without adding it to the home, or
+   * <code>null</code> if its values are out of range. Used to show a model before it's imported,
+   * and by the commands that fetch a model before they import it.
+   * @param place <code>true</code> to choose the level of the piece and stand it on what is under it
+   */
+  public HomePieceOfFurniture createImportedPiece(AssistantCommand command, List<String> notes,
+                                                  boolean place) throws java.io.IOException {
+    return this.objectCommands.createImportedPiece(command, notes, place);
   }
 
   /**
@@ -446,6 +528,10 @@ public class AssistantCommandExecutor {
 
   AssistantStructureCommands getStructureCommands() {
     return this.structureCommands;
+  }
+
+  AssistantCeilingCommands getCeilingCommands() {
+    return this.ceilingCommands;
   }
 
   int getTurnUnresolvedIdCount() {
@@ -982,8 +1068,10 @@ public class AssistantCommandExecutor {
                && !this.gisCommands.apply(action, command, tally, notes)
                && !this.photoCommands.apply(action, command, tally, notes)
                && !this.structureCommands.apply(action, command, tally, notes)
+               && !this.ceilingCommands.apply(action, command, tally, notes)
                && !this.shapeCommands.apply(action, command, tally, notes)
                && !this.buildingCommands.apply(action, command, tally, notes)
+               && !this.onlineModels.apply(action, command, tally, notes)
                && !this.objectCommands.apply(action, command, tally, notes)
                && !this.layerCommands.apply(action, command, tally, notes)
                && !this.libraryCommands.apply(action, command, tally, notes)
@@ -993,7 +1081,9 @@ public class AssistantCommandExecutor {
                && !this.fenceCommands.apply(action, command, tally, notes)
                && !this.gardenCommands.apply(action, command, tally, notes)
                && !this.scheduleCommands.apply(action, command, tally, notes)
-               && !this.sceneCommands.apply(action, command, tally, notes)) {
+               && !this.sceneCommands.apply(action, command, tally, notes)
+               && !this.wallFinishCommands.apply(action, command, tally, notes)
+               && !this.railingCommands.apply(action, command, tally, notes)) {
       this.planCommands.apply(action, command, tally, notes);
     }
     // Unknown actions are ignored so a single bad command doesn't break a turn
@@ -1402,7 +1492,7 @@ public class AssistantCommandExecutor {
   /** The parameters where <code>last</code> stands for the item the commands before created. */
   private static final List<String> LAST_ID_KEYS = Arrays.asList("id", "ids", "fence", "fences", "item", "items", "target", "targets",
       "piece", "pieces", "of", "on", "around", "along", "follow", "relative_to", "attach_to", "room", "wall", "line", "tree", "trees",
-      "structure", "deck", "parent");
+      "structure", "deck", "parent", "opening", "roof", "stairs", "railing");
 
   private int [] getItemCounts() {
     return new int [] {this.home.getFurniture().size(), this.home.getWalls().size(), this.home.getRooms().size(),

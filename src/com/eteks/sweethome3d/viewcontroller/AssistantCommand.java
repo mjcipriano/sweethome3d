@@ -132,4 +132,36 @@ public class AssistantCommand {
     }
     return points;
   }
+
+  /**
+   * Returns the keys of an object nested in a command that aren't among the ones it may have.
+   */
+  static List<String> getUnknownKeys(java.util.Map<?, ?> object, List<String> knownKeys) {
+    List<String> unknown = new ArrayList<String>();
+    for (Object key : object.keySet()) {
+      if (!knownKeys.contains(String.valueOf(key))) {
+        unknown.add(String.valueOf(key));
+      }
+    }
+    return unknown;
+  }
+
+  /**
+   * Returns a remark about the keys of an object nested in a command that the command doesn't read,
+   * like the ones of an item of <code>edges</code> or of <code>dormers</code>, or <code>null</code>
+   * if all its keys are known: such a key is reported, as the unknown keys of the command itself are.
+   * @param where     what the object is, like <code>the edge 3</code>
+   * @param knownKeys the keys the object may have
+   * @param hiddenKeys keys the object may have that the remark doesn't list
+   */
+  static String describeUnknownKeys(String where, java.util.Map<?, ?> object, List<String> knownKeys,
+                                    List<String> hiddenKeys) {
+    List<String> known = new ArrayList<String>(knownKeys);
+    if (hiddenKeys != null) {
+      known.addAll(hiddenKeys);
+    }
+    List<String> unknown = getUnknownKeys(object, known);
+    return unknown.isEmpty() ? null
+        : "ignored " + (unknown.size() == 1 ? "the key " : "the keys ") + unknown + " of " + where + ". Its keys: " + knownKeys;
+  }
 }

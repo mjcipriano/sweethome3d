@@ -393,7 +393,9 @@ class AssistantScheduleCommands {
                                       Map<HomePieceOfFurniture, String> marks) {
     Map<String, OpeningGroup> groups = new LinkedHashMap<String, OpeningGroup>();
     for (HomePieceOfFurniture piece : getFurniture(levels)) {
-      if (!piece.isDoorOrWindow() || (isDoor(piece) ? !doors : !windows)) {
+      if (!piece.isDoorOrWindow() || (isDoor(piece) ? !doors : !windows)
+          // An opening without door nor window isn't one of them
+          || piece.getProperty(AssistantWallFinishCommands.OPENING_PROPERTY) != null) {
         continue;
       }
       String name = piece.getName() != null ? piece.getName() : "";

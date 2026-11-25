@@ -153,11 +153,13 @@ public class HomeMCPBridge {
     long lastCheckTime = 0;
     // The home the tools of the client last worked on, to tell it when an other one answers
     String [] servedHome = {null};
+    // What the client creates to try things out is closed when it goes away
+    String sessionId = java.util.UUID.randomUUID().toString();
     for (String line; (line = reader.readLine()) != null; ) {
       if (line.trim().length() == 0) {
         continue;
       }
-      String response = forward(line, folder, servedHome);
+      String response = forward(line, folder, servedHome, sessionId);
       if (response != null) {
         // One message per line
         out.write(response.replace('\n', ' ').replace('\r', ' ').getBytes("UTF-8"));
@@ -176,6 +178,8 @@ public class HomeMCPBridge {
         }
       }
     }
+    // The client went away: the scratch homes of its session are closed
+    forward("{\"jsonrpc\":\"2.0\",\"method\":\"" + HomeMCPHandler.SESSION_ENDED_METHOD + "\"}", folder, null, sessionId);
   }
 
   /**
@@ -213,6 +217,14 @@ public class HomeMCPBridge {
    *          place, where the ids the client knows designate other items.
    */
   static String forward(String message, File folder, String [] servedHome) {
+    return forward(message, folder, servedHome, null);
+  }
+
+  /**
+   * Returns the answer of the server to <code>message</code> as {@link #forward(String, File, String [])}
+   * does, for the session of a client identified by <code>sessionId</code>.
+   */
+  static String forward(String message, File folder, String [] servedHome, String sessionId) {
     String calledTool = servedHome != null ? getCalledTool(message) : null;
     String token = HomeMCPServer.readToken(folder);
     int port = HomeMCPServer.readPort(folder);
@@ -231,6 +243,9 @@ public class HomeMCPBridge {
         connection.setRequestProperty("Accept", "application/json, text/event-stream");
         if (calledTool != null && servedHome [0] != null) {
           connection.setRequestProperty(HomeMCPServer.EXPECTED_HOME_HEADER, servedHome [0]);
+        }
+        if (sessionId != null) {
+          connection.setRequestProperty(HomeMCPServer.SESSION_HEADER, sessionId);
         }
         OutputStream body = connection.getOutputStream();
         try {

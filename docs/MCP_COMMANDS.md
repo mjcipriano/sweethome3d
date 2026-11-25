@@ -163,6 +163,33 @@ A baseboard as high as needed, with a color or a texture, is how one wall
 gets two finishes by height - a brick base under siding. `"baseboard":false`
 removes it.
 
+### Ceilings, two-story rooms, wall finishes, openings and railings
+
+| Command | What it does |
+| --- | --- |
+| `modify_room` | Also `"ceiling_height":N` (cm above the floor of the room; `"level"` puts it back at the top of the level), `"ceiling_level":"<level>"`, `ceiling_thickness`, and `wall_color` or `wall_texture`, which paints the wall sides that face the room |
+| `modify_level` | `height` with `"keep_wall_heights":false` gives the new height to the walls that were as tall as the level; the answer lists them |
+| `open_to_above` | A two-story room in one step: `room`, `to_level`, `ceiling` (`level`, `follow_roof`, `none`), and `overlook` with `along` (`north`...), `railing` (a style of `add_railing` or a catalog name), `height`, `upper_wall` (`remove`, `low`). The answer lists what is still inside the opened space |
+| `paint_rooms` | Gives each wall side the color or the texture of the room it faces: `rooms`, `level`, `"only":"unpainted\|all"`, `color` or `texture` for the rooms that have none |
+| `modify_wall` | Also `left_finish` / `right_finish`: up to 4 finishes from the floor up, each with `to` (a height, or `"roof"` to stop under a lower roof) and `color` or `texture`; `openings` replaces the openings of the wall |
+| `add_opening` | An opening in a straight wall without a door or a window: `wall`, `from` and `to` (cm from the start of the wall) or `center` and `width`, `bottom` and `top` or `height`, `lining`, `lining_color`. `delete` removes it |
+| `add_header` | A beam over an `opening` (an opening, a door or a window), along a `wall` with `from` and `to`, or between two `points`: `bottom`, `top` or `height`, `thickness`, `bearing`, `color`, `"to_walls":false` |
+| `add_soffit` | A lowered part of a ceiling over `points`, or over a whole `room`: `bottom`, `top`, `color` or `texture` |
+| `add_railing` | A railing along `points` (`[x,y]` or `[x,y,z]`): `height`, `style` (`square`, `turned_balusters`, `cable`, `glass`), `spacing`, `top_rail`, `color`, `level`; `"stairs":"F3"` with `side` follows stairs and goes on along the points |
+| `modify_railing` | Builds a railing again with other options: `id`, then any option of `add_railing` |
+
+```json
+{"action":"modify_room","id":"R4","ceiling_height":243.84}
+{"action":"open_to_above","room":"R11","to_level":"Level 1","overlook":{"along":"north","railing":"turned_balusters","height":91}}
+{"action":"modify_room","id":"R2","wall_color":"#D5AC6B"}
+{"action":"paint_rooms","only":"unpainted"}
+{"action":"modify_wall","id":"W52","left_finish":[{"to":"roof","color":"#D5AC6B"}]}
+{"action":"add_railing","points":[[100,300],[500,300]],"height":91,"style":"square","spacing":12}
+```
+
+See [Ceilings and two-story rooms](HOUSE_MODELING_TUTORIAL.md) and the section
+on wall finishes, openings, headers and railings in the same guide.
+
 ## Levels and stairs
 
 | Command | What it does |
@@ -358,6 +385,30 @@ point 2 - and its `type`, `pitch` or `overhang`. Its dormers and their windows
 are kept. `"raise_walls":true` moves the top of the walls under the roof by as
 much as its eaves moved.
 
+### A roof that stops at a taller wall, and its gutters
+
+```json
+{"action":"modify_roof","roof":"F52","edge":{"index":4,"type":"clip"}}
+{"action":"modify_roof","roof":"F52","clip_to_rooms":["R11","R12"]}
+{"action":"set_gutters","roof":"F52","edges":[{"index":3,"gutter_spans":[[0,320],[700,1447]]}],"downspouts":[{"edge":3,"at":120}]}
+```
+
+- An edge of type `clip` keeps the roof as its other edges make it and cuts it
+  at the vertical plane of that edge, without overhang, fascia, gutter or
+  downspout there. `abut` still makes a lean-to rising toward the wall.
+- `clip_to_walls` (ids of walls), `clip_to_rooms` (ids of rooms) and
+  `"clip":"taller_walls"` cut the roof where it would enter taller parts of
+  the building; `"clip":false` removes the cut.
+- `set_gutters` changes the gutters, the fascia and the downspouts of a roof
+  without building its shape again: `gutters`, `downspouts` (true, false, or a
+  list of `{"edge":N,"at":N}`), `gutter_color`, `fascia`, `fascia_color`, and
+  `edges` with `index`, `gutter`, `gutter_spans` (cm from the start of the
+  edge) and `fascia`.
+- Dormers stay on their side at the same place when the points or the edges
+  of the roof change. A change of a roof names the walls left above it.
+- A key that an edge, a dormer or a window of a dormer doesn't have is
+  reported, as is a value that was changed to fit.
+
 ### Walls under a roof
 
 `fit_walls_to_roof`: `roof` (its id). The outside walls under the roof get the
@@ -443,6 +494,8 @@ a file, shape it, and measure it. The ground takes up to 100 000 points.
 | `trees_from_lidar` | Finds the treetops of a LAS point cloud and plants a tree at each one |
 | `shift_terrain` | Moves the whole ground up by `offset` cm (down if negative), or puts it at a height at a place with `pin` |
 | `reseat_all` | Puts the plants and the pieces back on the ground, and builds the fences again on it |
+| `modify_terrain_area` | Changes the finish of one area of the ground, or of a part of it, without touching the heights |
+| `terrain_areas` | Lists the areas of the ground and the grading recorded with it |
 | `add_pad` | A flat or sloped pad cut or filled under a polygon, the ground joining it around |
 | `flatten_area` | A pad at the mean height of the ground in a polygon |
 | `smooth_area` | Softens the bumps of the ground in a polygon |
@@ -545,6 +598,73 @@ under all of it. What stands on the floor of a room, or out of the ground, isn't
 | `add_swale` | `points`, `depth` (30), `width` (200) |
 | `grade_path` | `points` of the center line, `width` (300); the ground goes straight from the height of a point to the next one, or through `"heights":[one per point]`; `cross_slope` in % towards the right of the direction walked, `crown` in cm, `"ditch":{"depth":30,"width":100}`, `blend_distance` (150). It shapes the ground only: `add_path` or `add_slab` lays the surface |
 | `extend_terrain` | `margin` (500). The new part is at the height of the closest edge: no height is fetched for it |
+
+### Areas of the ground and their finish
+
+The ground has a finish of its own, and `areas` with another one: a driveway, a lawn, a path.
+Each area has an id, `A1`, `A2`..., in the order they were given. The last one is drawn above the
+others.
+
+- `{"action":"terrain_areas"}` lists them: id, name, finish, bounding box and surface. So does
+  `describe_item` with the id of the ground. The surface of an area is the one of its outline,
+  counted whole even where another area covers it.
+- `modify_terrain_area` changes the finish of one area. The ground is built again from the same
+  points, so its heights, its grading and what stands on it don't change.
+
+| Parameter | Meaning |
+| --- | --- |
+| `area` | The id of the area (`A2`), its name, its `surface` or its texture, or `base` for the ground around the areas |
+| `at` | In place of `area`: a point `[x,y]` in the area. The area drawn at that point is the one changed; a point out of every area designates the ground around them |
+| `color`, or `texture` with `texture_scale` and `texture_angle` | The new finish. A color replaces a texture, and a texture a color |
+| `name`, `surface` | The name of the area, and what it is for `site_report` (driveway, patio, lawn...) |
+| `split` | A polygon `[[x,y],...]`: only the part of the area inside it gets the finish, and becomes a new area just above it. With `base`, the polygon itself becomes an area |
+| `remove` | `true` gives the area back to what is under it |
+
+```json
+{"commands":[
+  {"action":"terrain_areas"},
+  {"action":"modify_terrain_area","area":"Yard","texture":"Grass"},
+  {"action":"modify_terrain_area","at":[1200,2600],
+   "split":[[1000,2400],[1600,2400],[1600,3800],[1000,3800]],"color":"#7A5A3A","name":"Bed"}
+]}
+```
+
+The ids of the areas after the change are in the answer: a split adds an area after the one it is
+a part of, and the ids of the following ones go up by one. The id of the ground itself (`F12`)
+may change too, as after a grading command.
+
+### Grading kept when the ground is rebuilt
+
+`add_pad`, `flatten_area`, `smooth_area`, `add_berm`, `add_swale`, `grade_path` and the step
+that `add_retaining_wall` cuts are recorded with the ground, in the order they were run.
+`terrain_areas` lists them. When `set_terrain` or `fetch_elevation` replaces the ground, they are
+run again in that order on the new one, and the areas keep their finish.
+
+- A pad is recorded at the height it was built at, also when that height was the mean of the
+  ground: the house that stands on it doesn't move when the heights around it change.
+- A path without `heights`, a berm, a swale and a smoothed area follow the new ground.
+- `"grading"` on `set_terrain` chooses what happens:
+
+| `grading` | What `set_terrain` does |
+| --- | --- |
+| `replay` (default) | Runs the grading again. If one operation can't be, nothing is changed and the answer names it and tells why |
+| `keep_possible` | Replaces the ground, runs again what can be, and names what was lost |
+| `drop` | Replaces the ground without any grading |
+
+An operation can't be run again when some of its points are out of the new ground, or of its
+`clip`. A smoothed area is lost only when none of the new ground is in its polygon. The check
+is made on the new points before their long edge triangles are left out (`max_edge`): an
+operation in such a triangle is tried, and named in the answer if it fails.
+
+**A ground graded with 7.33.1 or earlier** has no recorded grading: its pads and paths are only
+in its points. `modify_terrain_area` and `terrain_areas` work on it as on any ground. A
+`set_terrain` with new points would lose that grading, so it changes nothing and says so, unless
+`"grading":"drop"` or `"keep_possible"` is given. What is graded from this version on is recorded
+after it. A ground that was never graded is replaced as before.
+
+What isn't recorded: `add_terrain_patch`, `shift_terrain` and `extend_terrain` change the points
+of the ground, not its grading, and aren't run again. The grading recorded for a structure
+deleted since then, as the step of a retaining wall, is still run again.
 
 ### Measures
 
@@ -740,7 +860,11 @@ it again: `set` (with an `index`, 1 = the first part), `add`, `remove`, or
 | Command | What it does |
 | --- | --- |
 | `add_picture` | Furniture showing an `image`: `"mode":"panel"` (a painting, a poster, a screen), `"box"` or `"floor"` (a rug). Missing sizes follow the proportions of the image |
-| `import_furniture` | A 3D model file (OBJ, DAE, 3DS, KMZ, ZIP) as a new piece: `path`, `name`, `width` or `height` |
+| `import_furniture` | A 3D model file (GLB, glTF, OBJ, DAE, 3DS, KMZ, ZIP) as a new piece: `path`, `name`, `width` or `height`, or `length` (the longest side), `front`, `target_triangles`, `triangle_budget`, `keep_helpers`, `materials` (`{"name":"#RRGGBB"}`), `source`, `author`, `license`. Without `elevation` the piece stands on the floor or the ground under it. See [Importing 3D models](LAYERS_AND_FURNITURE_LIBRARIES.md) |
+| `find_model` | Searches Sketchfab and Poly Haven for models that can be downloaded: `query`, `library` (`sketchfab`, `polyhaven`, `all`), `license` (`cc0`, `by`, `by-sa`... or a list), `max_triangles`, `count`. Each line gives the `source` to import, the author, the license and what it requires, the triangles and the size of the download. Needs web services allowed by the user |
+| `import_model` | Downloads and imports a model: `"source":"sketchfab:<uid>"`, `"polyhaven:<id>"` or the https address of a `.glb`, `.gltf`, `.obj` or `.zip` file, with the options of `import_furniture`. Its page, author and license are kept with the piece. Poly Haven: `resolution` (`1k`, `2k`, `4k`). Files of 150 MB at most |
+| `set_model_token` | Keeps the API token of the user for the downloads of a library: `library`, `token`; `"remove":true` forgets it. Sketchfab downloads need it. It's stored in the application folder, sent to that library only and never repeated in an answer |
+| `model_credits` | Lists the pieces whose model has an author, a license or a source, with what each license requires. `export_home` writes the same list in a CREDITS file beside what it exports |
 | `import_texture` | An `image` added to the textures catalog and applied to the ids given: `name`, `width` (the real size of what it shows), `part` |
 | `set_background_image` | The picture of a floor plan behind the plan, to trace it: `image`, `width` (real width), `x`, `y`. `remove_background_image` removes it |
 | `add_to_catalog` | Saves pieces of the home in the furniture catalog: `category` |
@@ -1831,6 +1955,20 @@ Options, for the command and for the `check_home` tool:
 | `"forget":true` | Stops ignoring what was remembered |
 
 The answer says how many issues were left out.
+
+`check_home` also reports what shows in 3D: a roof, its overhang or its
+gutters inside a room (`roof_in_room`), walls drawn over each other
+(`overlapping_wall`), a door or a window that isn't lined up with its wall
+(`door_misaligned`), walls above the roof (`wall_above_roof`), a two-story
+room that walls don't close up to its ceiling (`open_two_story_room`), a
+ceiling above the roof (`ceiling_above_roof`, `roof_at_ceiling`) and the
+finishes of wall sides (`wall_outside_finish_indoors`,
+`wall_inside_finish_outdoors`, `wall_side_unpainted`). `"crossings":true`
+lists the items that cross another item, level by level. `fix_home` cuts a
+roof along the walls of the room it comes into (as `clip_to_rooms` does),
+keeps one of two overlapping walls, lines doors up, fits walls to the roof
+and raises the walls of a two-story room. See
+[Checks of what shows in 3D](MCP_SERVER.md).
 
 ## Schedules, symbols and framing
 

@@ -180,6 +180,7 @@ public class OpenGLSceneRenderer {
   private final AtomicLong    preparedBytes = new AtomicLong();
   private final AtomicInteger preparationCount = new AtomicInteger();
   private volatile ViewState  lastView;
+  private volatile ViewState lastImageView;
   private volatile Runnable   frameRequester;
   private volatile boolean    synchronousLoading;
   private volatile int        antialiasingSamples;
@@ -715,6 +716,7 @@ public class OpenGLSceneRenderer {
               item.matrix = matrix;
               item.pickable = pickable && shape.getPickable();
               item.owner = owner;
+              item.shape = shape;
               item.lightScopeMask = lightScopeMask;
               items.add(item);
             }
@@ -785,7 +787,10 @@ public class OpenGLSceneRenderer {
    * through the pixel (x, y) of the last frame, y going down.
    */
   public double [] getPixelRay(int x, int y) {
-    ViewState lastView = this.lastView;
+    return getPixelRay(this.lastView, x, y);
+  }
+
+  private static double [] getPixelRay(ViewState lastView, int x, int y) {
     if (lastView == null || lastView.width <= 0 || lastView.height <= 0) {
       return null;
     }
@@ -846,6 +851,82 @@ public class OpenGLSceneRenderer {
   }
 
   /**
+   * What is drawn at a pixel of a frame.
+   */
+  public static final class PickedShape {
+    private final Node      object;
+    private final Shape3D   shape;
+    private final double [] point;
+    private final double    distance;
+
+    private PickedShape(Node object, Shape3D shape, double [] point, double distance) {
+      this.object = object;
+      this.shape = shape;
+      this.point = point;
+      this.distance = distance;
+    }
+
+    /**
+     * Returns the child of the objects group the shape belongs to, or <code>null</code>.
+     */
+    public Node getObject() {
+      return this.object;
+    }
+
+    /**
+     * Returns the shape drawn at the pixel.
+     */
+    public Shape3D getShape() {
+      return this.shape;
+    }
+
+    /**
+     * Returns the point of the scene drawn at the pixel.
+     */
+    public double [] getPoint() {
+      return this.point;
+    }
+
+    /**
+     * Returns the distance from the camera to that point.
+     */
+    public double getDistance() {
+      return this.distance;
+    }
+  }
+
+  /**
+   * Returns the shape made of triangles which is the closest to the camera at the pixel (x, y)
+   * of the last image, whether it can be picked with the mouse or not, or <code>null</code>
+   * if there's none. A shape seen through, like the glass of a window, is the one returned.
+   */
+  public PickedShape pickShape(int x, int y) {
+    double [] ray = getPixelRay(this.lastImageView, x, y);
+    if (ray == null) {
+      return null;
+    }
+    Item closestItem = null;
+    double closestDistance = Double.POSITIVE_INFINITY;
+    for (ObjectEntry entry : this.objects.values()) {
+      for (Item item : entry.items) {
+        if (item.mesh.mode == GL.GL_TRIANGLES) {
+          double distance = getIntersectionDistance(item, ray, closestDistance);
+          if (distance < closestDistance) {
+            closestDistance = distance;
+            closestItem = item;
+          }
+        }
+      }
+    }
+    if (closestItem == null) {
+      return null;
+    }
+    return new PickedShape(closestItem.owner, closestItem.shape,
+        new double [] {ray [0] + ray [3] * closestDistance, ray [1] + ray [4] * closestDistance,
+                       ray [2] + ray [5] * closestDistance}, closestDistance);
+  }
+
+  /**
    * Returns the distance from the origin of <code>ray</code> to the closest
    * triangle of a shape it goes through, or infinity.
    */
@@ -890,6 +971,28 @@ public class OpenGLSceneRenderer {
     double dy = cy - t * direction.y;
     double dz = cz - t * direction.z;
     if (dx * dx + dy * dy + dz * dz > (double)mesh.radius * mesh.radius) {
+      return Double.POSITIVE_INFINITY;
+    }
+    // Then the box around the shape, much smaller than its sphere for a long or flat shape
+    double enter = Double.NEGATIVE_INFINITY;
+    double exit = Double.POSITIVE_INFINITY;
+    for (int axis = 0; mesh.boundsKnown && axis < 3; axis++) {
+      double start = axis == 0 ? origin.x : axis == 1 ? origin.y : origin.z;
+      double slope = axis == 0 ? direction.x : axis == 1 ? direction.y : direction.z;
+      double lower = mesh.lower [axis] - 1E-3;
+      double upper = mesh.upper [axis] + 1E-3;
+      if (slope > -1E-12 && slope < 1E-12) {
+        if (start < lower || start > upper) {
+          return Double.POSITIVE_INFINITY;
+        }
+      } else {
+        double t1 = (lower - start) / slope;
+        double t2 = (upper - start) / slope;
+        enter = Math.max(enter, Math.min(t1, t2));
+        exit = Math.min(exit, Math.max(t1, t2));
+      }
+    }
+    if (enter > exit || exit < 0 || enter > maxDistance) {
       return Double.POSITIVE_INFINITY;
     }
 
@@ -1180,6 +1283,10 @@ public class OpenGLSceneRenderer {
     double [] projectionMatrix = new double [16];
     setFrustum(projectionMatrix, -halfWidth, halfWidth, -halfHeight, halfHeight,
         frame.frontClipDistance, frame.backClipDistance);
+    if (!publishView) {
+      // The view of an image, kept to tell what it shows
+      this.lastImageView = new ViewState(frame.viewMatrix, projectionMatrix, width, height);
+    }
     if (publishView) {
       this.lastView = new ViewState(frame.viewMatrix, projectionMatrix, width, height);
     }
@@ -3192,6 +3299,7 @@ public class OpenGLSceneRenderer {
     private float []  matrix;
     private boolean   pickable;
     private Node      owner;
+    private Shape3D   shape;
     private int       lightScopeMask;
 
     private double [] center;

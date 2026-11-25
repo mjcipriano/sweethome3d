@@ -1,0 +1,187 @@
+{
+ "cursors": {
+  "next": "3",
+  "previous": null
+ },
+ "next": null,
+ "previous": null,
+ "results": [
+  {
+   "uri": "https://api.sketchfab.com/v3/models/00000000000000000000000000000001",
+   "uid": "00000000000000000000000000000001",
+   "name": "Sample sedan of 1971",
+   "viewerUrl": "https://sketchfab.com/3d-models/none-00000000000000000000000000000001",
+   "isDownloadable": true,
+   "thumbnails": {
+    "images": [
+     {
+      "width": 64,
+      "height": 36,
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000001/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
+     },
+     {
+      "width": 256,
+      "height": 144,
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000001/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
+     },
+     {
+      "width": 720,
+      "height": 405,
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000001/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
+     }
+    ]
+   },
+   "user": {
+    "username": "example-maker-1",
+    "displayName": "Example Maker One",
+    "profileUrl": "https://sketchfab.com/example-maker-1"
+   },
+   "faceCount": 70258,
+   "vertexCount": 41220,
+   "archives": {
+    "glb": {
+     "size": 30810900,
+     "type": "glb",
+     "faceCount": 70258
+    },
+    "gltf": {
+     "size": 28797086,
+     "type": "gltf",
+     "faceCount": 70258
+    },
+    "source": {
+     "size": 30312337,
+     "type": "source",
+     "faceCount": null
+    },
+    "usdz": {
+     "size": 6567712,
+     "type": "usdz",
+     "faceCount": null
+    }
+   },
+   "license": {
+    "uid": "322a749bcfa841b29dff1e8a1bb74b0b",
+    "label": "CC Attribution"
+   }
+  },
+  {
+   "uri": "https://api.sketchfab.com/v3/models/00000000000000000000000000000002",
+   "uid": "00000000000000000000000000000002",
+   "name": "Sample passenger car pack",
+   "viewerUrl": "https://sketchfab.com/3d-models/none-00000000000000000000000000000002",
+   "isDownloadable": true,
+   "thumbnails": {
+    "images": [
+     {
+      "width": 64,
+      "height": 36,
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000002/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
+     },
+     {
+      "width": 256,
+      "height": 144,
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000002/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
+     },
+     {
+      "width": 720,
+      "height": 405,
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000002/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
+     }
+    ]
+   },
+   "user": {
+    "username": "example-maker-2",
+    "displayName": "Example Maker Two",
+    "profileUrl": "https://sketchfab.com/example-maker-2"
+   },
+   "faceCount": 69312,
+   "vertexCount": 41463,
+   "archives": {
+    "glb": {
+     "size": 26701140,
+     "type": "glb",
+     "faceCount": 69312
+    },
+    "gltf": {
+     "size": 24550215,
+     "type": "gltf",
+     "faceCount": 69312
+    },
+    "source": {
+     "size": 26675008,
+     "type": "source",
+     "faceCount": null
+    },
+    "usdz": {
+     "size": 4880736,
+     "type": "usdz",
+     "faceCount": null
+    }
+   },
+   "license": {
+    "uid": "x",
+    "label": "CC Attribution-NonCommercial-ShareAlike"
+   }
+  },
+  {
+   "uri": "https://api.sketchfab.com/v3/models/00000000000000000000000000000003",
+   "uid": "00000000000000000000000000000003",
+   "name": "Sample sedan under a gray cloth",
+   "viewerUrl": "https://sketchfab.com/3d-models/none-00000000000000000000000000000003",
+   "isDownloadable": false,
+   "thumbnails": {
+    "images": [
+     {
+      "width": 64,
+      "height": 36,
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000003/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
+     },
+     {
+      "width": 256,
+      "height": 144,
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000003/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
+     },
+     {
+      "width": 720,
+      "height": 405,
+      "url": "https://media.sketchfab.com/models/00000000000000000000000000000003/thumbnails/00000000000000000000000000000000/00000000000000000000000000000000.jpeg"
+     }
+    ]
+   },
+   "user": {
+    "username": "example-maker-3",
+    "displayName": "Example Maker Three",
+    "profileUrl": "https://sketchfab.com/example-maker-3"
+   },
+   "faceCount": 36313,
+   "vertexCount": 18587,
+   "archives": {
+    "glb": {
+     "size": 6022936,
+     "type": "glb",
+     "faceCount": 36313
+    },
+    "gltf": {
+     "size": 5597817,
+     "type": "gltf",
+     "faceCount": 36313
+    },
+    "source": {
+     "size": 12710685,
+     "type": "source",
+     "faceCount": null
+    },
+    "usdz": {
+     "size": 5725607,
+     "type": "usdz",
+     "faceCount": null
+    }
+   },
+   "license": {
+    "uid": "322a749bcfa841b29dff1e8a1bb74b0b",
+    "label": "CC Attribution"
+   }
+  }
+ ]
+}

@@ -24,7 +24,45 @@ import com.eteks.sweethome3d.viewcontroller.AssistantCommandExecutor;
  * of the 3D view.
  * @author Sweet Home 3D
  */
-public class AssistantModelSizeProvider implements AssistantCommandExecutor.ModelSizeProvider {
+public class AssistantModelSizeProvider implements AssistantCommandExecutor.ModelSizeProvider,
+                                                   AssistantCommandExecutor.ModelImageFilter {
+  /**
+   * Returns <code>image</code> with the colors of its pixels multiplied by the given factors:
+   * a glTF material may tint its image with a color, which the materials of the 3D view don't do.
+   */
+  public byte [] tint(byte [] image, float red, float green, float blue) throws IOException {
+    java.awt.image.BufferedImage picture = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(image));
+    if (picture == null) {
+      throw new IOException("the image can't be read");
+    }
+    boolean alpha = picture.getColorModel().hasAlpha();
+    int width = picture.getWidth();
+    int height = picture.getHeight();
+    java.awt.image.BufferedImage tinted = new java.awt.image.BufferedImage(width, height,
+        alpha ? java.awt.image.BufferedImage.TYPE_INT_ARGB : java.awt.image.BufferedImage.TYPE_INT_RGB);
+    int [] factors = {Math.round(Math.max(0, Math.min(1, red)) * 256), Math.round(Math.max(0, Math.min(1, green)) * 256),
+                      Math.round(Math.max(0, Math.min(1, blue)) * 256)};
+    int [] row = new int [width];
+    for (int y = 0; y < height; y++) {
+      picture.getRGB(0, y, width, 1, row, 0, width);
+      for (int x = 0; x < width; x++) {
+        int pixel = row [x];
+        row [x] = (pixel & 0xFF000000)
+            | ((((pixel >> 16) & 0xFF) * factors [0]) >> 8) << 16
+            | ((((pixel >> 8) & 0xFF) * factors [1]) >> 8) << 8
+            | (((pixel & 0xFF) * factors [2]) >> 8);
+      }
+      tinted.setRGB(0, y, width, 1, row, 0, width);
+    }
+    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+    // Photos stay photos: a PNG image of a large JPEG one would be many times heavier
+    boolean jpeg = !alpha && image.length > 2 && (image [0] & 0xFF) == 0xFF && (image [1] & 0xFF) == 0xD8;
+    if (!javax.imageio.ImageIO.write(tinted, jpeg ? "jpg" : "png", out)) {
+      throw new IOException("the image can't be written");
+    }
+    return out.toByteArray();
+  }
+
   public float [] getModelSize(Content model) throws IOException {
     final BranchGroup [] modelRoot = new BranchGroup [1];
     final Exception [] error = new Exception [1];

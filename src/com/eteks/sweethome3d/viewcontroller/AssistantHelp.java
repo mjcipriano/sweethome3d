@@ -32,7 +32,8 @@ import java.util.Map;
  */
 public final class AssistantHelp {
   private static final String [][] GROUPS = {
-      {"Rooms and walls", "add_rectangular_room add_room_shape add_room add_wall modify_room modify_wall"},
+      {"Rooms and walls", "add_rectangular_room add_room_shape add_room add_wall modify_room modify_wall open_to_above"},
+      {"Wall finishes, openings, headers and railings", "paint_rooms add_opening add_header add_soffit add_railing modify_railing"},
       {"Levels and stairs", "add_level select_level modify_level delete_level merge_levels move_to_level add_stairs"},
       {"Furniture, doors and windows", "search_catalog add_furniture add_door_or_window modify_furniture replace_furniture duplicate "
           + "create_furniture modify_furniture_parts add_picture import_furniture add_to_catalog export_furniture_library "
@@ -40,8 +41,8 @@ public final class AssistantHelp {
       {"Changing items", "move rotate resize set_elevation set_visible rename delete select set_plan_visibility describe_item "
           + "reduce_detail restore_detail group align distribute mirror lock add_tags hide_layer"},
       {"Colors, textures and materials", "set_color set_texture apply_style import_texture list_materials set_material"},
-      {"Roofs", "add_roof add_dormer modify_dormer remove_dormer modify_roof fit_walls_to_roof headroom auto_roof"},
-      {"Grading and terrain measures", "add_terrain_patch shift_terrain reseat_all add_pad flatten_area smooth_area add_berm grade_path extend_terrain "
+      {"Roofs", "add_roof add_dormer modify_dormer remove_dormer modify_roof set_gutters fit_walls_to_roof headroom auto_roof"},
+      {"Grading and terrain measures", "add_terrain_patch shift_terrain reseat_all modify_terrain_area terrain_areas add_pad flatten_area smooth_area add_berm grade_path extend_terrain "
           + "cut_fill_report contours spot_elevations slope_map site_report export_site trees_from_lidar"},
       {"Ground and site", "add_slab set_terrain set_site_defaults add_polyline add_property_line add_setback modify_polyline set_compass "
           + "set_georeference import_parcel get_coordinates geo_to_plan"},
@@ -53,6 +54,7 @@ public final class AssistantHelp {
       {"Neighbors and context", "add_context_building add_context_vehicle"},
       {"Photos", "import_photos add_photo photo_viewpoint refine_photo_pose locate_from_photos"},
       {"GIS files and web sources", "import_geojson import_buildings import_osm import_parcels fetch_elevation set_basemap web_sources"},
+      {"3D models of the web", "find_model import_model set_model_token model_credits"},
       {"Trees and plants", "add_tree add_shrub add_trees import_trees update_trees relabel_trees grow_trees set_season set_plant_style forest_fill"},
       {"Labels, dimensions and plan", "add_label add_dimension auto_dimensions set_background_image"},
       {"Lights, sun, doors and camera", "set_light set_sun set_environment open_door set_camera store_point_of_view"},
@@ -163,9 +165,9 @@ public final class AssistantHelp {
   /** The tools of the MCP server, which <code>help</code> tells from the commands. */
   private static final List<String> TOOLS = java.util.Arrays.asList("get_home", "list_catalog", "search_catalog", "search_textures",
       "check_home", "get_report", "get_notes", "update_note", "get_plan_image", "get_3d_image", "get_3d_info", "get_capabilities",
-      "get_sun_study_image", "sun_study", "get_catalog_image", "export_blender", "apply_commands", "get_elevation_image", "undo", "redo",
+      "get_sun_study_image", "sun_study", "get_catalog_image", "preview_model", "export_blender", "apply_commands", "get_elevation_image", "undo", "redo",
       "get_history", "get_changes", "save_version", "list_versions", "compare_versions", "restore_version", "save_home", "list_homes",
-      "open_home", "new_home", "switch_home", "export_home", "add_note", "start_visit");
+      "open_home", "new_home", "switch_home", "export_home", "add_note", "start_visit", "inspect_room", "close_home");
 
   public static String getHelp(String command, String search, String style) {
     List<Entry> entries = getEntries();

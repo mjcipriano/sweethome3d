@@ -238,6 +238,9 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
   private OpenGLCameraAnimator                     openGLCameraAnimator;
   // true while the camera follows the mouse or the keys at each frame: the view shows it where it is
   private boolean                                  directNavigation;
+  // The pixels of an off screen image to identify, and what is drawn there
+  private List<int []>                             identifiedPixels;
+  private List<DrawnItem>                          identifiedItems;
   private SmoothNavigator                          smoothNavigator;
   private final boolean                            openGLImagesAllowed;
   private OpenGLOffscreen3D                        openGLOffscreen;
@@ -1866,12 +1869,96 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
   public static BufferedImage createOpenGLImage(Home home, UserPreferences preferences,
                                                 int width, int height,
                                                 boolean shadows, boolean ambientOcclusion) {
+    return createOpenGLImage(home, preferences, width, height, shadows, ambientOcclusion, null, null);
+  }
+
+  /**
+   * What is drawn at a pixel of an image of a home.
+   */
+  public static final class DrawnItem {
+    private final int       x;
+    private final int       y;
+    private final Object    item;
+    private final String    materialName;
+    private final float []  point;
+    private final float     distance;
+
+    DrawnItem(int x, int y, Object item, String materialName, float [] point, float distance) {
+      this.x = x;
+      this.y = y;
+      this.item = item;
+      this.materialName = materialName;
+      this.point = point;
+      this.distance = distance;
+    }
+
+    /**
+     * Returns the abscissa of the pixel.
+     */
+    public int getX() {
+      return this.x;
+    }
+
+    /**
+     * Returns the ordinate of the pixel, going down.
+     */
+    public int getY() {
+      return this.y;
+    }
+
+    /**
+     * Returns the wall, the room or the piece of furniture of the drawn home at the pixel,
+     * an other object for what isn't an item of the home (its ground), or <code>null</code>
+     * if nothing is drawn there but the sky.
+     */
+    public Object getItem() {
+      return this.item;
+    }
+
+    /**
+     * Returns the name of the material of the shape drawn at the pixel, or <code>null</code> if it has none.
+     */
+    public String getMaterialName() {
+      return this.materialName;
+    }
+
+    /**
+     * Returns the point drawn at the pixel as {x, y, elevation} in the centimeters of the home,
+     * or <code>null</code> if nothing is drawn there.
+     */
+    public float [] getPoint() {
+      return this.point;
+    }
+
+    /**
+     * Returns the distance from the camera to that point in centimeters.
+     */
+    public float getDistance() {
+      return this.distance;
+    }
+  }
+
+  /**
+   * Returns an image of <code>home</code> drawn by the OpenGL renderer as {@link
+   * #createOpenGLImage(Home, UserPreferences, int, int, boolean, boolean) createOpenGLImage} does,
+   * and adds to <code>drawnItems</code> what is drawn at each of the given <code>pixels</code>.
+   * The item of each pixel is found by a ray cast in the triangles of the scene
+   * once the image is drawn, at the cost of some milliseconds per pixel in a large home.
+   * @param pixels     the {x, y} coordinates of the pixels to identify, or <code>null</code>
+   * @param drawnItems the list filled with an object for each pixel, in the same order
+   */
+  public static BufferedImage createOpenGLImage(Home home, UserPreferences preferences,
+                                                int width, int height,
+                                                boolean shadows, boolean ambientOcclusion,
+                                                List<int []> pixels, List<DrawnItem> drawnItems) {
     if ("false".equalsIgnoreCase(System.getProperty("com.eteks.sweethome3d.opengl.images"))) {
       return null;
     }
     try {
-      return new HomeComponent3D(home, preferences, null, false, null).
-          getOpenGLOffScreenImage(width, height, shadows, ambientOcclusion);
+      HomeComponent3D component = new HomeComponent3D(home, preferences, null, false, null);
+      component.identifiedPixels = pixels;
+      component.identifiedItems = drawnItems;
+      return component.getOpenGLOffScreenImage(width, height, shadows, ambientOcclusion);
     } catch (RuntimeException ex) {
       System.err.println("OpenGL renderer unavailable for images: " + ex);
       return null;
@@ -1923,8 +2010,27 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
               openGLImagesOffscreen.setScene(sceneRoot, (Group)sceneRoot.getChild(0));
             }
             try {
-              return openGLImagesOffscreen.createImage(transform, fieldOfView != 0 ? fieldOfView : Math.PI * 63 / 180,
+              BufferedImage image = openGLImagesOffscreen.createImage(transform, fieldOfView != 0 ? fieldOfView : Math.PI * 63 / 180,
                   clipDistances [0], clipDistances [1], width, height, samples, shadows, ambientOcclusion);
+              if (this.identifiedPixels != null && this.identifiedItems != null) {
+                // The scene is still the one of the image
+                for (int [] pixel : this.identifiedPixels) {
+                  com.eteks.sweethome3d.j3d.OpenGLSceneRenderer.PickedShape shape = openGLImagesOffscreen.pickShape(pixel [0], pixel [1]);
+                  if (shape == null) {
+                    this.identifiedItems.add(new DrawnItem(pixel [0], pixel [1], null, null, null, 0));
+                  } else {
+                    Appearance appearance = shape.getShape() != null ? shape.getShape().getAppearance() : null;
+                    Object item = shape.getObject() != null ? shape.getObject().getUserData() : null;
+                    // In the scene, the elevation is along the y axis
+                    double [] point = shape.getPoint();
+                    this.identifiedItems.add(new DrawnItem(pixel [0], pixel [1],
+                        item != null ? item : shape.getObject() != null ? shape.getObject() : shape,
+                        appearance != null ? appearance.getName() : null,
+                        new float [] {(float)point [0], (float)point [2], (float)point [1]}, (float)shape.getDistance()));
+                  }
+                }
+              }
+              return image;
             } catch (RuntimeException ex) {
               openGLImagesOffscreen.dispose();
               openGLImagesOffscreen = null;
@@ -4779,6 +4885,10 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
               || Room.Property.CEILING_SHININESS.name().equals(propertyName)
               || Room.Property.CEILING_FLAT.name().equals(propertyName)) {
             updateObjects(Collections.singletonList(updatedRoom));
+          } else if (com.eteks.sweethome3d.j3d.Room3D.CEILING_HEIGHT_PROPERTY.equals(propertyName)
+              || com.eteks.sweethome3d.j3d.Room3D.CEILING_THICKNESS_PROPERTY.equals(propertyName)) {
+            // The ceilings at the top of the level may show again where this one was
+            updateObjects(home.getRooms());
           } else if (Room.Property.FLOOR_VISIBLE.name().equals(propertyName)
               || Room.Property.CEILING_VISIBLE.name().equals(propertyName)
               || Room.Property.LEVEL.name().equals(propertyName)) {

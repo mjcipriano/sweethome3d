@@ -1,0 +1,119 @@
+{
+ "ArmChair_01": {
+  "name": "Arm Chair 01",
+  "categories": [
+   "furniture",
+   "seating"
+  ],
+  "type": 2,
+  "tags": [
+   "gothic",
+   "vintage",
+   "chair",
+   "furniture",
+   "victorian",
+   "couch",
+   "wood",
+   "varnished",
+   "classic"
+  ],
+  "authors": {
+   "Example Maker Four": "All"
+  },
+  "polycount": 5626,
+  "download_count": 33233,
+  "thumbnail_url": "https://cdn.polyhaven.com/asset_img/thumbs/ArmChair_01.png?width=256&height=256&format=webp&v=abbc4732",
+  "dimensions": [
+   848.4309017658234,
+   765.7602727413177,
+   1065.087635157397
+  ]
+ },
+ "GreenChair_01": {
+  "name": "Green Chair 01",
+  "categories": [
+   "furniture",
+   "seating"
+  ],
+  "type": 2,
+  "tags": [
+   "vintage",
+   "wood",
+   "gothic",
+   "furniture",
+   "chair",
+   "fabric",
+   "decorative"
+  ],
+  "authors": {
+   "Example Maker Four": "All"
+  },
+  "polycount": 4213,
+  "download_count": 42443,
+  "thumbnail_url": "https://cdn.polyhaven.com/asset_img/thumbs/GreenChair_01.png?width=256&height=256&format=webp&v=1946911e",
+  "dimensions": [
+   673.0944514274597,
+   664.3875539302826,
+   1058.5118799936026
+  ]
+ },
+ "SchoolChair_01": {
+  "name": "School Chair 01",
+  "categories": [
+   "furniture",
+   "seating"
+  ],
+  "type": 2,
+  "tags": [
+   "prop",
+   "furniture",
+   "metal",
+   "plastic",
+   "chair",
+   "school"
+  ],
+  "authors": {
+   "Example Maker 5": "All"
+  },
+  "polycount": 5072,
+  "download_count": 29208,
+  "thumbnail_url": "https://cdn.polyhaven.com/asset_img/thumbs/SchoolChair_01.png?width=256&height=256&format=webp&v=d3979386",
+  "dimensions": [
+   565.8532977104187,
+   675.2548813819885,
+   1006.035539903678
+  ]
+ },
+ "Barrel_01": {
+  "name": "Barrel_01",
+  "categories": [
+   "industrial",
+   "containers"
+  ],
+  "type": 2,
+  "tags": [
+   "barrel",
+   "oil",
+   "explosive",
+   "radioactive",
+   "metal",
+   "red barrel",
+   "oil barrel",
+   "drums",
+   "fuel barrel",
+   "explosive barrel",
+   "industrial"
+  ],
+  "authors": {
+   "Example Maker 6": "All"
+  },
+  "polycount": 2682,
+  "download_count": 61188,
+  "thumbnail_url": "https://cdn.polyhaven.com/asset_img/thumbs/Barrel_01.png?width=256&height=256&format=webp&v=29e315a9",
+  "dimensions": [
+   563.0351305007935,
+   563.0352199077606,
+   880.0000050105155
+  ]
+ }
+}

@@ -57,6 +57,8 @@ public class HomeMCPServer {
   public static final String  HOME_HEADER = "X-SweetHome3D-Home";
   /** The header of the requests that identifies the home their sender last worked on. */
   public static final String  EXPECTED_HOME_HEADER = "X-SweetHome3D-Expected-Home";
+  /** The header of the requests that identifies the session of the client that sends them. */
+  public static final String  SESSION_HEADER = "X-SweetHome3D-Session";
   private static final int    MAX_REQUEST_LENGTH = 1024 * 1024;
 
   private final HomeMCPHandler handler;
@@ -334,12 +336,13 @@ public class HomeMCPServer {
     final String [] response = new String [1];
     // The home the program launched by the client last worked on
     final String expectedHomeId = exchange.getRequestHeaders().getFirst(EXPECTED_HOME_HEADER);
+    final String sessionId = exchange.getRequestHeaders().getFirst(SESSION_HEADER);
     exchange.getResponseHeaders().set(HOME_HEADER, this.handler.getHomeId());
     try {
       // The home is read and edited in the event dispatch thread
       EventQueue.invokeAndWait(new Runnable() {
           public void run() {
-            response [0] = handler.handle(request, expectedHomeId);
+            response [0] = handler.handle(request, expectedHomeId, sessionId);
           }
         });
     } catch (InterruptedException ex) {
