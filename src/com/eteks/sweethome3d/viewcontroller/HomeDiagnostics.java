@@ -24,7 +24,8 @@ import com.eteks.sweethome3d.model.Wall;
 /**
  * Looks for the usual defects of a home plan: walls that don't quite meet,
  * duplicated or empty items, doors and windows that aren't in a wall,
- * furniture under the floor or through the ceiling... Each {@link Issue issue}
+ * furniture under the floor or through the ceiling, and with {@link HomeDefects} what
+ * shows in 3D: roofs in rooms, walls over each other or above the roof... Each {@link Issue issue}
  * names the items it's about with the ids of the assistant
  * (<code>F#</code>, <code>W#</code>, <code>R#</code>) and tells whether it can
  * be fixed automatically.
@@ -74,7 +75,27 @@ public class HomeDiagnostics {
     /** A fence stands beyond the property lines. */
     FENCE_BEYOND_PROPERTY_LINE(false),
     /** The ground changed under the posts of a fence. */
-    FENCE_OFF_GROUND(false);
+    FENCE_OFF_GROUND(false),
+    /** A roof, its overhang or its gutters come into a room under its ceiling. */
+    ROOF_IN_ROOM(false),
+    /** Two walls are drawn over each other along a part of their length. */
+    OVERLAPPING_WALL(true),
+    /** A door or a window stands in a wall without being lined up with it. */
+    DOOR_MISALIGNED(true),
+    /** The top of a wall passes the roof that covers it. */
+    WALL_ABOVE_ROOF(true),
+    /** A room higher than its level isn't closed by walls up to its ceiling. */
+    OPEN_TWO_STORY_ROOM(true),
+    /** The ceiling of a room or a slab passes the roof over it. */
+    CEILING_ABOVE_ROOF(false),
+    /** A roof is at the height of a ceiling: they show through each other. */
+    ROOF_AT_CEILING(false),
+    /** A side of a wall that faces a room has an outside material. */
+    WALL_OUTSIDE_FINISH_INDOORS(false),
+    /** A side of a wall that faces the outside has a finish of the rooms. */
+    WALL_INSIDE_FINISH_OUTDOORS(false),
+    /** A side of a wall that can be seen has no color and no texture. */
+    WALL_SIDE_UNPAINTED(false);
 
     private final boolean fixable;
 
@@ -101,7 +122,12 @@ public class HomeDiagnostics {
         case DUPLICATE_WALL :
         case EMPTY_ROOM :
         case FENCE_THROUGH_BUILDING :
+        case ROOF_IN_ROOM :
+        case OVERLAPPING_WALL :
           return 2;
+        case ROOF_AT_CEILING :
+        case WALL_INSIDE_FINISH_OUTDOORS :
+        case WALL_SIDE_UNPAINTED :
         case FURNITURE_OUTSIDE_ROOMS :
         case UNNAMED_ROOM :
         case HEAVY_MODEL :
@@ -126,12 +152,41 @@ public class HomeDiagnostics {
     private final String     message;
     private final Selectable item;
     private final Selectable otherItem;
+    private final boolean    fixable;
+    private final float      value;
 
     Issue(Type type, String message, Selectable item, Selectable otherItem) {
+      this(type, message, item, otherItem,
+          type.isFixable() && (type != Type.DOOR_OFF_WALL || otherItem != null), 0);
+    }
+
+    /**
+     * Creates an issue.
+     * @param fixable whether this issue can be repaired, for a type that can be
+     * @param value   the measure its repair needs, if any
+     */
+    Issue(Type type, String message, Selectable item, Selectable otherItem, boolean fixable, float value) {
       this.type = type;
       this.message = message;
       this.item = item;
       this.otherItem = otherItem;
+      this.fixable = fixable && type.isFixable();
+      this.value = value;
+    }
+
+    /**
+     * Returns <code>true</code> if the assistant can fix this issue: some issues of a
+     * type that can be fixed need a decision.
+     */
+    public boolean isFixable() {
+      return this.fixable;
+    }
+
+    /**
+     * Returns the measure the repair of this issue needs (the height to give to a wall), or 0.
+     */
+    float getValue() {
+      return this.value;
     }
 
     public Type getType() {
@@ -188,6 +243,13 @@ public class HomeDiagnostics {
     checkFurniture(home, furniture, walls, rooms, issues);
     checkRoofs(home, furniture, issues);
     checkLines(home, walls, issues);
+    // What shows in 3D rather than in the plan
+    int [] counts = new int [Type.values().length];
+    HomeDefects.checkOverlappingWalls(home, walls, issues, counts);
+    HomeDefects.checkRoofsAndCeilings(home, furniture, rooms, issues, counts);
+    HomeDefects.checkWallsAboveRoof(home, walls, issues, counts);
+    HomeDefects.checkTwoStoryRooms(home, walls, rooms, issues, counts);
+    HomeDefects.checkWallFinishes(home, walls, rooms, issues, counts);
     return issues;
   }
 
@@ -491,6 +553,11 @@ public class HomeDiagnostics {
           add(issues, counts, new Issue(Type.DOOR_OFF_WALL, id + " isn't in a wall; the closest is "
               + id(wall, "W", walls.indexOf(wall)) + ", " + format(getDistanceToWall(piece.getX(), piece.getY(), wall))
               + " cm away", piece, wall));
+        } else if (piece.isVisible()) {
+          Issue misaligned = HomeDefects.getMisalignedDoorIssue(piece, id, wall, id(wall, "W", walls.indexOf(wall)));
+          if (misaligned != null) {
+            add(issues, counts, misaligned);
+          }
         }
       } else {
         // Same piece twice at the same place
@@ -545,7 +612,7 @@ public class HomeDiagnostics {
     return id != null ? id : type + (index + 1);
   }
 
-  private static void add(List<Issue> issues, int [] counts, Issue issue) {
+  static void add(List<Issue> issues, int [] counts, Issue issue) {
     if (++counts [issue.getType().ordinal()] <= MAX_ISSUES_PER_TYPE) {
       issues.add(issue);
     }
@@ -632,8 +699,7 @@ public class HomeDiagnostics {
         }
         text.append("- ").append(SEVERITIES [severity]).append(" [")
             .append(issue.getType().name().toLowerCase(java.util.Locale.ENGLISH)).append("] ").append(issue.getMessage());
-        if (issue.getType().isFixable()
-            && (issue.getType() != Type.DOOR_OFF_WALL || issue.getOtherItem() != null)) {
+        if (issue.isFixable()) {
           text.append(" (fixable)");
           fixable++;
         }

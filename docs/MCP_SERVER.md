@@ -118,7 +118,7 @@ check its work with a picture.
 | `search_catalog` | Best catalog matches for a query (`doors_and_windows` to search doors and windows) |
 | `search_textures` | Best texture matches, for the `set_texture` command |
 | `get_catalog_image` | The pictures of up to 8 catalog pieces or textures, to choose between search results |
-| `check_home` | Report of plan defects (unjoined walls, duplicates, rooms without door, doors out of walls or above the roof, walls beyond a setback...) with ids, each an error, a warning or an info. Options `min_severity`, `ignore`, `ignore_tags`, `remember`, `forget` ([details](MCP_COMMANDS.md#checks-reports-and-exports)) |
+| `check_home` | Report of plan defects (unjoined walls, duplicates, rooms without door, doors out of walls or above the roof, walls beyond a setback...) and of [what shows in 3D](#checks-of-what-shows-in-3d) (roofs in rooms, walls over each other or above the roof, open two-story rooms, wall finishes) with ids, each an error, a warning or an info. Options `min_severity`, `ignore`, `ignore_tags`, `remember`, `forget` ([details](MCP_COMMANDS.md#checks-reports-and-exports)) |
 | `get_report` | Floor areas and perimeters by room, wall lengths and surfaces, furniture counts and prices |
 | `get_plan_image` | PNG picture of the 2D plan of a level, or of a part of it enlarged `layers` draws over one picture the ground colored by its `slope`, its `contours`, the crowns of the `trees` with their species and the `fences` colored by style; `legend`, `scale_bar` and `north_arrow` add them, and `annotate` draws marks that aren't kept in the home |
 | `get_3d_image` | PNG picture of the home in 3D (see [Pictures](#pictures)) `exclude_tags`, `include_tags` and `hide_ids` leave items out of one picture (`"exclude_tags":["tree","shrub"]` shows a house past its trees), `"xray":true` draws the generated trees pale and seen through, `season` draws them in another season, `cutaway` leaves out what stands above a height, and `camera` also takes a place and angles `{"x","y","z","yaw","pitch","fov"}`. With `view` and `target`, the trees and the furniture the camera stands in or that are on its line to the target are left out and listed; `"occluders":"keep"` draws them. None of them changes the home `date` and `time` light one picture by the sun of that moment, and `"photo":"PH1"` draws it from where a photo was taken, beside the photo |
@@ -262,6 +262,62 @@ A filtered description lists up to 500 pieces. A level is listed with what it
 holds, `EMPTY` if nothing, and a note when other levels share its name. A room
 is followed by `ceiling hidden` or `floor hidden` when it isn't drawn in 3D,
 and a tilted piece by its `pitch` or `roll`.
+
+## Checks of what shows in 3D
+
+`check_home` reports the defects of the plan (walls that don't meet,
+duplicates, doors out of walls...) and the ones that only show
+when you walk through the home in 3D. Each one names its items by id.
+
+| Type | Severity | What is reported | `fix_home` |
+| --- | --- | --- | --- |
+| `roof_in_room` | error | A roof, its overhang, its gutters or its downspouts are inside the outline of a room, under its ceiling: the roof of a one-story wing in a two-story room, a porch roof that goes 20 cm into a foyer. The message gives the side of the room, how far the roof comes in, and the index of the edge of the roof to stop at the wall | No: change that edge with `modify_roof` |
+| `overlapping_wall` | error | Two walls of a level drawn over each other for more than 10 cm, their middle lines within half a thickness, with their heights when they differ | Yes, when one covers 80 % of the other: the taller one is kept (the longer one at equal heights), put on the line of the other one if that one follows the axes of the plan and it doesn't, and made as long as both. Walls that share only a part of their length need a decision |
+| `door_misaligned` | warning | A door or a window turned by more than 1 degree from its wall, or more than a quarter of the thickness of the wall away from its middle line and out of one of its faces | Yes: it's turned along the wall, and brought back on its middle line if it came out of a face |
+| `wall_above_roof` | warning | A wall whose top passes the top of the roof over it by 2 to 120 cm | Yes: `fit_walls_to_roof` is run for exactly those walls |
+| `open_two_story_room` | warning | A room higher than its level, on a side of which the wall and the walls of the floors above stop under its ceiling | Yes: the wall is raised to the ceiling of the room |
+| `ceiling_above_roof` | warning | The ceiling of a room, or a slab used as a ceiling, passes the roof that covers it: it shows from outside | No |
+| `roof_at_ceiling` | info | A roof within 3 cm of a ceiling over a quarter of it or more: they show through each other | No |
+| `wall_outside_finish_indoors` | warning | A side of a wall that faces a room has an outside material | No |
+| `wall_inside_finish_outdoors` | info | A side that faces the outside has a color or a texture used in the rooms, in a home where most of the outside has a material of its own | No |
+| `wall_side_unpainted` | info | A side that faces a room or the outside has no color and no texture, in a home where 30 % of the sides or more are painted | No |
+
+How these are decided:
+
+- **The ceiling of a room** is at the height given by its property
+  `com.eteks.sweethome3d.ceilingHeight` (cm above its floor), otherwise at the
+  top of its level if it shows its ceiling, otherwise at the lowest slab of
+  `add_slab` above it. A room that hides its ceiling under nothing is taken
+  as open to the roof and isn't checked.
+- **A roof in a room or a ceiling above the roof.** Both are a roof lower
+  than the ceiling inside the outline of the room. When the roof covers less
+  than half of the room, it's a roof that comes in; otherwise it's the roof
+  of the room, and the ceiling is the one out of its place.
+- **A wall of a taller part of the building** isn't a wall above the roof:
+  a wall that passes the roof by more than 120 cm, or that stands on a floor
+  above it, is left out.
+- **What a side of a wall faces.** Three points 12 cm away from the face are
+  looked for in the rooms of the level of the wall. A side that faces no room
+  faces the outside if the other side of its wall faces a room; the walls
+  that face no room at all (garden walls) are left out.
+- **An outside material** is a texture whose name or catalog id holds one of
+  these words: siding, clapboard, weatherboard, cladding, brick, shingle,
+  stucco, roughcast, render, facade, exterior, stone wall, log wall, bardage,
+  crepi, brique (`HomeDefects.OUTSIDE_MATERIAL_WORDS`). Any other finish, a
+  plain color included, is an inside one.
+
+`check_home` also counts the items that cross another item, and lists them
+level by level with `"crossings":true`:
+
+- furniture that stands in a wall (over 8 % of its footprint) or in another
+  piece (over 60 % of the smaller footprint, at the same height);
+- doors and windows turned across their wall, or in another wall;
+- walls that cross each other away from their ends;
+- the roofs in rooms, the walls and the ceilings above the roof and the
+  doors through the roof reported above.
+
+A home of 150 walls, 30 rooms, 500 pieces and 3 roofs is checked in about
+0.2 s, the list of crossings included.
 
 ## Pictures
 

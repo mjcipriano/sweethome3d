@@ -945,12 +945,19 @@ public class HomeMCPHandler {
     checkProperties.put("remember", property("boolean",
         "true to ignore these ids and tags in the next checks of this home too (kept with the home)"));
     checkProperties.put("forget", property("boolean", "true to stop ignoring what was remembered"));
+    checkProperties.put("crossings", property("boolean",
+        "true lists the items that cross another item, level by level: furniture in a wall or in another piece, doors across "
+        + "a wall, walls that cross, roofs in rooms, walls and ceilings above the roof. By default they are only counted"));
     tools.add(tool("check_home", "Check home",
         "Looks for defects in the plan: walls that end close to each other without being joined, "
         + "duplicated or empty items, doors and windows that aren't in a wall, furniture under the "
         + "floor, through the ceiling or outside every room, heavy 3D models. Each issue names its "
         + "items by id; those marked fixable are repaired by the fix_home command of apply_commands. "
         + "Doors and windows higher than the roof above them and walls beyond a setback or a property line are errors. "
+        + "It also reports what shows in 3D: a roof, its overhang or its gutters inside a room under its ceiling, walls drawn over "
+        + "each other, doors and windows not lined up with their wall, walls that stick out of the roof, rooms of two stories "
+        + "that walls don't close up to their ceiling, ceilings above the roof, and sides of walls whose finish doesn't match "
+        + "what they face (siding indoors, unpainted sides). "
         + "Each issue is marked error, warning or info, the errors first. "
         + "Like get_home, it binds the ids to the current items.",
         schema(checkProperties), true));
