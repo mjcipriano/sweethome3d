@@ -110,8 +110,10 @@ public class AssistantTwoStoryHouseTest {
     run("{\"action\":\"add_rectangular_room\",\"name\":\"Upper hall\",\"x\":0,\"y\":0,\"width\":500,\"depth\":400,\"level\":\"Level 1\"},"
         + "{\"action\":\"add_rectangular_room\",\"name\":\"Corridor\",\"x\":0,\"y\":-257.5,\"width\":500,\"depth\":250,\"level\":\"Level 1\"}");
 
+    // The first level is named in the language of the computer
+    String groundLevel = this.home.getLevels().get(0).getName();
     // The roof of the wing drawn 20 cm into the hall, an edge given by its number with a key that doesn't exist
-    String summary = run("{\"action\":\"add_roof\",\"name\":\"Wing roof\",\"level\":\"Level 0\","
+    String summary = run("{\"action\":\"add_roof\",\"name\":\"Wing roof\",\"level\":\"" + groundLevel + "\","
         + "\"points\":[[-630,-20],[20,-20],[20,420],[-630,420]],\"eave_height\":250,\"pitch\":30,\"overhang\":30,\"type\":\"hip\","
         + "\"gutters\":true,\"edges\":[{\"index\":2,\"type\":\"hip\",\"guter\":false}]}");
     assertTrue(summary, summary.contains("ignored the key [guter] of the edge 2"));
@@ -167,7 +169,7 @@ public class AssistantTwoStoryHouseTest {
         + "\",\"name\":\"Car\",\"x\":900,\"y\":200,\"length\":450,\"author\":\"Example Maker\",\"license\":\"CC BY\"}");
     HomePieceOfFurniture car = getPiece("Car");
     assertNotNull(summary, car);
-    assertEquals(summary, "Level 0", car.getLevel().getName());
+    assertEquals(summary, groundLevel, car.getLevel().getName());
     assertEquals(0, car.getElevation(), 0.01f);
     summary = run("{\"action\":\"model_credits\"}");
     assertTrue(summary, summary.contains("\"Car\" by Example Maker, license CC BY"));

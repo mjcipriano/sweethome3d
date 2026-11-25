@@ -518,7 +518,9 @@ public class AssistantCeilingCommandsTest {
     assertEquals(Integer.valueOf(0xAA3311), part.getLeftSideColor());
     assertTrue("An id of its own: " + summary, summary.contains("Ids of what was created: W"));
     // The railing of the catalog replaces the one asked, which doesn't exist
-    assertTrue(summary, summary.contains("Railing: 5 pieces \"Railing\" (the catalog has no piece named \"Banister\")"));
+    // (the catalog of an other language may name it differently)
+    assertTrue(summary, summary.contains("Railing: 5 pieces \""));
+    assertTrue(summary, summary.contains("(the catalog has no piece named \"Banister\")"));
 
     this.homeController.undo();
     assertEquals(wallCount, this.home.getWalls().size());
