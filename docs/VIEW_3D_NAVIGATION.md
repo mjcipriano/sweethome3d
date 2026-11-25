@@ -96,16 +96,21 @@ What changed in the limits of the camera:
 | Drag with the left button | Turn and look up or down |
 | Drag with the middle or the right button | Step sideways and go up or down |
 | Mouse wheel | Walk forward / backward |
-| `M` | Mouse look: the mouse turns the visitor without any button, its pointer hidden. `M`, Escape or a click ends it |
+| `M` | Mouse look: the mouse turns the visitor without any button, its pointer hidden and captured in the view. `M`, Escape, a click or another window ends it |
 
 The keys move the visitor at each frame, at a speed that starts and stops smoothly (2.6 m per
 second forward, 110 degrees per second to turn), instead of one step each time the system
 repeats the key. `A` and `D` step sideways as in games; they turned the visitor before 7.33,
 and `Q` and `E` stepped sideways.
 
-Mouse look brings the pointer back to the middle of the view to turn without end. Where the
-system doesn't let a program move the pointer (some Wayland sessions), the visitor turns as
-far as the pointer can go.
+Mouse look captures the pointer: after each of its moves, the pointer is brought back to the
+middle of the view, so the visitor turns without end and the pointer never leaves the view.
+Since 7.33.1 the pointer is read 120 times per second rather than at each mouse event. In
+7.33.0 it was brought back only when it came close to the border of the view, and a pointer
+that left the view stopped turning the visitor until it came back in.
+The pointer is given back when you press `M` or Escape, click, or switch to another window.
+Where the system doesn't let a program move the pointer (some Wayland sessions), the visitor
+turns as far as the pointer can go (`swing/MouseLookCapture`).
 
 ### Why the virtual visit was slow
 

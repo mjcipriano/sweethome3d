@@ -59,6 +59,9 @@ public class HomeMCPHandler {
   private final String                   serverVersion;
   private volatile boolean               editingAllowed = true;
   private volatile ImageProvider         imageProvider;
+  // Tells this home from the other ones a client may have worked on
+  private final String                   homeId = java.util.UUID.randomUUID().toString();
+  private String                         expectedHomeId;
 
   /**
    * Puts two pictures in one for this handler, which can't draw any itself.
@@ -523,6 +526,55 @@ public class HomeMCPHandler {
   }
 
   /**
+   * Returns an identifier of the home of this handler, different for each home
+   * and each time the application runs.
+   */
+  public String getHomeId() {
+    return this.homeId;
+  }
+
+  /**
+   * Handles a JSON-RPC message or batch sent by a client which last worked on the home
+   * of the handler identified by <code>expectedHomeId</code>. If this handler is an other one,
+   * the home of the client changed without a call of its own (the window of its home was
+   * closed, or the application was started again): its tool calls aren't run, and are
+   * answered with an error that tells which home it now works on, as the ids it knows
+   * designate other items in this home.
+   * @param expectedHomeId the {@linkplain #getHomeId() identifier} of the home the client
+   *          expects, or <code>null</code> if it expects none
+   */
+  public String handle(String requestBody, String expectedHomeId) {
+    this.expectedHomeId = expectedHomeId;
+    try {
+      return handle(requestBody);
+    } finally {
+      this.expectedHomeId = null;
+    }
+  }
+
+  /**
+   * Returns <code>true</code> if the given tool chooses the home of a connection or doesn't
+   * depend on it: such a tool is run even when the home of the client changed without its knowing.
+   */
+  public static boolean isHomeIndependentTool(String name) {
+    return "list_homes".equals(name) || isHomeChoiceTool(name)
+        || "help".equals(name) || "get_capabilities".equals(name)
+        || "list_catalog".equals(name) || "search_catalog".equals(name) || "search_textures".equals(name)
+        || "get_catalog_image".equals(name);
+  }
+
+  /**
+   * Returns <code>true</code> if the given tool makes a connection work on an other home.
+   */
+  public static boolean isHomeChoiceTool(String name) {
+    return "open_home".equals(name) || "new_home".equals(name) || "switch_home".equals(name);
+  }
+
+  private String getHomeLabel() {
+    return this.home.getName() != null ? "\"" + this.home.getName() + "\"" : "a home never saved";
+  }
+
+  /**
    * Handles a JSON-RPC message or batch and returns the JSON response, or
    * <code>null</code> if the message doesn't require any (notifications).
    */
@@ -648,12 +700,38 @@ public class HomeMCPHandler {
           // Said rather than dropped in silence: a client that kept the tools of an older version sees it
           return result(id, toolResult(unknown, true));
         }
+        if (this.expectedHomeId != null && !this.expectedHomeId.equals(this.homeId)
+            && !isHomeIndependentTool((String)name)) {
+          // Not run: the ids the client knows designate other items in this home
+          return result(id, toolResult("Nothing was done: the home of this connection changed since your last call, "
+              + "and not by a call of yours. The window of the home you were working on was closed, or Sweet Home 3D "
+              + "was started again. This connection now reads and edits " + getHomeLabel() + ". "
+              + "The ids you know belong to the other home and designate other items here: call get_home before "
+              + "using any id, or list_homes, switch_home or open_home to work on another home. "
+              + "Then repeat your call if it still applies.", true));
+        }
         // A group of calls left open by a client that went away mustn't keep the changes of the user out of Undo
         this.commandExecutor.endIdleGroup(AssistantCommandExecutor.GROUP_IDLE_DELAY);
+        // A plug-in may have registered a reader or a writer of images that fails
+        com.eteks.sweethome3d.tools.ImageProviders.preferPlatformProviders();
         // What the tools change isn't a change made by the user by hand
         this.changeJournal.setPaused(true);
         try {
-          Map<String, Object> toolResult = callTool((String)name, arguments);
+          Map<String, Object> toolResult;
+          try {
+            toolResult = callTool((String)name, arguments);
+          } catch (LinkageError ex) {
+            // Said to the client with its cause, rather than an answer without any reason
+            toolResult = toolResult("The tool " + name + " failed in Sweet Home 3D: " + ex
+                + ". A class or a library can't be loaded: it may be needed by a plug-in written for another version "
+                + "of Sweet Home 3D (Help > About lists the plug-ins).", true);
+          } catch (OutOfMemoryError ex) {
+            toolResult = toolResult("The tool " + name + " failed in Sweet Home 3D: " + ex
+                + ". There isn't enough memory left: ask for a smaller picture or a smaller part of the home, "
+                + "or close the other homes.", true);
+          } catch (StackOverflowError ex) {
+            toolResult = toolResult("The tool " + name + " failed in Sweet Home 3D: " + ex + ".", true);
+          }
           int handChanges = this.changeJournal.getChangeCount();
           if (handChanges > 0 && toolResult.get("content") instanceof List
               && ("apply_commands".equals(name) || "get_home".equals(name) || "check_home".equals(name)
@@ -1115,6 +1193,9 @@ public class HomeMCPHandler {
         "Instead of commands: the absolute path of a JSON file holding the array of commands (or an object with a "
         + "\"commands\" array), for long lists written by a script; up to "
         + AssistantCommandExecutor.MAX_COMMANDS_PER_FILE + " commands, run as one undoable change"));
+    commandsProperties.put("home", property("string",
+        "Optional safeguard: a part of the file name of the home these commands are meant for, or \"unsaved\" for a home "
+        + "never saved. When the home of this connection is an other one, nothing is run and the answer tells it"));
     commandsProperties.put("stop_on_error", property("boolean",
         "true stops at the first command that fails and tells which ones weren't run. By default a command that fails "
         + "doesn't stop the ones after it, and the answer names it by its number"));
@@ -3395,6 +3476,12 @@ public class HomeMCPHandler {
 
   @SuppressWarnings("unchecked")
   private Map<String, Object> applyCommands(Map<String, Object> arguments) {
+    String expectedHome = string(arguments, "home");
+    if (expectedHome != null && expectedHome.trim().length() > 0 && !isHomeNamed(expectedHome.trim())) {
+      return toolResult("Nothing was done: these commands are meant for the home \"" + expectedHome.trim()
+          + "\" but this connection reads and edits " + getHomeLabel() + ". " + describeHomes()
+          + "\nswitch_home or open_home chooses the home of this connection.", true);
+    }
     Object commandsValue = arguments.get("commands");
     int maxCount = AssistantCommandExecutor.MAX_COMMANDS_PER_TURN;
     if (arguments.get("file") instanceof String && ((String)arguments.get("file")).trim().length() > 0) {
@@ -3439,10 +3526,29 @@ public class HomeMCPHandler {
       this.commandExecutor.setStopOnError(false);
     }
     // An id that designates nothing is an error, even if other commands were applied
-    return toolResult(summary != null
+    return toolResult((summary != null
         ? summary
-        : "No change was applied (unknown actions, or ids that don't match the last get_home).",
+        : "No change was applied (unknown actions, or ids that don't match the last get_home).")
+        // Ids start again in each home: the client sees which one its commands reached
+        + "\nHome edited: " + getHomeLabel() + ".",
         summary == null || !this.commandExecutor.getUnresolvedIds().isEmpty());
+  }
+
+  /**
+   * Returns <code>true</code> if <code>name</code> designates the home of this handler:
+   * a part of the name of its file, or <code>unsaved</code> for a home never saved.
+   */
+  private boolean isHomeNamed(String name) {
+    String homeName = this.home.getName();
+    if (homeName == null) {
+      String lowerName = name.toLowerCase();
+      return "unsaved".equals(lowerName) || "never saved".equals(lowerName) || "(never saved)".equals(lowerName)
+          || "new".equals(lowerName);
+    }
+    // The whole path, or a part of the name of the file
+    return homeName.equalsIgnoreCase(name)
+        || new java.io.File(name).getParent() == null
+           && new java.io.File(homeName).getName().toLowerCase().indexOf(name.toLowerCase()) >= 0;
   }
 
   private static Map<String, Object> imageResult(byte [] image) {

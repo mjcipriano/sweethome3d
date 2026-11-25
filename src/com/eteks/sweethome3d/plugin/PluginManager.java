@@ -56,6 +56,7 @@ import com.eteks.sweethome3d.model.HomeApplication;
 import com.eteks.sweethome3d.model.Library;
 import com.eteks.sweethome3d.model.RecorderException;
 import com.eteks.sweethome3d.model.UserPreferences;
+import com.eteks.sweethome3d.tools.ImageProviders;
 import com.eteks.sweethome3d.tools.OperatingSystem;
 import com.eteks.sweethome3d.viewcontroller.HomeController;
 
@@ -381,6 +382,9 @@ public class PluginManager {
         for (Plugin plugin : plugins) {
           plugin.init();
         }
+        // A plug-in may register its own reader or writer of images, written for an other
+        // version of the application: the images of the application keep the ones of Java
+        ImageProviders.preferPlatformProviders();
 
         // Add a listener that will destroy all plug-ins when home is deleted
         application.addHomesListener(new CollectionListener<Home>() {
