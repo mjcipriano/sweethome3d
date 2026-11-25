@@ -688,13 +688,22 @@ class AssistantObjectCommands {
       if (inRoom) {
         indoors = true;
         level = roomLevel;
-      } else if (ground != null) {
-        // Outdoors: the level of the building whose floor is the closest to the ground
+      } else {
+        // Outdoors: the level of the building whose floor is the closest to the ground,
+        // or to the floor of the lowest level in a home without terrain, rather than an upper level that is selected
+        float groundHeight = ground != null ? ground.floatValue() : Float.MAX_VALUE;
+        if (ground == null) {
+          for (Level other : this.home.getLevels()) {
+            if (!isRoofLevel(other) && !isTerrainLevel(other)) {
+              groundHeight = Math.min(groundHeight, other.getElevation());
+            }
+          }
+        }
         Level closestLevel = null;
         for (Level other : this.home.getLevels()) {
           if (!isRoofLevel(other) && !isTerrainLevel(other)
               && (closestLevel == null
-                  || Math.abs(other.getElevation() - ground) < Math.abs(closestLevel.getElevation() - ground) - 0.5f)) {
+                  || Math.abs(other.getElevation() - groundHeight) < Math.abs(closestLevel.getElevation() - groundHeight) - 0.5f)) {
             closestLevel = other;
           }
         }

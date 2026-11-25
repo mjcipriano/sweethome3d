@@ -671,6 +671,7 @@ class AssistantCeilingCommands {
       List<String> deletedOpenings = new ArrayList<String>();
       List<String> wallsLeft = new ArrayList<String>();
       List<String> splitWalls = new ArrayList<String>();
+      float removedThickness = 0;
       for (final Wall wall : upperWalls) {
         String wallId = this.executor.getId(wall);
         if (!isWithinSide(wall, start, end)) {
@@ -707,10 +708,16 @@ class AssistantCeilingCommands {
             });
           tally [4]++;
         } else {
+          removedThickness = Math.max(removedThickness, wall.getThickness());
           this.homeController.getPlanController().deleteItems(Collections.<Selectable>singletonList(wall));
           tally [5]++;
         }
         changedWalls.add(wallId);
+      }
+      if (removedThickness > 0) {
+        // The rooms of the upper level that stopped at the other face of the wall removed go on to the
+        // side of the overlook: their floor and their ceiling would otherwise leave a strip open to the sky
+        tally [4] += extendRoomsToSide(room, start, end, overlookLevel, removedThickness);
       }
       answer.append(". Overlook along the side from (").append(format(start [0])).append(", ").append(format(start [1]))
           .append(") to (").append(format(end [0])).append(", ").append(format(end [1])).append(") on \"")
@@ -755,6 +762,49 @@ class AssistantCeilingCommands {
       }
     }
     notes.add(answer.toString());
+  }
+
+  /**
+   * Moves to the side from <code>start</code> to <code>end</code> the points of the rooms of a level
+   * which stand along it, a wall thickness away at most, on the other side than the opened room.
+   * @return the count of rooms changed
+   */
+  private int extendRoomsToSide(Room openedRoom, float [] start, float [] end, Level level, float thickness) {
+    double length = Math.hypot(end [0] - start [0], end [1] - start [1]);
+    if (length < 1) {
+      return 0;
+    }
+    final double ux = (end [0] - start [0]) / length;
+    final double uy = (end [1] - start [1]) / length;
+    int count = 0;
+    for (final Room other : new ArrayList<Room>(this.home.getRooms())) {
+      if (other == openedRoom || other.getLevel() != level) {
+        continue;
+      }
+      final float [][] points = other.getPoints();
+      boolean moved = false;
+      for (float [] point : points) {
+        double along = (point [0] - start [0]) * ux + (point [1] - start [1]) * uy;
+        double across = (point [0] - start [0]) * -uy + (point [1] - start [1]) * ux;
+        if (Math.abs(across) > 0.05 && Math.abs(across) <= thickness + 1
+            && along >= -thickness - 1 && along <= length + thickness + 1
+            // Not the rooms over the opened room itself
+            && !openedRoom.containsPoint(point [0], point [1], 0.5f)) {
+          point [0] = (float)(point [0] + uy * across);
+          point [1] = (float)(point [1] - ux * across);
+          moved = true;
+        }
+      }
+      if (moved) {
+        this.executor.postModification(Collections.<Selectable>singletonList(other), new Runnable() {
+            public void run() {
+              other.setPoints(points);
+            }
+          });
+        count++;
+      }
+    }
+    return count;
   }
 
   /**

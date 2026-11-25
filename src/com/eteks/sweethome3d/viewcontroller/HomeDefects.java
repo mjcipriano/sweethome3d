@@ -347,24 +347,30 @@ final class HomeDefects {
             // Out of the roof
             double nx = signedArea > 0 ? uy : -uy;
             double ny = signedArea > 0 ? -ux : ux;
-            double out = Math.max(0, roof.model.getEdgeOverhang(i)) + 3 * GUTTER_WIDTH;
+            // The gutter hangs out of the eave of the edge, where the roof remains behind it
+            double overhang = Math.max(0, roof.model.getEdgeOverhang(i));
             if (spans == null) {
               // Up to the corners: the gutter of the next edge, if it has one, goes on from there
-              spans = new double [][] {{0, length}};
+              spans = new double [][] {{-overhang, length + overhang}};
             }
+            Area behind = new Area(this.footprint);
+            behind.transform(java.awt.geom.AffineTransform.getTranslateInstance(nx * GUTTER_WIDTH, ny * GUTTER_WIDTH));
             for (double [] span : spans) {
               if (span != null && span.length >= 2 && span [1] > span [0]) {
                 java.awt.geom.Path2D band = new java.awt.geom.Path2D.Double();
-                band.moveTo(start [0] + ux * span [0] - nx * GUTTER_WIDTH, start [1] + uy * span [0] - ny * GUTTER_WIDTH);
-                band.lineTo(start [0] + ux * span [1] - nx * GUTTER_WIDTH, start [1] + uy * span [1] - ny * GUTTER_WIDTH);
-                band.lineTo(start [0] + ux * span [1] + nx * out, start [1] + uy * span [1] + ny * out);
-                band.lineTo(start [0] + ux * span [0] + nx * out, start [1] + uy * span [0] + ny * out);
+                band.moveTo(start [0] + ux * span [0] + nx * (overhang - 1), start [1] + uy * span [0] + ny * (overhang - 1));
+                band.lineTo(start [0] + ux * span [1] + nx * (overhang - 1), start [1] + uy * span [1] + ny * (overhang - 1));
+                band.lineTo(start [0] + ux * span [1] + nx * (overhang + GUTTER_WIDTH), start [1] + uy * span [1] + ny * (overhang + GUTTER_WIDTH));
+                band.lineTo(start [0] + ux * span [0] + nx * (overhang + GUTTER_WIDTH), start [1] + uy * span [0] + ny * (overhang + GUTTER_WIDTH));
                 band.closePath();
-                along.add(new Area(band));
+                Area gutter = new Area(band);
+                gutter.intersect(behind);
+                along.add(gutter);
               }
             }
           }
-          around.intersect(along);
+          along.subtract(this.footprint);
+          around = along;
           gutterArea = around.isEmpty() ? null : around;
         }
       }
@@ -551,7 +557,9 @@ final class HomeDefects {
             sumY += sample [1];
           }
         } else if (isRoom && roof.gutters != null && roof.eave < ceiling - ROOF_IN_ROOM_MARGIN
-                   && roof.eave > floor + ROOF_IN_ROOM_MARGIN && roof.gutters.contains(sample [0], sample [1])) {
+                   && roof.eave > floor + ROOF_IN_ROOM_MARGIN && roof.gutters.contains(sample [0], sample [1])
+                   // No gutter where walls cut the roof
+                   && !roof.roof.model.getGeometry().isCut(sample [0], sample [1])) {
           gutter++;
           depth = Math.max(depth, getDistanceToSides(polygon, sample [0], sample [1]));
           lowest = Math.min(lowest, roof.eave);
@@ -811,6 +819,29 @@ final class HomeDefects {
           }
         }
         if (top < ceiling - 5) {
+          // An overlook: above the wall, the side opens to a room of an upper level
+          double length = Math.hypot(end [0] - start [0], end [1] - start [1]);
+          double nx = -(end [1] - start [1]) / length;
+          double ny = (end [0] - start [0]) / length;
+          double middleX = (start [0] + end [0]) / 2;
+          double middleY = (start [1] + end [1]) / 2;
+          double across = lowest.getThickness() / 2 + 25;
+          if (room.containsPoint((float)(middleX + nx * across), (float)(middleY + ny * across), 0)) {
+            nx = -nx;
+            ny = -ny;
+          }
+          boolean overlook = false;
+          for (Room other : home.getRooms()) {
+            float base = getElevation(other.getLevel());
+            if (other != room && other.getLevel() != room.getLevel() && base > floor && base <= top + 45 && base < ceiling - 5
+                && other.containsPoint((float)(middleX + nx * across), (float)(middleY + ny * across), 0)) {
+              overlook = true;
+              break;
+            }
+          }
+          if (overlook) {
+            continue;
+          }
           double [] gap = gaps.get(lowest);
           if (gap == null || gap [0] > top) {
             gaps.put(lowest, new double [] {top, (start [0] + end [0]) / 2, (start [1] + end [1]) / 2});

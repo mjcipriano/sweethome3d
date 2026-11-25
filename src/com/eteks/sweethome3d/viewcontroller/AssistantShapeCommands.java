@@ -1423,6 +1423,8 @@ class AssistantShapeCommands {
    */
   private List<Object> cleanEdges(String action, Object edges, List<String> notes) {
     List<Object> cleanEdges = new ArrayList<Object>();
+    List<Integer> places = new ArrayList<Integer>();
+    boolean numbered = false;
     int index = 0;
     for (Object edge : (List<?>)edges) {
       index++;
@@ -1431,11 +1433,36 @@ class AssistantShapeCommands {
         for (Map.Entry<?, ?> entry : ((Map<?, ?>)edge).entrySet()) {
           cleanEdge.put(String.valueOf(entry.getKey()), entry.getValue());
         }
-        dropUnknownKeys(action, "the edge " + index, cleanEdge, EDGE_KEYS, null, notes);
+        // An edge may tell its number, from 1, as the edges changed by modify_roof do
+        Object number = cleanEdge.remove("index");
+        int place = number instanceof Number ? ((Number)number).intValue() : 0;
+        if (place >= 1 && place <= AssistantRoofModel.MAX_POINTS) {
+          numbered = true;
+        } else {
+          place = index;
+        }
+        dropUnknownKeys(action, "the edge " + place, cleanEdge, EDGE_KEYS, null, notes);
         cleanEdges.add(cleanEdge);
+        places.add(Integer.valueOf(place));
       } else {
         cleanEdges.add(edge);
+        places.add(Integer.valueOf(index));
       }
+    }
+    if (numbered) {
+      // Each edge at its place, the other ones with the default type
+      int count = 0;
+      for (Integer place : places) {
+        count = Math.max(count, place.intValue());
+      }
+      List<Object> placedEdges = new ArrayList<Object>();
+      for (int i = 0; i < count; i++) {
+        placedEdges.add(new LinkedHashMap<String, Object>());
+      }
+      for (int i = 0; i < cleanEdges.size(); i++) {
+        placedEdges.set(places.get(i).intValue() - 1, cleanEdges.get(i));
+      }
+      return placedEdges;
     }
     return cleanEdges;
   }

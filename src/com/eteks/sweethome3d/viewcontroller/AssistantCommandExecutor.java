@@ -1492,7 +1492,7 @@ public class AssistantCommandExecutor {
   /** The parameters where <code>last</code> stands for the item the commands before created. */
   private static final List<String> LAST_ID_KEYS = Arrays.asList("id", "ids", "fence", "fences", "item", "items", "target", "targets",
       "piece", "pieces", "of", "on", "around", "along", "follow", "relative_to", "attach_to", "room", "wall", "line", "tree", "trees",
-      "structure", "deck", "parent");
+      "structure", "deck", "parent", "opening", "roof", "stairs", "railing");
 
   private int [] getItemCounts() {
     return new int [] {this.home.getFurniture().size(), this.home.getWalls().size(), this.home.getRooms().size(),
