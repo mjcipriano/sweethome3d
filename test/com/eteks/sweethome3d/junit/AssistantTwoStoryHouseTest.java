@@ -147,13 +147,17 @@ public class AssistantTwoStoryHouseTest {
 
     // Finishes from the rooms, an opening and its header named by "last"
     summary = run("{\"action\":\"modify_room\",\"id\":\"R1\",\"wall_color\":\"#D5AC6B\"},"
-        + "{\"action\":\"modify_room\",\"id\":\"R2\",\"ceiling_height\":220},"
+        // A ceiling height and a wall color in the same command
+        + "{\"action\":\"modify_room\",\"id\":\"R2\",\"ceiling_height\":220,\"wall_color\":\"#9FB8C8\"},"
         + "{\"action\":\"paint_rooms\",\"only\":\"unpainted\",\"color\":\"#EEEEEE\"},"
         + "{\"action\":\"add_opening\",\"wall\":\"W4\",\"center\":200,\"width\":120,\"bottom\":0,\"top\":210},"
         + "{\"action\":\"add_header\",\"opening\":\"last\",\"height\":25}");
     assertTrue(summary, summary.contains("Added the header"));
     assertFalse(summary, summary.contains("failed"));
     assertNotNull(getPiece("Header"));
+    assertEquals(220, Float.parseFloat(getRoom("Wing").getProperty("com.eteks.sweethome3d.ceilingHeight")), 0.01f);
+    assertEquals("9FB8C8", getRoom("Wing").getProperty("com.eteks.sweethome3d.wallColor").replace("#", "").toUpperCase());
+    assertEquals("D5AC6B", getRoom("Hall").getProperty("com.eteks.sweethome3d.wallColor").replace("#", "").toUpperCase());
 
     // A model imported outdoors while the upper level is selected stands on the lowest level
     assertEquals("Level 1", this.home.getSelectedLevel().getName());
