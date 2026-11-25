@@ -83,6 +83,7 @@ public class PackageDependenciesTest extends TestCase {
     JavaPackage swingPlafSynth = constraint.addPackage("javax.swing.plaf.synth");
     JavaPackage imageio = constraint.addPackage("javax.imageio");
     JavaPackage imageioStream = constraint.addPackage("javax.imageio.stream");
+    JavaPackage imageioSpi = constraint.addPackage("javax.imageio.spi");
     // Java 3D
     JavaPackage java3d = constraint.addPackage("javax.media.j3d");
     JavaPackage vecmath = constraint.addPackage("javax.vecmath");
@@ -124,6 +125,8 @@ public class PackageDependenciesTest extends TestCase {
     // and Swing components and Java 3D use are isolated in sweetHome3DSwing
     sweetHome3DTools.dependsUpon(sweetHome3DModel);
     sweetHome3DTools.dependsUpon(eio);
+    // The readers and writers of images of Java kept ahead of the ones of plug-ins
+    sweetHome3DTools.dependsUpon(imageioSpi);
 
     sweetHome3DViewController.dependsUpon(sweetHome3DModel);
     sweetHome3DViewController.dependsUpon(sweetHome3DTools);

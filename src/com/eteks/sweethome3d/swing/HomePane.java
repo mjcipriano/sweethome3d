@@ -6575,11 +6575,17 @@ public class HomePane extends JRootPane implements HomeView {
             }
             result [0] = new HomeMCPHandler.Image3D(out.toByteArray(), preview, description);
           } catch (Exception ex) {
-            // No picture
+            // No picture, with the reason for the client
+            result [0] = new HomeMCPHandler.Image3D(null, null, "The 3D picture couldn't be created: " + ex + ".");
           } catch (LinkageError ex) {
-            // 3D libraries not available
+            // 3D libraries not available, or a class needed by a plug-in
+            result [0] = new HomeMCPHandler.Image3D(null, null, "The 3D picture couldn't be created: " + ex
+                + ". A class or a library can't be loaded: it may be needed by a plug-in written for another "
+                + "version of Sweet Home 3D.");
           } catch (OutOfMemoryError ex) {
             // Home too large to render
+            result [0] = new HomeMCPHandler.Image3D(null, null, "The 3D picture couldn't be created: there isn't "
+                + "enough memory left. Ask for a smaller picture, or close the other homes.");
           } finally {
             EventQueue.invokeLater(new Runnable() {
                 public void run() {

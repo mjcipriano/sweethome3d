@@ -181,7 +181,22 @@ To let Claude try something on a copy: `save_home` with `copy_to`, then
 `open_home`, `new_home` and `switch_home` open or choose a home in its own
 window of Sweet Home 3D; from the next call Claude reads and edits that one,
 with the same permissions. The home open before stays open. Ids belong to
-their home.
+their home, and start again at F1, W1, R1 in each home.
+
+Three safeguards keep the commands meant for a home out of another one:
+
+- When you close the window of the home Claude works on, the server of
+  another open home takes its place. The first tool call Claude makes after
+  that isn't run. Its answer says that the home changed, names the home the
+  connection now reads and edits, and asks for `get_home` before any id is
+  used. The same happens after Sweet Home 3D was started again. `list_homes`,
+  `open_home`, `new_home`, `switch_home`, `help` and the catalog tools are
+  answered as usual.
+- The answer of `apply_commands` ends with the home it edited:
+  `Home edited: "C:\...\house.sh3d".`
+- `apply_commands` takes an optional `"home"`: a part of the file name of the
+  home the commands are meant for, or `"unsaved"` for a home never saved. When
+  the home of the connection is another one, nothing is run.
 
 `get_changes` lists what you did by hand between two calls of Claude - a
 wall you drew, a sofa you moved - with ids. When there are such changes, the
@@ -500,6 +515,8 @@ your preferences: the renderer of the 3D view and its shadows.
 | The application folder can't be deleted or replaced | The bridge program launched by Claude (`sweethome3d-mcp`) runs from it: click **Release program folder** in **Tools > Claude MCP server...**, or quit Claude, then close Sweet Home 3D |
 | "No item has the id ..." | The item was deleted. Ask Claude to call `get_home` again |
 | "The tool ... has no argument ..." | Claude knows the tools of an older version of Sweet Home 3D. An argument the server doesn't know is refused with the list of the ones it has, instead of being dropped. Start a new conversation, or restart Claude, so it reads the tools again |
+| Every picture fails with `NoClassDefFoundError` or "A class or a library can't be loaded" | A plug-in needs a library that Sweet Home 3D doesn't include since 7.32.1 (FreeHEP, Batik, iText, Jeks Parser, Java Media Framework). The answer names the missing class. Since 7.33.1 the pictures of the plan, of the 3D view and of the catalog don't use the readers and writers of images that plug-ins register (SVGTuner 1.0 registers one), so they work with such a plug-in installed; what the plug-in itself does may still fail |
+| "Nothing was done: the home of this connection changed..." | The window of the home Claude worked on was closed, or Sweet Home 3D was started again. Ask Claude to call `get_home`, or `switch_home` or `open_home` for the home you want |
 | A picture takes minutes | It was drawn by the ray tracer: ask for `"renderer":"opengl"`, or give a `timeout` |
 | Claude can't change anything | Tick **Allow changes to this home** |
 | Claude says saving isn't allowed | That is the default. Tick **Allow saving this home in its file, and replacing files**, or let it save versions and copies |
@@ -512,6 +529,15 @@ your preferences: the renderer of the 3D view and its shadows.
   2025-06-18, 2025-03-26 and 2024-11-05) on top of `AssistantCommandExecutor`
   and `HomeAssistantContext`. Called in the event dispatch thread.
 - `viewcontroller/HomeItemIds` - the ids of the items.
+- A tool that fails with an error of Java (a class that can't be loaded, no
+  memory left) answers with a tool error that gives the cause. Each handler
+  has an identifier (`getHomeId`), sent by the server in the header
+  `X-SweetHome3D-Home`. The bridge program sends back the one of its last
+  tool call in `X-SweetHome3D-Expected-Home`, and `handle(request, expectedHomeId)`
+  refuses a tool call meant for another home.
+- `tools/ImageProviders` - puts the readers and writers of images of Java
+  ahead of the ones registered by plug-ins, after the plug-ins of a home are
+  created and before each tool call.
 - `viewcontroller/Assistant*Commands` - the commands: `AssistantBuildingCommands`
   (rooms, walls, textures), `AssistantStructureCommands` (levels, walls, plan
   visibility), `AssistantShapeCommands` (roofs, dormers, slabs, ground),

@@ -151,11 +151,13 @@ public class HomeMCPBridge {
     // new version of the application, or the ones of this program when it answered while no server ran
     Object knownTools = null;
     long lastCheckTime = 0;
+    // The home the tools of the client last worked on, to tell it when an other one answers
+    String [] servedHome = {null};
     for (String line; (line = reader.readLine()) != null; ) {
       if (line.trim().length() == 0) {
         continue;
       }
-      String response = forward(line, folder);
+      String response = forward(line, folder, servedHome);
       if (response != null) {
         // One message per line
         out.write(response.replace('\n', ' ').replace('\r', ' ').getBytes("UTF-8"));
@@ -198,6 +200,20 @@ public class HomeMCPBridge {
    * given in its place if it can't be reached.
    */
   static String forward(String message, File folder) {
+    return forward(message, folder, null);
+  }
+
+  /**
+   * Returns the answer of the server to <code>message</code>, or the answer
+   * given in its place if it can't be reached.
+   * @param servedHome the identifier of the home that the tools called by the client last
+   *          worked on, in an array of one item updated by this method, or <code>null</code>.
+   *          It's sent to the server, which refuses a tool call meant for an other home:
+   *          when the window of a home is closed, the server of an other home takes its
+   *          place, where the ids the client knows designate other items.
+   */
+  static String forward(String message, File folder, String [] servedHome) {
+    String calledTool = servedHome != null ? getCalledTool(message) : null;
     String token = HomeMCPServer.readToken(folder);
     int port = HomeMCPServer.readPort(folder);
     String reason = "Sweet Home 3D isn't sharing a home: in Sweet Home 3D, open the home and choose "
@@ -213,6 +229,9 @@ public class HomeMCPBridge {
         connection.setRequestProperty("Authorization", "Bearer " + token);
         connection.setRequestProperty("Content-Type", "application/json");
         connection.setRequestProperty("Accept", "application/json, text/event-stream");
+        if (calledTool != null && servedHome [0] != null) {
+          connection.setRequestProperty(HomeMCPServer.EXPECTED_HOME_HEADER, servedHome [0]);
+        }
         OutputStream body = connection.getOutputStream();
         try {
           body.write(message.getBytes("UTF-8"));
@@ -223,21 +242,73 @@ public class HomeMCPBridge {
         if (status == 200) {
           InputStream response = connection.getInputStream();
           try {
-            return new String(readFully(response), "UTF-8");
+            String answer = new String(readFully(response), "UTF-8");
+            if (calledTool != null) {
+              // The home chosen by the client itself is the one of the server that answers next
+              servedHome [0] = HomeMCPHandler.isHomeChoiceTool(calledTool) && !isToolError(answer)
+                  ? null
+                  : connection.getHeaderField(HomeMCPServer.HOME_HEADER);
+            }
+            return answer;
           } finally {
             response.close();
           }
         } else if (status == 202 || status == 204) {
           return null;
         }
-        reason = "The server of Sweet Home 3D refused the request (HTTP " + status + "). "
-            + "Stop and start it again from Tools > Claude MCP server... in Sweet Home 3D.";
+        String cause = "";
+        InputStream errorStream = connection.getErrorStream();
+        if (errorStream != null) {
+          try {
+            cause = new String(readFully(errorStream), "UTF-8").trim();
+          } finally {
+            errorStream.close();
+          }
+        }
+        reason = "The server of Sweet Home 3D refused the request (HTTP " + status
+            + (cause.length() > 0 ? ": " + (cause.length() > 300 ? cause.substring(0, 300) : cause) : "") + "). "
+            + (status == 500
+                ? "This is an error of Sweet Home 3D with this call, which starting the server again won't fix."
+                : "Stop and start it again from Tools > Claude MCP server... in Sweet Home 3D.");
       } catch (IOException ex) {
         // No server listens: answered below
       }
     }
     return HomeMCPHandler.handleOffline(message,
         System.getProperty("com.eteks.sweethome3d.applicationVersion", ""), reason);
+  }
+
+  /**
+   * Returns the name of the tool called by the given message, or <code>null</code>
+   * if it isn't the call of one tool.
+   */
+  private static String getCalledTool(String message) {
+    try {
+      Object parsed = com.eteks.sweethome3d.viewcontroller.JSONParser.parse(message);
+      if (parsed instanceof java.util.Map && "tools/call".equals(((java.util.Map<?, ?>)parsed).get("method"))
+          && ((java.util.Map<?, ?>)parsed).get("params") instanceof java.util.Map) {
+        Object name = ((java.util.Map<?, ?>)((java.util.Map<?, ?>)parsed).get("params")).get("name");
+        return name instanceof String ? (String)name : null;
+      }
+    } catch (RuntimeException ex) {
+      // Not a message to read
+    }
+    return null;
+  }
+
+  /**
+   * Returns <code>true</code> if the given answer to a tool call is an error.
+   */
+  private static boolean isToolError(String answer) {
+    try {
+      Object parsed = com.eteks.sweethome3d.viewcontroller.JSONParser.parse(answer);
+      if (parsed instanceof java.util.Map && ((java.util.Map<?, ?>)parsed).get("result") instanceof java.util.Map) {
+        return Boolean.TRUE.equals(((java.util.Map<?, ?>)((java.util.Map<?, ?>)parsed).get("result")).get("isError"));
+      }
+    } catch (RuntimeException ex) {
+      // Not an answer to read
+    }
+    return true;
   }
 
   private static byte [] readFully(InputStream in) throws IOException {

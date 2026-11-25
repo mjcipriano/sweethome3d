@@ -53,6 +53,10 @@ public class HomeMCPServer {
   private static final String TOKEN_FILE = "mcp-token";
   private static final String PORT_FILE = "mcp-port";
   private static final String AUTO_START_FILE = "mcp-autostart";
+  /** The header of the answers that identifies the home of the server. */
+  public static final String  HOME_HEADER = "X-SweetHome3D-Home";
+  /** The header of the requests that identifies the home their sender last worked on. */
+  public static final String  EXPECTED_HOME_HEADER = "X-SweetHome3D-Expected-Home";
   private static final int    MAX_REQUEST_LENGTH = 1024 * 1024;
 
   private final HomeMCPHandler handler;
@@ -328,11 +332,14 @@ public class HomeMCPServer {
     }
     final String request = new String(body, "UTF-8");
     final String [] response = new String [1];
+    // The home the program launched by the client last worked on
+    final String expectedHomeId = exchange.getRequestHeaders().getFirst(EXPECTED_HOME_HEADER);
+    exchange.getResponseHeaders().set(HOME_HEADER, this.handler.getHomeId());
     try {
       // The home is read and edited in the event dispatch thread
       EventQueue.invokeAndWait(new Runnable() {
           public void run() {
-            response [0] = handler.handle(request);
+            response [0] = handler.handle(request, expectedHomeId);
           }
         });
     } catch (InterruptedException ex) {
@@ -340,7 +347,8 @@ public class HomeMCPServer {
       sendText(exchange, 503, "Interrupted");
       return;
     } catch (InvocationTargetException ex) {
-      sendText(exchange, 500, "Internal error");
+      // Said with its cause: the client can't guess it otherwise
+      sendText(exchange, 500, "Internal error: " + ex.getCause());
       return;
     }
     if (response [0] == null) {
