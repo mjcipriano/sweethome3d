@@ -174,7 +174,12 @@ and the answer names each with its count of triangles:
 **What is read.** Triangles, strips and fans of the nodes of the default scene
 with their transformations; the base color and its image (PNG or JPEG, in the
 file, embedded or beside it); transparency of blended materials; metal and
-roughness factors, shown as the shininess of the material. The model is
+roughness factors, shown as the shininess of the material; the offset, the
+scale and the rotation of an image (`KHR_texture_transform`); a color that
+tints an image, applied to the pixels of the image when the model is imported
+in the application (the answer says so, or says that it wasn't applied where
+images can't be changed). The extensions `KHR_materials_*` (clearcoat,
+transmission, sheen...) change how a material shines and are left aside. The model is
 converted to an OBJ file with its materials and its images, stored with the
 home: the 3D view, the photos and every export show it.
 
@@ -184,16 +189,21 @@ home: the 3D view, the photos and every export show it.
   without mesh compression);
 - images at KTX2 or WebP format, and the images of roughness, metal, normals,
   occlusion and emission;
-- the color that tints an image, vertex colors, a second set of texture
-  coordinates and `KHR_texture_transform`;
+- vertex colors and a second set of texture coordinates;
 - animations, skins and morph targets (the model is in its rest pose), points
   and lines, sparse accessors.
 
 **Simplification.** `target_triangles` merges the vertices that fall in the
 same cell of a grid, with the smallest cells that reach the count asked. The
-outline of the model is kept; thin details, sharp edges and the exact place of
-an image on its surface aren't. It is written in Java in
-`AssistantModelImporter` and needs no native library. The meshoptimizer
+vertex that replaces the ones of a cell is put where it's the closest to the
+planes of the triangles they belonged to, which keeps edges and corners better
+than their average and doesn't shrink the model. Details thinner than a cell
+and the exact place of an image on the surface are lost. It is written in Java
+in `AssistantModelImporter` and needs no native library. Measured on a model of
+1.2 million triangles built for the measure (one shape, with an image): 0.5 s
+to bring it to 189,000 triangles and 0.5 s to 18,000, on top of 0.3 s to read
+the file, with a Java heap of 1 GB. At a sixth of the triangles the shape keeps
+its reliefs; at a sixtieth it shows facets. The meshoptimizer
 library behind **3D view > Generate model LOD cache** isn't used here: it
 works on models loaded by Java 3D.
 
@@ -223,6 +233,89 @@ The answer gives the size of the piece in cm, its count of triangles (model
 files at GLB, glTF or OBJ format), the names of its materials, what was left
 out, and one picture with the views. The view `front` shows the side that
 will be the front of the piece.
+
+## Finding models online
+
+With **Allow web services** ticked in **Tools > Claude MCP server...**, three
+commands search libraries of 3D models and import what they find. Without it,
+they do nothing and say so.
+
+```json
+{"action":"find_model","query":"sedan car","license":["cc0","by"],"max_triangles":300000}
+```
+
+lists the models that can be downloaded, 8 by default and 24 at most, one per
+line:
+
+```
+sketchfab:78f7...5ab  "Oldsmobile Cutlass Supreme Sedan '71" by Barbo (https://sketchfab.com/barbo-autos),
+  license CC BY (attribution required), 70258 triangles, download glb 29.4 MB / gltf 27.5 MB,
+  page https://sketchfab.com/3d-models/..., preview https://media.sketchfab.com/...
+polyhaven:ArmChair_01  "Arm Chair 01" by Kirill Sannikov, license CC0 (nothing required), 5626 triangles, ...
+```
+
+| Key | Meaning |
+| --- | --- |
+| `query` | The words of the search (required) |
+| `library` | `sketchfab`, `polyhaven` or `all` (default) |
+| `license` | One or several of `cc0`, `by`, `by-sa`, `by-nd`, `by-nc`, `by-nc-sa`, `by-nc-nd` |
+| `max_triangles` | Leaves out the models with more triangles |
+| `count` | How many models per library |
+
+The preview is the address of a picture, not a picture in the answer. The
+models of Poly Haven are all CC0; its list is fetched once and searched in the
+application, by the words of the names, the tags and the categories.
+
+```json
+{"action":"import_model","source":"sketchfab:78f76d386a4341b0b71745bdc50fd5ab",
+ "length":520,"front":"-y","materials":{"carpaint":"#285A6B"},"target_triangles":200000,"x":300,"y":800}
+```
+
+downloads the model and imports it with the options of `import_furniture`.
+`source` is what `find_model` gave, or the https address of a `.glb`, `.gltf`,
+`.obj` or `.zip` file. The page of the model, its author and its license are
+recorded with the piece. A download is 150 MB at most, and the files of an
+archive 400 MB once extracted. For Poly Haven, `"resolution":"1k|2k|4k"`
+chooses the size of the images (1k by default), and only the data of the model
+and the images of its colors are downloaded.
+
+**The Sketchfab token.** Sketchfab gives its files to signed-in accounts only.
+The user copies the API token of their account from
+<https://sketchfab.com/settings/password> and gives it once, as `"token"` in
+`import_model` or with:
+
+```json
+{"action":"set_model_token","library":"sketchfab","token":"..."}
+```
+
+- It is kept in `model-library-tokens.properties`, in the folder of the
+  preferences of Sweet Home 3D, readable by its owner only. It isn't in the
+  home, in its versions, nor in any answer.
+- It is sent to `api.sketchfab.com` only, with the request for the links of a
+  download. The file itself comes from an address signed for that download,
+  asked without the token.
+- `{"action":"set_model_token","library":"sketchfab","remove":true}` forgets it.
+- A token typed in a conversation stays in that conversation: the user can
+  renew it on the same page of Sketchfab afterwards.
+
+**Credits.**
+
+```json
+{"action":"model_credits"}
+```
+
+lists the pieces whose model has an author, a license or a source, one line
+per model, with what each license requires: attribution, no commercial use
+(NC), no modified version (ND), the same license for modified versions (SA).
+`export_home` writes the same list in a text file beside what it exports
+(`house-CREDITS.txt` beside `house.obj`, or `<home>-CREDITS.txt` in the folder
+given for a web page or a panorama) when the home has such pieces. Recoloring
+or simplifying a model whose license has ND is a modified version: the answer
+of `import_model` warns about it.
+
+What the commands send is listed by `web_sources`. Other libraries can be
+added in `AssistantOnlineModels` with its `Library` interface (search, and
+download in a folder).
 
 ## Implementation
 

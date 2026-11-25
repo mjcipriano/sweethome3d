@@ -53,6 +53,7 @@ public final class AssistantHelp {
       {"Neighbors and context", "add_context_building add_context_vehicle"},
       {"Photos", "import_photos add_photo photo_viewpoint refine_photo_pose locate_from_photos"},
       {"GIS files and web sources", "import_geojson import_buildings import_osm import_parcels fetch_elevation set_basemap web_sources"},
+      {"3D models of the web", "find_model import_model set_model_token model_credits"},
       {"Trees and plants", "add_tree add_shrub add_trees import_trees update_trees relabel_trees grow_trees set_season set_plant_style forest_fill"},
       {"Labels, dimensions and plan", "add_label add_dimension auto_dimensions set_background_image"},
       {"Lights, sun, doors and camera", "set_light set_sun set_environment open_door set_camera store_point_of_view"},

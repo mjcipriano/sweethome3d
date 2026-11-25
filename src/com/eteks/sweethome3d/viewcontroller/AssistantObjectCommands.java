@@ -429,6 +429,12 @@ class AssistantObjectCommands {
           details.add("no material is named " + unknownNames + "; its materials: " + importer.getMaterialNames());
         }
       }
+      final AssistantCommandExecutor.ModelImageFilter imageFilter = this.executor.getModelImageFilter();
+      details.addAll(importer.applyImageTints(imageFilter == null ? null : new AssistantModelImporter.ImageFilter() {
+          public byte [] tint(byte [] image, float red, float green, float blue) throws IOException {
+            return imageFilter.tint(image, red, green, blue);
+          }
+        }));
       int triangles = importer.getTriangleCount();
       if (targetTriangles > 0 && triangles > targetTriangles) {
         triangles = importer.simplify(targetTriangles);

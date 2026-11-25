@@ -3574,7 +3574,8 @@ public class HomeMCPHandler {
               : null;
           int triangles = AssistantGltfWriter.convert(obj, target, extras);
           return toolResult("Wrote " + target + ": a binary glTF 2.0 file of " + triangles + " triangles, in meters, y up"
-              + (georeference != null ? ", with the georeference of the home in the extras of its scene" : "") + ".", false);
+              + (georeference != null ? ", with the georeference of the home in the extras of its scene" : "") + "."
+              + writeModelCredits(target, false), false);
         } finally {
           java.io.File [] files = folderOfObj.listFiles();
           if (files != null) {
@@ -3585,7 +3586,7 @@ public class HomeMCPHandler {
           folderOfObj.delete();
         }
       }
-      return toolResult(operations.export(format, target, arguments), false);
+      return toolResult(operations.export(format, target, arguments) + writeModelCredits(target, folder), false);
     } else if ("add_note".equals(name)) {
       return addNote(arguments);
     } else {
@@ -3763,6 +3764,35 @@ public class HomeMCPHandler {
     return homeName.equalsIgnoreCase(name)
         || new java.io.File(name).getParent() == null
            && new java.io.File(homeName).getName().toLowerCase().indexOf(name.toLowerCase()) >= 0;
+  }
+
+  /**
+   * Writes the credits of the models of the home that have an author, a license or a source in a
+   * text file beside the file <code>target</code> just exported, or in the folder <code>target</code>,
+   * and returns a sentence that tells it, or an empty string if the home has no such model.
+   */
+  private String writeModelCredits(java.io.File target, boolean folder) {
+    String credits = this.commandExecutor.getModelCredits();
+    if (credits == null) {
+      return "";
+    }
+    String homeName = this.home.getName() != null
+        ? new java.io.File(this.home.getName()).getName().replaceFirst("\\.[^.]*$", "").replaceAll("[^A-Za-z0-9_-]+", "-") : "home";
+    java.io.File file = folder
+        ? new java.io.File(target, homeName + "-CREDITS.txt")
+        : new java.io.File(target.getParentFile(), target.getName().replaceFirst("\\.[^.]*$", "") + "-CREDITS.txt");
+    try {
+      java.io.OutputStream out = new java.io.FileOutputStream(file);
+      try {
+        out.write(credits.replace("\n", System.getProperty("line.separator", "\n")).getBytes("UTF-8"));
+      } finally {
+        out.close();
+      }
+      return " The credits of its 3D models that have an author or a license were written to " + file
+          + ": publish them with it.";
+    } catch (java.io.IOException ex) {
+      return " The credits of its 3D models couldn't be written (" + ex.getMessage() + "): the model_credits command lists them.";
+    }
   }
 
   private static Map<String, Object> imageResult(byte [] image) {

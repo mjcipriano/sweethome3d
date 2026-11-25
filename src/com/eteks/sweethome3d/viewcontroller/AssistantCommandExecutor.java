@@ -93,6 +93,7 @@ public class AssistantCommandExecutor {
   private boolean                    turnUpdateBegun;
   private final AssistantBuildingCommands buildingCommands;
   private final AssistantObjectCommands   objectCommands;
+  private final AssistantOnlineModels     onlineModels;
   private final AssistantPlanCommands     planCommands;
   private final AssistantSiteCommands      siteCommands;
   private final AssistantArrangeCommands arrangeCommands;
@@ -111,6 +112,7 @@ public class AssistantCommandExecutor {
   private final AssistantLibraryCommands  libraryCommands;
   private final AssistantDesignCommands   designCommands;
   private ModelSizeProvider               modelSizeProvider;
+  private ModelImageFilter                modelImageFilter;
   private java.io.File                    attachedImage;
 
   /**
@@ -185,6 +187,7 @@ public class AssistantCommandExecutor {
     this.homeController = homeController;
     this.buildingCommands = new AssistantBuildingCommands(home, preferences, homeController, this);
     this.objectCommands = new AssistantObjectCommands(home, preferences, homeController, this);
+    this.onlineModels = new AssistantOnlineModels(home, this, this.objectCommands);
     this.planCommands = new AssistantPlanCommands(home, homeController, this,
         this.buildingCommands, this.objectCommands);
     this.siteCommands = new AssistantSiteCommands(home, homeController, this);
@@ -210,6 +213,32 @@ public class AssistantCommandExecutor {
    */
   public void setModelSizeProvider(ModelSizeProvider modelSizeProvider) {
     this.modelSizeProvider = modelSizeProvider;
+    if (modelSizeProvider instanceof ModelImageFilter) {
+      // The object that reads models may change their images too
+      this.modelImageFilter = (ModelImageFilter)modelSizeProvider;
+    }
+  }
+
+  /**
+   * Changes the images of the materials of the 3D models imported by <code>import_furniture</code>.
+   */
+  public interface ModelImageFilter {
+    /**
+     * Returns the PNG or JPEG <code>image</code> with the red, green and blue of its pixels
+     * multiplied by the given factors, at PNG or JPEG format.
+     */
+    byte [] tint(byte [] image, float red, float green, float blue) throws java.io.IOException;
+  }
+
+  /**
+   * Sets the object that changes the images of the imported 3D models.
+   */
+  public void setModelImageFilter(ModelImageFilter modelImageFilter) {
+    this.modelImageFilter = modelImageFilter;
+  }
+
+  ModelImageFilter getModelImageFilter() {
+    return this.modelImageFilter;
   }
 
   ModelSizeProvider getModelSizeProvider() {
@@ -403,6 +432,29 @@ public class AssistantCommandExecutor {
 
   AssistantTerrainCommands getTerrainCommands() {
     return this.terrainCommands;
+  }
+
+  /**
+   * Sets the object that asks the libraries of 3D models of the web, for <code>find_model</code>
+   * and <code>import_model</code>.
+   */
+  public void setModelFetcher(AssistantOnlineModels.Fetcher fetcher) {
+    this.onlineModels.setFetcher(fetcher);
+  }
+
+  /**
+   * Sets the object that keeps the tokens of the libraries of 3D models which ask for an account.
+   */
+  public void setModelTokenStore(AssistantOnlineModels.TokenStore tokenStore) {
+    this.onlineModels.setTokenStore(tokenStore);
+  }
+
+  /**
+   * Returns the credits of the models of the home that have an author, a license or a source,
+   * or <code>null</code> if it has none.
+   */
+  public String getModelCredits() {
+    return AssistantOnlineModels.hasCredits(this.home) ? AssistantOnlineModels.getCredits(this.home) : null;
   }
 
   /**
@@ -996,6 +1048,7 @@ public class AssistantCommandExecutor {
                && !this.structureCommands.apply(action, command, tally, notes)
                && !this.shapeCommands.apply(action, command, tally, notes)
                && !this.buildingCommands.apply(action, command, tally, notes)
+               && !this.onlineModels.apply(action, command, tally, notes)
                && !this.objectCommands.apply(action, command, tally, notes)
                && !this.layerCommands.apply(action, command, tally, notes)
                && !this.libraryCommands.apply(action, command, tally, notes)
