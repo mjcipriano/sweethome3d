@@ -1,5 +1,27 @@
 # Changelog
 
+## [7.34.0](https://github.com/mjcipriano/sweethome3d/compare/v7.33.1...v7.34.0) (2026-11-25)
+
+
+### Features
+
+* ceiling height per room, level height without moving walls, and open_to_above ([ac76086](https://github.com/mjcipriano/sweethome3d/commit/ac7608682d86b5be00b8bde8fa8f0abb1bfb885e))
+* change the finish of one area of the ground and keep its grading when the ground is rebuilt ([3bbe215](https://github.com/mjcipriano/sweethome3d/commit/3bbe2153801bbe55baa5c58affedc94b84f4e512)), closes [#196](https://github.com/mjcipriano/sweethome3d/issues/196)
+* check_home reports what shows in 3D, and fix_home repairs it ([5536c41](https://github.com/mjcipriano/sweethome3d/commit/5536c413f258c12ced6cc9939d54e3c98c04df73)), closes [#196](https://github.com/mjcipriano/sweethome3d/issues/196)
+* commands for modeling a real house (issue [#196](https://github.com/mjcipriano/sweethome3d/issues/196)) ([c4d2868](https://github.com/mjcipriano/sweethome3d/commit/c4d2868fc454bb16f5ccb285fcc949e53bb71867))
+* find and import 3D models of online libraries, with their credits ([b5ad6d1](https://github.com/mjcipriano/sweethome3d/commit/b5ad6d18a3aef789dc1c699e94d48a1f74deddfb)), closes [#196](https://github.com/mjcipriano/sweethome3d/issues/196)
+* identify items in 3D pictures, draw saved versions, inspect rooms and scratch homes for MCP clients ([5b33245](https://github.com/mjcipriano/sweethome3d/commit/5b33245bb50b744cb97e35d95af1f372858d38fb))
+* import glTF and GLB models, with options to simplify, turn, recolor and place them, and preview_model ([af5a44e](https://github.com/mjcipriano/sweethome3d/commit/af5a44ed52d9c8877de09c2a9e338094aae67d28)), closes [#196](https://github.com/mjcipriano/sweethome3d/issues/196)
+* paint walls from their rooms, finishes by height, wall openings, headers and railings ([98a8b0b](https://github.com/mjcipriano/sweethome3d/commit/98a8b0b04078ef7545da3ca4618aa965380b4a15))
+* repair roofs that come into a room, overlook railings built by add_railing, reference of the new commands ([56ab644](https://github.com/mjcipriano/sweethome3d/commit/56ab644c1590c2482d572d7be0b2e82821392a16))
+* roofs clipped at taller walls, gutters by edge and span, dormers that stay in place ([e8bb024](https://github.com/mjcipriano/sweethome3d/commit/e8bb0244b5313c2808c3c2c2b5f417955579ad4e))
+
+
+### Bug Fixes
+
+* defects found by building a two-story house with the new commands together ([7571814](https://github.com/mjcipriano/sweethome3d/commit/7571814deea8840e3036cdaa3100058fe6fba8c4))
+* modify_room keeps a ceiling height given with a wall color ([287814b](https://github.com/mjcipriano/sweethome3d/commit/287814b56b0d1c647b1985da99380d1d82ae6316))
+
 ## [7.33.1](https://github.com/mjcipriano/sweethome3d/compare/v7.33.0...v7.33.1) (2026-11-25)
 
 
