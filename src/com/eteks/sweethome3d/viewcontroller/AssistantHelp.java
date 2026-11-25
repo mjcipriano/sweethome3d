@@ -164,7 +164,7 @@ public final class AssistantHelp {
   /** The tools of the MCP server, which <code>help</code> tells from the commands. */
   private static final List<String> TOOLS = java.util.Arrays.asList("get_home", "list_catalog", "search_catalog", "search_textures",
       "check_home", "get_report", "get_notes", "update_note", "get_plan_image", "get_3d_image", "get_3d_info", "get_capabilities",
-      "get_sun_study_image", "sun_study", "get_catalog_image", "export_blender", "apply_commands", "get_elevation_image", "undo", "redo",
+      "get_sun_study_image", "sun_study", "get_catalog_image", "preview_model", "export_blender", "apply_commands", "get_elevation_image", "undo", "redo",
       "get_history", "get_changes", "save_version", "list_versions", "compare_versions", "restore_version", "save_home", "list_homes",
       "open_home", "new_home", "switch_home", "export_home", "add_note", "start_visit");
 

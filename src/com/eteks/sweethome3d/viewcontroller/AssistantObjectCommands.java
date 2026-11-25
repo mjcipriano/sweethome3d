@@ -188,6 +188,34 @@ class AssistantObjectCommands {
         + ". The bottom step is at the front of the piece (toward +y at angle 0)");
   }
 
+  /**
+   * Returns <code>true</code> if the given level is the one made for the ground of <code>set_terrain</code>.
+   */
+  private boolean isTerrainLevel(Level level) {
+    boolean terrain = false;
+    for (HomePieceOfFurniture piece : this.home.getFurniture()) {
+      if (piece.getLevel() == level) {
+        if (piece.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY) != null) {
+          terrain = true;
+        }
+      }
+    }
+    if (terrain) {
+      // Not a floor of the building where the ground was put
+      for (Room room : this.home.getRooms()) {
+        if (room.getLevel() == level) {
+          return false;
+        }
+      }
+      for (Wall wall : this.home.getWalls()) {
+        if (wall.getLevel() == level) {
+          return false;
+        }
+      }
+    }
+    return terrain;
+  }
+
   private boolean isRoofLevel(Level level) {
     for (HomePieceOfFurniture piece : this.home.getFurniture()) {
       if (piece.getLevel() == level
@@ -314,36 +342,166 @@ class AssistantObjectCommands {
 
   // ---- 3D models ----
 
+  /** The property of a piece that holds the address its model comes from. */
+  public static final String MODEL_SOURCE_PROPERTY = "com.eteks.sweethome3d.modelSource";
+  /** The property of a piece that holds the author of its model. */
+  public static final String MODEL_AUTHOR_PROPERTY = "com.eteks.sweethome3d.modelAuthor";
+  /** The property of a piece that holds the license of its model. */
+  public static final String MODEL_LICENSE_PROPERTY = "com.eteks.sweethome3d.modelLicense";
+  /** The property of a piece that holds the colors given to the materials of its model when it was imported, in JSON. */
+  public static final String MODEL_MATERIALS_PROPERTY = "com.eteks.sweethome3d.modelImportMaterials";
+  /** The count of triangles of a model above which its import warns. */
+  public static final int    DEFAULT_TRIANGLE_BUDGET = 300000;
+
+  private static final List<String> IMPORT_FURNITURE_KEYS = java.util.Arrays.asList("action", "path", "name", "x", "y", "angle",
+      "width", "depth", "height", "length", "elevation", "level", "on_terrain", "offset", "front", "materials",
+      "target_triangles", "triangle_budget", "keep_helpers", "source", "author", "license", "tags");
+
   /**
-   * Adds a piece of furniture from a 3D model file (OBJ, DAE, 3DS, KMZ, or a
-   * ZIP file containing one of them).
+   * Adds a piece of furniture from a 3D model file (glTF, GLB, OBJ, DAE, 3DS, KMZ, or a
+   * ZIP file containing an OBJ, DAE, 3DS or KMZ file).
    */
   private void importFurniture(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
+    List<String> importNotes = new java.util.ArrayList<String>();
+    HomePieceOfFurniture piece = createImportedPiece(command, importNotes, true);
+    if (piece == null) {
+      notes.addAll(importNotes);
+      return;
+    }
+    this.executor.warnUnknownKeys(command, IMPORT_FURNITURE_KEYS);
+    this.executor.beginTurnUpdate();
+    Level level = piece.getLevel();
+    Level selectedLevel = this.home.getSelectedLevel();
+    if (level != null && level != selectedLevel) {
+      this.home.setSelectedLevel(level);
+    }
+    this.homeController.getFurnitureController().addFurniture(Collections.singletonList(piece));
+    if (this.home.getSelectedLevel() != selectedLevel && selectedLevel != null) {
+      this.home.setSelectedLevel(selectedLevel);
+    }
+    tally [0]++;
+    notes.addAll(importNotes);
+  }
+
+  /**
+   * Returns the piece of furniture that <code>import_furniture</code> creates from a 3D model
+   * file with the options of <code>command</code>, without adding it to the home, or
+   * <code>null</code> if its values are out of range. What was done is added to <code>notes</code>.
+   * @param place <code>true</code> to choose the level of the piece and to stand it on the ground
+   *          or on the floor under it
+   */
+  HomePieceOfFurniture createImportedPiece(AssistantCommand command, List<String> notes, boolean place) throws IOException {
     File file = getFile(command, "path");
     if (file.length() > MAX_MODEL_LENGTH) {
       throw new IOException(file.getName() + " is larger than " + (MAX_MODEL_LENGTH / 1024 / 1024) + " MB");
     }
-    AssistantCommandExecutor.ModelSizeProvider sizeProvider = this.executor.getModelSizeProvider();
-    if (sizeProvider == null) {
-      throw new IOException("3D models can't be read here");
+    String front = command.getString("front");
+    Map<String, Integer> materialColors = getMaterialColors(command);
+    int targetTriangles = (int)Math.max(0, Math.min(Integer.MAX_VALUE, command.getDouble("target_triangles", 0)));
+    int triangleBudget = (int)Math.max(1, Math.min(Integer.MAX_VALUE, command.getDouble("triangle_budget", DEFAULT_TRIANGLE_BUDGET)));
+    boolean gltf = AssistantModelImporter.isGltf(file.getName());
+    // OBJ files are loaded as they are, unless an option changes their triangles or their materials
+    boolean converted = gltf
+        || AssistantModelImporter.isReadable(file.getName())
+           && (targetTriangles > 0 || !materialColors.isEmpty()
+               || command.has("keep_helpers") && !command.getBoolean("keep_helpers", true));
+    List<String> details = new java.util.ArrayList<String>();
+    Content model;
+    float [] size;
+    boolean centimeters = false;
+    float [][] modelRotation = null;
+    if (converted) {
+      AssistantModelImporter importer = AssistantModelImporter.read(file, MAX_MODEL_LENGTH);
+      centimeters = importer.isInCentimeters();
+      int readTriangles = importer.getTriangleCount();
+      if (!command.getBoolean("keep_helpers", false)) {
+        List<String> dropped = importer.dropHelpers();
+        if (!dropped.isEmpty()) {
+          details.add("left out " + dropped + " (\"keep_helpers\":true keeps them)");
+        }
+      }
+      if (front != null && !importer.turnFront(front)) {
+        throw new IOException("\"front\" is +x, -x, +y or -y: the side of the model that is its front");
+      }
+      if (!materialColors.isEmpty()) {
+        List<String> unknownNames = importer.recolor(materialColors);
+        if (!unknownNames.isEmpty()) {
+          details.add("no material is named " + unknownNames + "; its materials: " + importer.getMaterialNames());
+        }
+      }
+      int triangles = importer.getTriangleCount();
+      if (targetTriangles > 0 && triangles > targetTriangles) {
+        triangles = importer.simplify(targetTriangles);
+        details.add("simplified from " + readTriangles + " to " + triangles + " triangles");
+      } else {
+        details.add(triangles + " triangles");
+      }
+      if (triangles > triangleBudget) {
+        details.add("WARNING: that is more than " + triangleBudget + " triangles, which slows the 3D view down; "
+            + "\"target_triangles\":N simplifies the model when it's imported");
+      }
+      details.add("materials " + importer.getMaterialNames());
+      for (String note : importer.getNotes()) {
+        details.add(note);
+      }
+      size = importer.getSize();
+      model = importer.createContent();
+    } else {
+      AssistantCommandExecutor.ModelSizeProvider sizeProvider = this.executor.getModelSizeProvider();
+      if (sizeProvider == null) {
+        throw new IOException("3D models can't be read here");
+      }
+      if (targetTriangles > 0 || !materialColors.isEmpty()) {
+        details.add("\"target_triangles\" and \"materials\" apply to glTF, GLB and OBJ files only: "
+            + "the set_material command recolors the materials of this piece");
+      }
+      model = createModelContent(file);
+      size = sizeProvider.getModelSize(model);
+      if (size != null && front != null) {
+        String side = front.trim().toLowerCase(Locale.ENGLISH).replace(" ", "");
+        if ("-y".equals(side)) {
+          modelRotation = new float [][] {{-1, 0, 0}, {0, 1, 0}, {0, 0, -1}};
+        } else if ("+x".equals(side) || "x".equals(side)) {
+          modelRotation = new float [][] {{0, 0, -1}, {0, 1, 0}, {1, 0, 0}};
+          size = new float [] {size [1], size [0], size [2]};
+        } else if ("-x".equals(side)) {
+          modelRotation = new float [][] {{0, 0, 1}, {0, 1, 0}, {-1, 0, 0}};
+          size = new float [] {size [1], size [0], size [2]};
+        } else if (!"+y".equals(side) && !"y".equals(side)) {
+          throw new IOException("\"front\" is +x, -x, +y or -y: the side of the model that is its front");
+        }
+      }
+      if (file.getName().toLowerCase(Locale.ENGLISH).endsWith(".obj")) {
+        int faces = countFaces(file);
+        details.add("about " + faces + " faces");
+        if (faces > triangleBudget) {
+          details.add("WARNING: that is more than " + triangleBudget + ", which slows the 3D view down; "
+              + "\"target_triangles\":N simplifies the model when it's imported");
+        }
+      }
     }
-    Content model = createModelContent(file);
-    float [] size = sizeProvider.getModelSize(model);
     if (size == null || !(size [0] > 0) || !(size [1] > 0) || !(size [2] > 0)) {
       throw new IOException(file.getName() + " contains no 3D shape");
     }
     // Scale the model to the given dimension, keeping its proportions
+    double length = command.getDouble("length", Double.NaN);
     double width = command.getDouble("width", Double.NaN);
     double depth = command.getDouble("depth", Double.NaN);
     double height = command.getDouble("height", Double.NaN);
     float scale;
     String scaleNote = "";
-    if (width > 0) {
+    if (length > 0) {
+      // The longest side of the model on the floor
+      scale = (float)length / Math.max(size [0], size [1]);
+    } else if (width > 0) {
       scale = (float)width / size [0];
     } else if (height > 0) {
       scale = (float)height / size [2];
     } else if (depth > 0) {
       scale = (float)depth / size [1];
+    } else if (centimeters) {
+      scale = 1;
+      scaleNote = " (the size written in its file, in meters); give \"length\", \"width\" or \"height\" in cm for another size";
     } else {
       // Models are drawn in centimeters, meters, inches or millimeters: choose
       // the unit that gives the size of a piece of furniture
@@ -352,19 +510,20 @@ class AssistantObjectCommands {
       scaleNote = scale == 100 ? " (its unit was taken for the meter)"
           : scale == 2.54f ? " (its unit was taken for the inch)"
           : scale == 0.1f ? " (its unit was taken for the millimeter)" : "";
-      scaleNote += "; give \"width\" or \"height\" in cm if the size is wrong";
+      scaleNote += "; give \"length\", \"width\" or \"height\" in cm if the size is wrong";
     }
     float pieceWidth = size [0] * scale;
     float pieceDepth = size [1] * scale;
     float pieceHeight = size [2] * scale;
     double x = command.getDouble("x", Double.NaN);
     double y = command.getDouble("y", Double.NaN);
-    double elevation = command.getDouble("elevation", 0);
+    double elevation = command.getDouble("elevation", Double.NaN);
     if (!AssistantCommandExecutor.sizeSane(pieceWidth) || !AssistantCommandExecutor.sizeSane(pieceDepth)
         || !AssistantCommandExecutor.sizeSane(pieceHeight) || !AssistantCommandExecutor.coordinateSane(x)
-        || !AssistantCommandExecutor.coordinateSane(y) || !AssistantCommandExecutor.sizeSane(elevation)) {
+        || !AssistantCommandExecutor.coordinateSane(y)
+        || !Double.isNaN(elevation) && !AssistantCommandExecutor.sizeSane(elevation)) {
       notes.add("Ignored import_furniture with out-of-range values");
-      return;
+      return null;
     }
     String name = command.getString("name");
     if (name == null || name.trim().length() == 0) {
@@ -373,6 +532,9 @@ class AssistantObjectCommands {
     HomePieceOfFurniture piece = new HomePieceOfFurniture(new CatalogPieceOfFurniture(name.trim(),
         AssistantGeneratedModel.createIconContent(DEFAULT_BOX_COLOR), model,
         pieceWidth, pieceDepth, pieceHeight, true, false));
+    if (modelRotation != null) {
+      piece.setModelRotation(modelRotation);
+    }
     if (!Double.isNaN(x)) {
       piece.setX((float)x);
     }
@@ -380,13 +542,184 @@ class AssistantObjectCommands {
       piece.setY((float)y);
     }
     piece.setAngle((float)Math.toRadians(command.getDouble("angle", 0)));
-    piece.setElevation((float)elevation);
-    piece.setLevel(this.home.getSelectedLevel());
-    this.executor.beginTurnUpdate();
-    this.homeController.getFurnitureController().addFurniture(Collections.singletonList(piece));
-    tally [0]++;
-    notes.add("Imported \"" + name.trim() + "\" at " + Math.round(pieceWidth) + " x " + Math.round(pieceDepth)
-        + " x " + Math.round(pieceHeight) + " cm (width x depth x height)" + scaleNote);
+    piece.setElevation(Double.isNaN(elevation) ? 0 : (float)elevation);
+    String placeNote = "";
+    if (place) {
+      placeNote = placeImportedPiece(piece, command, Double.isNaN(elevation));
+      if (placeNote == null) {
+        notes.add("Ignored import_furniture \"" + name.trim() + "\": there is no level \"" + command.getString("level") + "\"");
+        return null;
+      }
+    }
+    // Where the model comes from goes with the piece
+    for (String [] property : new String [][] {{"source", MODEL_SOURCE_PROPERTY}, {"author", MODEL_AUTHOR_PROPERTY},
+                                                {"license", MODEL_LICENSE_PROPERTY}}) {
+      String value = command.getString(property [0]);
+      if (value != null && value.trim().length() > 0) {
+        piece.setProperty(property [1], value.trim().length() > 500 ? value.trim().substring(0, 500) : value.trim());
+      }
+    }
+    if (!materialColors.isEmpty() && converted) {
+      Map<String, Object> colors = new LinkedHashMap<String, Object>();
+      for (Map.Entry<String, Integer> entry : materialColors.entrySet()) {
+        colors.put(entry.getKey(), String.format("#%06X", entry.getValue()));
+      }
+      piece.setProperty(MODEL_MATERIALS_PROPERTY, JSONParser.toJSON(colors));
+    }
+    if (command.has("tags")) {
+      List<String> tags = new java.util.ArrayList<String>();
+      for (String tag : command.getStringList("tags")) {
+        tags.addAll(HomeItemTags.parseTags(tag));
+      }
+      if (!tags.isEmpty()) {
+        piece.setProperty(HomeItemTags.TAGS_PROPERTY, HomeItemTags.formatTags(tags));
+      }
+    }
+    StringBuilder note = new StringBuilder("Imported \"" + name.trim() + "\" at " + Math.round(pieceWidth) + " x "
+        + Math.round(pieceDepth) + " x " + Math.round(pieceHeight) + " cm (width x depth x height)" + scaleNote);
+    note.append(placeNote);
+    note.append(front != null ? "; its side " + front.trim() + " was turned to the front"
+        : converted ? "; its front is taken toward +y of the piece (+Z of a glTF file): \"front\":\"+x|-x|-y\" turns another side to the front" : "");
+    for (String detail : details) {
+      note.append("; ").append(detail);
+    }
+    String credits = describeModelSource(piece);
+    if (credits.length() > 0) {
+      note.append("; ").append(credits);
+    }
+    notes.add(note.toString());
+    return piece;
+  }
+
+  /**
+   * Returns the source, the author and the license recorded with <code>piece</code>, or an empty string.
+   */
+  static String describeModelSource(HomePieceOfFurniture piece) {
+    StringBuilder text = new StringBuilder();
+    for (String [] property : new String [][] {{"source", MODEL_SOURCE_PROPERTY}, {"author", MODEL_AUTHOR_PROPERTY},
+                                                {"license", MODEL_LICENSE_PROPERTY}}) {
+      String value = piece.getProperty(property [1]);
+      if (value != null) {
+        text.append(text.length() > 0 ? ", " : "model ").append(property [0]).append(" ").append(value);
+      }
+    }
+    return text.toString();
+  }
+
+  /**
+   * Returns the colors given to materials by the <code>materials</code> object of <code>command</code>.
+   */
+  private static Map<String, Integer> getMaterialColors(AssistantCommand command) throws IOException {
+    Map<String, Integer> colors = new LinkedHashMap<String, Integer>();
+    Object materials = command.getParameters().get("materials");
+    if (materials instanceof Map) {
+      for (Map.Entry<?, ?> entry : ((Map<?, ?>)materials).entrySet()) {
+        Integer color = AssistantCommandExecutor.parseColor(String.valueOf(entry.getValue()));
+        if (color == null) {
+          throw new IOException("\"materials\" gives a color #RRGGBB to names of materials: " + entry.getValue()
+              + " isn't a color");
+        }
+        colors.put(String.valueOf(entry.getKey()), Integer.valueOf(color.intValue() & 0xFFFFFF));
+      }
+    } else if (materials != null) {
+      throw new IOException("\"materials\" is an object {\"<name of a material>\":\"#RRGGBB\"}");
+    }
+    return colors;
+  }
+
+  /**
+   * Returns the count of lines of an OBJ file which describe a face.
+   */
+  private static int countFaces(File file) throws IOException {
+    byte [] data = AssistantGeneratedModel.readFile(file, MAX_MODEL_LENGTH);
+    int count = 0;
+    for (int i = 0; i + 2 < data.length; i++) {
+      if (data [i] == '\n' && data [i + 1] == 'f' && data [i + 2] == ' ') {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Chooses the level of an imported piece and stands it on what is under it: the floor of
+   * the room it is in, or the ground outdoors.
+   * @return a note about where the piece stands, or <code>null</code> if the level asked doesn't exist
+   */
+  private String placeImportedPiece(HomePieceOfFurniture piece, AssistantCommand command, boolean freeElevation) {
+    Level level = this.home.getSelectedLevel();
+    boolean levelGiven = command.getString("level") != null;
+    if (levelGiven) {
+      List<Level> levels = HomeItemIds.findLevels(this.home, command.getString("level"));
+      if (levels.isEmpty()) {
+        return null;
+      }
+      level = levels.get(0);
+    }
+    float x = piece.getX();
+    float y = piece.getY();
+    boolean located = command.has("x") && command.has("y");
+    Float ground = located ? this.executor.getShapeCommands().getTerrainHeight(x, y) : null;
+    boolean indoors = false;
+    if (located && !levelGiven) {
+      // The level of the room the piece is in, the selected one first
+      Level roomLevel = null;
+      boolean inRoom = false;
+      for (Room room : this.home.getRooms()) {
+        if (room.containsPoint(x, y, 0)) {
+          if (room.getLevel() == level) {
+            roomLevel = level;
+            inRoom = true;
+            break;
+          } else if (!inRoom || level != null && room.getLevel() != null && roomLevel != null
+                     && Math.abs(room.getLevel().getElevation() - level.getElevation())
+                         < Math.abs(roomLevel.getElevation() - level.getElevation())) {
+            roomLevel = room.getLevel();
+            inRoom = true;
+          }
+        }
+      }
+      if (inRoom) {
+        indoors = true;
+        level = roomLevel;
+      } else if (ground != null) {
+        // Outdoors: the level of the building whose floor is the closest to the ground
+        Level closestLevel = null;
+        for (Level other : this.home.getLevels()) {
+          if (!isRoofLevel(other) && !isTerrainLevel(other)
+              && (closestLevel == null
+                  || Math.abs(other.getElevation() - ground) < Math.abs(closestLevel.getElevation() - ground) - 0.5f)) {
+            closestLevel = other;
+          }
+        }
+        if (closestLevel != null) {
+          level = closestLevel;
+        }
+      }
+    } else if (located) {
+      for (Room room : this.home.getRooms()) {
+        indoors |= room.getLevel() == level && room.containsPoint(x, y, 0);
+      }
+    }
+    piece.setLevel(level);
+    boolean onTerrain = command.has("on_terrain") ? command.getBoolean("on_terrain", false)
+        : freeElevation && !indoors && ground != null
+            && !"false".equals(this.home.getProperty(AssistantCommandExecutor.OUTDOOR_ON_TERRAIN_PROPERTY));
+    String levelNote = level != null && level != this.home.getSelectedLevel()
+        ? " of the level \"" + level.getName() + "\"" : "";
+    if (onTerrain && ground != null) {
+      double offset = command.getDouble("offset", 0);
+      piece.setElevation(ground + (float)(AssistantCommandExecutor.sizeSane(offset) ? offset : 0)
+          - (level != null ? level.getElevation() : 0));
+      piece.setProperty(AssistantCommandExecutor.OUTDOOR_PROPERTY, "true");
+      return "; it stands on the ground, " + AssistantStructureCommands.format(ground) + " cm high, at the elevation "
+          + AssistantStructureCommands.format(piece.getElevation()) + " cm" + levelNote;
+    } else if (onTerrain) {
+      return "; there is no terrain under it: it stands at the elevation " + AssistantStructureCommands.format(piece.getElevation())
+          + " cm" + levelNote;
+    }
+    return freeElevation ? "; it stands on the floor" + levelNote
+        : "; at the elevation " + AssistantStructureCommands.format(piece.getElevation()) + " cm" + levelNote;
   }
 
   /**
@@ -418,7 +751,7 @@ class AssistantObjectCommands {
       return new TemporaryURLContent(new URL("jar:" + copy.toURI().toURL() + "!/"
           + modelEntry.replace(" ", "%20")));
     } else if (!MODEL_NAME.matcher(lowerName).matches()) {
-      throw new IOException("only OBJ, DAE, 3DS, KMZ and ZIP files can be imported");
+      throw new IOException("only glTF, GLB, OBJ, DAE, 3DS, KMZ and ZIP files can be imported");
     }
     // The model with the material files and the images it names, which are
     // looked for beside it
