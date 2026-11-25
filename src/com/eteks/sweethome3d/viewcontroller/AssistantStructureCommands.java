@@ -512,8 +512,13 @@ class AssistantStructureCommands {
         baseboardChanged [1] = true;
       }
     }
+    // Finishes that change with the height and openings without door
+    boolean finishChanged = this.executor.getWallFinishCommands().modifyWalls(command, walls, tally, notes);
     if (Double.isNaN(height) && !command.has("height_at_end") && Double.isNaN(thickness) && !command.has("arc_extent")
         && !moved && !command.has("top_color") && !baseboardChanged [0] && !baseboardChanged [1]) {
+      if (finishChanged) {
+        return;
+      }
       notes.add("Ignored modify_wall: give at least one of \"height\", \"height_at_end\", \"thickness\", \"arc_extent\", "
           + "\"top_color\", \"baseboard\", \"x1\", \"y1\", \"x2\" and \"y2\"");
       return;
@@ -564,6 +569,10 @@ class AssistantStructureCommands {
         }
       });
     tally [4] += walls.size();
+    if (moved || !Double.isNaN(thickness)) {
+      // The openings without door and the headers of the walls follow them
+      this.executor.getWallFinishCommands().wallsChanged(walls, notes);
+    }
     StringBuilder note = new StringBuilder("Modified ");
     for (int i = 0; i < walls.size() && i < 10; i++) {
       note.append(i > 0 ? "; " : "").append(describeWall((Wall)walls.get(i), false));
@@ -601,6 +610,7 @@ class AssistantStructureCommands {
       text.append(", length ").append(format(wall.getLength())).append(" cm");
       text.append(", left side").append(describeFinish(wall.getLeftSideColor(), wall.getLeftSideTexture()));
       text.append(", right side").append(describeFinish(wall.getRightSideColor(), wall.getRightSideTexture()));
+      text.append(this.executor.getWallFinishCommands().describeWall(wall));
       if (wall.getWallAtStart() != null) {
         text.append(", joined at start to ").append(this.executor.getId(wall.getWallAtStart()));
       }

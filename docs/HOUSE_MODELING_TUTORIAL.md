@@ -316,6 +316,160 @@ The same house from the garden side, `{"view":"north_west","target":"building"}`
 
 Save the home with **File > Save**: the tools can't.
 
+## Wall finishes, openings, headers and railings
+
+### Paint the walls from their rooms
+
+A room keeps the color or the texture of its walls. `modify_room` stores it
+and paints the wall sides that face the room:
+
+```json
+{"action":"modify_room","room":"Kitchen","wall_color":"#9FB8C8"}
+{"action":"modify_room","id":"R3","wall_texture":"Small bricks"}
+```
+
+`paint_rooms` does it for every room at once, or for the ones of `"rooms"` or
+of a `"level"`:
+
+```json
+{"action":"paint_rooms"}
+{"action":"paint_rooms","rooms":["Kitchen","R5"],"only":"all"}
+{"action":"paint_rooms","color":"#F2EFE6"}
+```
+
+- By default only the sides that have neither color nor texture are painted.
+  `"only":"all"` paints the others too.
+- `"color"` or `"texture"` is the finish of the rooms that have none of their
+  own. Rooms left without finish are named in the answer.
+- The answer counts the sides painted room by room, and names the sides that
+  face no room. Those are the outside faces of the house: paint them with
+  `set_color` or `set_texture`.
+- A wall side has one finish over its length. A side that runs along two
+  rooms gets the finish of the room it faces the most, and the answer says so.
+- A wall of an upper level that looks down into a room open to above (a
+  two-story foyer) is painted as that room. A room counts as open to above
+  when its ceiling is hidden, or when its ceiling height
+  (`com.eteks.sweethome3d.ceilingHeight`) reaches the upper level.
+
+### Finishes that change with the height
+
+A wall side may show several finishes one above the other, listed from the
+floor up:
+
+```json
+{"action":"modify_wall","id":"W12",
+ "left_finish":[{"to":90,"color":"#7A3B2E"},
+                {"to":200,"texture":"Small bricks"},
+                {"color":"#3E7A4A"}]}
+```
+
+- Each finish goes from the floor up to its `"to"`, in cm above the floor of
+  the wall. The last one, without `"to"`, is the finish of the side up to its
+  top. Up to 4 finishes can lie under it.
+- `"to_at_end"` gives another height at the end of the wall, for a sloped
+  line.
+- `"to":"roof"` stops a finish where a lower roof meets that side of the wall.
+  A two-story wall next to a one-story wing is then painted as its room below
+  the roof of the wing and keeps its siding above:
+
+  ```json
+  {"action":"modify_wall","id":"W52",
+   "right_finish":[{"to":"roof","color":"#D5AC6B"}]}
+  ```
+
+  The line is straight, from the height of the roof at one end of the wall to
+  its height at the other end, lowered where needed to stay under the roof.
+  `"roof":"F510"` names the roof when several stand there.
+- `"right_finish"` works the same way. `false` removes the finishes of a side.
+  The left side is at the left of who walks from the start of the wall to its
+  end; `describe_item` gives both sides and their finishes.
+- Doors and windows cut these finishes as they cut the wall. A baseboard is
+  drawn over them. They show in the 3D view with both renderers, in ray-traced
+  pictures and in OBJ exports. The plan doesn't show them.
+- Each finish stands 4 mm in front of the one above it.
+- A home with such finishes opens in versions that don't know them: each side
+  then shows its top finish over its whole height.
+
+### Openings without door
+
+```json
+{"action":"add_opening","wall":"W7","from":120,"to":300,"bottom":0,"top":210}
+{"action":"add_opening","wall":"W7","center":210,"width":90,"bottom":95,"height":110}
+```
+
+`"from"` and `"to"` are measured in cm from the start of the wall, the point
+`x1,y1` that `describe_item` gives. The opening is a piece named "Opening"
+that shows only a thin lining around the hole (`"lining"` in cm,
+`"lining_color"`). `delete` removes it, and it isn't listed in the door and
+window schedules. To replace or remove all the openings of a wall at once:
+
+```json
+{"action":"modify_wall","id":"W7","openings":[{"from":40,"to":130},{"from":250,"to":340}]}
+{"action":"modify_wall","id":"W7","openings":[]}
+```
+
+Round walls can't be opened this way.
+
+### Headers and soffits
+
+```json
+{"action":"add_header","opening":"F12","height":30}
+{"action":"add_header","wall":"W7","from":100,"to":320,"bottom":210}
+{"action":"add_header","points":[[515,200],[805,200]],"bottom":215,"thickness":15}
+{"action":"add_soffit","points":[[510,0],[810,0],[810,60],[510,60]],"bottom":215}
+```
+
+- A header is a beam over an opening, a door or a window (`"opening"`), along
+  a wall, or between two points. Between points, each end goes on to the wall
+  it nearly reaches (within 60 cm), unless `"to_walls":false`.
+- Its underside is at `"bottom"` above the floor: the top of the opening by
+  default. It rises to the ceiling of the level, or to `"top"`, or by
+  `"height"`.
+- A header given by an opening or a wall follows its wall when `modify_wall`
+  moves it, as openings do. It doesn't follow a wall moved by hand in the
+  plan or by `move`.
+- A soffit lowers a part of a ceiling, from `"bottom"` up to the ceiling of
+  the level. `"room":"R4"` lowers the whole ceiling of a room.
+
+### Railings
+
+```json
+{"action":"add_railing","points":[[100,200],[500,200],[500,420]],
+ "height":91,"style":"turned_balusters","spacing":12,"color":"#F2F0EB"}
+```
+
+| Style | What is between the posts | Triangles for 4 m |
+| --- | --- | --- |
+| `square` (default) | Square balusters and a bottom rail | 480 |
+| `turned_balusters` | Balusters turned on a lathe and a bottom rail | 3,360 |
+| `cable` | Horizontal steel cables | 588 |
+| `glass` | Glass panels | 204 |
+
+- Posts stand at each point and every `"post_spacing"` cm (180 by default, 120
+  for cable and glass). Balusters are repeated every `"spacing"` cm at most:
+  a longer railing gets more of them, they aren't stretched. The answer gives
+  their count and the space between two of them, and warns when it is more
+  than the 10 cm that building codes allow.
+- `"top_rail"` is `square`, `round`, `flat`, or `none` for glass; `"rail_color"`
+  is its color.
+- A point `[x,y,z]` gives the height of the floor under the railing, measured
+  from the floor of the level. The rails follow the pitch between two points,
+  and the balusters stay upright.
+- `"stairs":"F33"` with `"side":"left"` or `"right"` (for who climbs) follows
+  that side of stairs made by `add_stairs`, around their landing. Points given
+  with it continue from the top of the stairs, as one piece with one top
+  rail: this is how a stair railing joins the railing of an overlook.
+
+  ```json
+  {"action":"add_railing","stairs":"F33","side":"left","points":[[1400,700],[1700,700]]}
+  ```
+
+  Build these stairs without `"railing"`, or they keep their own handrail too.
+  Spiral stairs need their points given as `[x,y,z]`.
+- `modify_railing` builds a railing again with the options given.
+- A railing doesn't move with the stairs or the walls it runs along: use
+  `modify_railing` with new `"points"`, or `"stairs"` again.
+
 ## Going further
 
 | To | Do |

@@ -33,6 +33,7 @@ import java.util.Map;
 public final class AssistantHelp {
   private static final String [][] GROUPS = {
       {"Rooms and walls", "add_rectangular_room add_room_shape add_room add_wall modify_room modify_wall"},
+      {"Wall finishes, openings, headers and railings", "paint_rooms add_opening add_header add_soffit add_railing modify_railing"},
       {"Levels and stairs", "add_level select_level modify_level delete_level merge_levels move_to_level add_stairs"},
       {"Furniture, doors and windows", "search_catalog add_furniture add_door_or_window modify_furniture replace_furniture duplicate "
           + "create_furniture modify_furniture_parts add_picture import_furniture add_to_catalog export_furniture_library "

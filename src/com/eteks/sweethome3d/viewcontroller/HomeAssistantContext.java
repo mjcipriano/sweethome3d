@@ -750,7 +750,9 @@ public class HomeAssistantContext {
         + "\"top_color\":\"#RRGGBB\",\"baseboard\":{\"height\":N,\"thickness\":N,\"texture\":\"<texture name>\",\"side\":\"left|right|both\"}}  "
         + "(height_at_end slopes the top of the wall from its start to its end, 0 levels it again; arc_extent in degrees "
         + "rounds it, 0 straightens it; \"x1\",\"y1\",\"x2\",\"y2\" move its ends. A baseboard as high as needed, with a color or "
-        + "a texture, gives a wall a second finish under the first one, e.g. a brick base under siding; \"baseboard\":false removes it)\n"
+        + "a texture, gives a wall a second finish under the first one, e.g. a brick base under siding; \"baseboard\":false removes it. "
+        + "\"left_finish\" and \"right_finish\" give a side finishes that change with the height, and \"openings\" opens the wall "
+        + "without door: see paint_rooms and add_opening)\n"
         + "  {\"action\":\"set_plan_visibility\",\"tag\":\"roof\",\"value\":\"draw|outline|hide\"}  (how the plans of the levels ABOVE "
         + "the one of a piece show it when it rises through them: drawn, as a thin dashed outline, or not at all. Roofs are "
         + "outlined by default. Pieces by \"ids\", \"tag\", \"level\" or \"where\")\n"
@@ -763,7 +765,10 @@ public class HomeAssistantContext {
         + "or of a terrace, garden or paved area outdoors, which would otherwise show as a flat slab at the height of the level; "
         + "\"points\" reshapes one room. \"ceiling\":\"follow_roof\" gives a room under a roof built by add_roof a ceiling under its slopes, "
         + "dormers included, and \"flat_ceiling_at\":N makes it flat from the height N, as under collar ties; \"ceiling\":\"flat\" removes it. "
-        + "The reply gives the headroom)\n"
+        + "The reply gives the headroom. \"wall_color\":\"#RRGGBB\" or \"wall_texture\":\"<texture name>\" stores the finish of the "
+        + "walls of the room and paints the wall sides that face it: see paint_rooms)\n"
+        + AssistantWallFinishCommands.getReference()
+        + AssistantRailingCommands.getReference()
         + "  {\"action\":\"duplicate\",\"id\":\"F1\",\"dx\":N,\"dy\":N,\"count\":N}  (copies of furniture, each shifted by dx,dy)\n"
         + "  {\"action\":\"set_camera\",\"x\":N,\"y\":N,\"height\":N,\"look_at_x\":N,\"look_at_y\":N,\"mode\":\"visitor|aerial\"}  "
         + "(moves the virtual visitor, also the starting point of the VR preview; or \"view\":\"top|south|north|east|west|"
