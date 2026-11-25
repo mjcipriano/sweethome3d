@@ -62,6 +62,19 @@ public class Room3D extends Object3DBranch {
   private static final int CEILING_PART = 1;
 
   /**
+   * The property of a room that gives the height of its ceiling above its floor in centimeters,
+   * when the ceiling isn't at the top of the level of the room: a lower ceiling, or the ceiling
+   * of a room open to the level above. Such a ceiling is drawn from both sides.
+   */
+  public static final String CEILING_HEIGHT_PROPERTY = "com.eteks.sweethome3d.ceilingHeight";
+  /**
+   * The property of a room that gives the thickness in centimeters of a ceiling
+   * placed with {@link #CEILING_HEIGHT_PROPERTY}, 5 cm by default.
+   */
+  public static final String CEILING_THICKNESS_PROPERTY = "com.eteks.sweethome3d.ceilingThickness";
+  private static final float DEFAULT_CEILING_THICKNESS = 5;
+
+  /**
    * Creates the 3D room matching the given home <code>room</code>.
    */
   public Room3D(Room room, Home home) {
@@ -293,8 +306,31 @@ public class Room3D extends Object3DBranch {
           });
       }
 
+      // A ceiling placed at its own height isn't the one of the top of the level
+      Float ceilingHeight = roomPart == CEILING_PART ? getCeilingHeight(room) : null;
+      if (ceilingHeight != null) {
+        for (int i = roomsAtSameElevation.size() - 1; i >= 0; i--) {
+          Room otherRoom = roomsAtSameElevation.get(i);
+          if (otherRoom != room) {
+            Float otherCeilingHeight = getCeilingHeight(otherRoom);
+            float otherElevation = otherRoom.getLevel() != null ? otherRoom.getLevel().getElevation() : 0;
+            if (otherCeilingHeight == null
+                || Math.abs(otherElevation + otherCeilingHeight - roomElevation - ceilingHeight) > 1E-4) {
+              roomsAtSameElevation.remove(i);
+            }
+          }
+        }
+      } else if (roomPart == CEILING_PART) {
+        for (int i = roomsAtSameElevation.size() - 1; i >= 0; i--) {
+          if (roomsAtSameElevation.get(i) != room && getCeilingHeight(roomsAtSameElevation.get(i)) != null) {
+            roomsAtSameElevation.remove(i);
+          }
+        }
+      }
+
       List<HomePieceOfFurniture> visibleStaircases;
       if (roomLevel == null
+          || ceilingHeight != null
           || roomPart == CEILING_PART
               && lastLevel) {
         visibleStaircases = Collections.emptyList();
@@ -306,6 +342,7 @@ public class Room3D extends Object3DBranch {
       // Check ceiling points of the last level are at the same elevation
       boolean sameElevation = true;
       if (roomPart == CEILING_PART
+          && ceilingHeight == null
           && (roomLevel == null || lastLevel)) {
         float firstPointElevation = getRoomHeightAt(points [0][0], points [0][1]);
         for (int i = 1; i < points.length && sameElevation; i++) {
@@ -410,7 +447,32 @@ public class Room3D extends Object3DBranch {
         if (roomLevel != null
             && roomPart == FLOOR_PART
             && roomLevel.getElevation() != firstLevelElevation) {
-          geometries.add(computeRoomBorderGeometry(roomPoints, roomHoles, roomLevel, roomElevation, texture));
+          geometries.add(computeRoomBorderGeometry(roomPoints, roomHoles, roomElevation,
+              roomElevation - roomLevel.getFloorThickness(), texture));
+        }
+
+        if (ceilingHeight != null) {
+          // The top of a ceiling placed at its own height and its borders, to close the room seen from above
+          float ceilingBottomElevation = roomElevation + ceilingHeight;
+          float ceilingTopElevation = ceilingBottomElevation + getCeilingThickness(room);
+          List<float [][]> ceilingTopPoints = new ArrayList<float [][]>();
+          for (float [][] ceilingPoints : roomPointsWithoutHoles) {
+            ceilingTopPoints.add(getReversedArray(ceilingPoints.clone()));
+          }
+          geometries.add(computeRoomPartGeometry(ceilingTopPoints, null, roomLevel,
+              ceilingTopElevation, floorBottomElevation, true, false, texture));
+          if (ceilingTopElevation > ceilingBottomElevation) {
+            List<float [][]> borderPoints = new ArrayList<float [][]>();
+            for (float [][] ceilingPoints : roomPoints) {
+              borderPoints.add(getReversedArray(ceilingPoints.clone()));
+            }
+            List<float [][]> borderHoles = new ArrayList<float [][]>();
+            for (float [][] ceilingHole : roomHoles) {
+              borderHoles.add(getReversedArray(ceilingHole.clone()));
+            }
+            geometries.add(computeRoomBorderGeometry(borderPoints, borderHoles,
+                ceilingTopElevation, ceilingBottomElevation, texture));
+          }
         }
       }
 
@@ -536,7 +598,7 @@ public class Room3D extends Object3DBranch {
    */
   private Geometry computeRoomBorderGeometry(List<float [][]> geometryRooms,
                                              List<float [][]> geometryHoles,
-                                             Level roomLevel, float roomElevation,
+                                             float roomElevation, float floorBottomElevation,
                                              HomeTexture texture) {
     int vertexCount = 0;
     for (float [][] geometryPoints : geometryRooms) {
@@ -549,7 +611,7 @@ public class Room3D extends Object3DBranch {
 
     int i = 0;
     Point3f [] coords = new Point3f [vertexCount];
-    float floorBottomElevation = roomElevation - roomLevel.getFloorThickness();
+    float borderHeight = roomElevation - floorBottomElevation;
     // Compute room borders coordinates
     for (float [][] geometryPoints : geometryRooms) {
       for (int j = 0; j < geometryPoints.length; j++) {
@@ -611,7 +673,7 @@ public class Room3D extends Object3DBranch {
         // Compute room border texture coordinates
         for (float [][] geometryPoints : geometryRooms) {
           for (int j = 0; j < geometryPoints.length; j++) {
-            textureCoords [i++] = new TexCoord2f(0, roomLevel.getFloorThickness());
+            textureCoords [i++] = new TexCoord2f(0, borderHeight);
             textureCoords [i++] = new TexCoord2f(0, 0);
             int nextPoint = j < geometryPoints.length - 1
                 ? j + 1
@@ -619,7 +681,7 @@ public class Room3D extends Object3DBranch {
             float textureCoord = (float)(Point2D.distance(geometryPoints [j][0], geometryPoints [j][1],
                 geometryPoints [nextPoint][0], geometryPoints [nextPoint][1]));
             textureCoords [i++] = new TexCoord2f(textureCoord, 0);
-            textureCoords [i++] = new TexCoord2f(textureCoord, roomLevel.getFloorThickness());
+            textureCoords [i++] = new TexCoord2f(textureCoord, borderHeight);
           }
         }
         // Compute holes borders texture coordinates
@@ -632,8 +694,8 @@ public class Room3D extends Object3DBranch {
             float textureCoord = (float)(Point2D.distance(geometryHole [j][0], geometryHole [j][1],
                 geometryHole [nextPoint][0], geometryHole [nextPoint][1]));
             textureCoords [i++] = new TexCoord2f(textureCoord, 0);
-            textureCoords [i++] = new TexCoord2f(textureCoord, roomLevel.getFloorThickness());
-            textureCoords [i++] = new TexCoord2f(0, roomLevel.getFloorThickness());
+            textureCoords [i++] = new TexCoord2f(textureCoord, borderHeight);
+            textureCoords [i++] = new TexCoord2f(0, borderHeight);
           }
         }
       }
@@ -703,6 +765,10 @@ public class Room3D extends Object3DBranch {
     float roomElevation = roomLevel != null
         ? roomLevel.getElevation()
         : 0;
+    Float ceilingHeight = getCeilingHeight(room);
+    if (ceilingHeight != null) {
+      return roomElevation + ceilingHeight;
+    }
     float roomHeight = roomElevation +
         (roomLevel == null ? home.getWallHeight() : roomLevel.getHeight());
     List<Level> levels = home.getLevels();
@@ -801,6 +867,40 @@ public class Room3D extends Object3DBranch {
       }
     }
     return roomHeight;
+  }
+
+  /**
+   * Returns the height above its floor of the ceiling of a room placed with
+   * {@link #CEILING_HEIGHT_PROPERTY}, or <code>null</code> if its ceiling is at the top of its level.
+   */
+  public static Float getCeilingHeight(Room room) {
+    String height = room.getProperty(CEILING_HEIGHT_PROPERTY);
+    if (height != null) {
+      try {
+        float value = Float.parseFloat(height);
+        if (value > 0 && value <= 10000) {
+          return value;
+        }
+      } catch (NumberFormatException ex) {
+        // The ceiling of the level
+      }
+    }
+    return null;
+  }
+
+  private static float getCeilingThickness(Room room) {
+    String thickness = room.getProperty(CEILING_THICKNESS_PROPERTY);
+    if (thickness != null) {
+      try {
+        float value = Float.parseFloat(thickness);
+        if (value >= 0 && value <= 100) {
+          return value;
+        }
+      } catch (NumberFormatException ex) {
+        // The default thickness
+      }
+    }
+    return DEFAULT_CEILING_THICKNESS;
   }
 
   /**

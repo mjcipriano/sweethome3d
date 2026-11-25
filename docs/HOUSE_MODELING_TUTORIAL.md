@@ -334,9 +334,109 @@ Save the home with **File > Save**: the tools can't.
 | Undo a house built in many calls at once | `begin_group` ... `end_group` ([Command reference](MCP_COMMANDS.md#undo-groups)) |
 | Give a wall a brick base | `modify_wall` with a `baseboard` 90 cm high and a brick texture ([Command reference](MCP_COMMANDS.md#rooms-and-walls)) |
 | Raise or sink the floor of a room | `modify_room` with `floor_offset` |
+| Lower a ceiling, or make a two-story room with an overlook | `modify_room` with `ceiling_height`, `open_to_above` ([Ceilings and two-story rooms](#ceilings-and-two-story-rooms)) |
 | Compare with photos of the real house | `get_3d_image` with `compare_with` ([Pictures](MCP_SERVER.md#comparing-with-a-photo)) |
 | Walk in the house | **Tools > Game mode...** or **Tools > WebXR Preview...** ([Game mode](GAME_MODE.md), [VR](WEBXR_VR.md)) |
 | Clean up levels left by earlier attempts | `delete_level`, `merge_levels` ([Command reference](MCP_COMMANDS.md#levels-and-stairs)) |
+
+## Ceilings and two-story rooms
+
+A room draws its ceiling at the top of its level (on the last level: at the top of
+its tallest wall). Two commands change that without slabs used as ceilings.
+
+### A ceiling at its own height
+
+```json
+{"action":"modify_room","id":"R7","ceiling_height":243.84}
+```
+
+`ceiling_height` is the height of the ceiling above the floor of the room, in cm,
+from 50 to 3000. The level and its walls keep their height: an upstairs room gets
+its 8 ft ceiling while its walls still reach the eaves.
+
+| Key | Effect |
+| --- | --- |
+| `"ceiling_height":N` | The ceiling N cm above the floor of the room |
+| `"ceiling_level":"Level 1"` | The ceiling at the top of that level, which is the same level or one above |
+| `"ceiling_level":"Level 1","ceiling_height":N` | The ceiling N cm above the floor of that level |
+| `"ceiling_thickness":N` | Its thickness, from 0 to 100 cm (5 by default). The underside stays at the height given, the thickness goes up |
+| `"ceiling_height":"level"` | Back to the top of the level |
+
+It stays the ceiling of the room: it keeps its color and its texture, follows the
+shape of the room, and `headroom`, `describe_item` and `get_home` report its
+height. The 3D view, the ray tracer and the OBJ, glTF and web page exports all
+draw it, because they all build the room with the same class (`j3d/Room3D`).
+
+It is drawn from both sides, so the room is closed when seen from the attic or
+from outside. The price is that an aerial view no longer looks into that room
+from above, as it does for the other rooms.
+
+The height is kept in a property of the room
+(`com.eteks.sweethome3d.ceilingHeight`), with its thickness in
+`com.eteks.sweethome3d.ceilingThickness`. A version of Sweet Home 3D that
+doesn't know them opens the home and draws the ceiling at the top of the level.
+
+### The height of a level
+
+```json
+{"action":"modify_level","name":"Level 1","height":243.84}
+```
+
+Changing the height of a level moves the ceilings drawn at its top. It doesn't
+move walls: each wall has its own height. The answer says so, with the heights
+of the walls of the level. On the last level, the ceilings are drawn at the top
+of the tallest wall whatever the height of the level, and the answer says that
+too.
+
+`"keep_wall_heights":false` gives the new height to the walls that were as tall
+as the level, and lists them. `"keep_wall_heights":true` is the default.
+
+### A room open to the level above
+
+```json
+{"action":"open_to_above","room":"R11","to_level":"Level 1",
+ "overlook":{"along":"north","railing":"Railing","height":91}}
+```
+
+In one undoable step, `open_to_above`:
+
+1. puts the ceiling of the room at the ceiling of `to_level` (the next level
+   above by default), as a sheet without thickness so it doesn't rise into the
+   roof. `"ceiling":"follow_roof"` gives it the ceiling under the roof instead,
+   and `"ceiling":"none"` hides it;
+2. hides the floor and the ceiling of a room of the upper level drawn over it,
+   and cuts the part above it out of a room that goes beyond it;
+3. closes its outline up to that ceiling. Where the walls of the upper level
+   already stand above the walls of the room, nothing changes. Where no wall
+   stands above, the wall of the room is raised. Where the room is open on its
+   own level, a wall is added on the upper level;
+4. makes the overlook, if `overlook` is given: on the side of the room facing
+   `along` (north, south, east or west), or along the wall of the upper level
+   given by `"wall":"W21"`, it removes the wall of the upper level with the
+   doors and windows that stood in it (the hatch used as an opening). A wall
+   longer than that side is cut at its ends, and its parts beyond stay.
+   `"upper_wall":"low"` cuts the wall down to the height of the railing
+   instead of removing it;
+5. places the railing: the catalog piece named by `railing`, or the railing of
+   the catalog when no piece has that name. Its pieces are repeated along the
+   side, each close to its catalog width, not one piece stretched;
+6. lists what is still inside the opened space: roofs with their overhang,
+   gutters and downspouts, slabs, walls and furniture of the upper level.
+
+Check the result from inside with a picture that looks up:
+
+```json
+{"camera":{"x":250,"y":390,"height":160,"look_at_x":250,"look_at_y":0,"look_at_height":330},
+ "fov":95,"width":900,"height":900}
+```
+
+What `open_to_above` doesn't do:
+
+- It doesn't trim a roof of another part of the house that enters the room: it
+  names it.
+- It doesn't split a wall of the room's own level that runs beyond the room: the
+  whole wall is raised, and the answer names it.
+- It doesn't join the railing of the overlook to the handrail of the stairs.
 
 ## Limits to know
 

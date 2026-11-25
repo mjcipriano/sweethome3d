@@ -416,10 +416,12 @@ class AssistantBuildingCommands {
     final boolean ceiling = command.has("ceiling") || command.has("flat_ceiling_at");
     final String ceilingMode = command.getString("ceiling") != null ? command.getString("ceiling") : "follow_roof";
     final boolean followRoof = ceiling && !ceilingMode.trim().toLowerCase(Locale.ENGLISH).matches("flat|level|none|default");
+    final boolean ceilingHeight = AssistantCeilingCommands.hasCeilingHeight(command);
     if (!command.has("points") && !command.has("ceiling_visible") && !command.has("floor_visible")
-        && !command.has("area_visible") && name == null && !floorOffset && !ceiling) {
+        && !command.has("area_visible") && name == null && !floorOffset && !ceiling && !ceilingHeight) {
       notes.add("Ignored modify_room: give at least one of \"ceiling_visible\", \"floor_visible\", "
-          + "\"area_visible\", \"name\", \"points\", \"floor_offset\", \"ceiling\" and \"flat_ceiling_at\"");
+          + "\"area_visible\", \"name\", \"points\", \"floor_offset\", \"ceiling\", \"flat_ceiling_at\", "
+          + "\"ceiling_height\" and \"ceiling_level\"");
       return;
     }
     this.executor.postModification(rooms, new Runnable() {
@@ -431,6 +433,11 @@ class AssistantBuildingCommands {
             } else if (ceiling) {
               // The ceiling under the roof replaces the flat one at the height of the level
               room.setCeilingVisible(!followRoof);
+            } else if (ceilingHeight && !room.isCeilingVisible()
+                       && !"level".equalsIgnoreCase(command.getString("ceiling_height"))
+                       && room.getProperty(AssistantShapeCommands.ROOM_CEILING_PROPERTY) == null) {
+              // A ceiling placed at a height is one to see
+              room.setCeilingVisible(true);
             }
             if (command.has("floor_visible")) {
               room.setFloorVisible(command.getBoolean("floor_visible", room.isFloorVisible()));
@@ -473,6 +480,17 @@ class AssistantBuildingCommands {
         }
       }
     }
+    // The ceilings placed at their own height
+    List<String> ceilingHeights = new ArrayList<String>();
+    if (ceilingHeight) {
+      for (Selectable item : rooms) {
+        try {
+          ceilingHeights.add(this.executor.getCeilingCommands().setCeilingHeight((Room)item, command));
+        } catch (IOException ex) {
+          ceilingHeights.add("its ceiling didn't change (" + ex.getMessage() + ")");
+        }
+      }
+    }
     // What each room is now, to check the result without describing the home again
     StringBuilder note = new StringBuilder("Modified ");
     for (int i = 0; i < rooms.size(); i++) {
@@ -486,6 +504,9 @@ class AssistantBuildingCommands {
           .append(", ").append(Math.round(room.getArea() / 100) / 100f).append(" m2");
       if (i < slabs.size()) {
         note.append(", ").append(slabs.get(i));
+      }
+      if (i < ceilingHeights.size()) {
+        note.append(", ").append(ceilingHeights.get(i));
       }
       if (i < ceilings.size()) {
         note.append(", ").append(ceilings.get(i));

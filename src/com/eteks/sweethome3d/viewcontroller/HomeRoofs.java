@@ -136,6 +136,10 @@ final class HomeRoofs {
     double levelCeiling = room.isCeilingVisible()
         ? (room.getLevel() != null && room.getLevel().getHeight() > 0 ? room.getLevel().getHeight() : home.getWallHeight())
         : Double.NaN;
+    if (room.isCeilingVisible() && !Double.isNaN(AssistantCeilingCommands.getCeilingHeight(room))) {
+      // A ceiling placed at its own height
+      levelCeiling = AssistantCeilingCommands.getCeilingHeight(room);
+    }
     double flat = getFlatCeilingHeight(room);
     // About 80 samples along the longest side
     double step = Math.max(5, Math.max(maxX - minX, maxY - minY) / 80);

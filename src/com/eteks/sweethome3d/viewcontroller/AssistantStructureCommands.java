@@ -345,6 +345,12 @@ class AssistantStructureCommands {
       return;
     }
     final Object [] before = getState(level);
+    final float oldHeight = level.getHeight();
+    // The walls keep their heights, unless the ones as tall as the level are asked to follow it
+    final boolean keepWallHeights = command.getBoolean("keep_wall_heights", true);
+    final List<Wall> movedWalls = !Double.isNaN(height) && !keepWallHeights && Math.abs(height - oldHeight) >= 0.5
+        ? this.executor.getCeilingCommands().getWallsAsTallAsLevel(level, oldHeight)
+        : new ArrayList<Wall>();
     if (newName != null && newName.trim().length() > 0) {
       level.setName(newName.trim());
     }
@@ -376,6 +382,18 @@ class AssistantStructureCommands {
       }
     }
     this.executor.beginTurnUpdate();
+    if (!movedWalls.isEmpty()) {
+      this.executor.postModification(new ArrayList<Selectable>(movedWalls), new Runnable() {
+          public void run() {
+            for (Wall wall : movedWalls) {
+              wall.setHeight((float)height);
+              if (wall.getHeightAtEnd() != null) {
+                wall.setHeightAtEnd(null);
+              }
+            }
+          }
+        });
+    }
     this.homeController.getUndoableEditSupport().postEdit(new AbstractUndoableEdit() {
         @Override
         public void undo() {
@@ -403,7 +421,10 @@ class AssistantStructureCommands {
     notes.add("Modified the level " + describe(level) + ": height " + format(level.getHeight()) + " cm, floor thickness "
         + format(level.getFloorThickness()) + " cm, " + (level.isViewable() ? "viewable" : "not viewable (hidden in the plan and in the 3D view)")
         + (homonyms > 0 ? "; " + homonyms + (homonyms == 1 ? " other level has" : " other levels have")
-            + " the same name, use ids to tell them apart" : ""));
+            + " the same name, use ids to tell them apart" : "")
+        + (!Double.isNaN(height) && Math.abs(level.getHeight() - oldHeight) >= 0.5
+            ? this.executor.getCeilingCommands().describeLevelHeightChange(level, oldHeight, movedWalls, command.has("keep_wall_heights"))
+            : ""));
   }
 
   private static Object [] getState(Level level) {
@@ -865,6 +886,10 @@ class AssistantStructureCommands {
         .append(describeFinish(room.getFloorColor(), room.getFloorTexture()));
     text.append(", ceiling ").append(room.isCeilingVisible() ? "visible" : "hidden")
         .append(describeFinish(room.getCeilingColor(), room.getCeilingTexture()));
+    String ceiling = this.executor.getCeilingCommands().describeCeiling(room);
+    if (ceiling != null) {
+      text.append(", ").append(ceiling);
+    }
     text.append(room.isAreaVisible() ? ", area displayed" : ", area not displayed");
     return text.append(describeProperties(room)).toString();
   }
