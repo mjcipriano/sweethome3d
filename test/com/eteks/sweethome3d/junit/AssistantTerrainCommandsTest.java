@@ -243,8 +243,9 @@ public class AssistantTerrainCommandsTest {
     assertEquals(200, getHeight(5500, 2000), 5);
     summary = run("{\"action\":\"extend_terrain\",\"margin\":300}");
     assertTrue(summary, summary.contains("nothing to extend"));
-    // A new ground starts the count of earth again
-    run("{\"action\":\"set_terrain\",\"points\":[[0,0,0],[4000,0,200],[4000,4000,200],[0,4000,0]]}");
+    // A new ground starts the count of earth again, once told to leave the grading of the old one
+    summary = run("{\"action\":\"set_terrain\",\"points\":[[0,0,0],[4000,0,200],[4000,4000,200],[0,4000,0]],\"grading\":\"drop\"}");
+    assertTrue(summary, summary.contains("recorded with the ground replaced were dropped"));
     assertTrue(run("{\"action\":\"cut_fill_report\"}").contains("wasn't graded"));
   }
 
@@ -609,7 +610,10 @@ public class AssistantTerrainCommandsTest {
     assertFalse(summary, summary.contains("left out"));
 
     // An outline the ground stays in
+    // The area smoothed above is out of it: asked, the ground is rebuilt without that grading
     summary = run("{\"action\":\"set_terrain\",\"points\":[" + points + "],\"clip\":[[0,0],[1000,0],[1000,2000],[0,2000]]}");
+    assertTrue(summary, summary.contains("nothing was changed") && summary.contains("smooth_area"));
+    summary = run("{\"action\":\"set_terrain\",\"points\":[" + points + "],\"clip\":[[0,0],[1000,0],[1000,2000],[0,2000]],\"grading\":\"drop\"}");
     summary = run("{\"action\":\"slope_map\"}");
     assertEquals(summary, 200, getGroundArea(summary), 0.5f);
     summary = run("{\"action\":\"set_terrain\",\"points\":[" + points + "],\"max_edge\":\"long\"}");

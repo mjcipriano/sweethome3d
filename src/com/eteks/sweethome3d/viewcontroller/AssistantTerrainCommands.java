@@ -46,6 +46,18 @@ import com.eteks.sweethome3d.model.Wall;
 class AssistantTerrainCommands {
   /** The property of a home that keeps the points of its ground before it was graded, in JSON. */
   static final String BASELINE_PROPERTY = "assistantTerrainBaseline";
+  /**
+   * The property of a ground that keeps the grading done on it - pads, paths, berms, swales, flattened and
+   * smoothed areas - as a JSON array of commands, in the order they were run: they are run again on the
+   * ground that replaces it.
+   */
+  static final String OPERATIONS_PROPERTY = "assistantTerrainOperations";
+  /** The operation that stands for the grading done before grading was recorded. */
+  private static final String UNRECORDED_OPERATION = "unrecorded_grading";
+  private static final List<String> MODIFY_AREA_KEYS = java.util.Arrays.asList("action", "area", "id", "at", "color", "texture",
+      "texture_scale", "texture_angle", "category", "texture_category", "catalog_id", "name", "surface", "split", "remove");
+  private static final String [] MATERIAL_KEYS = {"color", "texture", "texture_scale", "texture_angle", "category",
+                                                  "texture_category", "catalog_id"};
 
   private static final long MAX_FILE_LENGTH = 200L * 1024 * 1024;
   private static final int  DEFAULT_POINTS = 20000;
@@ -85,7 +97,20 @@ class AssistantTerrainCommands {
         + "\"resample_cm\":N grids the points first, the mean height of each square of N cm at its center. A ground that "
         + "replaces another one keeps its \"areas\" unless \"areas\" is given ([] for none), and what stood on the old ground "
         + "- generated plants, pieces put on the terrain, outdoor structures, fences - follows the new one: \"reseat\":false "
-        + "leaves it at its height, for this command as for the grading ones)\n"
+        + "leaves it at its height, for this command as for the grading ones. The grading done on the ground replaced - "
+        + "add_pad, flatten_area, smooth_area, add_berm, add_swale, grade_path and the steps cut by retaining walls - is "
+        + "recorded with it and run again in order on the new ground: \"grading\":\"replay\" (default) changes nothing and "
+        + "names the operations that the new points don't cover or that were done before grading was recorded, "
+        + "\"keep_possible\" replays the ones it can and names the ones lost, \"drop\" rebuilds the ground without any)\n"
+        + "  {\"action\":\"modify_terrain_area\",\"area\":\"A1\",\"texture\":\"<texture name>\"}  (changes the finish of "
+        + "one area of the ground without touching its heights nor its grading: \"area\" is its id A# as terrain_areas and "
+        + "describe_item list them, its name, or \"base\" for the ground around the areas; or \"at\":[x,y], a point in it. "
+        + "\"color\" or \"texture\" with texture_scale and texture_angle, \"name\", \"surface\" (driveway, patio, lawn... for "
+        + "site_report). \"split\":[[x,y],...] gives the finish to the part of the area inside that polygon only, which "
+        + "becomes a new area above it - with \"area\":\"base\" or a point out of every area, the polygon itself becomes "
+        + "an area. \"remove\":true gives an area back to the ground around it)\n"
+        + "  {\"action\":\"terrain_areas\"}  (lists the areas of the ground: id, name, finish, bounding box and surface, "
+        + "and the grading recorded with the ground)\n"
         + "  {\"action\":\"reseat_all\"}  (puts back on the ground the generated plants and the pieces put on the terrain that "
         + "aren't at its height any more, and builds every fence again on it; the structures built for a slope, as a pool or a "
         + "deck, are listed and keep their height)\n"
@@ -150,8 +175,6 @@ class AssistantTerrainCommands {
       if ("set_terrain".equals(action) || "add_terrain".equals(action)) {
         if (command.getParameters().get("raster") == null && command.getParameters().get("file") == null
             && command.getParameters().get("pin") == null && command.getParameters().get("datum_offset_cm") == null) {
-          // A new ground is the one to compare the next grading with
-          this.home.setProperty(BASELINE_PROPERTY, null);
           replaceGround(new LinkedHashMap<String, Object>(command.getParameters()), "", tally, notes);
         } else {
           setTerrainFromHeights(command, tally, notes);
@@ -159,18 +182,16 @@ class AssistantTerrainCommands {
       } else if ("reseat_all".equals(action) || "reseat".equals(action)) {
         getTerrain();
         notes.add(reseat(null, true, tally));
+      } else if ("modify_terrain_area".equals(action) || "set_terrain_area".equals(action)) {
+        modifyTerrainArea(command, tally, notes);
+      } else if ("terrain_areas".equals(action) || "list_terrain_areas".equals(action)) {
+        notes.add(describeTerrain(getTerrain()));
       } else if ("add_terrain_patch".equals(action)) {
         addTerrainPatch(command, tally, notes);
       } else if ("shift_terrain".equals(action)) {
         shiftTerrain(command, tally, notes);
-      } else if ("add_pad".equals(action) || "flatten_area".equals(action)) {
-        addPad(action, command, tally, notes);
-      } else if ("smooth_area".equals(action)) {
-        smoothArea(command, tally, notes);
-      } else if ("add_berm".equals(action) || "add_swale".equals(action)) {
-        addBerm(action, command, tally, notes);
-      } else if ("grade_path".equals(action)) {
-        gradePath(command, tally, notes);
+      } else if (runGrading(action, command, tally, notes)) {
+        // Recorded with the ground
       } else if ("extend_terrain".equals(action)) {
         extendTerrain(command, tally, notes);
       } else if ("cut_fill_report".equals(action)) {
@@ -326,6 +347,8 @@ class AssistantTerrainCommands {
       throw new IOException("the ground would have " + points.size() + " points, more than "
           + AssistantShapeCommands.getMaxTerrainPoints());
     }
+    // The grading recorded with the ground goes to the one built in its place
+    String operations = toJson(getOperations(terrain));
     if (this.home.getProperty(BASELINE_PROPERTY) == null) {
       // The ground before any grading, for the volumes cut and filled
       this.home.setProperty(BASELINE_PROPERTY, terrain.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY));
@@ -370,6 +393,9 @@ class AssistantTerrainCommands {
     for (HomePieceOfFurniture piece : this.home.getFurniture()) {
       if (HomeTerrain.isTerrain(piece)) {
         id = this.executor.getId(piece);
+        if (piece != terrain) {
+          piece.setProperty(OPERATIONS_PROPERTY, operations);
+        }
       }
     }
     return "the ground " + (id != null ? id + " " : "") + "now has " + points.size() + " points. "
@@ -393,6 +419,42 @@ class AssistantTerrainCommands {
       }
     }
     boolean replace = !Boolean.FALSE.equals(parameters.get("replace"));
+    // The grading recorded with the ground replaced is run again on the new one
+    String grading = parameters.get("grading") != null ? parameters.get("grading").toString().trim().toLowerCase(Locale.ENGLISH) : "replay";
+    parameters.remove("grading");
+    if (!"replay".equals(grading) && !"keep_possible".equals(grading) && !"drop".equals(grading)) {
+      throw new IOException("\"grading\" is replay, keep_possible or drop");
+    }
+    List<Map<String, Object>> replayed = new ArrayList<Map<String, Object>>();
+    List<String> lost = new ArrayList<String>();
+    if (old != null && replace && !"drop".equals(grading)) {
+      List<Map<String, Object>> operations = getOperations(old);
+      if (!operations.isEmpty()) {
+        Surface ground = new Surface(AssistantShapeCommands.triangulate(AssistantFurnitureBuilder.getPoints(parameters, "points", 3)));
+        List<float []> clip = AssistantFurnitureBuilder.getPoints(parameters, "clip", 2);
+        float [][] clipShape = clip.size() >= 3 ? clip.toArray(new float [clip.size()][]) : null;
+        for (int i = 0; i < operations.size(); i++) {
+          Map<String, Object> operation = operations.get(i);
+          String reason = getLossReason(operation, ground, clipShape, AssistantFurnitureBuilder.getPoints(parameters, "points", 3));
+          if (reason == null) {
+            replayed.add(operation);
+          } else {
+            lost.add((i + 1) + ". " + describeOperation(operation) + ": " + reason);
+          }
+        }
+        if (!lost.isEmpty() && "replay".equals(grading)) {
+          throw new IOException("nothing was changed: the new ground would lose " + lost.size() + " of the "
+              + operations.size() + " grading " + (operations.size() == 1 ? "operation" : "operations")
+              + " recorded with the ground it replaces - " + join(lost) + ". \"grading\":\"keep_possible\" rebuilds the ground"
+              + (replayed.isEmpty() ? " without them" : " and runs the other ones again")
+              + ", \"grading\":\"drop\" rebuilds it without any grading; modify_terrain_area changes the finish of an area "
+              + "without rebuilding the ground");
+        }
+      }
+    }
+    int dropped = old != null && replace && "drop".equals(grading) ? getOperations(old).size() : 0;
+    // A new ground is the one to compare the next grading with
+    this.home.setProperty(BASELINE_PROPERTY, null);
     Surface before = old != null && this.reseat ? new Surface(HomeTerrain.getTriangles(old)) : null;
     StringBuilder extra = new StringBuilder();
     if (old != null && replace && !parameters.containsKey("areas")) {
@@ -452,6 +514,10 @@ class AssistantTerrainCommands {
       if (notes.get(i).startsWith("Replaced the ground") || notes.get(i).startsWith("Added the ground")) {
         String seated = "";
         if (old == null || replace) {
+          getTerrain().setProperty(OPERATIONS_PROPERTY, "[]");
+          if (old != null) {
+            extra.append(replayGrading(replayed, lost, dropped, tally));
+          }
           seated = ". " + (this.reseat ? reseat(before, false, tally) : KEPT_HEIGHTS);
         }
         notes.set(i, notes.get(i) + source + extra + seated);
@@ -774,6 +840,548 @@ class AssistantTerrainCommands {
     return describeVolumes(getVolumes(before, after, bounds, null)) + "; " + result;
   }
 
+  // ---- Grading recorded with the ground ----
+
+  private static String toJson(Object value) {
+    return AssistantShapeCommands.toJson(value);
+  }
+
+  private static String join(List<String> texts) {
+    StringBuilder text = new StringBuilder();
+    for (String item : texts) {
+      text.append(text.length() > 0 ? "; " : "").append(item);
+    }
+    return text.toString();
+  }
+
+  /**
+   * Runs <code>command</code> if it's one of the grading commands that are recorded with the ground
+   * and returns <code>true</code> in that case.
+   */
+  private boolean runGrading(String action, AssistantCommand command, int [] tally, List<String> notes) throws IOException {
+    if ("add_pad".equals(action) || "flatten_area".equals(action)) {
+      addPad(action, command, tally, notes);
+    } else if ("smooth_area".equals(action)) {
+      smoothArea(command, tally, notes);
+    } else if ("add_berm".equals(action) || "add_swale".equals(action)) {
+      addBerm(action, command, tally, notes);
+    } else if ("grade_path".equals(action)) {
+      gradePath(command, tally, notes);
+    } else {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Returns the grading recorded with a ground, in the order it was done. A ground graded before
+   * grading was recorded has one operation that stands for it, which can't be run again.
+   */
+  @SuppressWarnings("unchecked")
+  private List<Map<String, Object>> getOperations(HomePieceOfFurniture terrain) {
+    List<Map<String, Object>> operations = new ArrayList<Map<String, Object>>();
+    String spec = terrain.getProperty(OPERATIONS_PROPERTY);
+    if (spec == null) {
+      String baseline = this.home.getProperty(BASELINE_PROPERTY);
+      if (baseline != null && !baseline.equals(terrain.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY))) {
+        Map<String, Object> unrecorded = new LinkedHashMap<String, Object>();
+        unrecorded.put("action", UNRECORDED_OPERATION);
+        operations.add(unrecorded);
+      }
+      return operations;
+    }
+    try {
+      Object parsed = JSONParser.parse(spec);
+      if (parsed instanceof List) {
+        for (Object item : (List<?>)parsed) {
+          if (item instanceof Map && ((Map<?, ?>)item).get("action") != null) {
+            operations.add(new LinkedHashMap<String, Object>((Map<String, Object>)item));
+          }
+        }
+      }
+    } catch (RuntimeException ex) {
+      // No grading that can be read
+    }
+    return operations;
+  }
+
+  /**
+   * Records a grading command with the ground it changed.
+   */
+  private void record(String action, Map<String, Object> parameters) throws IOException {
+    HomePieceOfFurniture terrain = getTerrain();
+    List<Map<String, Object>> operations = getOperations(terrain);
+    Map<String, Object> operation = new LinkedHashMap<String, Object>();
+    operation.put("action", action);
+    for (Map.Entry<String, Object> entry : parameters.entrySet()) {
+      if (!"action".equals(entry.getKey()) && !"reseat".equals(entry.getKey())) {
+        operation.put(entry.getKey(), entry.getValue());
+      }
+    }
+    operations.add(operation);
+    terrain.setProperty(OPERATIONS_PROPERTY, toJson(operations));
+  }
+
+  private static String describeOperation(Map<String, Object> operation) {
+    String action = String.valueOf(operation.get("action"));
+    if (UNRECORDED_OPERATION.equals(action)) {
+      return "the grading done before Sweet Home 3D recorded it (version 7.33.1 or earlier)";
+    }
+    StringBuilder text = new StringBuilder("cut_step".equals(action) ? "the step cut for a retaining wall" : action);
+    List<float []> points = AssistantFurnitureBuilder.getPoints(operation, "points", 2);
+    if (!points.isEmpty()) {
+      float [] bounds = getBounds(points.toArray(new float [points.size()][]));
+      text.append(" from (").append(format(bounds [0])).append(", ").append(format(bounds [1])).append(") to (")
+          .append(format(bounds [2])).append(", ").append(format(bounds [3])).append(")");
+    }
+    if (operation.get("height") instanceof Number && !"cut_step".equals(action)) {
+      text.append(" at ").append(format(((Number)operation.get("height")).doubleValue())).append(" cm");
+    }
+    return text.toString();
+  }
+
+  /**
+   * Returns why a grading operation can't be run again on a new ground, or <code>null</code> if it can.
+   */
+  private static String getLossReason(Map<String, Object> operation, Surface ground, float [][] clip, List<float []> groundPoints) {
+    if (UNRECORDED_OPERATION.equals(operation.get("action"))) {
+      return "it isn't recorded and isn't in the new points";
+    }
+    List<float []> points = AssistantFurnitureBuilder.getPoints(operation, "points", 2);
+    if (points.isEmpty()) {
+      return "it has no points";
+    }
+    int out = 0;
+    for (float [] point : points) {
+      if (Float.isNaN(ground.getHeight(point [0], point [1]))
+          || clip != null && !AssistantRoomFurnisher.contains(clip, point [0], point [1])) {
+        out++;
+      }
+    }
+    if ("smooth_area".equals(operation.get("action"))) {
+      // Smoothing changes the ground it finds in its polygon, which may go out of the ground
+      if (out < points.size()) {
+        return null;
+      }
+      float [][] polygon = points.toArray(new float [points.size()][]);
+      for (float [] point : groundPoints) {
+        if (AssistantRoomFurnisher.contains(polygon, point [0], point [1])
+            && (clip == null || AssistantRoomFurnisher.contains(clip, point [0], point [1]))) {
+          return null;
+        }
+      }
+      return "its polygon is out of the new ground";
+    }
+    return out > 0 ? out + " of its " + points.size() + " points are out of the new ground" : null;
+  }
+
+  /**
+   * Runs again on the new ground the grading of the ground it replaces, and returns what to tell about it.
+   */
+  private String replayGrading(List<Map<String, Object>> operations, List<String> lost, int dropped, int [] tally) {
+    if (dropped > 0) {
+      return ". The " + dropped + " grading " + (dropped == 1 ? "operation" : "operations")
+          + " recorded with the ground replaced " + (dropped == 1 ? "was" : "were") + " dropped (\"grading\":\"drop\")";
+    }
+    List<String> done = new ArrayList<String>();
+    List<String> failed = new ArrayList<String>(lost);
+    boolean reseatAfter = this.reseat;
+    int changed = tally [4];
+    // What stands on the ground follows it once, when all its grading is done
+    this.reseat = false;
+    try {
+      for (Map<String, Object> operation : operations) {
+        String action = String.valueOf(operation.get("action"));
+        List<String> operationNotes = new ArrayList<String>();
+        try {
+          if ("cut_step".equals(action)) {
+            List<float []> line = AssistantFurnitureBuilder.getPoints(operation, "points", 2);
+            cutStep(line.toArray(new float [line.size()][]), Boolean.TRUE.equals(operation.get("left")),
+                AssistantFurnitureBuilder.getNumber(operation, "height", 0), AssistantFurnitureBuilder.getNumber(operation, "terrace", 100),
+                tally, operationNotes);
+          } else if (!runGrading(action, new AssistantCommand(action, operation), tally, operationNotes)) {
+            throw new IOException("unknown operation");
+          }
+          done.add(action);
+        } catch (IOException ex) {
+          failed.add(describeOperation(operation) + ": " + ex.getMessage());
+        } catch (RuntimeException ex) {
+          failed.add(describeOperation(operation) + ": " + (ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName()));
+        }
+      }
+    } finally {
+      this.reseat = reseatAfter;
+      tally [4] = changed;
+    }
+    StringBuilder text = new StringBuilder();
+    if (!done.isEmpty()) {
+      text.append(". The grading recorded with the ground replaced was run again on the new one, in order: ")
+          .append(done.toString().replace("[", "").replace("]", ""))
+          .append(" (\"grading\":\"drop\" rebuilds the ground without it)");
+    }
+    if (!failed.isEmpty()) {
+      text.append(". Grading LOST with the ground replaced: ").append(join(failed));
+    }
+    return text.toString();
+  }
+
+  // ---- Areas of the ground ----
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> getParameters(HomePieceOfFurniture terrain) {
+    Map<String, Object> parameters = new LinkedHashMap<String, Object>();
+    try {
+      Object parsed = JSONParser.parse(terrain.getProperty(AssistantShapeCommands.TERRAIN_PARAMETERS_PROPERTY));
+      if (parsed instanceof Map) {
+        parameters.putAll((Map<String, Object>)parsed);
+      }
+    } catch (RuntimeException ex) {
+      // Built with its defaults
+    }
+    return parameters;
+  }
+
+  /**
+   * Returns copies of the areas with a finish of their own of the parameters of a ground, the ones
+   * without 3 points left out as they are when the ground is built.
+   */
+  @SuppressWarnings("unchecked")
+  private static List<Map<String, Object>> getAreas(Map<String, Object> parameters) {
+    List<Map<String, Object>> areas = new ArrayList<Map<String, Object>>();
+    if (parameters.get("areas") instanceof List) {
+      for (Object item : (List<?>)parameters.get("areas")) {
+        if (item instanceof Map && AssistantFurnitureBuilder.getPoints((Map<?, ?>)item, "points", 2).size() >= 3) {
+          areas.add(new LinkedHashMap<String, Object>((Map<String, Object>)item));
+        }
+      }
+    }
+    return areas;
+  }
+
+  private static float [][] getAreaShape(Map<String, Object> area) {
+    List<float []> points = AssistantFurnitureBuilder.getPoints(area, "points", 2);
+    return points.toArray(new float [points.size()][]);
+  }
+
+  private static String describeFinish(Map<String, Object> item, String defaultColor) {
+    if (item.get("texture") != null) {
+      return "texture \"" + item.get("texture") + "\"";
+    } else if (item.get("catalog_id") != null) {
+      return "texture " + item.get("catalog_id");
+    } else {
+      return "color " + (item.get("color") != null ? item.get("color") : defaultColor);
+    }
+  }
+
+  private static String describeArea(int index, Map<String, Object> area) {
+    float [][] shape = getAreaShape(area);
+    float [] bounds = getBounds(shape);
+    return "A" + (index + 1) + (area.get("name") != null ? " \"" + area.get("name") + "\"" : "")
+        + (area.get("surface") != null ? " (" + area.get("surface") + ")" : "") + ": " + describeFinish(area, "#A8A49C")
+        + ", from (" + format(bounds [0]) + ", " + format(bounds [1]) + ") to (" + format(bounds [2]) + ", " + format(bounds [3])
+        + "), " + format(Math.abs(getArea(shape)) / 10000) + " m2";
+  }
+
+  private static String describeAreas(List<Map<String, Object>> areas) {
+    List<String> texts = new ArrayList<String>();
+    for (int i = 0; i < areas.size(); i++) {
+      texts.add(describeArea(i, areas.get(i)));
+    }
+    return join(texts);
+  }
+
+  /**
+   * Returns the description of a ground for <code>describe_item</code> and <code>terrain_areas</code>: its
+   * finish, its areas and the grading recorded with it, or <code>null</code> if <code>piece</code> isn't a ground.
+   */
+  String describeTerrain(HomePieceOfFurniture piece) {
+    if (!HomeTerrain.isTerrain(piece)) {
+      return null;
+    }
+    Map<String, Object> parameters = getParameters(piece);
+    List<Map<String, Object>> areas = getAreas(parameters);
+    StringBuilder text = new StringBuilder("ground " + this.executor.getId(piece) + " of "
+        + getPoints(piece.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY)).size() + " points, its base: "
+        + describeFinish(parameters, "#6E9A4C"));
+    if (areas.isEmpty()) {
+      text.append("; no area with a finish of its own");
+    } else {
+      text.append("; ").append(areas.size()).append(areas.size() == 1 ? " area" : " areas")
+          .append(" (the last one above the others, a surface counted whole even under another area): ")
+          .append(describeAreas(areas));
+    }
+    List<Map<String, Object>> operations = getOperations(piece);
+    if (operations.isEmpty()) {
+      text.append("; no grading recorded");
+    } else {
+      text.append("; grading recorded, run again when set_terrain rebuilds the ground");
+      for (int i = 0; i < operations.size(); i++) {
+        text.append(i == 0 ? ": " : "; ").append(i + 1).append(". ").append(describeOperation(operations.get(i)));
+      }
+    }
+    return text.toString();
+  }
+
+  /**
+   * Returns the index of the area that a command designates, or -1 for the ground around the areas.
+   */
+  private int findArea(AssistantCommand command, List<Map<String, Object>> areas, HomePieceOfFurniture terrain) throws IOException {
+    String listed = areas.isEmpty() ? "The ground has no area: \"area\":\"base\" is the ground itself"
+        : "Its areas: " + describeAreas(areas) + "; \"base\" is the ground around them";
+    if (command.getParameters().get("at") != null) {
+      List<float []> at = AssistantFurnitureBuilder.getPoints(Collections.singletonMap("points",
+          Collections.singletonList(command.getParameters().get("at"))), "points", 2);
+      if (at.size() != 1) {
+        throw new IOException("\"at\" is a point [x,y] in the area");
+      }
+      for (int i = areas.size() - 1; i >= 0; i--) {
+        if (AssistantRoomFurnisher.contains(getAreaShape(areas.get(i)), at.get(0) [0], at.get(0) [1])) {
+          return i;
+        }
+      }
+      if (Float.isNaN(new Surface(HomeTerrain.getTriangles(terrain)).getHeight(at.get(0) [0], at.get(0) [1]))) {
+        throw new IOException("the point (" + format(at.get(0) [0]) + ", " + format(at.get(0) [1]) + ") is out of the ground. " + listed);
+      }
+      return -1;
+    }
+    String token = command.getString("area") != null ? command.getString("area") : command.getString("id");
+    if (token == null || token.trim().length() == 0) {
+      throw new IOException("give \"area\": an id, a name or \"base\", or \"at\":[x,y], a point in the area. " + listed);
+    }
+    token = token.trim();
+    if ("base".equalsIgnoreCase(token) || "ground".equalsIgnoreCase(token)) {
+      return -1;
+    }
+    if (token.matches("[Aa]\\d+")) {
+      int index = Integer.parseInt(token.substring(1)) - 1;
+      if (index >= 0 && index < areas.size()) {
+        return index;
+      }
+      throw new IOException("no area has the id " + token + ". " + listed);
+    }
+    List<Integer> matches = new ArrayList<Integer>();
+    String lowerToken = token.toLowerCase(Locale.ENGLISH);
+    for (int pass = 0; pass < 2 && matches.isEmpty(); pass++) {
+      for (int i = 0; i < areas.size(); i++) {
+        for (String key : new String [] {"name", "surface", "texture"}) {
+          String value = areas.get(i).get(key) != null ? areas.get(i).get(key).toString().toLowerCase(Locale.ENGLISH) : null;
+          if (value != null && !matches.contains(Integer.valueOf(i))
+              && (pass == 0 ? value.equals(lowerToken) : value.indexOf(lowerToken) >= 0)) {
+            matches.add(Integer.valueOf(i));
+          }
+        }
+      }
+    }
+    if (matches.size() != 1) {
+      throw new IOException((matches.isEmpty() ? "no area is named \"" : "several areas match \"") + token + "\". " + listed);
+    }
+    return matches.get(0).intValue();
+  }
+
+  /**
+   * Changes the finish of an area of the ground, or of a part of it, without touching its heights.
+   */
+  private void modifyTerrainArea(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
+    this.executor.warnUnknownKeys(command, MODIFY_AREA_KEYS);
+    HomePieceOfFurniture terrain = getTerrain();
+    Map<String, Object> parameters = getParameters(terrain);
+    List<Map<String, Object>> areas = getAreas(parameters);
+    int index = findArea(command, areas, terrain);
+    Map<String, Object> target = index >= 0 ? areas.get(index) : parameters;
+    String targetName = index >= 0 ? "the area A" + (index + 1)
+        + (target.get("name") != null ? " \"" + target.get("name") + "\"" : "") : "the ground around the areas";
+    boolean finish = command.getParameters().get("color") != null || command.getParameters().get("texture") != null
+        || command.getParameters().get("catalog_id") != null;
+    if (command.getParameters().get("color") != null
+        && AssistantCommandExecutor.parseColor(command.getParameters().get("color").toString()) == null) {
+      throw new IOException("\"color\" is a color as #RRGGBB");
+    }
+    if (command.getParameters().get("texture") != null || command.getParameters().get("catalog_id") != null) {
+      // Checked before the ground is built again: an unknown texture would leave the color of the area
+      List<String> textureNotes = new ArrayList<String>();
+      if (this.executor.getBuildingCommands().findTexture(command.getString("texture"),
+              command.getString("category") != null ? command.getString("category") : command.getString("texture_category"),
+              command.getString("catalog_id"), "modify_terrain_area", textureNotes, new String [1]) == null) {
+        throw new IOException(textureNotes.isEmpty()
+            ? "no texture is named \"" + command.getString("texture") + "\": search_textures lists them"
+            : textureNotes.get(0));
+      }
+    }
+    String change;
+    if (command.getParameters().get("split") != null) {
+      if (!finish) {
+        throw new IOException("\"split\" needs the \"color\" or the \"texture\" of the part inside the polygon");
+      }
+      float [][] polygon = getShape(command, "split", 3);
+      List<float [][]> parts = new ArrayList<float [][]>();
+      if (index < 0) {
+        parts.add(polygon);
+      } else {
+        java.awt.geom.Area part = AssistantMeshBuilder.getArea(getAreaShape(target));
+        part.intersect(AssistantMeshBuilder.getArea(polygon));
+        parts.addAll(getOutlines(part));
+        if (parts.isEmpty()) {
+          throw new IOException("the polygon of \"split\" doesn't cross " + targetName + ": " + describeArea(index, target));
+        }
+      }
+      double surface = 0;
+      List<Map<String, Object>> added = new ArrayList<Map<String, Object>>();
+      for (float [][] part : parts) {
+        Map<String, Object> area = new LinkedHashMap<String, Object>();
+        List<Object> points = new ArrayList<Object>();
+        for (float [] point : part) {
+          points.add(java.util.Arrays.<Object>asList(Double.valueOf(Math.round(point [0] * 10) / 10.),
+              Double.valueOf(Math.round(point [1] * 10) / 10.)));
+        }
+        area.put("points", points);
+        setFinish(area, command, index >= 0 ? target : null);
+        added.add(area);
+        surface += Math.abs(getArea(part));
+      }
+      // Above the area it is a part of, under the ones that were above it
+      areas.addAll(index + 1, added);
+      change = "The part of " + targetName + " inside the polygon, " + format(surface / 10000) + " m2, is now "
+          + (added.size() == 1 ? "the area A" + (index + 2) : "the areas A" + (index + 2) + " to A" + (index + 1 + added.size()))
+          + " with the " + describeFinish(added.get(0), "");
+    } else if (command.getBoolean("remove", false)) {
+      if (index < 0) {
+        throw new IOException("\"remove\" gives an area back to the ground around it: name the area");
+      }
+      areas.remove(index);
+      change = "Removed " + targetName + ": its place has the finish of what is under it";
+    } else {
+      if (!finish && command.getString("name") == null && command.getString("surface") == null
+          && command.getParameters().get("texture_scale") == null && command.getParameters().get("texture_angle") == null) {
+        throw new IOException("give the \"color\" or the \"texture\" of " + targetName
+            + ", its \"name\" or its \"surface\", \"split\" or \"remove\"");
+      }
+      String previous = describeFinish(target, index >= 0 ? "#A8A49C" : "#6E9A4C");
+      boolean named = index < 0 && command.getString("name") != null;
+      setFinish(target, command, null);
+      if (named) {
+        // The name of the ground is the one of its piece
+        this.executor.warn("\"name\" names the ground itself when no area is designated");
+      }
+      change = "Changed " + targetName + (finish ? " from the " + previous + " to the " + describeFinish(target, "") : "");
+    }
+    List<Object> list = new ArrayList<Object>(areas);
+    parameters.put("areas", list);
+    String id = rebuild(terrain, parameters, tally);
+    notes.add(change + ". The ground" + (id != null ? " " + id : "") + " was built again from the same points: its heights, its "
+        + "grading and what stands on it didn't change. " + (areas.isEmpty() ? "It has no area" : "Its areas: " + describeAreas(areas)));
+  }
+
+  /**
+   * Gives to <code>item</code> the finish, the name and the surface of a command. A color replaces
+   * a texture and a texture a color; the name and the surface are the ones of <code>source</code> otherwise.
+   */
+  private static void setFinish(Map<String, Object> item, AssistantCommand command, Map<String, Object> source) {
+    Map<String, Object> parameters = command.getParameters();
+    if (parameters.get("color") != null || parameters.get("texture") != null || parameters.get("catalog_id") != null) {
+      for (String key : MATERIAL_KEYS) {
+        item.remove(key);
+      }
+    }
+    for (String key : MATERIAL_KEYS) {
+      if (parameters.get(key) != null) {
+        item.put(key, parameters.get(key));
+      }
+    }
+    for (String key : new String [] {"name", "surface"}) {
+      if (parameters.get(key) != null) {
+        item.put(key, parameters.get(key));
+      } else if (source != null && source.get(key) != null) {
+        item.put(key, source.get(key));
+      }
+    }
+  }
+
+  /**
+   * Returns the outlines of an area, without the ones of its holes nor the ones smaller than 100 cm2.
+   */
+  private static List<float [][]> getOutlines(java.awt.geom.Area area) {
+    List<float [][]> outlines = new ArrayList<float [][]>();
+    List<float []> points = new ArrayList<float []>();
+    float [] coordinates = new float [6];
+    for (java.awt.geom.PathIterator it = area.getPathIterator(null, 1); !it.isDone(); it.next()) {
+      int type = it.currentSegment(coordinates);
+      if (type == java.awt.geom.PathIterator.SEG_CLOSE) {
+        if (points.size() > 1 && Math.hypot(points.get(0) [0] - points.get(points.size() - 1) [0],
+                points.get(0) [1] - points.get(points.size() - 1) [1]) < 0.05) {
+          points.remove(points.size() - 1);
+        }
+        float [][] outline = points.toArray(new float [points.size()][]);
+        if (outline.length >= 3 && Math.abs(getArea(outline)) >= 100) {
+          // A hole has its inside out of the area
+          float [] inside = getInnerPoint(outline);
+          if (inside == null || area.contains(inside [0], inside [1])) {
+            outlines.add(outline);
+          }
+        }
+        points = new ArrayList<float []>();
+      } else {
+        if (type == java.awt.geom.PathIterator.SEG_MOVETO) {
+          points = new ArrayList<float []>();
+        }
+        points.add(new float [] {coordinates [0], coordinates [1]});
+      }
+    }
+    return outlines;
+  }
+
+  /**
+   * Returns a point inside a polygon, or <code>null</code> if none was found.
+   */
+  private static float [] getInnerPoint(float [][] polygon) {
+    for (int i = 0; i < polygon.length; i++) {
+      float [] previous = polygon [(i + polygon.length - 1) % polygon.length];
+      float [] next = polygon [(i + 1) % polygon.length];
+      float x = (previous [0] + polygon [i][0] + next [0]) / 3;
+      float y = (previous [1] + polygon [i][1] + next [1]) / 3;
+      if (AssistantRoomFurnisher.contains(polygon, x, y)) {
+        return new float [] {x, y};
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Builds the ground again from its own points with other parameters, and returns its id.
+   * Its heights, its grading and the ground kept to measure the earth moved don't change.
+   */
+  private String rebuild(HomePieceOfFurniture terrain, Map<String, Object> parameters, int [] tally) throws IOException {
+    String operations = terrain.getProperty(OPERATIONS_PROPERTY);
+    String spec = terrain.getProperty(AssistantShapeCommands.TERRAIN_PROPERTY);
+    Object points;
+    try {
+      points = JSONParser.parse(spec);
+    } catch (RuntimeException ex) {
+      throw new IOException("the points of the ground can't be read");
+    }
+    for (String key : new String [] {"action", "points", "grid", "raster", "file", "pin", "datum_offset_cm", "max_points",
+                                     "max_error_cm", "units", "z_units", "srs", "x", "y", "reseat", "resample_cm", "grading"}) {
+      parameters.remove(key);
+    }
+    parameters.put("points", points);
+    if (parameters.get("name") == null) {
+      parameters.put("name", terrain.getName());
+    }
+    List<String> terrainNotes = new ArrayList<String>();
+    int added = tally [0];
+    this.executor.getShapeCommands().apply("set_terrain", new AssistantCommand("set_terrain", parameters), tally, terrainNotes);
+    // The ground was changed rather than added
+    tally [0] = added;
+    tally [4]++;
+    for (String note : terrainNotes) {
+      if (note.startsWith("Couldn't")) {
+        throw new IOException(note.substring(note.indexOf('(') + 1, note.lastIndexOf(')')));
+      }
+    }
+    HomePieceOfFurniture rebuilt = getTerrain();
+    rebuilt.setProperty(OPERATIONS_PROPERTY, operations);
+    return this.executor.getId(rebuilt);
+  }
+
   // ---- Heights from a raster or a file ----
 
   private void setTerrainFromHeights(AssistantCommand command, int [] tally, List<String> notes) throws IOException {
@@ -856,7 +1464,6 @@ class AssistantTerrainCommands {
       // Scattered points have a ragged edge, that long triangles would close
       parameters.put("max_edge", "auto");
     }
-    this.home.setProperty(BASELINE_PROPERTY, null);
     replaceGround(parameters, ". Read from " + source + ", thinned to " + points.size() + " points"
         + (offset != 0 ? ", moved by " + format(offset) + " cm" : ""), tally, notes);
   }
@@ -1562,6 +2169,11 @@ class AssistantTerrainCommands {
       }
     }
     String result = regradeAround(terrain, points, polygon, blend + 50, tally, notes);
+    // Recorded at the height it was built at: what stands on it doesn't move with the ground around
+    Map<String, Object> recorded = new LinkedHashMap<String, Object>(command.getParameters());
+    recorded.remove("elevation");
+    recorded.put("height", Double.valueOf(Math.round(height * 10) / 10.));
+    record(action, recorded);
     notes.add(("flatten_area".equals(action) ? "Flattened " : "Added a pad of ") + format(area / 10000) + " m2 at the height "
         + format(height) + " cm" + (slopeX != 0 || slopeY != 0 ? ", sloped" : "") + ", the ground joining it over " + format(blend)
         + " cm: " + result);
@@ -1608,6 +2220,7 @@ class AssistantTerrainCommands {
       points.add(new float [] {point [0], point [1], smoothed});
     }
     String result = regradeAround(terrain, points, polygon, 50, tally, notes);
+    record("smooth_area", command.getParameters());
     notes.add("Smoothed " + format(area / 10000) + " m2 of ground, by up to " + format(worst) + " cm: " + result);
   }
 
@@ -1639,6 +2252,7 @@ class AssistantTerrainCommands {
       points.add(new float [] {x, y, getHeight(x, y)});
     }
     String result = regradeAround(terrain, points, line, width, tally, notes);
+    record(action, command.getParameters());
     double length = 0;
     for (int i = 0; i < line.length - 1; i++) {
       length += Math.hypot(line [i + 1][0] - line [i][0], line [i + 1][1] - line [i][1]);
@@ -1719,6 +2333,7 @@ class AssistantTerrainCommands {
       }
     }
     String result = regradeAround(terrain, points, line, reach, tally, notes);
+    record("grade_path", command.getParameters());
     notes.add("Graded " + format(length / 100) + " m of ground " + format(width) + " cm wide, its steepest part at "
         + format(steepest) + " %" + (crossSlope != 0 ? ", with a cross slope of " + format(crossSlope * 100) + " %" : "")
         + (ditchDepth > 0 ? ", a ditch on both sides" : "") + ": " + result
@@ -1799,6 +2414,16 @@ class AssistantTerrainCommands {
       }
     }
     String result = regradeAround(terrain, points, line, terrace + blend, tally, notes);
+    Map<String, Object> recorded = new LinkedHashMap<String, Object>();
+    List<Object> linePoints = new ArrayList<Object>();
+    for (float [] point : line) {
+      linePoints.add(java.util.Arrays.<Object>asList(Double.valueOf(point [0]), Double.valueOf(point [1])));
+    }
+    recorded.put("points", linePoints);
+    recorded.put("left", Boolean.valueOf(left));
+    recorded.put("height", Double.valueOf(height));
+    recorded.put("terrace", Double.valueOf(terrace));
+    record("cut_step", recorded);
     notes.add("Cut a step of " + format(height) + " cm along the line: " + result);
   }
 
