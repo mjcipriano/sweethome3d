@@ -3093,10 +3093,7 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     private long                   lastTime;
     // Mouse look
     private boolean                mouseLook;
-    private java.awt.Robot         robot;
-    private java.awt.Point         lastMouseLocation;
-    private java.awt.Cursor        previousCursor;
-    private int                    ignoredMoves;
+    private MouseLookCapture       mouseLookCapture;
 
     public SmoothNavigator(HomeController3D controller) {
       this.controller = controller;
@@ -3275,101 +3272,54 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
     }
 
     /**
-     * Lets the mouse turn the visitor without any button, its pointer hidden and kept in the view.
+     * Lets the mouse turn the visitor without any button: its pointer is hidden and
+     * captured in the view, so the visitor can turn without end.
      */
     private void startMouseLook() {
       if (home.getCamera() == home.getTopCamera()) {
         // Turning around the home is done with the mouse dragged
         return;
       }
+      if (this.mouseLookCapture == null) {
+        this.mouseLookCapture = new MouseLookCapture(component3D != null ? component3D : HomeComponent3D.this,
+            new MouseLookCapture.Listener() {
+              public void pointerMoved(int dx, int dy) {
+                if (!isNavigationPossible() || home.getCamera() == home.getTopCamera()) {
+                  stopMouseLook();
+                } else {
+                  final float ANGLE_FACTOR = 0.0028f;
+                  if (dx != 0) {
+                    controller.rotateCameraYaw(dx * ANGLE_FACTOR);
+                  }
+                  if (dy != 0) {
+                    controller.rotateCameraPitch(dy * ANGLE_FACTOR);
+                  }
+                }
+              }
+
+              public void captureStopped() {
+                mouseLook = false;
+                directNavigation = false;
+              }
+            });
+      }
       this.mouseLook = true;
       directNavigation = true;
-      this.ignoredMoves = 0;
-      this.lastMouseLocation = null;
-      try {
-        this.robot = new java.awt.Robot();
-      } catch (Exception ex) {
-        // The mouse turns the visitor as far as the pointer can go
-        this.robot = null;
-      }
-      this.previousCursor = component3D != null ? component3D.getCursor() : null;
-      try {
-        java.awt.Cursor hiddenCursor = java.awt.Toolkit.getDefaultToolkit().createCustomCursor(
-            new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB), new java.awt.Point(0, 0), "hidden");
-        if (component3D != null) {
-          component3D.setCursor(hiddenCursor);
-        }
-      } catch (RuntimeException ex) {
-        // The pointer stays visible
-      }
+      this.mouseLookCapture.start();
     }
 
     public void stopMouseLook() {
       if (this.mouseLook) {
-        this.mouseLook = false;
-        directNavigation = false;
-        this.lastMouseLocation = null;
-        if (component3D != null) {
-          component3D.setCursor(this.previousCursor);
-        }
+        this.mouseLookCapture.stop();
       }
     }
 
     /**
-     * Turns the visitor by the move of the mouse in the mouse look mode,
-     * and returns <code>false</code> out of this mode.
+     * Returns <code>true</code> in the mouse look mode, where the moves of the
+     * mouse received by the view mustn't be handled as usual.
      */
     public boolean lookWithMouse(MouseEvent ev) {
-      if (!this.mouseLook) {
-        return false;
-      } else if (!isNavigationPossible() || home.getCamera() == home.getTopCamera()) {
-        stopMouseLook();
-        return false;
-      }
-      java.awt.Point location = ev.getLocationOnScreen();
-      if (this.ignoredMoves > 0) {
-        // Moves sent before the pointer came back to the center of the view
-        this.ignoredMoves--;
-        this.lastMouseLocation = location;
-        return true;
-      }
-      if (this.lastMouseLocation != null) {
-        final float ANGLE_FACTOR = 0.0028f;
-        int dx = location.x - this.lastMouseLocation.x;
-        int dy = location.y - this.lastMouseLocation.y;
-        if (Math.abs(dx) < 400 && Math.abs(dy) < 400) {
-          if (dx != 0) {
-            this.controller.rotateCameraYaw(dx * ANGLE_FACTOR);
-          }
-          if (dy != 0) {
-            this.controller.rotateCameraPitch(dy * ANGLE_FACTOR);
-          }
-        }
-      }
-      this.lastMouseLocation = location;
-      if (this.robot != null && component3D != null && component3D.isShowing()) {
-        // Back to the center of the view when the pointer comes close to its border
-        java.awt.Point origin = component3D.getLocationOnScreen();
-        int margin = Math.min(component3D.getWidth(), component3D.getHeight()) / 4;
-        if (location.x < origin.x + margin || location.x > origin.x + component3D.getWidth() - margin
-            || location.y < origin.y + margin || location.y > origin.y + component3D.getHeight() - margin) {
-          java.awt.Point center = new java.awt.Point(origin.x + component3D.getWidth() / 2, origin.y + component3D.getHeight() / 2);
-          this.robot.mouseMove(center.x, center.y);
-          try {
-            java.awt.Point moved = java.awt.MouseInfo.getPointerInfo().getLocation();
-            if (Math.abs(moved.x - center.x) <= 2 && Math.abs(moved.y - center.y) <= 2) {
-              this.lastMouseLocation = center;
-              this.ignoredMoves = 1;
-            } else {
-              // A system that doesn't let programs move the pointer
-              this.robot = null;
-            }
-          } catch (RuntimeException ex) {
-            this.robot = null;
-          }
-        }
-      }
-      return true;
+      return this.mouseLook;
     }
   }
 
@@ -3384,6 +3334,8 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
           @Override
           public void focusLost(java.awt.event.FocusEvent ev) {
             smoothNavigator.stop();
+            // The pointer isn't kept by a view that the keyboard left
+            smoothNavigator.stopMouseLook();
           }
         });
     }
