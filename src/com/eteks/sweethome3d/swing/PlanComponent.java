@@ -1386,7 +1386,7 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
         public void mousePressed(MouseEvent ev) {
           this.lastMousePressedLocation = ev.getPoint();
           if (isEnabled() && !ev.isPopupTrigger()) {
-            requestFocusInWindow();
+            SwingTools.requestFocusAtMousePress(PlanComponent.this);
             if (SwingUtilities.isLeftMouseButton(ev)) {
               boolean alignmentActivated = OperatingSystem.isWindows() || OperatingSystem.isMacOSX()
                   ? ev.isShiftDown()

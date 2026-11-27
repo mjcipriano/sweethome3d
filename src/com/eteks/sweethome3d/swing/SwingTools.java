@@ -544,12 +544,20 @@ public class SwingTools {
    dialog.applyComponentOrientation(parentComponent != null
        ? parentComponent.getComponentOrientation()
        : ComponentOrientation.getOrientation(Locale.getDefault()));
+   // The component that gets the keyboard back once the dialog is closed
+   KeyboardFocusManager focusManager = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+   Component focusOwner = focusManager.getPermanentFocusOwner();
+   Window ownerWindow = parentComponent != null ? SwingUtilities.getWindowAncestor(parentComponent) : null;
+   if (focusOwner == null && ownerWindow != null) {
+     focusOwner = ownerWindow.getMostRecentFocusOwner();
+   }
+   final Timer [] focusTimer = {null};
    if (focusedComponent != null) {
      // Add a listener that transfer focus to focusedComponent when dialog is shown
      dialog.addComponentListener(new ComponentAdapter() {
          @Override
          public void componentShown(ComponentEvent ev) {
-           requestFocusInWindow(focusedComponent);
+           focusTimer [0] = requestFocusInWindowLater(focusedComponent);
            dialog.removeComponentListener(this);
          }
        });
@@ -585,7 +593,13 @@ public class SwingTools {
      }
    }
 
+   if (focusTimer [0] != null) {
+     // A dialog closed at once mustn't be asked for the focus afterwards: the request would wait
+     // for a window that doesn't exist anymore, and the keyboard with it
+     focusTimer [0].stop();
+   }
    dialog.dispose();
+   restoreFocus(focusOwner);
    Object value = optionPane.getValue();
    if (value != null) {
      if (options != null) {
@@ -625,16 +639,162 @@ public class SwingTools {
    * Requests the focus for the given component.
    */
   public static void requestFocusInWindow(final JComponent focusedComponent) {
+    requestFocusInWindowLater(focusedComponent);
+  }
+
+  /**
+   * Requests the focus for the given component, at once or a moment later if its window isn't ready.
+   * @return the timer that will request the focus later, or <code>null</code> if it was requested at once
+   */
+  private static Timer requestFocusInWindowLater(final JComponent focusedComponent) {
     if (!focusedComponent.requestFocusInWindow()) {
       // Prefer to call requestFocusInWindow in a timer with a small delay
       // than calling it with EnventQueue#invokeLater to ensure it always works
-      new Timer(50, new ActionListener() {
+      Timer timer = new Timer(50, new ActionListener() {
           public void actionPerformed(ActionEvent ev) {
-            focusedComponent.requestFocusInWindow();
             ((Timer)ev.getSource()).stop();
+            // Not for a component whose window was closed meanwhile: such a request is never
+            // answered by the system and keeps every following one waiting, with the keys typed
+            if (isInShowingWindow(focusedComponent)) {
+              focusedComponent.requestFocusInWindow();
+            }
           }
-        }).start();
+        });
+      timer.setRepeats(false);
+      timer.start();
+      return timer;
     }
+    return null;
+  }
+
+  /**
+   * Returns <code>true</code> if the given component is displayed in a window that is displayed.
+   */
+  static boolean isInShowingWindow(Component component) {
+    if (component == null || !component.isShowing()) {
+      return false;
+    }
+    Window window = component instanceof Window ? (Window)component : SwingUtilities.getWindowAncestor(component);
+    return window != null && window.isDisplayable() && window.isShowing();
+  }
+
+  /**
+   * Gives the keyboard back to the component that had it before a dialog was shown.
+   */
+  private static void restoreFocus(final Component focusOwner) {
+    if (focusOwner != null) {
+      EventQueue.invokeLater(new Runnable() {
+          public void run() {
+            removeDeadFocusRequests();
+            Component currentOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+            // Unless an other window took the keyboard meanwhile
+            if (isInShowingWindow(focusOwner)
+                && (currentOwner == null
+                    || SwingUtilities.getWindowAncestor(currentOwner) == SwingUtilities.getWindowAncestor(focusOwner))) {
+              focusOwner.requestFocusInWindow();
+            }
+          }
+        });
+    }
+  }
+
+  private static long    lastUnfocusedPressTime;
+  private static boolean focusRepairReported;
+
+  /**
+   * Requests the keyboard for a view where the user pressed a mouse button. If no component of the
+   * application has the keyboard at that moment, what keeps it away is removed first: a click in
+   * the plan or in the 3D view always brings the keys back to it.
+   */
+  public static void requestFocusAtMousePress(JComponent view) {
+    KeyboardFocusManager focusManager = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+    Window window = SwingUtilities.getWindowAncestor(view);
+    if (focusManager.getFocusOwner() != null || window == null || !window.isShowing()) {
+      lastUnfocusedPressTime = 0;
+      view.requestFocusInWindow();
+      return;
+    }
+    // The user works in this window and nothing in it has the keyboard
+    int removedRequests = removeDeadFocusRequests();
+    long time = System.currentTimeMillis();
+    if (removedRequests == 0 && lastUnfocusedPressTime != 0 && time - lastUnfocusedPressTime > 300) {
+      // A second click without keyboard: no request in progress will give it
+      removedRequests = removeFocusRequests(false);
+      focusManager.clearGlobalFocusOwner();
+      window.toFront();
+    }
+    lastUnfocusedPressTime = time;
+    if (removedRequests > 0 && !focusRepairReported) {
+      focusRepairReported = true;
+      System.err.println("Sweet Home 3D: removed " + removedRequests
+          + " keyboard focus request(s) that kept the keys away from the views");
+    }
+    // The window may have to take the keyboard too
+    view.requestFocus();
+  }
+
+  /**
+   * Removes the requests for the keyboard focus that wait for a window which isn't displayed anymore.
+   * The system never answers them, and the requests made after them wait behind, with the keys typed.
+   * @return the count of requests removed
+   */
+  public static int removeDeadFocusRequests() {
+    return removeFocusRequests(true);
+  }
+
+  /**
+   * Removes the pending requests for the keyboard focus, and the marks that keep the keys typed
+   * waiting for them.
+   * @param deadOnly if <code>true</code>, only the requests for windows that aren't displayed
+   */
+  private static int removeFocusRequests(boolean deadOnly) {
+    int count = 0;
+    try {
+      // The list isn't a part of the API of Java: read where the application is allowed to (--add-opens java.desktop/java.awt)
+      java.lang.reflect.Field requestsField = KeyboardFocusManager.class.getDeclaredField("heavyweightRequests");
+      requestsField.setAccessible(true);
+      Object value = requestsField.get(null);
+      if (value instanceof List) {
+        List<?> requests = (List<?>)value;
+        synchronized (requests) {
+          for (java.util.Iterator<?> it = requests.iterator(); it.hasNext(); ) {
+            Object request = it.next();
+            java.lang.reflect.Field heavyweightField = request.getClass().getDeclaredField("heavyweight");
+            heavyweightField.setAccessible(true);
+            Object heavyweight = heavyweightField.get(request);
+            if (!deadOnly || heavyweight instanceof Component && !isInShowingWindow((Component)heavyweight)) {
+              it.remove();
+              count++;
+            }
+          }
+        }
+      }
+      if (count > 0) {
+        KeyboardFocusManager focusManager = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+        if (focusManager instanceof java.awt.DefaultKeyboardFocusManager) {
+          // The keys typed since then waited for the components of these requests
+          java.lang.reflect.Field markersField = java.awt.DefaultKeyboardFocusManager.class.getDeclaredField("typeAheadMarkers");
+          markersField.setAccessible(true);
+          java.lang.reflect.Field keysField = java.awt.DefaultKeyboardFocusManager.class.getDeclaredField("enqueuedKeyEvents");
+          keysField.setAccessible(true);
+          synchronized (focusManager) {
+            Object markers = markersField.get(focusManager);
+            if (markers instanceof java.util.Collection) {
+              ((java.util.Collection<?>)markers).clear();
+            }
+            Object keys = keysField.get(focusManager);
+            if (keys instanceof java.util.Collection) {
+              ((java.util.Collection<?>)keys).clear();
+            }
+          }
+        }
+      }
+    } catch (Exception ex) {
+      // Not allowed or not this version of Java: the requests are left as they are
+    } catch (LinkageError ex) {
+      // Idem
+    }
+    return count;
   }
 
   private static Map<TextureImage, BufferedImage> patternImages;
