@@ -163,7 +163,10 @@ public class DialogFocusTest {
     Assume.assumeTrue("The window of the test gets the keyboard on this display", waitForFocus());
     for (int delay : new int [] {1, 40, 150}) {
       showDialogClosedAfter(new WatchedField(), delay);
-      assertTrue("The view has the keyboard again after a dialog closed after " + delay + " ms", waitForFocus());
+      boolean focused = waitForFocus();
+      // Without window manager, the system may not give its window the keyboard back
+      Assume.assumeTrue("The window of the test gets the keyboard back on this display", focused || this.frame.isFocused());
+      assertTrue("The view has the keyboard again after a dialog closed after " + delay + " ms", focused);
     }
   }
 

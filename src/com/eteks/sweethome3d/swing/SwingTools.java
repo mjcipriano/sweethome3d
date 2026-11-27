@@ -690,8 +690,19 @@ public class SwingTools {
             // Unless an other window took the keyboard meanwhile
             if (isInShowingWindow(focusOwner)
                 && (currentOwner == null
-                    || SwingUtilities.getWindowAncestor(currentOwner) == SwingUtilities.getWindowAncestor(focusOwner))) {
-              focusOwner.requestFocusInWindow();
+                    || SwingUtilities.getWindowAncestor(currentOwner) == SwingUtilities.getWindowAncestor(focusOwner))
+                && !focusOwner.requestFocusInWindow()) {
+              // Its window may get the keyboard back from the system a moment later
+              final int [] tries = {0};
+              new Timer(60, new ActionListener() {
+                  public void actionPerformed(ActionEvent ev) {
+                    Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+                    if (++tries [0] >= 8 || owner != null || !isInShowingWindow(focusOwner)
+                        || focusOwner.requestFocusInWindow()) {
+                      ((Timer)ev.getSource()).stop();
+                    }
+                  }
+                }).start();
             }
           }
         });
