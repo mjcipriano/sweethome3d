@@ -446,9 +446,9 @@ class AssistantBuildingCommands {
     final boolean ceilingHeight = AssistantCeilingCommands.hasCeilingHeight(command);
     // The color of the walls of the rooms, which the wall sides that face them get
     boolean wallFinish = this.executor.getWallFinishCommands().modifyRoomFinish(command, rooms, tally, notes);
-    if (wallFinish && !command.has("points") && ceilingShown == null && !command.has("floor_visible")
     // Whether the rooms are outdoors, for the checks of the finishes of the walls around them
     wallFinish |= setRoomsOutdoor(command, rooms, tally, notes);
+    if (wallFinish && !command.has("points") && ceilingShown == null && !command.has("floor_visible")
         && !command.has("area_visible") && name == null && !floorOffset && !ceiling && !ceilingHeight) {
       return;
     }
