@@ -1963,7 +1963,10 @@ gutters inside a room (`roof_in_room`), walls drawn over each other
 room that walls don't close up to its ceiling (`open_two_story_room`), a
 ceiling above the roof (`ceiling_above_roof`, `roof_at_ceiling`) and the
 finishes of wall sides (`wall_outside_finish_indoors`,
-`wall_inside_finish_outdoors`, `wall_side_unpainted`). `"crossings":true`
+`wall_inside_finish_outdoors`, `wall_side_unpainted`). A porch, a deck or a
+yard counts as the outside; `modify_room` with `"outdoor":true` or `false`
+tells it for a room that its ceiling and its open sides don't tell, and
+`null` lets the check decide again. `"crossings":true`
 lists the items that cross another item, level by level. `fix_home` cuts a
 roof along the walls of the room it comes into (as `clip_to_rooms` does),
 keeps one of two overlapping walls, lines doors up, fits walls to the roof

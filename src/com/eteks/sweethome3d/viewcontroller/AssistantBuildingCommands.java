@@ -419,6 +419,8 @@ class AssistantBuildingCommands {
     final boolean ceilingHeight = AssistantCeilingCommands.hasCeilingHeight(command);
     // The color of the walls of the rooms, which the wall sides that face them get
     boolean wallFinish = this.executor.getWallFinishCommands().modifyRoomFinish(command, rooms, tally, notes);
+    // Whether the rooms are outdoors, for the checks of the finishes of the walls around them
+    wallFinish |= setRoomsOutdoor(command, rooms, tally, notes);
     if (wallFinish && !command.has("points") && !command.has("ceiling_visible") && !command.has("floor_visible")
         && !command.has("area_visible") && name == null && !floorOffset && !ceiling && !ceilingHeight) {
       return;
@@ -1208,6 +1210,70 @@ class AssistantBuildingCommands {
     }
     notes.add("Moved the virtual visitor to (" + Math.round(camera.getX()) + ", " + Math.round(camera.getY())
         + ") cm (camera moves aren't undoable)");
+  }
+
+  /**
+   * Handles the parameter <code>outdoor</code> of <code>modify_room</code>: <code>true</code> for a porch,
+   * a deck or a yard, <code>false</code> for a room indoors, <code>null</code> to let the checks tell.
+   * @return <code>true</code> if the command has this parameter
+   */
+  private boolean setRoomsOutdoor(AssistantCommand command, final List<Selectable> rooms, int [] tally, List<String> notes) {
+    if (!command.getParameters().containsKey("outdoor")) {
+      return false;
+    }
+    Object value = command.getParameters().get("outdoor");
+    final String outdoor;
+    if (value == null || "auto".equalsIgnoreCase(value.toString().trim())) {
+      outdoor = null;
+    } else if (value instanceof Boolean || "true".equalsIgnoreCase(value.toString().trim())
+               || "false".equalsIgnoreCase(value.toString().trim())) {
+      outdoor = String.valueOf(Boolean.parseBoolean(value.toString().trim()));
+    } else {
+      notes.add("Ignored \"outdoor\" in modify_room: it is true for a room outdoors (a porch, a deck, a yard), "
+          + "false for a room indoors, or null to let check_home tell from the ceiling and the walls of the room");
+      return true;
+    }
+    final List<String> oldValues = new ArrayList<String>();
+    int changed = 0;
+    for (Selectable room : rooms) {
+      String oldValue = ((Room)room).getProperty(HomeDefects.ROOM_OUTDOOR_PROPERTY);
+      oldValues.add(oldValue);
+      if (outdoor == null ? oldValue != null : !outdoor.equals(oldValue)) {
+        changed++;
+        ((Room)room).setProperty(HomeDefects.ROOM_OUTDOOR_PROPERTY, outdoor);
+      }
+    }
+    if (changed > 0) {
+      this.executor.beginTurnUpdate();
+      this.homeController.getUndoableEditSupport().postEdit(new javax.swing.undo.AbstractUndoableEdit() {
+          @Override
+          public void undo() {
+            super.undo();
+            for (int i = 0; i < rooms.size(); i++) {
+              ((Room)rooms.get(i)).setProperty(HomeDefects.ROOM_OUTDOOR_PROPERTY, oldValues.get(i));
+            }
+          }
+
+          @Override
+          public void redo() {
+            super.redo();
+            for (Selectable room : rooms) {
+              ((Room)room).setProperty(HomeDefects.ROOM_OUTDOOR_PROPERTY, outdoor);
+            }
+          }
+        });
+      tally [4] += changed;
+    }
+    StringBuilder text = new StringBuilder();
+    for (Selectable room : rooms) {
+      text.append(text.length() > 0 ? ", " : "").append(this.executor.getId(room));
+    }
+    notes.add(outdoor == null
+        ? "check_home tells by itself whether " + text + (rooms.size() == 1 ? " is" : " are") + " outdoors"
+        : text + (rooms.size() == 1 ? " is" : " are") + " now "
+            + (Boolean.parseBoolean(outdoor) ? "outdoors: an outside material on the walls around is right there"
+                : "indoors: an outside material on the walls that face it is reported"));
+    return true;
   }
 
   // ---- Repair ----
