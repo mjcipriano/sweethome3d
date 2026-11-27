@@ -393,12 +393,20 @@ much as its eaves moved.
 {"action":"set_gutters","roof":"F52","edges":[{"index":3,"gutter_spans":[[0,320],[700,1447]]}],"downspouts":[{"edge":3,"at":120}]}
 ```
 
-- An edge of type `clip` keeps the roof as its other edges make it and cuts it
-  at the vertical plane of that edge, without overhang, fascia, gutter or
-  downspout there. `abut` still makes a lean-to rising toward the wall.
+- An edge of type `clip` keeps the shape the roof had at that edge and cuts it
+  at the vertical plane of that edge, without overhang, fascia, gutter,
+  downspout or gable wall there: an eave keeps its slope, a gable stays a
+  gable, and the top of the roof doesn't move. `"clip_of":"hip|gable"` in the
+  edge gives that shape; it is stored when an edge becomes a `clip`. `abut`
+  still makes a lean-to rising toward the wall.
 - `clip_to_walls` (ids of walls), `clip_to_rooms` (ids of rooms) and
   `"clip":"taller_walls"` cut the roof where it would enter taller parts of
-  the building; `"clip":false` removes the cut.
+  the building; `"clip":false` removes the cut. The overhangs of eaves and of
+  gables are cut with the roof. A dormer whose place is clipped is kept, its
+  front at the face of the wall that clips the roof, without front wall nor
+  window there.
+- In `modify_roof`, `edges` whose items all give their `index` changes these
+  edges only, as `edge` does; a list without numbers gives every edge again.
 - `set_gutters` changes the gutters, the fascia and the downspouts of a roof
   without building its shape again: `gutters`, `downspouts` (true, false, or a
   list of `{"edge":N,"at":N}`), `gutter_color`, `fascia`, `fascia_color`, and

@@ -1389,6 +1389,24 @@ class AssistantBuildingCommands {
       int count = 0;
       for (Selectable room : entry.getValue()) {
         if (this.home.getRooms().contains(room) && !ids.contains(this.executor.getId(room))) {
+          // Not a cut that would leave a dormer of the roof out: the roof stays as it is along that room
+          List<Object> idsWithRoom = new ArrayList<Object>(ids);
+          idsWithRoom.add(this.executor.getId(room));
+          List<Integer> lostDormers = this.executor.getShapeCommands().getDormersLostByClip(
+              (HomePieceOfFurniture)entry.getKey(), idsWithRoom);
+          if (lostDormers == null || !lostDormers.isEmpty()) {
+            String roomName = ((Room)room).getName();
+            notes.add("The roof " + this.executor.getId(entry.getKey()) + " wasn't cut along the room "
+                + this.executor.getId(room) + (roomName != null ? " \"" + roomName + "\"" : "") + ": "
+                + (lostDormers == null ? "it can't be clipped by that room"
+                    : (lostDormers.size() == 1 ? "its dormer " + lostDormers.get(0) : "its dormers " + lostDormers)
+                        + " couldn't be built anymore, " + (lostDormers.size() == 1 ? "its" : "their")
+                        + " place being in what that room cuts out of the roof")
+                + ". The roof still comes into that room: move or remove "
+                + (lostDormers != null && lostDormers.size() > 1 ? "these dormers" : "the dormer")
+                + " (modify_dormer, remove_dormer), or clip the roof with modify_roof");
+            continue;
+          }
           ids.add(this.executor.getId(room));
           count++;
         }
