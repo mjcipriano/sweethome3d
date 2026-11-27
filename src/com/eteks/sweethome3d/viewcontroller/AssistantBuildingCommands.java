@@ -413,17 +413,44 @@ class AssistantBuildingCommands {
     }
     final String name = command.getString("name");
     final boolean floorOffset = command.has("floor_offset");
-    final boolean ceiling = command.has("ceiling") || command.has("flat_ceiling_at");
-    final String ceilingMode = command.getString("ceiling") != null ? command.getString("ceiling") : "follow_roof";
+    // "ceiling" is the kind of ceiling, follow_roof or flat; true and false show and hide it, as "ceiling_visible"
+    Boolean shownCeiling = null;
+    String ceilingKind = command.getString("ceiling") != null
+        ? command.getString("ceiling").trim().toLowerCase(Locale.ENGLISH).replace('-', '_').replace(' ', '_') : null;
+    if (ceilingKind != null) {
+      if (ceilingKind.matches("true|visible|show|shown|yes|on")) {
+        shownCeiling = Boolean.TRUE;
+      } else if (ceilingKind.matches("false|hidden|hide|no|off")) {
+        shownCeiling = Boolean.FALSE;
+      } else if (!ceilingKind.matches("flat|level|none|default|follow_roof|roof|sloped")) {
+        notes.add("Ignored modify_room: \"ceiling\" is \"follow_roof\" (a ceiling under the slopes of the roof), \"flat\" "
+            + "(the flat ceiling again), or true or false to show or hide the ceiling as \"ceiling_visible\" does; "
+            + "\"ceiling_height\":N places it at a height. Nothing was changed");
+        return;
+      }
+    }
+    // The values that are true or false
+    for (String key : new String [] {"ceiling_visible", "floor_visible", "area_visible"}) {
+      Object value = command.getParameters().get(key);
+      if (value != null && !(value instanceof Boolean)
+          && !(value instanceof String && ((String)value).trim().toLowerCase(Locale.ENGLISH).matches("true|false"))) {
+        notes.add("Ignored modify_room: \"" + key + "\" is true or false, not " + value + ". Nothing was changed");
+        return;
+      }
+    }
+    final Boolean ceilingShown = command.has("ceiling_visible")
+        ? Boolean.valueOf(command.getBoolean("ceiling_visible", true)) : shownCeiling;
+    final boolean ceiling = command.has("ceiling") && shownCeiling == null || command.has("flat_ceiling_at");
+    final String ceilingMode = command.getString("ceiling") != null && shownCeiling == null ? command.getString("ceiling") : "follow_roof";
     final boolean followRoof = ceiling && !ceilingMode.trim().toLowerCase(Locale.ENGLISH).matches("flat|level|none|default");
     final boolean ceilingHeight = AssistantCeilingCommands.hasCeilingHeight(command);
     // The color of the walls of the rooms, which the wall sides that face them get
     boolean wallFinish = this.executor.getWallFinishCommands().modifyRoomFinish(command, rooms, tally, notes);
-    if (wallFinish && !command.has("points") && !command.has("ceiling_visible") && !command.has("floor_visible")
+    if (wallFinish && !command.has("points") && ceilingShown == null && !command.has("floor_visible")
         && !command.has("area_visible") && name == null && !floorOffset && !ceiling && !ceilingHeight) {
       return;
     }
-    if (!command.has("points") && !command.has("ceiling_visible") && !command.has("floor_visible")
+    if (!command.has("points") && ceilingShown == null && !command.has("floor_visible")
         && !command.has("area_visible") && name == null && !floorOffset && !ceiling && !ceilingHeight) {
       notes.add("Ignored modify_room: give at least one of \"ceiling_visible\", \"floor_visible\", "
           + "\"area_visible\", \"name\", \"points\", \"floor_offset\", \"ceiling\", \"flat_ceiling_at\", "
@@ -434,8 +461,8 @@ class AssistantBuildingCommands {
         public void run() {
           for (Selectable item : rooms) {
             Room room = (Room)item;
-            if (command.has("ceiling_visible")) {
-              room.setCeilingVisible(command.getBoolean("ceiling_visible", room.isCeilingVisible()));
+            if (ceilingShown != null) {
+              room.setCeilingVisible(ceilingShown.booleanValue());
             } else if (ceiling) {
               // The ceiling under the roof replaces the flat one at the height of the level
               room.setCeilingVisible(!followRoof);

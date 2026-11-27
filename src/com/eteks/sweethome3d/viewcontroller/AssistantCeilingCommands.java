@@ -394,12 +394,10 @@ class AssistantCeilingCommands {
         return;
       }
     } else {
-      toLevel = null;
-      for (Level level : this.home.getLevels()) {
-        if (level.getElevation() > roomLevel.getElevation() + 1
-            && (toLevel == null || level.getElevation() < toLevel.getElevation())) {
-          toLevel = level;
-        }
+      // The next level with rooms: a level made for a roof or for helpers isn't a floor of the building
+      toLevel = getLevelAbove(roomLevel, true);
+      if (toLevel == null) {
+        toLevel = getLevelAbove(roomLevel, false);
       }
     }
     if (toLevel == null || toLevel.getElevation() <= roomLevel.getElevation() + 1) {
@@ -434,8 +432,10 @@ class AssistantCeilingCommands {
     }
     float [][] outline = room.getPoints();
     final float floor = roomLevel.getElevation();
-    final float top = toLevel.getElevation() + toLevel.getHeight();
     Area roomArea = getArea(outline);
+    // The ceiling of the rooms of the upper level, when they have one of their own, rather than the top of that level
+    double upperCeiling = followRoof ? Double.NaN : getCeilingHeightOfLevel(toLevel, room, roomArea);
+    final float top = toLevel.getElevation() + (Double.isNaN(upperCeiling) ? toLevel.getHeight() : (float)upperCeiling);
     StringBuilder answer = new StringBuilder("Opened " + this.executor.getId(room)
         + (room.getName() != null ? " \"" + room.getName() + "\"" : "") + " to the level \"" + toLevel.getName() + "\"");
 
@@ -474,6 +474,10 @@ class AssistantCeilingCommands {
         setProperties(room, new String [] {CEILING_HEIGHT_PROPERTY, CEILING_THICKNESS_PROPERTY},
             new String [] {format(top - floor), thickness});
         answer.append(": ").append(visible ? describeCeiling(room) : "its ceiling is hidden");
+        if (!Double.isNaN(upperCeiling)) {
+          answer.append(", as the ceilings of the rooms of the level \"").append(toLevel.getName()).append("\", ")
+              .append(format(upperCeiling)).append(" cm above its floor");
+        }
       }
     } catch (IOException ex) {
       answer.append(": its ceiling doesn't follow a roof (").append(ex.getMessage())
@@ -546,7 +550,17 @@ class AssistantCeilingCommands {
     }
 
     // 4. The walls around the room, closed up to the ceiling
-    Level overlookLevel = getLevelAbove(roomLevel);
+    // The overlook is on the first level with rooms above the room, up to the level it is opened to
+    Level overlookLevel = getLevelAbove(roomLevel, true);
+    if (overlookLevel == null || overlookLevel.getElevation() > toLevel.getElevation()) {
+      overlookLevel = toLevel;
+    }
+    List<Level> floorLevels = new ArrayList<Level>();
+    for (Level level : this.home.getLevels()) {
+      if (level.getElevation() > floor + 1 && level.getElevation() < top - 1 && (level == toLevel || hasRooms(level))) {
+        floorLevels.add(level);
+      }
+    }
     List<String> raisedWalls = new ArrayList<String>();
     List<String> addedWalls = new ArrayList<String>();
     List<String> longWalls = new ArrayList<String>();
@@ -570,6 +584,11 @@ class AssistantCeilingCommands {
       if (sideLength < 5) {
         continue;
       }
+      // Walls of any level, tall enough or one above the other, may already close this side up to the ceiling:
+      // nothing is raised nor added beside them
+      if (getClosedElevation(start, end, floor, top) >= top - 1) {
+        continue;
+      }
       // Up to where walls close this side: the walls of the level of the room, then the ones of each level above
       float closedTo = floor;
       List<Wall> lowerWalls = getWallsAlong(start, end, roomLevel);
@@ -578,8 +597,8 @@ class AssistantCeilingCommands {
         closedTo = floor + getLowestTop(lowerWalls);
       }
       boolean upperWallsCloseIt = true;
-      for (Level level : this.home.getLevels()) {
-        if (level.getElevation() > floor + 1 && level.getElevation() < top - 1) {
+      for (Level level : floorLevels) {
+        {
           List<Wall> upperWalls = getWallsAlong(start, end, level);
           if (getCover(upperWalls, start, end) < 0.8f
               || level.getElevation() + getLowestTop(upperWalls) < Math.min(top, getNextElevation(level, top)) - 1) {
@@ -623,9 +642,8 @@ class AssistantCeilingCommands {
         }
       } else {
         // A side open on the level of the room: a wall of the upper levels closes it above
-        for (Level level : this.home.getLevels()) {
-          if (level.getElevation() > floor + 1 && level.getElevation() < top - 1
-              && getCover(getWallsAlong(start, end, level), start, end) < 0.8f) {
+        for (Level level : floorLevels) {
+          if (getCover(getWallsAlong(start, end, level), start, end) < 0.8f) {
             Wall wall = new Wall(start [0], start [1], end [0], end [1], thickness,
                 Math.min(top, getNextElevation(level, top)) - level.getElevation());
             addWall(wall, level);
@@ -1090,14 +1108,124 @@ class AssistantCeilingCommands {
   }
 
   private Level getLevelAbove(Level level) {
+    // The floors of the building, if there are some above
+    Level above = getLevelAbove(level, true);
+    return above != null ? above : getLevelAbove(level, false);
+  }
+
+  /**
+   * Returns the lowest level above <code>level</code>.
+   * @param withRooms <code>true</code> to ignore the levels which hold no room: the ones made for
+   *          a roof, for the ground or to place helpers aren't floors of the building
+   */
+  private Level getLevelAbove(Level level, boolean withRooms) {
     Level above = null;
     for (Level other : this.home.getLevels()) {
       if (other.getElevation() > level.getElevation() + 1
-          && (above == null || other.getElevation() < above.getElevation())) {
+          && (above == null || other.getElevation() < above.getElevation())
+          && (!withRooms || hasRooms(other))) {
         above = other;
       }
     }
     return above;
+  }
+
+  private boolean hasRooms(Level level) {
+    for (Room room : this.home.getRooms()) {
+      if (room.getLevel() == level) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Returns the height above the floor of <code>level</code> of the ceilings that its rooms got with
+   * <code>ceiling_height</code>: the one of the rooms over <code>roomArea</code>, otherwise the one that
+   * most of the surface of the rooms of the level has, or NaN if their ceiling is the top of the level.
+   */
+  private double getCeilingHeightOfLevel(Level level, Room openedRoom, Area roomArea) {
+    Map<Double, Double> over = new java.util.LinkedHashMap<Double, Double>();
+    Map<Double, Double> others = new java.util.LinkedHashMap<Double, Double>();
+    double total = 0;
+    for (Room room : this.home.getRooms()) {
+      if (room.getLevel() != level || room == openedRoom) {
+        continue;
+      }
+      Area area = getArea(room.getPoints());
+      double surface = getSurface(area);
+      double height = getCeilingHeight(room);
+      // The rooms drawn over the opened one have no ceiling left
+      if (room.isCeilingVisible() || !Double.isNaN(height)) {
+        total += surface;
+      }
+      if (Double.isNaN(height)) {
+        continue;
+      }
+      Double key = Double.valueOf(Math.round(height * 100) / 100.);
+      double common = getSurface(intersect(roomArea, area));
+      Map<Double, Double> surfaces = common >= 100 ? over : others;
+      surfaces.put(key, Double.valueOf((surfaces.containsKey(key) ? surfaces.get(key).doubleValue() : 0) + surface));
+    }
+    Map<Double, Double> surfaces = !over.isEmpty() ? over : others;
+    double best = Double.NaN;
+    double bestSurface = 0;
+    for (Map.Entry<Double, Double> entry : surfaces.entrySet()) {
+      if (entry.getValue().doubleValue() > bestSurface) {
+        bestSurface = entry.getValue().doubleValue();
+        best = entry.getKey().doubleValue();
+      }
+    }
+    // Not the ceiling of a few rooms lowered among others at the top of the level
+    return !over.isEmpty() || bestSurface >= 0.5 * total ? best : Double.NaN;
+  }
+
+  /**
+   * Returns the elevation up to which walls close the side from <code>start</code> to <code>end</code>
+   * above <code>floor</code>: walls of any level, one above the other or tall enough by themselves,
+   * along the side or parallel to it a short way from it, as around a chimney breast.
+   */
+  private float getClosedElevation(float [] start, float [] end, float floor, float top) {
+    List<Wall> walls = new ArrayList<Wall>();
+    for (Wall wall : this.home.getWalls()) {
+      if (isAlong(wall, start, end, 60) && getCover(Collections.singletonList(wall), start, end) > 0.02f) {
+        walls.add(wall);
+      }
+    }
+    // What a floor or the gap left between two walls one above the other may leave open
+    final float gap = 36;
+    float closedTo = floor;
+    while (closedTo < top - 1) {
+      // The highest elevation that the walls standing at this height reach along most of the side
+      List<Float> tops = new ArrayList<Float>();
+      for (Wall wall : walls) {
+        float base = wall.getLevel() != null ? wall.getLevel().getElevation() : 0;
+        float wallTop = base + getLowestTop(Collections.singletonList(wall));
+        if (base <= closedTo + gap && wallTop > closedTo + 1) {
+          tops.add(Float.valueOf(wallTop));
+        }
+      }
+      Collections.sort(tops, Collections.reverseOrder());
+      float reached = closedTo;
+      for (Float candidate : tops) {
+        List<Wall> tallWalls = new ArrayList<Wall>();
+        for (Wall wall : walls) {
+          float base = wall.getLevel() != null ? wall.getLevel().getElevation() : 0;
+          if (base <= closedTo + gap && base + getLowestTop(Collections.singletonList(wall)) >= candidate.floatValue() - 0.5f) {
+            tallWalls.add(wall);
+          }
+        }
+        if (getCover(tallWalls, start, end) >= 0.8f) {
+          reached = candidate.floatValue();
+          break;
+        }
+      }
+      if (reached <= closedTo + 1) {
+        break;
+      }
+      closedTo = reached;
+    }
+    return closedTo;
   }
 
   /**
@@ -1166,6 +1294,14 @@ class AssistantCeilingCommands {
   }
 
   private static boolean isAlong(Wall wall, float [] start, float [] end) {
+    return isAlong(wall, start, end, 8);
+  }
+
+  /**
+   * Returns <code>true</code> if a straight wall is parallel to the side from <code>start</code> to
+   * <code>end</code>, its middle at <code>distance</code> cm at most from the line of the side, beyond half its thickness.
+   */
+  private static boolean isAlong(Wall wall, float [] start, float [] end, float distance) {
     double sideLength = Math.hypot(end [0] - start [0], end [1] - start [1]);
     double wallLength = wall.getLength();
     if (sideLength < 1 || wallLength < 1 || wall.getArcExtent() != null && wall.getArcExtent() != 0) {
@@ -1177,7 +1313,7 @@ class AssistantCeilingCommands {
     if (cross > 0.1) {
       return false;
     }
-    float tolerance = wall.getThickness() / 2 + 8;
+    float tolerance = wall.getThickness() / 2 + distance;
     float middleX = (wall.getXStart() + wall.getXEnd()) / 2;
     float middleY = (wall.getYStart() + wall.getYEnd()) / 2;
     return getDistanceToLine(middleX, middleY, start, end) <= tolerance;

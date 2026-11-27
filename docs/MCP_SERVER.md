@@ -609,13 +609,21 @@ version at the left and of the home now, or of another version, at the right.
 
 Most defects of a room are near its ceiling: a gap over a wall, a roof or a
 gutter coming through, a wall left one story tall in a two-story room.
-`inspect_room {"room":"R11"}` returns six pictures in one image, taken from
-the middle of the room at eye height:
+`inspect_room {"room":"R11"}` returns six pictures in one image, taken at eye
+height from the place of the room the farthest from its sides and from the
+walls that stand in it (the middle of a rectangular room; in an L-shaped
+room, a place in the L, not the center of its outline):
 
 1. to 4. toward the north, the east, the south and the west of the plan,
    the camera tilted up so that the top of each wall is in the picture;
 5. straight up;
 6. from a corner of the room, as `"view":"inside"`.
+
+When that place is less than 1.5 m from the side a picture looks at, as
+across a hallway, that picture is taken from the place of the room the
+farthest from that side instead, along the hallway: the answer says from
+where. The camera of the corner stands 45 cm at least from the sides when the
+room is wide enough, never in a wall, at a place that sees the middle.
 
 The answer gives the camera of each picture, to ask `get_3d_image` for one
 of them with `identify` or `labels`. In a room whose ceiling is hidden, the
