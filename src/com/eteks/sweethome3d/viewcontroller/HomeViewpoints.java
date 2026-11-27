@@ -266,55 +266,41 @@ public class HomeViewpoints {
         maxX = Math.max(maxX, point [0]);
         maxY = Math.max(maxY, point [1]);
       }
-      float centerX = room.getXCenter();
-      float centerY = room.getYCenter();
-      if (!room.containsPoint(centerX, centerY, 0)) {
-        centerX = (minX + maxX) / 2;
-        centerY = (minY + maxY) / 2;
-      }
       float elevation = room.getLevel() != null ? room.getLevel().getElevation() : 0;
       List<HomeRoofs.Roof> roofs = HomeRoofs.get(home);
-      // The corner of the room the farthest from its center where a visitor can stand,
-      // under a ceiling or a roof high enough if there's such a corner
-      float [][] corners = {{minX, maxY}, {maxX, maxY}, {maxX, minY}, {minX, minY}};
+      // The place of the room the farthest from its sides and from the walls that stand in it: the middle
+      // of a rectangular room, but not the center of the outline of an L or of a room around another one
+      List<Wall> walls = getWallsOfLevel(home, room.getLevel());
+      List<float []> places = getPlaces(room, walls);
+      float [] middle = getMiddlePlace(room, places);
+      float centerX = middle [0];
+      float centerY = middle [1];
+      // Where a visitor stands to see the room: away from its sides and out of its walls, the farthest from
+      // its middle among the places that see it, under a ceiling or a roof high enough if there's such a place
+      float clearance = Math.min(45, middle [2] * 0.7f);
       float bestX = centerX;
       float bestY = centerY;
       double bestDistance = -1;
       boolean bestStanding = false;
-      for (float [] corner : corners) {
-        boolean cornerFound = false;
-        for (float inset = 0.12f; inset < 0.5f; inset += 0.08f) {
-          float x = corner [0] + (centerX - corner [0]) * inset * 2;
-          float y = corner [1] + (centerY - corner [1]) * inset * 2;
-          if (room.containsPoint(x, y, 0)) {
-            boolean standing = getEyeElevation(home, roofs, room, x, y) >= elevation + EYE_HEIGHT - 0.5f;
-            double distance = Math.hypot(x - centerX, y - centerY);
-            if (standing && !bestStanding
-                || standing == bestStanding && !cornerFound && distance > bestDistance) {
-              bestDistance = distance;
-              bestX = x;
-              bestY = y;
-              bestStanding = standing;
-            }
-            cornerFound = true;
-            if (standing) {
-              break;
-            }
-          }
+      for (float [] place : places) {
+        if (place [2] < clearance) {
+          continue;
         }
-      }
-      if (bestDistance < 1) {
-        // A room where no corner suits: look at its center from one of its sides
-        bestX = centerX;
-        bestY = Math.min(maxY, centerY + (maxY - minY) * 0.4f);
-        if (Math.abs(bestY - centerY) < 1) {
-          bestY = centerY + 50;
+        double distance = Math.hypot(place [0] - centerX, place [1] - centerY);
+        if (distance < 1 || !isInSight(room, walls, place [0], place [1], centerX, centerY)) {
+          continue;
         }
-        if (!room.containsPoint(bestX, bestY, 0)) {
-          // Never out of the room
-          float [] place = getPlaceInside(room, centerX, centerY);
+        boolean standing = getEyeElevation(home, roofs, room, place [0], place [1]) >= elevation + EYE_HEIGHT - 0.5f;
+        if (standing && !bestStanding
+            || standing == bestStanding
+               && (distance > bestDistance + 0.5
+                   // Among places as far, the one at the bottom left of the plan, as in a rectangular room
+                   || distance > bestDistance - 0.5
+                      && (place [1] > bestY + 0.5f || place [1] > bestY - 0.5f && place [0] < bestX - 0.5f))) {
+          bestDistance = distance;
           bestX = place [0];
           bestY = place [1];
+          bestStanding = standing;
         }
       }
       // Under the ceiling and the roof, and looking a little down, whatever the size of the room
@@ -495,6 +481,155 @@ public class HomeViewpoints {
     return best != null ? best : new float [] {x, y};
   }
 
+  // Under this distance to the side it looks at, a picture of the inspection of a room shows little of it
+  private static final float MIN_INSPECTION_DISTANCE = 150;
+  private static final float MAX_INSPECTION_DISTANCE = 450;
+
+  private static List<Wall> getWallsOfLevel(Home home, Level level) {
+    List<Wall> walls = new ArrayList<Wall>();
+    for (Wall wall : home.getWalls()) {
+      if (wall.getLevel() == level) {
+        walls.add(wall);
+      }
+    }
+    return walls;
+  }
+
+  /**
+   * Returns the places of a grid where a visitor may stand in <code>room</code>, each one as
+   * <code>{x, y, clearance}</code>: the points in its outline and out of the given walls, with their
+   * distance to the closest side of the room or face of a wall.
+   */
+  private static List<float []> getPlaces(Room room, List<Wall> walls) {
+    float [][] points = room.getPoints();
+    float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+    for (float [] point : points) {
+      minX = Math.min(minX, point [0]);
+      minY = Math.min(minY, point [1]);
+      maxX = Math.max(maxX, point [0]);
+      maxY = Math.max(maxY, point [1]);
+    }
+    java.awt.geom.GeneralPath path = new java.awt.geom.GeneralPath();
+    for (int i = 0; i < points.length; i++) {
+      if (i == 0) {
+        path.moveTo(points [i][0], points [i][1]);
+      } else {
+        path.lineTo(points [i][0], points [i][1]);
+      }
+    }
+    path.closePath();
+    // The walls that may stand in the room
+    List<Wall> closeWalls = new ArrayList<Wall>();
+    for (Wall wall : walls) {
+      float margin = wall.getThickness() + 50;
+      if (Math.max(wall.getXStart(), wall.getXEnd()) >= minX - margin && Math.min(wall.getXStart(), wall.getXEnd()) <= maxX + margin
+          && Math.max(wall.getYStart(), wall.getYEnd()) >= minY - margin && Math.min(wall.getYStart(), wall.getYEnd()) <= maxY + margin
+          && (wall.getArcExtent() == null || wall.getArcExtent().floatValue() == 0)) {
+        closeWalls.add(wall);
+      }
+    }
+    // A step of 12 cm at least, and 48 places at most along the longest side
+    float step = Math.max(12, Math.max(maxX - minX, maxY - minY) / 48);
+    int columns = Math.max(2, (int)Math.ceil((maxX - minX) / step));
+    int rows = Math.max(2, (int)Math.ceil((maxY - minY) / step));
+    List<float []> places = new ArrayList<float []>();
+    for (int i = 0; i <= 2 * columns; i++) {
+      // The middle of the room among the places, whatever its size
+      float x = minX + (maxX - minX) * i / (2 * columns);
+      for (int j = 0; j <= 2 * rows; j++) {
+        if ((i % 2 == 0) != (j % 2 == 0) && columns * rows > 600) {
+          // Half of the places in a large room
+          continue;
+        }
+        float y = minY + (maxY - minY) * j / (2 * rows);
+        if (!path.contains(x, y)) {
+          continue;
+        }
+        double clearance = Double.MAX_VALUE;
+        for (int k = 0; k < points.length; k++) {
+          float [] start = points [k];
+          float [] end = points [(k + 1) % points.length];
+          clearance = Math.min(clearance, java.awt.geom.Line2D.ptSegDist(start [0], start [1], end [0], end [1], x, y));
+        }
+        for (Wall wall : closeWalls) {
+          clearance = Math.min(clearance, java.awt.geom.Line2D.ptSegDist(wall.getXStart(), wall.getYStart(),
+              wall.getXEnd(), wall.getYEnd(), x, y) - wall.getThickness() / 2);
+        }
+        if (clearance > 0.5) {
+          places.add(new float [] {x, y, (float)clearance});
+        }
+      }
+    }
+    return places;
+  }
+
+  /**
+   * Returns the place <code>{x, y, clearance}</code> of a room the farthest from its sides and from the
+   * walls in it: the center of its outline if nothing is closer to it than to that place.
+   */
+  private static float [] getMiddlePlace(Room room, List<float []> places) {
+    float [] best = null;
+    for (float [] place : places) {
+      if (best == null || place [2] > best [2] + 0.01f) {
+        best = place;
+      }
+    }
+    if (best == null) {
+      float [] inside = getPlaceInside(room, room.getXCenter(), room.getYCenter());
+      return new float [] {inside [0], inside [1], 0};
+    }
+    // Among the places as far from the sides, as along the middle of a long room, the closest to its center
+    float centerX = room.getXCenter();
+    float centerY = room.getYCenter();
+    float [] middle = best;
+    double middleDistance = Math.hypot(best [0] - centerX, best [1] - centerY);
+    for (float [] place : places) {
+      double distance = Math.hypot(place [0] - centerX, place [1] - centerY);
+      if (place [2] >= best [2] * 0.92f - 1 && distance < middleDistance - 0.5) {
+        middle = place;
+        middleDistance = distance;
+      }
+    }
+    return middle;
+  }
+
+  private static boolean isFree(Room room, List<Wall> walls, float x, float y) {
+    if (!room.containsPoint(x, y, 0)) {
+      return false;
+    }
+    for (Wall wall : walls) {
+      if (wall.containsPoint(x, y, 0)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Returns the distance from a place of a room to its side or to the first wall in the given direction.
+   */
+  private static float getFreeDistance(Room room, List<Wall> walls, float x, float y, float [] direction) {
+    float distance = 10;
+    while (distance < 5000 && isFree(room, walls, x + direction [0] * (distance + 10), y + direction [1] * (distance + 10))) {
+      distance += 10;
+    }
+    return distance;
+  }
+
+  /**
+   * Returns <code>true</code> if nothing of the room nor of the walls stands between two places.
+   */
+  private static boolean isInSight(Room room, List<Wall> walls, float x1, float y1, float x2, float y2) {
+    double distance = Math.hypot(x2 - x1, y2 - y1);
+    int steps = (int)Math.max(1, Math.ceil(distance / 10));
+    for (int i = 1; i < steps; i++) {
+      if (!isFree(room, walls, x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /**
    * The points of view from which a room is inspected.
    */
@@ -574,7 +709,11 @@ public class HomeViewpoints {
     if (points.length < 3 || !(room.getArea() > 1)) {
       return null;
     }
-    float [] place = getPlaceInside(room, room.getXCenter(), room.getYCenter());
+    // From the place the farthest from the sides of the room and from the walls in it: the center of
+    // its outline may be beside a wall, or out of an L-shaped room
+    List<Wall> walls = getWallsOfLevel(home, room.getLevel());
+    List<float []> places = getPlaces(room, walls);
+    float [] place = getMiddlePlace(room, places);
     float floorElevation = room.getLevel() != null ? room.getLevel().getElevation() : 0;
     List<HomeRoofs.Roof> roofs = HomeRoofs.get(home);
     float eyeElevation = getEyeElevation(home, roofs, room, place [0], place [1]);
@@ -598,18 +737,34 @@ public class HomeViewpoints {
     String [] captions = new String [6];
     for (int i = 0; i < 4; i++) {
       // The distance to the side of the room in this direction
-      float distance = 10;
-      while (distance < 5000
-             && room.containsPoint(place [0] + vectors [i][0] * (distance + 10), place [1] + vectors [i][1] * (distance + 10), 0)) {
-        distance += 10;
+      float [] viewPlace = place;
+      float distance = getFreeDistance(room, walls, place [0], place [1], vectors [i]);
+      if (distance < MIN_INSPECTION_DISTANCE) {
+        // Too close to show anything but the top of a wall, as across a hallway: this side is looked at
+        // from the place of the room which is the farthest from it, away from the other sides
+        float clearance = Math.min(30, place [2] * 0.7f);
+        for (float [] other : places) {
+          if (other [2] >= clearance) {
+            float otherDistance = Math.min(MAX_INSPECTION_DISTANCE, getFreeDistance(room, walls, other [0], other [1], vectors [i]));
+            if (otherDistance > distance + 5
+                || otherDistance > distance - 5 && viewPlace != place && other [2] > viewPlace [2] + 1) {
+              distance = Math.max(distance, otherDistance);
+              viewPlace = other;
+            }
+          }
+        }
       }
+      float viewEyeElevation = viewPlace == place
+          ? eyeElevation : getEyeElevation(home, roofs, room, viewPlace [0], viewPlace [1]);
       // The middle of the picture at two thirds of the height of the wall over the eyes
-      double pitch = -Math.atan2((topElevation - eyeElevation) * 0.67, Math.max(60, distance));
+      double pitch = -Math.atan2((topElevation - viewEyeElevation) * 0.67, Math.max(60, distance));
       pitch = Math.max(-Math.toRadians(55), Math.min(-Math.toRadians(8), pitch));
-      poses [i] = new Pose(place [0], place [1], eyeElevation, yaws [i], (float)pitch, fieldOfView, false);
+      poses [i] = new Pose(viewPlace [0], viewPlace [1], viewEyeElevation, yaws [i], (float)pitch, fieldOfView, false);
       captions [i] = shortDirections [i];
       descriptions [i] = "toward the " + directions [i] + ", " + Math.round(Math.toDegrees(-pitch)) + " degrees up, the side of the room "
-          + Math.round(distance) + " cm away";
+          + Math.round(distance) + " cm away"
+          + (viewPlace != place ? ", seen from x " + Math.round(viewPlace [0]) + ", y " + Math.round(viewPlace [1])
+              + " as the middle of the room is too close to that side" : "");
     }
     poses [4] = new Pose(place [0], place [1], eyeElevation, (float)Math.PI, -(float)Math.PI / 2, fieldOfView, false);
     captions [4] = "Straight up (north at top)";

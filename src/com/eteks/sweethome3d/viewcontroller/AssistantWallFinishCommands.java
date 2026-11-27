@@ -74,7 +74,7 @@ class AssistantWallFinishCommands {
       "bottom", "top", "height", "lining", "lining_color", "color", "name");
   private static final List<String> HEADER_KEYS = Arrays.asList("action", "opening", "wall", "from", "to", "points",
       "bottom", "top", "height", "thickness", "bearing", "to_walls", "color", "texture", "category", "catalog_id",
-      "texture_scale", "texture_angle", "level", "name");
+      "texture_scale", "texture_angle", "level", "name", "force");
   private static final List<String> SOFFIT_KEYS = Arrays.asList("action", "points", "room", "bottom", "top", "color",
       "texture", "category", "catalog_id", "texture_scale", "texture_angle", "level", "name");
   private static final List<String> PAINT_KEYS = Arrays.asList("action", "rooms", "room", "id", "ids", "target", "only",
@@ -145,7 +145,10 @@ class AssistantWallFinishCommands {
         + "and \"to\", or between \"points\":[[x1,y1],[x2,y2]], whose ends go on to the walls they nearly reach unless \"to_walls\":false. "
         + "Its underside is at \"bottom\" above the floor, the top of the opening by default, and it rises to the ceiling of the level, "
         + "or to \"top\", or by \"height\"; \"thickness\" is the one of the wall by default, \"bearing\" extends it at each end. "
-        + "Described by an opening or a wall, it follows them when modify_wall moves the wall)\n"
+        + "Described by an opening or a wall, it follows them when modify_wall moves the wall. Where a wall as thick as "
+        + "the header already stands along it, as above a door or an opening, the header would only double the wall: the "
+        + "part that the wall closes is left out, and nothing is added if it closes all of it. A \"thickness\" larger than "
+        + "the one of the wall makes a beam that shows; \"force\":true builds it anyway)\n"
         + "  {\"action\":\"add_soffit\",\"points\":[[x,y],[x,y],[x,y],...],\"bottom\":220}  "
         + "(a lowered part of a ceiling, as over a dining bay or kitchen cabinets: a box from \"bottom\" above the floor up to the ceiling "
         + "of the level or to \"top\", with a \"color\" or a \"texture\"; \"room\":\"R1\" lowers the whole ceiling of a room)\n";
@@ -567,6 +570,7 @@ class AssistantWallFinishCommands {
     List<String> noRoom = new ArrayList<String>();
     List<String> shared = new ArrayList<String>();
     int alreadyPainted = 0;
+    int repainted = 0;
     for (Wall wall : this.home.getWalls()) {
       for (int side = 0; side < 2; side++) {
         boolean leftSide = side == 0;
@@ -579,6 +583,9 @@ class AssistantWallFinishCommands {
           if (!all && isPainted(wall, leftSide)) {
             alreadyPainted++;
           } else {
+            if (isPainted(wall, leftSide)) {
+              repainted++;
+            }
             sides.add(new Object [] {wall, Boolean.valueOf(leftSide), finishes.get(room)});
             if (!walls.contains(wall)) {
               walls.add(wall);
@@ -625,6 +632,11 @@ class AssistantWallFinishCommands {
     if (alreadyPainted > 0) {
       note.append(". ").append(alreadyPainted).append(alreadyPainted == 1 ? " side that had" : " sides that had")
           .append(" a color or a texture kept it (\"only\":\"all\" paints them too)");
+    }
+    if (repainted > 0) {
+      note.append(". ").append(repainted).append(repainted == 1 ? " of them had" : " of them had")
+          .append(" a color or a texture of ").append(repainted == 1 ? "its" : "their")
+          .append(" own, now replaced (\"only\":\"unpainted\" keeps such sides)");
     }
     notes.add(note.toString());
     if (!shared.isEmpty()) {
@@ -680,7 +692,14 @@ class AssistantWallFinishCommands {
         notes.add("Removed the wall color of " + changedRooms.size() + (changedRooms.size() == 1 ? " room" : " rooms")
             + ": the walls keep the finish they have");
       } else if (command.getBoolean("paint_walls", true)) {
-        paintSides(changedRooms, finishes, true, tally, notes, false);
+        // Every side that faces the room by default, or only the ones without color nor texture
+        String only = command.getString("only") != null ? command.getString("only").trim().toLowerCase(Locale.ENGLISH) : "all";
+        if (!"unpainted".equals(only) && !"all".equals(only)) {
+          notes.add("modify_room: \"only\" is \"all\" (the default: every wall side that faces the room is painted) or "
+              + "\"unpainted\" (the sides without color nor texture); no wall was painted");
+        } else {
+          paintSides(changedRooms, finishes, "all".equals(only), tally, notes, false);
+        }
       } else {
         notes.add("Stored " + finish.describe() + " as the wall finish of " + changedRooms.size()
             + (changedRooms.size() == 1 ? " room" : " rooms") + ": paint_rooms gives it to the walls");
@@ -1330,6 +1349,17 @@ class AssistantWallFinishCommands {
    */
   private AssistantGeneratedModel buildHeader(Map<String, Object> spec, Level level, List<String> notes,
                                               String [] description) throws IOException {
+    return buildHeader(spec, level, notes, description, false);
+  }
+
+  /**
+   * Returns the model of a header.
+   * @param skipWall <code>true</code> to leave out what a wall of the level already closes along the header:
+   *          a beam as thick as the wall that continues above an opening would only double that wall.
+   *          The bottom kept is then stored in <code>spec</code>.
+   */
+  private AssistantGeneratedModel buildHeader(Map<String, Object> spec, Level level, List<String> notes,
+                                              String [] description, boolean skipWall) throws IOException {
     double [] start;
     double [] end;
     float thickness = number(spec, "thickness", Float.NaN);
@@ -1404,6 +1434,24 @@ class AssistantWallFinishCommands {
       throw new IOException("\"bottom\" (" + format(bottom) + ") must be under \"top\" (" + format(top)
           + "), which is the ceiling of the level by default, and \"thickness\" between 0.5 and 200 cm");
     }
+    if (skipWall && !Boolean.TRUE.equals(spec.get("force"))) {
+      Wall [] closingWall = new Wall [1];
+      float closedTo = getWallTopAlong(start, end, level, thickness, closingWall);
+      if (closedTo >= top - 1) {
+        throw new IOException("the wall " + this.executor.getId(closingWall [0]) + ", " + format(closingWall [0].getThickness())
+            + " cm thick, already closes the space " + (over.length() > 0 ? over + " " : "") + "from " + format(bottom) + " to "
+            + format(top) + " cm above the floor: a header there would only double it, and nothing was added. "
+            + "For a beam that shows, give a \"thickness\" larger than the one of the wall; \"force\":true builds it anyway");
+      } else if (closedTo > bottom + 0.5f) {
+        notes.add("The wall " + this.executor.getId(closingWall [0]) + " already closes the space up to " + format(closedTo)
+            + " cm above the floor: the header starts there rather than at " + format(bottom)
+            + " cm (\"force\":true builds all of it)");
+        bottom = closedTo;
+        spec.put("bottom", Double.valueOf(closedTo));
+        spec.remove("height");
+        spec.put("top", Double.valueOf(top));
+      }
+    }
     AssistantMeshBuilder mesh = new AssistantMeshBuilder();
     AssistantMeshBuilder.Material material = getMaterial(mesh, spec, notes, "add_header");
     mesh.addBar(new float [] {(float)start [0], top, (float)start [1]}, new float [] {(float)end [0], top, (float)end [1]},
@@ -1412,6 +1460,52 @@ class AssistantWallFinishCommands {
         + " cm thick, from " + format(bottom) + " to " + format(top) + " cm above the floor"
         + (over.length() > 0 ? ", " + over : "");
     return mesh.store("header");
+  }
+
+  /**
+   * Returns the height above the floor of <code>level</code> up to which a wall of that level, as thick
+   * as a header of the given <code>thickness</code> or thicker, stands along the line from <code>start</code>
+   * to <code>end</code>, or 0 if no wall runs along it.
+   * @param closingWall receives the wall
+   */
+  private float getWallTopAlong(double [] start, double [] end, Level level, float thickness, Wall [] closingWall) {
+    double length = Math.hypot(end [0] - start [0], end [1] - start [1]);
+    if (length < 1) {
+      return 0;
+    }
+    double ux = (end [0] - start [0]) / length;
+    double uy = (end [1] - start [1]) / length;
+    float highest = 0;
+    for (Wall wall : this.home.getWalls()) {
+      double wallLength = wall.getLength();
+      if (wall.getLevel() != level || wallLength < 1 || wall.getArcExtent() != null && wall.getArcExtent().floatValue() != 0
+          // A beam thicker than the wall shows on its sides
+          || wall.getThickness() < thickness - 1.5f) {
+        continue;
+      }
+      double wx = (wall.getXEnd() - wall.getXStart()) / wallLength;
+      double wy = (wall.getYEnd() - wall.getYStart()) / wallLength;
+      if (Math.abs(ux * wy - uy * wx) > 0.05) {
+        continue;
+      }
+      // The line of the header in the thickness of the wall, and the wall along all of it but 5 cm at each end
+      double across = Math.abs((start [0] - wall.getXStart()) * -wy + (start [1] - wall.getYStart()) * wx);
+      double t1 = (start [0] - wall.getXStart()) * wx + (start [1] - wall.getYStart()) * wy;
+      double t2 = (end [0] - wall.getXStart()) * wx + (end [1] - wall.getYStart()) * wy;
+      if (across > wall.getThickness() / 2 + 1 || Math.min(t1, t2) < -wall.getThickness() / 2 - 5
+          || Math.max(t1, t2) > wallLength + wall.getThickness() / 2 + 5) {
+        continue;
+      }
+      float height = wall.getHeight() != null ? wall.getHeight().floatValue() : this.home.getWallHeight();
+      if (wall.getHeightAtEnd() != null) {
+        height = Math.min(height, wall.getHeightAtEnd().floatValue());
+      }
+      if (height > highest) {
+        highest = height;
+        closingWall [0] = wall;
+      }
+    }
+    return highest;
   }
 
   /**
@@ -1451,7 +1545,7 @@ class AssistantWallFinishCommands {
       level = this.executor.getShapeCommands().getLevel(command, "add_header", notes);
     }
     String [] description = new String [1];
-    AssistantGeneratedModel model = buildHeader(spec, level, notes, description);
+    AssistantGeneratedModel model = buildHeader(spec, level, notes, description, true);
     String name = command.getString("name") != null && command.getString("name").trim().length() > 0
         ? command.getString("name").trim() : "Header";
     AssistantShapeCommands shapeCommands = this.executor.getShapeCommands();

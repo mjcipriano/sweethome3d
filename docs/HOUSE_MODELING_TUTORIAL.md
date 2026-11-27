@@ -383,6 +383,10 @@ and paints the wall sides that face the room:
 {"action":"modify_room","id":"R3","wall_texture":"Small bricks"}
 ```
 
+Every wall side that faces the room is painted, the ones that had a color or
+a texture too, and the answer counts them. `"only":"unpainted"` leaves the
+sides that have a finish, and `"paint_walls":false` only stores the finish.
+
 `paint_rooms` does it for every room at once, or for the ones of `"rooms"` or
 of a `"level"`:
 
@@ -480,6 +484,11 @@ Round walls can't be opened this way.
 - Its underside is at `"bottom"` above the floor: the top of the opening by
   default. It rises to the ceiling of the level, or to `"top"`, or by
   `"height"`.
+- Above a door, a window or an opening, the wall usually goes on up to the
+  ceiling: a header as thick as the wall would only double it. The part that
+  a wall already closes is left out, and the answer says so; where the wall
+  closes everything, nothing is added. Give a `"thickness"` larger than the
+  one of the wall for a beam that shows, or `"force":true` to build it anyway.
 - A header given by an opening or a wall follows its wall when `modify_wall`
   moves it, as openings do. It doesn't follow a wall moved by hand in the
   plan or by `move`.
@@ -609,14 +618,20 @@ as the level, and lists them. `"keep_wall_heights":true` is the default.
 
 In one undoable step, `open_to_above`:
 
-1. puts the ceiling of the room at the ceiling of `to_level` (the next level
-   above by default), as a sheet without thickness so it doesn't rise into the
-   roof. `"ceiling":"follow_roof"` gives it the ceiling under the roof instead,
+1. puts the ceiling of the room at the ceiling of `to_level`, as a sheet
+   without thickness so it doesn't rise into the roof. `to_level` is the next
+   level with rooms above by default: a level made for a roof or for helpers,
+   which holds no room, is never taken for a floor of the building, even when
+   it stands between the two. The ceiling is at the height that the rooms of
+   `to_level` got with `ceiling_height` when they have one, at the top of that
+   level otherwise. `"ceiling":"follow_roof"` gives it the ceiling under the roof instead,
    and `"ceiling":"none"` hides it;
 2. hides the floor and the ceiling of a room of the upper level drawn over it,
    and cuts the part above it out of a room that goes beyond it;
-3. closes its outline up to that ceiling. Where the walls of the upper level
-   already stand above the walls of the room, nothing changes. Where no wall
+3. closes its outline up to that ceiling. Where walls of any level already
+   close a side up to the ceiling - walls of the room two stories tall, walls
+   one above the other, or walls a little way from the side as around a
+   chimney breast - nothing changes and no wall is added. Where no wall
    stands above, the wall of the room is raised. Where the room is open on its
    own level, a wall is added on the upper level;
 4. makes the overlook, if `overlook` is given: on the side of the room facing
