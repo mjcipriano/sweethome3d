@@ -308,6 +308,23 @@ final class AssistantRoofGeometry {
   }
 
   /**
+   * Returns the height of the top of the roof without its dormers at a point, as if nothing was cut
+   * out of it, or NaN if the roof wouldn't cover it.
+   */
+  double getUncutHeight(double x, double y) {
+    double height = Double.NaN;
+    for (Part part : this.parts) {
+      if (!part.dormer) {
+        double partHeight = part.getHeight(x, y);
+        if (!Double.isNaN(partHeight) && !(partHeight <= height)) {
+          height = partHeight;
+        }
+      }
+    }
+    return height;
+  }
+
+  /**
    * Returns the height of the underside of the roof without its dormers at a
    * point, or NaN if the roof doesn't cover it.
    */

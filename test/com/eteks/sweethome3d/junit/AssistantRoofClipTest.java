@@ -397,7 +397,7 @@ public class AssistantRoofClipTest {
         + "\"windows\":[{\"name\":\"Zz roof window\",\"sil\":20}]}]}");
     assertTrue(summary, summary.contains("add_roof ignored the key [colour]"));
     assertTrue(summary, summary.contains("add_roof ignored the key [gutters] of the edge 1. "
-        + "Its keys: [type, pitch, overhang, gutter, gutter_spans, fascia]"));
+        + "Its keys: [type, pitch, overhang, gutter, gutter_spans, fascia, clip_of]"));
     assertTrue(summary, summary.contains("ignored the key [depth] of the dormer"));
     assertTrue(summary, summary.contains("ignored the key [sil] of a window of the dormer. Its keys: [name, width, height, sill]"));
     assertTrue(summary, summary.contains("the pitch 95 of the edge 2 isn't between 1 and 80 degrees: 30 was used"));

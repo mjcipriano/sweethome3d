@@ -226,9 +226,38 @@ ways stop it there; the first two keep its shape.
 
 | What you have | Command | Result |
 | --- | --- | --- |
-| An edge of the roof runs along the tall wall | `{"action":"modify_roof","roof":"F52","edge":{"index":4,"type":"clip"}}` | The roof is the one a hip at that edge gives, and it stops at the vertical plane of the edge: no overhang, fascia, soffit, gutter nor downspout there. Its top doesn't move |
+| An edge of the roof runs along the tall wall | `{"action":"modify_roof","roof":"F52","edge":{"index":4,"type":"clip"}}` | The roof keeps the shape it had at that edge and stops at the vertical plane of the edge: no overhang, fascia, soffit, gutter, downspout nor gable wall there. Its top doesn't move |
 | The roof was drawn over the taller part | `{"action":"modify_roof","roof":"F52","clip_to_walls":["W52","W78"]}` | The roof is cut at the face of each wall, and its slopes keep their planes. `"clip_to_rooms":["R11"]` cuts it around a room and its walls. `"clip":"taller_walls"` finds the rooms most of whose walls rise through the roof. `"clip":false` removes the cut |
 | The roof should lean on the wall | `"type":"abut"` | A lean-to rising toward the wall: the shape changes |
+
+What `clip` does depends on what the edge was:
+
+- **An eave** (a `hip` edge, with a slope rising from it): the slope stays, cut
+  at the plane of the edge.
+- **A gable**, or an edge between two gables of a shed or gable roof: it stays a
+  gable. The ridge, the slopes of the other edges and the top of the roof are
+  the same; only the overhang of the gable and its gable wall go, the taller
+  wall closing the roof there. In 7.34.0 such an edge became a hip, which
+  lowered the roof.
+
+The shape kept is stored with the edge as `"clip_of":"hip"` or `"gable"`, and
+may be given with it. In `add_roof`, a `clip` edge without it takes the shape
+the `type` of the roof gives to that edge.
+
+`clip_to_rooms` cuts a room and every wall along its sides. The overhangs
+are cut with the roof, the overhang of a gable as the one of an eave: nothing of
+a porch roof stays in the room beside its gable.
+
+A dormer whose place is clipped is kept. Its front stands at the face of the
+closest wall that clips the roof under it, and the dormer is cut with the roof
+behind the other walls. Along such a wall it has no front wall nor window of its
+own, the wall of the house closing it: a cross gable against the taller part of
+the house keeps covering the door that opens under it. A dormer may also stand
+with `"setback":0` on an edge without overhang, or on an edge of type `clip`.
+
+`fix_home` doesn't clip a roof along a room when that would leave one of its
+dormers out: its answer names the room and the dormer, and the defect stays
+reported.
 
 `clip_to_walls` removes what is behind each wall, seen from the middle of the
 roof, however far; `"clip_depth":N` limits it to N cm. `"clip":"taller_walls"`

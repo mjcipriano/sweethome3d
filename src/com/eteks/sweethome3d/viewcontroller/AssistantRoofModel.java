@@ -47,6 +47,12 @@ final class AssistantRoofModel {
   private final List<float []>        windows = new ArrayList<float []>();
   private final List<String>          windowNames = new ArrayList<String>();
   private final List<String>          dormerDescriptions = new ArrayList<String>();
+  private final List<Integer>         unbuiltDormers = new ArrayList<Integer>();
+  // The middle of the front of the dormers that stand at a plane where the roof is clipped
+  private final Map<AssistantRoofGeometry.Part, double []> clippedFronts =
+      new java.util.IdentityHashMap<AssistantRoofGeometry.Part, double []>();
+  // How far the front of a dormer goes back to stand at the face of a wall that clips the roof
+  private static final double MAX_DORMER_SHIFT = 150;
   private final List<double []>       dormerPlaces = new ArrayList<double []>();
   private boolean []                  edgeAbuts;
   private boolean []                  edgeClips;
@@ -94,6 +100,13 @@ final class AssistantRoofModel {
   /**
    * Returns a line about each dormer of the description, built or not, with its number.
    */
+  /**
+   * Returns the numbers, from 1, of the dormers of the description that couldn't be built.
+   */
+  List<Integer> getUnbuiltDormers() {
+    return this.unbuiltDormers;
+  }
+
   List<String> getDormerDescriptions() {
     return this.dormerDescriptions;
   }
@@ -114,6 +127,13 @@ final class AssistantRoofModel {
   String getEdgeTypeName(int edge) {
     return this.edgeAbuts [edge] ? "abut" : this.edgeClips [edge] ? "clip"
         : this.edgeTypes [edge] == AssistantRoofGeometry.HIP ? "hip" : "gable";
+  }
+
+  /**
+   * Returns the shape of the roof at an edge: hip under a slope rising from it, gable otherwise.
+   */
+  String getEdgeShapeName(int edge) {
+    return this.edgeTypes [edge] == AssistantRoofGeometry.HIP ? "hip" : "gable";
   }
 
   /**
@@ -225,8 +245,9 @@ final class AssistantRoofModel {
 
   /**
    * Returns <code>true</code> for the type of an edge where the roof is clipped by the wall of a taller
-   * part of the building without changing shape: the roof is the one a hip at that edge gives, and it
-   * stops at the vertical plane of the edge, without overhang, fascia, soffit nor gutter there.
+   * part of the building without changing shape: the roof is the one its type, or the shape given by
+   * <code>clip_of</code> (hip or gable), gives at that edge, and it stops at the vertical plane of the edge,
+   * without overhang, fascia, soffit, gutter nor gable wall there.
    */
   static boolean isClip(String type) {
     return type.equals("clip") || type.equals("clipped") || type.equals("trim") || type.equals("cut");
@@ -305,10 +326,19 @@ final class AssistantRoofModel {
       if (edge instanceof Map) {
         Map<?, ?> edgeSpec = (Map<?, ?>)edge;
         int type = parseType(text(edgeSpec, "type"));
-        if (type >= 0) {
+        if (type >= 0 && isClip(text(edgeSpec, "type"))) {
+          // The roof keeps the shape it has at that edge: the one "clip_of" tells, otherwise the one of the type of the roof
+          this.edgeClips [i] = true;
+          String shape = text(edgeSpec, "clip_of");
+          if (shape != null && !isClip(shape) && !isAbut(shape) && parseType(shape) >= 0) {
+            this.edgeTypes [i] = parseType(shape);
+          } else if (shape != null) {
+            this.notes.add("\"clip_of\":\"" + edgeSpec.get("clip_of") + "\" of the edge " + (edgeIndices.get(i) + 1)
+                + " was ignored: it's hip or gable, the shape the roof has at an edge where it's clipped");
+          }
+        } else if (type >= 0) {
           this.edgeTypes [i] = type;
           this.edgeAbuts [i] = isAbut(text(edgeSpec, "type"));
-          this.edgeClips [i] = isClip(text(edgeSpec, "type"));
         } else if (edgeSpec.get("type") != null) {
           this.notes.add("unknown type \"" + edgeSpec.get("type") + "\" of the edge " + (edgeIndices.get(i) + 1)
               + " (hip, gable, shed, flat, abut or clip)");
@@ -339,11 +369,13 @@ final class AssistantRoofModel {
       } else if (edge instanceof String) {
         String edgeType = ((String)edge).trim().toLowerCase(Locale.ENGLISH);
         int type = parseType(edgeType);
-        if (type >= 0) {
+        if (type >= 0 && isClip(edgeType)) {
+          this.edgeClips [i] = true;
+          edgeOverhang = 0;
+        } else if (type >= 0) {
           this.edgeTypes [i] = type;
           this.edgeAbuts [i] = isAbut(edgeType);
-          this.edgeClips [i] = isClip(edgeType);
-          if (this.edgeAbuts [i] || this.edgeClips [i]) {
+          if (this.edgeAbuts [i]) {
             edgeOverhang = 0;
           }
         }
@@ -420,6 +452,9 @@ final class AssistantRoofModel {
         if (dormer instanceof Map) {
           int noteCount = this.notes.size();
           String description = addDormer((Map<?, ?>)dormer, index);
+          if (description == null) {
+            this.unbuiltDormers.add(Integer.valueOf(index + 1));
+          }
           this.dormerDescriptions.add((index + 1) + ": " + (description != null ? description
               : "NOT BUILT - " + (this.notes.size() > noteCount ? this.notes.get(this.notes.size() - 1) : "")));
         }
@@ -612,7 +647,7 @@ final class AssistantRoofModel {
         double edgeLength = Math.hypot(next [0] - this.points [edge][0], next [1] - this.points [edge][1]);
         placePosition = ((place [0] - this.points [edge][0]) * (next [0] - this.points [edge][0])
             + (place [1] - this.points [edge][1]) * (next [1] - this.points [edge][1])) / edgeLength;
-        if (this.edgeTypes [edge] != AssistantRoofGeometry.HIP || this.edgeClips [edge]) {
+        if (this.edgeTypes [edge] != AssistantRoofGeometry.HIP) {
           this.dormerPlaces.set(dormerIndex, place);
           this.notes.add("the dormer " + (dormerIndex + 1) + " wasn't built: the edge " + (edge + 1)
               + " it stands on is now a " + getEdgeTypeName(edge) + ", without a slope rising from an eave "
@@ -686,11 +721,73 @@ final class AssistantRoofModel {
     }
     double centerX = start [0] + ux * position + normal [0] * setback;
     double centerY = start [1] + uy * position + normal [1] * setback;
-    double frontHeight = this.geometry.getHeight(centerX, centerY, false);
+    // The front of a dormer may be at the plane where the roof is clipped: the wall that clips the roof closes it
+    boolean clippedEdge = this.edgeClips [edge] && setback < 0.5;
+    // On the line where the roof ends, its front stands a hair inside the roof
+    double shift = 0;
+    while (shift <= 1 && Double.isNaN(this.geometry.getUncutHeight(centerX + normal [0] * shift, centerY + normal [1] * shift))) {
+      shift += 0.05;
+    }
+    if (shift > 1) {
+      this.notes.add("a dormer was ignored: its place isn't on the roof");
+      return null;
+    }
+    if (this.geometry.hasCut()) {
+      // In what walls cut out of the roof, its front goes back to the face of the wall the closest to its edge:
+      // behind the other ones, the dormer is cut with the roof
+      double cutShift = Double.POSITIVE_INFINITY;
+      int samples = (int)Math.max(3, Math.min(60, Math.ceil(width / 15)));
+      for (int i = 0; i <= samples && cutShift > shift; i++) {
+        double along = -width / 2 + 1 + (width - 2) * i / samples;
+        double x = centerX + ux * along;
+        double y = centerY + uy * along;
+        double distance = shift;
+        while (distance < cutShift && distance <= MAX_DORMER_SHIFT
+               && Double.isNaN(this.geometry.getHeight(x + normal [0] * distance, y + normal [1] * distance, false))) {
+          distance += 0.25;
+        }
+        if (distance <= MAX_DORMER_SHIFT) {
+          cutShift = Math.min(cutShift, distance);
+        }
+      }
+      if (cutShift == Double.POSITIVE_INFINITY) {
+        this.notes.add("a dormer was ignored: its place is in what walls clip out of the roof, more than "
+            + Math.round(MAX_DORMER_SHIFT) + " cm deep");
+        return null;
+      }
+      if (cutShift > shift) {
+        // Found within a quarter of centimeter: at the face itself
+        double distance = cutShift - 0.25;
+        while (distance < cutShift) {
+          boolean covered = false;
+          for (int i = 0; i <= samples && !covered; i++) {
+            double along = -width / 2 + 1 + (width - 2) * i / samples;
+            covered = !Double.isNaN(this.geometry.getHeight(centerX + ux * along + normal [0] * distance,
+                centerY + uy * along + normal [1] * distance, false));
+          }
+          if (covered) {
+            break;
+          }
+          distance += 0.01;
+        }
+        shift = Math.min(cutShift, distance);
+        if (shift > 1) {
+          this.notes.add("the front of the dormer " + (dormerIndex + 1) + " stands " + format(Math.round((setback + shift) * 10) / 10.)
+              + " cm back from its edge, at the face of the wall that clips the roof there");
+        }
+      }
+    }
+    setback += shift;
+    centerX += normal [0] * shift;
+    centerY += normal [1] * shift;
+    double frontHeight = this.geometry.getUncutHeight(centerX, centerY);
     if (Double.isNaN(frontHeight)) {
       this.notes.add("a dormer was ignored: its place isn't on the roof");
       return null;
     }
+    // Where a wall that clips the roof stands in front of it
+    boolean clippedFront = clippedEdge
+        || this.geometry.isCut(centerX - normal [0] * 0.3, centerY - normal [1] * 0.3);
     double dormerThickness = Math.min(this.thickness, 8);
     double base = frontHeight + height + dormerThickness;
     double mainSlope = this.edgeSlopes [edge];
@@ -720,7 +817,8 @@ final class AssistantRoofModel {
     double previousHeight = frontHeight;
     int falling = 0;
     for (double distance = 5; distance <= 1500; distance += 5) {
-      double roofHeight = this.geometry.getHeight(centerX + normal [0] * distance, centerY + normal [1] * distance, false);
+      // Over the roof as it is under what walls cut out of it: the dormer is cut with it
+      double roofHeight = this.geometry.getUncutHeight(centerX + normal [0] * distance, centerY + normal [1] * distance);
       double dormerHeight = flat ? base : shed ? base + slope * distance : base + slope * width / 2;
       depth = distance;
       if (Double.isNaN(roofHeight)) {
@@ -758,10 +856,15 @@ final class AssistantRoofModel {
         : type.equals("hip") ? new int [] {hip, hip, gable, hip}
         : new int [] {gable, hip, gable, hip};
     AssistantRoofGeometry.Part part = new AssistantRoofGeometry.Part(polygon, types,
-        new double [] {slope, slope, slope, slope}, new double [] {overhang, overhang, 0, overhang},
+        new double [] {slope, slope, slope, slope},
+        // Nothing of a dormer goes beyond the plane where the roof is clipped
+        new double [] {clippedFront ? 0 : overhang, overhang, 0, overhang},
         base, dormerThickness, true);
     this.geometry.addPart(part);
     this.dormerCount++;
+    if (clippedEdge || this.geometry.hasCut()) {
+      this.clippedFronts.put(part, new double [] {centerX, centerY, clippedEdge ? 1 : 0});
+    }
     // Its windows, side by side in its front wall
     List<double []> sizes = new ArrayList<double []>();
     List<String> names = new ArrayList<String>();
@@ -782,6 +885,11 @@ final class AssistantRoofModel {
         names.add(dormer.get("window") != null ? dormer.get("window").toString() : null);
       }
     }
+    if (clippedFront && !sizes.isEmpty()) {
+      this.notes.add("the windows of the dormer " + (dormerIndex + 1) + " weren't placed: its front is at the wall "
+          + "that clips the roof, which closes it");
+      sizes.clear();
+    }
     for (int i = 0; i < sizes.size(); i++) {
       double bay = width / sizes.size();
       double windowWidth = Math.min(sizes.get(i) [0], bay - (sizes.size() > 1 ? 10 : 16));
@@ -799,7 +907,8 @@ final class AssistantRoofModel {
           (float)sill, (float)windowWidth, (float)windowHeight, this.geometry.getParts().size() - 1, dormerIndex, i});
       this.windowNames.add(names.get(i));
     }
-    return type + ", " + Math.round(width) + " cm wide, front wall " + Math.round(height) + " cm high, on the edge " + (edge + 1)
+    return type + ", " + Math.round(width) + " cm wide, " + (clippedFront ? "front " : "front wall ") + Math.round(height)
+        + " cm high" + (clippedFront ? " closed by the wall that clips the roof" : "") + ", on the edge " + (edge + 1)
         + ", its center " + Math.round(position) + " cm from the start of that edge (point " + (edge + 1) + ") and "
         + Math.round(setback) + " cm back from it, " + Math.round(depth) + " cm deep, top at "
         + Math.round(part.getMaxHeight()) + " cm"
@@ -966,7 +1075,7 @@ final class AssistantRoofModel {
     // The walls under gables
     if (flag(spec, "gable_walls", true)) {
       for (int edge = 0; edge < this.points.length; edge++) {
-        if (this.edgeTypes [edge] != AssistantRoofGeometry.GABLE || this.edgeAbuts [edge]) {
+        if (this.edgeTypes [edge] != AssistantRoofGeometry.GABLE || this.edgeAbuts [edge] || this.edgeClips [edge]) {
           // Along the wall of a taller part of the building, that wall closes the roof
           continue;
         }
@@ -1005,6 +1114,13 @@ final class AssistantRoofModel {
         if (normal [0] * (center [0] - point [0]) + normal [1] * (center [1] - point [1]) < 0) {
           normal = new double [] {-normal [0], -normal [1]};
         }
+        // The front of a dormer at a plane where the roof is clipped: the wall that clips the roof stands there
+        double [] clippedFront = this.clippedFronts.get(part);
+        boolean frontSide = clippedFront != null
+            && Math.hypot((point [0] + next [0]) / 2 - clippedFront [0], (point [1] + next [1]) / 2 - clippedFront [1]) < 0.5;
+        if (frontSide && clippedFront [2] != 0) {
+          continue;
+        }
         // Drawn a hair out of its line, to hide a wall of the house fitted up to the roof in the same plane
         double [] drawnPoint = {point [0] - normal [0] * 0.4, point [1] - normal [1] * 0.4};
         double [] drawnNext = {next [0] - normal [0] * 0.4, next [1] - normal [1] * 0.4};
@@ -1034,6 +1150,11 @@ final class AssistantRoofModel {
             double middle = (previous + limit) / 2;
             double [] bottom = getPiece(bottoms, middle);
             double [] top = getPiece(tops, middle);
+            if (frontSide && this.geometry.isCut(point [0] + (next [0] - point [0]) * middle - normal [0] * 0.3,
+                    point [1] + (next [1] - point [1]) * middle - normal [1] * 0.3)) {
+              // No wall of its own along the wall that cut the roof
+              continue;
+            }
             if (bottom != null && top != null) {
               double bottom1 = interpolate(bottom, previous) - bottom [4];
               double bottom2 = interpolate(bottom, limit) - bottom [4];
