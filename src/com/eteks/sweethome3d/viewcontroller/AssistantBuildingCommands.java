@@ -1428,10 +1428,60 @@ class AssistantBuildingCommands {
       tally [4] += modifiedItems.size();
     }
     if (!deletedItems.isEmpty()) {
+      // The walls that each deleted wall joined, or that were joined to it: once it's gone, they meet each other
+      final List<List<Wall>> neighbors = new ArrayList<List<Wall>>();
+      for (Selectable item : deletedItems) {
+        if (item instanceof Wall) {
+          Wall deletedWall = (Wall)item;
+          List<Wall> wallNeighbors = new ArrayList<Wall>();
+          for (Wall wall : this.home.getWalls()) {
+            if (wall != deletedWall && !deletedItems.contains(wall) && wall.getLevel() == deletedWall.getLevel()
+                && (wall == deletedWall.getWallAtStart() || wall == deletedWall.getWallAtEnd()
+                    || wall.getWallAtStart() == deletedWall || wall.getWallAtEnd() == deletedWall)) {
+              wallNeighbors.add(wall);
+            }
+          }
+          for (Issue issue : issues) {
+            // The wall kept of two walls drawn at the same place takes the neighbors of the other one
+            if (issue.getType() == HomeDiagnostics.Type.DUPLICATE_WALL && issue.getItem() == deletedWall
+                && issue.getOtherItem() instanceof Wall && !deletedItems.contains(issue.getOtherItem())
+                && !wallNeighbors.contains(issue.getOtherItem())) {
+              wallNeighbors.add((Wall)issue.getOtherItem());
+            }
+          }
+          if (wallNeighbors.size() >= 2) {
+            neighbors.add(wallNeighbors);
+          }
+        }
+      }
       this.executor.beginTurnUpdate();
       this.homeController.getPlanController().deleteItems(deletedItems);
       tally [5] += deletedItems.size();
       fixed [0] += deletedItems.size();
+      // Joined in the same step: the next check would otherwise report walls that meet without being joined
+      final List<Selectable> rejoinedWalls = new ArrayList<Selectable>();
+      for (List<Wall> wallNeighbors : neighbors) {
+        for (Wall wall : wallNeighbors) {
+          if (this.home.getWalls().contains(wall)) {
+            addOnce(rejoinedWalls, wall);
+          }
+        }
+      }
+      if (rejoinedWalls.size() >= 2) {
+        this.executor.postModification(rejoinedWalls, new Runnable() {
+            public void run() {
+              for (List<Wall> wallNeighbors : neighbors) {
+                for (int i = 0; i < wallNeighbors.size(); i++) {
+                  for (int j = i + 1; j < wallNeighbors.size(); j++) {
+                    if (rejoinedWalls.contains(wallNeighbors.get(i)) && rejoinedWalls.contains(wallNeighbors.get(j))) {
+                      joinWalls(wallNeighbors.get(i), wallNeighbors.get(j));
+                    }
+                  }
+                }
+              }
+            }
+          });
+      }
     }
     // The walls that pass a roof get the height of its underside again
     for (java.util.Map.Entry<Selectable, List<Wall>> entry : roofWalls.entrySet()) {

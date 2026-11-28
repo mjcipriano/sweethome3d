@@ -303,6 +303,7 @@ when you walk through the home in 3D. Each one names its items by id.
 | `overlapping_wall` | error | Two walls of a level drawn over each other for more than 10 cm, their middle lines within half a thickness, with their heights when they differ | Yes, when one covers 80 % of the other: the taller one is kept (the longer one at equal heights), put on the line of the other one if that one follows the axes of the plan and it doesn't, and made as long as both. Walls that share only a part of their length need a decision |
 | `door_misaligned` | warning | A door or a window turned by more than 1 degree from its wall, or more than a quarter of the thickness of the wall away from its middle line and out of one of its faces | Yes: it's turned along the wall, and brought back on its middle line if it came out of a face |
 | `wall_above_roof` | warning | A wall whose top passes the top of the roof it stands under by 2 to 120 cm, unless it's the wall of a taller part of the building | Yes: `fit_walls_to_roof` is run for exactly those walls |
+| `tiny_wall`, `duplicate_wall` | warning | A wall too short to be seen, or drawn over another one | Yes: it is deleted, and the walls it joined are joined to each other in the same step |
 | `open_two_story_room` | warning | A room higher than its level, on a side of its outline where the wall and the walls of the floors above stop under its ceiling. An overlook and the low walls inside the open space aren't reported | Yes: the wall is raised to the ceiling of the room |
 | `ceiling_above_roof` | warning | The ceiling of a room, or a slab used as a ceiling, passes the roof that covers it: it shows from outside | No |
 | `roof_at_ceiling` | info | A roof within 3 cm of a ceiling over a quarter of it or more: they show through each other | No |
@@ -341,6 +342,14 @@ How these are decided:
   garage whose floor is lower. A side that faces no room faces the outside if
   the other side of its wall faces a room; the walls that face no room at all
   (garden walls) are left out.
+- **A room is the part of its outline that its walls bound.** A room may be
+  drawn larger than the walls around it, as a bay whose outline runs outside
+  its angled walls. The walls of its level are taken out of its outline: the
+  room is the part that remains where its middle is, with the parts that a
+  door or an opening in a wall joins to it. The strip beyond the walls isn't
+  the room, so the siding on the outer side of the walls of the bay doesn't
+  face it. No rule depends on the length of a wall: a return of 30 cm whose
+  brick side stands in a garage is reported.
 - **A room outdoors** counts as the outside: siding or brick is right on the
   sides that face it, and the paint of the rooms isn't. A room is outdoors
   when, in this order:
@@ -359,9 +368,17 @@ How these are decided:
      it (a courtyard);
   6. otherwise its name tells: porch, deck, patio, terrace, balcony, veranda,
      yard, garden, lawn, driveway, walkway, courtyard, carport, pergola.
-- **The finish a room sees** on a side that has finishes by height
-  (`left_finish`, `right_finish`) is the first one from the floor. The
-  finish of the side itself is the one of its top, above a lower roof.
+- **The finishes a room sees** on a side are the ones between its floor and
+  its ceiling. From the foot of the wall up: its baseboard, if it has a color
+  or a texture of its own, then the finishes by height (`left_finish`,
+  `right_finish`), then the finish of the side itself. A baseboard or a
+  finish as high as the ceiling of the room is the finish of that side for
+  the room, whatever the side has behind it or above the ceiling: homes made
+  before 7.34 often paint the lower part of a two-story wall with a baseboard
+  275 cm high. An outside material in what the room sees is reported, with
+  the height it starts at when a baseboard or a finish stops under the
+  ceiling. A finish with a sloped top (`"to":"roof"`) counts up to its higher
+  end: what is above it is over the roof that meets the wall.
 - **Sides that nobody sees** aren't reported and don't count as the outside
   of the home: a side with another wall less than 45 cm in front of it (the
   cavity between two walls drawn side by side), and a side that faces an
