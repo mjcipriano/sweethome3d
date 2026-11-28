@@ -1,5 +1,20 @@
 # Changelog
 
+## [7.34.1](https://github.com/mjcipriano/sweethome3d/compare/v7.34.0...v7.34.1) (2026-11-28)
+
+
+### Bug Fixes
+
+* ask the focus again for the view when its window gets the keyboard back late ([c1238cb](https://github.com/mjcipriano/sweethome3d/commit/c1238cb1228811b7df14d44029c8d52fb20c5f79))
+* check_home doesn't report porches, taller walls, hidden sides and walls inside two-story spaces ([50d1ade](https://github.com/mjcipriano/sweethome3d/commit/50d1ade9dd97d839438898b7b4cbb1940d015671)), closes [#199](https://github.com/mjcipriano/sweethome3d/issues/199)
+* dormers kept on clipped roofs, gable roofs clipped by rooms, clip edges that keep the shape ([995927f](https://github.com/mjcipriano/sweethome3d/commit/995927fc9f4b6f148112a0f02227c36a080eaa11)), closes [#199](https://github.com/mjcipriano/sweethome3d/issues/199)
+* finishes that a room sees, rooms drawn beyond their walls, neighbors of deleted walls, walls of a taller part beside a roof ([d45638f](https://github.com/mjcipriano/sweethome3d/commit/d45638f60f41598ae14c8cd36eaf31a11beb0c7c))
+* keep the keyboard after a dialog that gives the focus to one of its fields ([5730700](https://github.com/mjcipriano/sweethome3d/commit/573070011ffc4ef4e60e20ae9a8f7418579cb308)), closes [#200](https://github.com/mjcipriano/sweethome3d/issues/200)
+* keyboard lost after a dialog, and the defects found on a real house with 7.34.0 ([127ff07](https://github.com/mjcipriano/sweethome3d/commit/127ff0741d8b86c9e1532e4629a54e386457ad0f))
+* modify_wall changes nothing when it fails, finishes stop under roofs of any kind, identify names the finish drawn ([42bd044](https://github.com/mjcipriano/sweethome3d/commit/42bd0447b70e87c7e4875bd0410460847776082b))
+* rooms opened to the level above, ceilings, headers and room inspection on a real house ([5445d79](https://github.com/mjcipriano/sweethome3d/commit/5445d797414b69d455ade8b968d89ed4893c2432))
+* the line of modify_room that marks rooms outdoor, put back in its place after the merge ([503f2b2](https://github.com/mjcipriano/sweethome3d/commit/503f2b24fb9e767b99ff0faaf157c0893dcdf929))
+
 ## [7.34.0](https://github.com/mjcipriano/sweethome3d/compare/v7.33.1...v7.34.0) (2026-11-25)
 
 
