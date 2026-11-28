@@ -427,6 +427,15 @@ cross gable, where the wall goes up to the roof of the dormer. The walls
 added stay at the level of the wall they continue and joined to it, and the
 answer gives their ids. Run it again after the roof or its dormers change.
 
+A wall that rises above the roof but belongs to a taller part of the building
+beside it is left as it is, and the answer names it: a wall that a wall of
+the level above continues, the wall of a room whose ceiling is above the roof
+where the roof doesn't go 60 cm into that room, or a wall under another,
+higher roof. Fitting it would cut a two-story wall down to the one-story roof
+beside it. `"force":true` fits it anyway. The answers of `modify_roof`,
+`add_dormer`, `modify_dormer` and `remove_dormer` name the walls left above
+the roof by the same rule.
+
 ### Ceilings under a roof
 
 ```json

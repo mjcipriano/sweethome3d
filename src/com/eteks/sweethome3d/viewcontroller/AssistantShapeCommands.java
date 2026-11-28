@@ -1528,8 +1528,16 @@ class AssistantShapeCommands {
    * that change it, or an empty string.
    */
   private String describeWallsAbove(HomePieceOfFurniture roofPiece, AssistantRoofModel roof) {
-    List<Wall> walls = HomeRoofs.getWallsAbove(this.home, new HomeRoofs.Roof(roofPiece, roof,
-        roofPiece.getLevel() != null ? roofPiece.getLevel().getElevation() : 0));
+    HomeRoofs.Roof homeRoof = new HomeRoofs.Roof(roofPiece, roof,
+        roofPiece.getLevel() != null ? roofPiece.getLevel().getElevation() : 0);
+    List<Wall> walls = HomeRoofs.getWallsAbove(this.home, homeRoof);
+    for (java.util.Iterator<Wall> it = walls.iterator(); it.hasNext(); ) {
+      // Not the walls of a taller part of the building beside the roof, nor the ones under another roof:
+      // fitting them to this roof would cut them down
+      if (HomeDefects.isWallBesideRoof(this.home, it.next(), homeRoof)) {
+        it.remove();
+      }
+    }
     if (walls.isEmpty()) {
       return "";
     }
@@ -2936,9 +2944,40 @@ class AssistantShapeCommands {
         }
       }
     }
+    // The walls of a taller part of the building beside the roof keep their height
+    List<String> tallerWalls = new ArrayList<String>();
+    if (!command.getBoolean("force", false)) {
+      HomeRoofs.Roof homeRoof = new HomeRoofs.Roof(roofPiece, roof, roofElevation);
+      List<Wall> wallsAbove = null;
+      for (java.util.Iterator<Wall> it = walls.iterator(); it.hasNext(); ) {
+        Wall wall = it.next();
+        if (HomeDefects.isWallBesideRoof(this.home, wall, homeRoof)) {
+          if (wallsAbove == null) {
+            wallsAbove = HomeRoofs.getWallsAbove(this.home, homeRoof);
+          }
+          if (wallsAbove.contains(wall)) {
+            // Only a wall that the roof would lower
+            tallerWalls.add(this.executor.getId(wall));
+            it.remove();
+          }
+        }
+      }
+      if (!tallerWalls.isEmpty()) {
+        notes.add("fit_walls_to_roof left " + tallerWalls + " as " + (tallerWalls.size() == 1 ? "it is: it rises" : "they are: they rise")
+            + " above the roof " + this.executor.getId(roofPiece) + " but " + (tallerWalls.size() == 1 ? "is a wall" : "are walls")
+            + " of a taller part of the building beside it (a wall of the level above stands on "
+            + (tallerWalls.size() == 1 ? "it" : "them") + ", " + (tallerWalls.size() == 1 ? "it closes" : "they close")
+            + " a room whose ceiling is above the roof, or " + (tallerWalls.size() == 1 ? "it stands" : "they stand")
+            + " under another roof): fitting " + (tallerWalls.size() == 1 ? "it" : "them") + " would cut "
+            + (tallerWalls.size() == 1 ? "it" : "them") + " down to this roof. \"force\":true fits "
+            + (tallerWalls.size() == 1 ? "it" : "them") + " anyway");
+      }
+    }
     if (walls.isEmpty()) {
-      notes.add("fit_walls_to_roof found no wall under the roof " + this.executor.getId(roofPiece)
-          + ": give them with \"ids\", or \"all\":true for the inside walls too");
+      if (tallerWalls.isEmpty()) {
+        notes.add("fit_walls_to_roof found no wall under the roof " + this.executor.getId(roofPiece)
+            + ": give them with \"ids\", or \"all\":true for the inside walls too");
+      }
       return;
     }
 
