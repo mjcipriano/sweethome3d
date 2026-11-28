@@ -146,7 +146,7 @@ are still applied.
 | `add_room` | A room from `points` `[[x,y],...]`, without walls. Options: `floor_color`, `"ceiling_visible":false`, `floor_offset` with `slab_thickness` (see [Slabs](#slabs-and-ground)) |
 | `add_wall` | One wall: `x1`,`y1`,`x2`,`y2`, `thickness`, `height` |
 | `modify_room` | Changes rooms: `name`, `points` (one room at a time), `ceiling_visible`, `floor_visible`, `area_visible`, `floor_offset`, `ceiling` and `flat_ceiling_at` (see [ceilings under a roof](#ceilings-under-a-roof)). The room may also be given by `"room":"<name>"` |
-| `modify_wall` | Changes walls: `height`, `height_at_end` (a sloped top; 0 levels it), `thickness`, `arc_extent` in degrees (0 straightens it), `top_color`, `x1`...`y2`, `baseboard` |
+| `modify_wall` | Changes walls: `height`, `height_at_end` (a sloped top; 0 levels it), `thickness`, `arc_extent` in degrees (0 straightens it), `top_color`, `x1`...`y2`, `baseboard`, `left_color` / `right_color` / `color`, `left_texture` / `right_texture` / `texture`. When one of its keys can't be applied, nothing is changed; a key it doesn't have is reported with the key or the command to use |
 
 ```json
 {"action":"add_rectangular_room","name":"Kitchen","next_to":"Living room","side":"east","width":380,"depth":420}
@@ -167,13 +167,13 @@ removes it.
 
 | Command | What it does |
 | --- | --- |
-| `modify_room` | Also `"ceiling_height":N` (cm above the floor of the room; `"level"` puts it back at the top of the level), `"ceiling_level":"<level>"`, `ceiling_thickness`, and `wall_color` or `wall_texture`, which paints the wall sides that face the room |
+| `modify_room` | Also `"ceiling_height":N` (cm above the floor of the room; `"level"` puts it back at the top of the level), `"ceiling_level":"<level>"`, `ceiling_thickness`; `"ceiling":true` or `false` shows or hides the ceiling, as `ceiling_visible`; and `wall_color` or `wall_texture`, which paints every wall side that faces the room, the ones that had a finish too (`"only":"unpainted"` leaves those) |
 | `modify_level` | `height` with `"keep_wall_heights":false` gives the new height to the walls that were as tall as the level; the answer lists them |
-| `open_to_above` | A two-story room in one step: `room`, `to_level`, `ceiling` (`level`, `follow_roof`, `none`), and `overlook` with `along` (`north`...), `railing` (a style of `add_railing` or a catalog name), `height`, `upper_wall` (`remove`, `low`). The answer lists what is still inside the opened space |
+| `open_to_above` | A two-story room in one step: `room`, `to_level`, `ceiling` (`level`, `follow_roof`, `none`), and `overlook` with `along` (`north`...), `railing` (a style of `add_railing` or a catalog name), `height`, `upper_wall` (`remove`, `low`). The levels without rooms (the one of a roof, of helpers) are ignored, the ceiling is the one of the rooms of `to_level` when they have a `ceiling_height`, and no wall is added along a side that walls of any level already close. The answer lists what is still inside the opened space |
 | `paint_rooms` | Gives each wall side the color or the texture of the room it faces: `rooms`, `level`, `"only":"unpainted\|all"`, `color` or `texture` for the rooms that have none |
-| `modify_wall` | Also `left_finish` / `right_finish`: up to 4 finishes from the floor up, each with `to` (a height, or `"roof"` to stop under a lower roof) and `color` or `texture`; `openings` replaces the openings of the wall |
+| `modify_wall` | Also `left_finish` / `right_finish`: up to 4 finishes from the floor up, each with `to` (a height, or `"roof"` to stop under a lower roof of any kind, named by `"roof":"F12"` if needed) and `color` or `texture`; `openings` replaces the openings of the wall |
 | `add_opening` | An opening in a straight wall without a door or a window: `wall`, `from` and `to` (cm from the start of the wall) or `center` and `width`, `bottom` and `top` or `height`, `lining`, `lining_color`. `delete` removes it |
-| `add_header` | A beam over an `opening` (an opening, a door or a window), along a `wall` with `from` and `to`, or between two `points`: `bottom`, `top` or `height`, `thickness`, `bearing`, `color`, `"to_walls":false` |
+| `add_header` | A beam over an `opening` (an opening, a door or a window), along a `wall` with `from` and `to`, or between two `points`: `bottom`, `top` or `height`, `thickness`, `bearing`, `color`, `"to_walls":false`. What a wall as thick as the header already closes is left out, and nothing is added where it closes everything, unless `"force":true` |
 | `add_soffit` | A lowered part of a ceiling over `points`, or over a whole `room`: `bottom`, `top`, `color` or `texture` |
 | `add_railing` | A railing along `points` (`[x,y]` or `[x,y,z]`): `height`, `style` (`square`, `turned_balusters`, `cable`, `glass`), `spacing`, `top_rail`, `color`, `level`; `"stairs":"F3"` with `side` follows stairs and goes on along the points |
 | `modify_railing` | Builds a railing again with other options: `id`, then any option of `add_railing` |
@@ -393,12 +393,20 @@ much as its eaves moved.
 {"action":"set_gutters","roof":"F52","edges":[{"index":3,"gutter_spans":[[0,320],[700,1447]]}],"downspouts":[{"edge":3,"at":120}]}
 ```
 
-- An edge of type `clip` keeps the roof as its other edges make it and cuts it
-  at the vertical plane of that edge, without overhang, fascia, gutter or
-  downspout there. `abut` still makes a lean-to rising toward the wall.
+- An edge of type `clip` keeps the shape the roof had at that edge and cuts it
+  at the vertical plane of that edge, without overhang, fascia, gutter,
+  downspout or gable wall there: an eave keeps its slope, a gable stays a
+  gable, and the top of the roof doesn't move. `"clip_of":"hip|gable"` in the
+  edge gives that shape; it is stored when an edge becomes a `clip`. `abut`
+  still makes a lean-to rising toward the wall.
 - `clip_to_walls` (ids of walls), `clip_to_rooms` (ids of rooms) and
   `"clip":"taller_walls"` cut the roof where it would enter taller parts of
-  the building; `"clip":false` removes the cut.
+  the building; `"clip":false` removes the cut. The overhangs of eaves and of
+  gables are cut with the roof. A dormer whose place is clipped is kept, its
+  front at the face of the wall that clips the roof, without front wall nor
+  window there.
+- In `modify_roof`, `edges` whose items all give their `index` changes these
+  edges only, as `edge` does; a list without numbers gives every edge again.
 - `set_gutters` changes the gutters, the fascia and the downspouts of a roof
   without building its shape again: `gutters`, `downspouts` (true, false, or a
   list of `{"edge":N,"at":N}`), `gutter_color`, `fascia`, `fascia_color`, and
@@ -418,6 +426,15 @@ the roof changes above it: under a peak, and at the sides of a dormer or of a
 cross gable, where the wall goes up to the roof of the dormer. The walls
 added stay at the level of the wall they continue and joined to it, and the
 answer gives their ids. Run it again after the roof or its dormers change.
+
+A wall that rises above the roof but belongs to a taller part of the building
+beside it is left as it is, and the answer names it: a wall that a wall of
+the level above continues, the wall of a room whose ceiling is above the roof
+where the roof doesn't go 60 cm into that room, or a wall under another,
+higher roof. Fitting it would cut a two-story wall down to the one-story roof
+beside it. `"force":true` fits it anyway. The answers of `modify_roof`,
+`add_dormer`, `modify_dormer` and `remove_dormer` name the walls left above
+the roof by the same rule.
 
 ### Ceilings under a roof
 
@@ -1963,7 +1980,10 @@ gutters inside a room (`roof_in_room`), walls drawn over each other
 room that walls don't close up to its ceiling (`open_two_story_room`), a
 ceiling above the roof (`ceiling_above_roof`, `roof_at_ceiling`) and the
 finishes of wall sides (`wall_outside_finish_indoors`,
-`wall_inside_finish_outdoors`, `wall_side_unpainted`). `"crossings":true`
+`wall_inside_finish_outdoors`, `wall_side_unpainted`). A porch, a deck or a
+yard counts as the outside; `modify_room` with `"outdoor":true` or `false`
+tells it for a room that its ceiling and its open sides don't tell, and
+`null` lets the check decide again. `"crossings":true`
 lists the items that cross another item, level by level. `fix_home` cuts a
 roof along the walls of the room it comes into (as `clip_to_rooms` does),
 keeps one of two overlapping walls, lines doors up, fits walls to the roof

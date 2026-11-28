@@ -91,7 +91,10 @@ interpolator of the Java 3D view does.
   times the time it takes, and not when the camera moves. With shadows, a main
   light is added from the side of the first directional light, 58 degrees
   above the horizon, and the lights of the scene are dimmed to fill the
-  shadows; without them the lights are exactly the ones of Java 3D.
+  shadows (to 45 %); without them the lights are exactly the ones of Java 3D.
+  The light which comes from below, the one that lights ceilings, keeps 90 %
+  of its strength: dimmed like the others it showed every ceiling dark gray,
+  whatever its color.
 - Ambient occlusion is computed from the depth of the frame (scalable ambient
   obscurance, radius 45 cm, 16 samples, depth-aware blur).
 

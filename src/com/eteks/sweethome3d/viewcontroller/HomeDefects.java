@@ -64,6 +64,31 @@ final class HomeDefects {
   static final float DOOR_ANGLE_TOLERANCE = 1;
   /** The least height of a room above its level to be a room of two stories. */
   private static final float TWO_STORY_MARGIN = 50;
+  /**
+   * The property of a room that tells whether it's outdoors: <code>true</code> for a porch, a deck or a yard,
+   * <code>false</code> for a room indoors, set by <code>modify_room</code> with <code>"outdoor"</code>.
+   * Without it, {@link #isOutdoorRoom(Home, Room) what the home tells} decides.
+   */
+  static final String ROOM_OUTDOOR_PROPERTY = "com.eteks.sweethome3d.outdoor";
+  /** The share of the outline of a room without ceiling that must be open for the room to be outdoors. */
+  private static final float OUTDOOR_OPEN_SHARE = 0.25f;
+  /** The height under a roof from which somebody stands: a side under a lower roof is closed by it. */
+  private static final float STANDING_HEIGHT = 150;
+  /** The distance from a side of a wall within which another wall hides it. */
+  private static final float HIDDEN_SIDE_DISTANCE = 45;
+  /** What a room must share of the height of a wall of another level for the wall to face it. */
+  private static final float FACED_HEIGHT = 50;
+  /** The height of a finish of a wall side that a room sees, under which it isn't judged. */
+  private static final float MIN_FINISH_HEIGHT = 5;
+  /** How far a room open to the same height is looked for behind a low wall of a room of two stories. */
+  private static final float OPEN_SPACE_DEPTH = 300;
+  /**
+   * The words that tell a room outdoors by its name, used only for a room without ceiling that nothing
+   * else tells apart: the last hint, after the property of the room, its ceiling, what covers it and
+   * the walls around it.
+   */
+  static final String [] OUTDOOR_ROOM_WORDS = {"porch", "deck", "patio", "terrace", "terrasse", "balcony", "balcon", "veranda",
+      "yard", "garden", "jardin", "lawn", "driveway", "walkway", "courtyard", "carport", "pergola"};
 
   /**
    * The words that tell a texture made for the outside of a building, searched in its name and in
@@ -383,6 +408,11 @@ final class HomeDefects {
     /** Returns the elevation of the top of the roof at a point, or NaN. */
     double getTop(double x, double y) {
       return this.roof.model.getGeometry().getHeight(x, y, true) + this.roof.elevation;
+    }
+
+    /** Returns the elevation of the highest point of the roof. */
+    double getHighestTop() {
+      return this.roof.model.getGeometry().getMaxHeight() + this.roof.elevation;
     }
 
     /** Returns the elevation of the underside of the roof at a point, or NaN. */
@@ -721,12 +751,20 @@ final class HomeDefects {
 
   /**
    * Returns {how much a wall passes the top of the roof over it, that roof}, or <code>null</code>
-   * if it doesn't or if it belongs to a taller part of the building.
+   * if it doesn't or if it belongs to a taller part of the building:
+   * <ul><li>a wall that passes the roof by more than {@value #MAX_WALL_EXCESS} cm somewhere;</li>
+   * <li>a wall that a wall of a level above continues;</li>
+   * <li>a wall of a room whose ceiling is higher than the roof at that place, when this roof doesn't
+   * cover the room 60 cm behind the wall, or when that ceiling is higher than the top of the whole roof:
+   * the roof runs into the wall of that room.</li></ul>
+   * The roof compared with the wall is the one over most of its length: a roof that covers a
+   * smaller part of it, as the overhang of the roof of a porch over the end of the wall of a
+   * garage, isn't the roof the wall was built under.
    */
   private static Object [] getExcessAboveRoof(Home home, Wall wall, List<RoofData> roofs) {
     float base = getElevation(wall.getLevel());
-    double excess = 0;
-    RoofData excessRoof = null;
+    Map<RoofData, double []> roofExcesses = new LinkedHashMap<RoofData, double []>();
+    int coveredSamples = 0;
     for (int sample = 0; sample < 9; sample++) {
       float t = 0.04f + sample * 0.115f;
       double x = wall.getXStart() + (wall.getXEnd() - wall.getXStart()) * t;
@@ -751,12 +789,146 @@ final class HomeDefects {
         // The wall of a taller part of the building, which a lower roof runs into
         return null;
       }
-      if (sampleExcess > excess) {
-        excess = sampleExcess;
-        excessRoof = topRoof;
+      coveredSamples++;
+      // {samples under this roof, largest excess, top of the roof there}
+      double [] roofExcess = roofExcesses.get(topRoof);
+      if (roofExcess == null) {
+        roofExcess = new double [] {0, 0, roofTop};
+        roofExcesses.put(topRoof, roofExcess);
+      }
+      roofExcess [0]++;
+      if (sampleExcess > roofExcess [1]) {
+        roofExcess [1] = sampleExcess;
+        roofExcess [2] = roofTop;
       }
     }
-    return excess > 2 ? new Object [] {Double.valueOf(excess), excessRoof} : null;
+    double excess = 0;
+    double excessRoofTop = 0;
+    RoofData excessRoof = null;
+    for (Map.Entry<RoofData, double []> entry : roofExcesses.entrySet()) {
+      // The roofs over a small part of the wall aren't the one it stands under
+      if (entry.getValue() [0] >= 0.4 * coveredSamples && entry.getValue() [1] > excess) {
+        excess = entry.getValue() [1];
+        excessRoofTop = entry.getValue() [2];
+        excessRoof = entry.getKey();
+      }
+    }
+    if (!(excess > 2)) {
+      return null;
+    }
+    // A wall of a level above stands on it, or it is the wall of a room taller than the roof, which the roof runs into
+    if (isContinuedAbove(home, wall) || isWallOfTallerRoom(home, wall, excessRoof, excessRoofTop, true)) {
+      return null;
+    }
+    return new Object [] {Double.valueOf(excess), excessRoof};
+  }
+
+  /**
+   * Returns <code>true</code> if a straight wall whose top passes a roof isn't a wall that was built under
+   * this roof, to be fitted to it, but:
+   * <ul><li>a wall that stands under another roof, higher than this one over most of what this one
+   * covers of the wall;</li>
+   * <li>a wall that a wall of a level above continues;</li>
+   * <li>the wall of a room whose ceiling is higher than the roof where the wall passes it, when the
+   * roof doesn't cover that room 60 cm behind the wall: the wall of a taller part of the building, which
+   * the roof runs into or stops at.</li></ul>
+   * The answers of the commands that change a roof name the walls left above it with this rule, as
+   * <code>fit_walls_to_roof</code> would cut such walls down to the roof beside them.
+   * @param roof a roof of the home, or one that is being built in place of one of its roofs
+   */
+  static boolean isWallBesideRoof(Home home, Wall wall, HomeRoofs.Roof roof) {
+    if (!isStraight(wall) || wall.getLength() < 1) {
+      return false;
+    }
+    RoofData roofData = new RoofData(roof);
+    List<RoofData> otherRoofs = new ArrayList<RoofData>();
+    for (RoofData other : getRoofs(home)) {
+      if (other.roof.piece != roof.piece) {
+        otherRoofs.add(other);
+      }
+    }
+    float base = getElevation(wall.getLevel());
+    int covered = 0;
+    int underOtherRoof = 0;
+    double excess = 0;
+    double excessRoofTop = Double.NaN;
+    for (int sample = 0; sample < 9; sample++) {
+      float t = 0.04f + sample * 0.115f;
+      double x = wall.getXStart() + (wall.getXEnd() - wall.getXStart()) * t;
+      double y = wall.getYStart() + (wall.getYEnd() - wall.getYStart()) * t;
+      double roofTop = roofData.getTop(x, y);
+      if (Double.isNaN(roofTop) || base > roofTop - 50) {
+        continue;
+      }
+      covered++;
+      for (RoofData other : otherRoofs) {
+        if (other.bounds.contains(x, y)) {
+          double otherTop = other.getTop(x, y);
+          if (!Double.isNaN(otherTop) && otherTop > roofTop + 2) {
+            underOtherRoof++;
+            break;
+          }
+        }
+      }
+      double sampleExcess = base + getWallHeight(home, wall, t) - roofTop;
+      if (sampleExcess > excess) {
+        excess = sampleExcess;
+        excessRoofTop = roofTop;
+      }
+    }
+    if (covered == 0 || Double.isNaN(excessRoofTop)) {
+      return false;
+    }
+    return underOtherRoof >= 0.6 * covered
+        || isContinuedAbove(home, wall)
+        || isWallOfTallerRoom(home, wall, roofData, excessRoofTop, false);
+  }
+
+  /**
+   * Returns <code>true</code> if a wall of a level above stands on a wall, over a part of its length.
+   */
+  private static boolean isContinuedAbove(Home home, Wall wall) {
+    float base = getElevation(wall.getLevel());
+    double wallTop = base + Math.max(getWallHeight(home, wall, 0), getWallHeight(home, wall, 1));
+    for (Wall other : home.getWalls()) {
+      float otherBase = getElevation(other.getLevel());
+      if (other != wall && other.getLevel() != wall.getLevel() && isStraight(other)
+          && otherBase > base + 50 && otherBase <= wallTop + 45 && otherBase >= wallTop - 45
+          && getOverlap(wall, other) != null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Returns <code>true</code> if a wall is the one of a room whose ceiling is higher than the top of a
+   * roof where the wall passes it, while the roof doesn't cover that room 60 cm behind the wall.
+   * @param aboveWholeRoof if <code>true</code>, a room whose ceiling is above the highest point of
+   *          the roof counts too, wherever the roof goes
+   */
+  private static boolean isWallOfTallerRoom(Home home, Wall wall, RoofData roof, double roofTop, boolean aboveWholeRoof) {
+    List<HomePieceOfFurniture> slabs = getCeilingSlabs(home);
+    Room [] faced = getFacedRooms(home, wall, slabs);
+    double [] normal = getLeftNormal(wall);
+    float middleX = (wall.getXStart() + wall.getXEnd()) / 2;
+    float middleY = (wall.getYStart() + wall.getYEnd()) / 2;
+    for (int side = 0; side < 2; side++) {
+      if (faced [side] != null && normal != null) {
+        double ceiling = getCeilingElevation(home, faced [side], slabs);
+        if (!Double.isNaN(ceiling) && ceiling > roofTop + 2) {
+          if (aboveWholeRoof && ceiling > roof.getHighestTop()) {
+            return true;
+          }
+          // 60 cm into the room from the face of the wall
+          double distance = (side == 0 ? 1 : -1) * (wall.getThickness() / 2 + 60);
+          if (Double.isNaN(roof.getTop(middleX + normal [0] * distance, middleY + normal [1] * distance))) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   /**
@@ -842,6 +1014,31 @@ final class HomeDefects {
           if (overlook) {
             continue;
           }
+          // A wall inside the open space: the room behind it is open to the same height, or, behind a
+          // closet or stairs drawn without a room, the first rooms met in two directions at least are
+          // (the room itself counts, where it turns around the closet)
+          double behindX = middleX + nx * (lowest.getThickness() / 2 + 25);
+          double behindY = middleY + ny * (lowest.getThickness() / 2 + 25);
+          // What is behind the wall: a room, or a space without room and the first rooms around it
+          double [][] directions = getRoomAt(home, room.getLevel(), (float)behindX, (float)behindY) != null
+              ? new double [][] {{nx, ny}}
+              : new double [][] {{nx, ny}, {-ny, nx}, {ny, -nx}};
+          int openRooms = 0;
+          for (double [] direction : directions) {
+            for (double depth = 0; depth <= OPEN_SPACE_DEPTH; depth += 25) {
+              Room behind = getRoomAt(home, room.getLevel(),
+                  (float)(behindX + direction [0] * depth), (float)(behindY + direction [1] * depth));
+              if (behind != null) {
+                if (behind == room || getCeilingElevation(home, behind, slabs) >= ceiling - 5) {
+                  openRooms++;
+                }
+                break;
+              }
+            }
+          }
+          if (openRooms >= Math.min(2, directions.length)) {
+            continue;
+          }
           double [] gap = gaps.get(lowest);
           if (gap == null || gap [0] > top) {
             gaps.put(lowest, new double [] {top, (start [0] + end [0]) / 2, (start [1] + end [1]) / 2});
@@ -884,6 +1081,139 @@ final class HomeDefects {
     double middle = (from + to) / 2;
     return java.awt.geom.Line2D.ptSegDist(wall.getXStart(), wall.getYStart(), wall.getXEnd(), wall.getYEnd(),
         start [0] + ux * middle, start [1] + uy * middle) <= wall.getThickness() / 2 + 8;
+  }
+
+  // ---- Rooms outdoors ----
+
+  /**
+   * Returns <code>true</code> if a room is outdoors: a porch, a deck, a yard, a paved area, or a room drawn
+   * for a low roof. Read in this order:
+   * <ol><li>the property {@link #ROOM_OUTDOOR_PROPERTY} of the room, if it's set;</li>
+   * <li>a room with a ceiling is indoors: a ceiling that shows, a ceiling at its own height, a ceiling
+   * that follows a roof, or a slab over it;</li>
+   * <li>a room with the floor of a room of a level above over it is indoors;</li>
+   * <li>a room under a roof that leaves nowhere {@value #STANDING_HEIGHT} cm to stand is the place of
+   * that roof: outdoors, as the walls that rise beside it are;</li>
+   * <li>a room open on a quarter of its outline at least is outdoors. A side is open if no wall of
+   * its level runs along it, no other room of its level continues behind it, and no roof comes down
+   * to less than {@value #STANDING_HEIGHT} cm above the floor there (the eaves of an attic close it);</li>
+   * <li>a room that nothing covers is outdoors (a courtyard);</li>
+   * <li>otherwise its name tells, with {@link #OUTDOOR_ROOM_WORDS}.</li></ol>
+   */
+  static boolean isOutdoorRoom(Home home, Room room) {
+    return isOutdoorRoom(home, room, new ArrayList<Wall>(home.getWalls()), getCeilingSlabs(home), getRoofs(home));
+  }
+
+  private static boolean isOutdoorRoom(Home home, Room room, List<Wall> homeWalls,
+                                       List<HomePieceOfFurniture> slabs, List<RoofData> roofs) {
+    String outdoor = room.getProperty(ROOM_OUTDOOR_PROPERTY);
+    if (outdoor != null) {
+      return Boolean.parseBoolean(outdoor.trim());
+    }
+    if (room.getPointCount() < 3 || room.isCeilingVisible() || room.getProperty(ROOM_CEILING_HEIGHT_PROPERTY) != null
+        || room.getProperty(AssistantShapeCommands.ROOM_CEILING_PROPERTY) != null
+        || !Double.isNaN(getCeilingElevation(home, room, slabs))) {
+      return false;
+    }
+    float floor = getElevation(room.getLevel());
+    float [] inside = getInsidePoint(room);
+    if (inside != null) {
+      for (Room other : home.getRooms()) {
+        if (other != room && other.isFloorVisible() && getElevation(other.getLevel()) > floor + 100
+            && other.getPointCount() >= 3 && other.containsPoint(inside [0], inside [1], 0)) {
+          return false;
+        }
+      }
+    }
+    float [][] points = room.getPoints();
+    // What covers the room
+    int covered = 0;
+    int sampleCount = 0;
+    double highestUnderside = -Double.MAX_VALUE;
+    if (!roofs.isEmpty()) {
+      Rectangle2D bounds = getBounds(points);
+      for (float [] sample : getSamples(points, bounds)) {
+        if (sample [2] == 1) {
+          sampleCount++;
+          for (RoofData roof : roofs) {
+            if (roof.bounds.contains(sample [0], sample [1])) {
+              double underside = roof.getUnderside(sample [0], sample [1]);
+              if (!Double.isNaN(underside) && underside > floor - 1) {
+                covered++;
+                highestUnderside = Math.max(highestUnderside, underside);
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+    boolean underRoof = sampleCount > 0 && covered >= 0.5 * sampleCount;
+    if (underRoof && highestUnderside < floor + STANDING_HEIGHT) {
+      return true;
+    }
+    double perimeter = 0;
+    double open = 0;
+    for (int i = 0; i < points.length; i++) {
+      float [] start = points [i];
+      float [] end = points [(i + 1) % points.length];
+      double length = Math.hypot(end [0] - start [0], end [1] - start [1]);
+      perimeter += length;
+      if (length < 30) {
+        continue;
+      }
+      boolean closed = false;
+      for (Wall wall : homeWalls) {
+        if (wall.getLevel() == room.getLevel() && isAlong(wall, start, end)) {
+          closed = true;
+          break;
+        }
+      }
+      if (!closed) {
+        double nx = -(end [1] - start [1]) / length;
+        double ny = (end [0] - start [0]) / length;
+        float middleX = (start [0] + end [0]) / 2;
+        float middleY = (start [1] + end [1]) / 2;
+        if (room.containsPoint((float)(middleX + nx * 20), (float)(middleY + ny * 20), 0)) {
+          nx = -nx;
+          ny = -ny;
+        }
+        // Another room of the level goes on behind this side
+        for (Room other : home.getRooms()) {
+          if (other != room && other.getLevel() == room.getLevel() && other.getPointCount() >= 3
+              && other.containsPoint((float)(middleX + nx * 20), (float)(middleY + ny * 20), 0)) {
+            closed = true;
+            break;
+          }
+        }
+        // A roof comes down to the floor along it
+        for (RoofData roof : roofs) {
+          double underside = roof.getUnderside(middleX - nx * 20, middleY - ny * 20);
+          if (!Double.isNaN(underside) && underside > floor - 1 && underside < floor + STANDING_HEIGHT) {
+            closed = true;
+            break;
+          }
+        }
+      }
+      if (!closed) {
+        open += length;
+      }
+    }
+    if (perimeter > 0 && open >= OUTDOOR_OPEN_SHARE * perimeter) {
+      return true;
+    } else if (!underRoof && sampleCount > 0 && roofs.size() > 0 && covered == 0) {
+      // Walls all around and nothing over it, in a home that has roofs
+      return true;
+    }
+    if (room.getName() != null) {
+      String name = room.getName().toLowerCase(Locale.ENGLISH);
+      for (String word : OUTDOOR_ROOM_WORDS) {
+        if (name.indexOf(word) >= 0) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   // ---- Doors and windows ----
@@ -950,41 +1280,224 @@ final class HomeDefects {
   /**
    * Returns the rooms that the left side and the right side of a wall face, <code>null</code> for a side
    * that faces none: points 12 cm away from each face, at a quarter, half and three quarters of
-   * the length of the wall, are looked for in the rooms of the level of the wall.
+   * the length of the wall, are looked for in the rooms of the level of the wall, then in the rooms
+   * of the other levels that stand in front of the wall over {@value #FACED_HEIGHT} cm of its height
+   * at least: a room of two stories under a wall of the level above, or a garage whose floor is lower.
    */
   static Room [] getFacedRooms(Home home, Wall wall) {
-    Room [] rooms = new Room [2];
+    return getFacedRooms(home, wall, getCeilingSlabs(home));
+  }
+
+  /**
+   * Returns the direction that the left side of a straight wall faces, at a right angle to the wall,
+   * or <code>null</code>. The first two points of a wall are the ones of its left side; the middle of
+   * that side only tells which of the two directions it is, as a wall joined to others at an angle
+   * has ends cut on the bias.
+   */
+  private static double [] getLeftNormal(Wall wall) {
     float [][] points = wall.getPoints();
-    if (!isStraight(wall) || points.length != 4) {
-      return rooms;
+    double length = wall.getLength();
+    if (!isStraight(wall) || points.length != 4 || length < 1E-3) {
+      return null;
     }
-    float middleX = (wall.getXStart() + wall.getXEnd()) / 2;
-    float middleY = (wall.getYStart() + wall.getYEnd()) / 2;
-    // The first two points of a wall are the ones of its left side
-    double nx = (points [0][0] + points [1][0]) / 2 - middleX;
-    double ny = (points [0][1] + points [1][1]) / 2 - middleY;
-    double length = Math.hypot(nx, ny);
-    if (length < 1E-3) {
-      return rooms;
+    double nx = -(wall.getYEnd() - wall.getYStart()) / length;
+    double ny = (wall.getXEnd() - wall.getXStart()) / length;
+    double side = ((points [0][0] + points [1][0]) / 2 - (wall.getXStart() + wall.getXEnd()) / 2) * nx
+        + ((points [0][1] + points [1][1]) / 2 - (wall.getYStart() + wall.getYEnd()) / 2) * ny;
+    return side >= 0 ? new double [] {nx, ny} : new double [] {-nx, -ny};
+  }
+
+  private static Room [] getFacedRooms(Home home, Wall wall, List<HomePieceOfFurniture> slabs) {
+    return getFacedRooms(home, wall, slabs, new HashMap<Room, Object []>());
+  }
+
+  /**
+   * Returns <code>true</code> if a point is in the part of a room that its walls bound. A room may be
+   * drawn larger than the walls around it, as a bay whose outline runs outside its angled walls: the
+   * strip of the room beyond these walls isn't a place of the room that the outer side of the walls
+   * faces. The walls of the level of the room are taken out of its outline; of the parts that remain,
+   * the room is the one where its middle is (the largest one otherwise), with the parts that a door
+   * or an opening in a wall joins to it.
+   * @param roomParts the parts of the rooms computed so far
+   */
+  private static boolean isInRoom(Home home, Room room, float x, float y, Map<Room, Object []> roomParts) {
+    if (room.getPointCount() < 3 || !room.containsPoint(x, y, 0)) {
+      return false;
     }
-    nx /= length;
-    ny /= length;
-    double distance = wall.getThickness() / 2 + 12;
-    for (int side = 0; side < 2; side++) {
-      int sign = side == 0 ? 1 : -1;
-      Map<Room, Integer> votes = new HashMap<Room, Integer>();
-      for (float t = 0.25f; t <= 0.75f; t += 0.25f) {
-        float x = (float)(wall.getXStart() + (wall.getXEnd() - wall.getXStart()) * t + sign * nx * distance);
-        float y = (float)(wall.getYStart() + (wall.getYEnd() - wall.getYStart()) * t + sign * ny * distance);
-        for (Room room : home.getRooms()) {
-          if (room.getLevel() == wall.getLevel() && room.getPointCount() >= 3 && room.containsPoint(x, y, 0)) {
-            Integer count = votes.get(room);
-            votes.put(room, Integer.valueOf(count != null ? count.intValue() + 1 : 1));
+    Object [] parts = roomParts.get(room);
+    if (parts == null) {
+      float [][] points = room.getPoints();
+      Rectangle2D bounds = getBounds(points);
+      Area area = getArea(points);
+      for (Wall wall : home.getWalls()) {
+        if (wall.getLevel() == room.getLevel() && wall.getLength() >= 1) {
+          float [][] wallPoints = wall.getPoints();
+          if (getBounds(wallPoints).intersects(bounds.getX() - 1, bounds.getY() - 1, bounds.getWidth() + 2, bounds.getHeight() + 2)) {
+            area.subtract(getArea(wallPoints));
+          }
+        }
+      }
+      // The outlines of what remains, the largest one telling which way the outer ones turn
+      List<Path2D> outlines = new ArrayList<Path2D>();
+      List<Double> surfaces = new ArrayList<Double>();
+      Path2D.Double outline = null;
+      double surface = 0;
+      double startX = 0;
+      double startY = 0;
+      double lastX = 0;
+      double lastY = 0;
+      double [] coordinates = new double [6];
+      for (java.awt.geom.PathIterator it = area.getPathIterator(null, 0.5); !it.isDone(); it.next()) {
+        switch (it.currentSegment(coordinates)) {
+          case java.awt.geom.PathIterator.SEG_MOVETO :
+            outline = new Path2D.Double();
+            outline.moveTo(coordinates [0], coordinates [1]);
+            startX = lastX = coordinates [0];
+            startY = lastY = coordinates [1];
+            surface = 0;
+            break;
+          case java.awt.geom.PathIterator.SEG_LINETO :
+            outline.lineTo(coordinates [0], coordinates [1]);
+            surface += lastX * coordinates [1] - coordinates [0] * lastY;
+            lastX = coordinates [0];
+            lastY = coordinates [1];
+            break;
+          case java.awt.geom.PathIterator.SEG_CLOSE :
+            if (outline != null) {
+              surface += lastX * startY - startX * lastY;
+              outline.closePath();
+              outlines.add(outline);
+              surfaces.add(Double.valueOf(surface / 2));
+              outline = null;
+            }
+            break;
+          default :
+            break;
+        }
+      }
+      double largest = 0;
+      for (Double value : surfaces) {
+        if (Math.abs(value.doubleValue()) > Math.abs(largest)) {
+          largest = value.doubleValue();
+        }
+      }
+      // The part where the middle of the room is, or the largest one
+      float [] inside = getInsidePoint(room);
+      List<Path2D> otherOutlines = new ArrayList<Path2D>();
+      List<Path2D> keptOutlines = new ArrayList<Path2D>();
+      Path2D largestOutline = null;
+      for (int i = 0; i < outlines.size(); i++) {
+        double value = surfaces.get(i).doubleValue();
+        if (value * largest > 0) {
+          if (value == largest) {
+            largestOutline = outlines.get(i);
+          }
+          if (inside != null && outlines.get(i).contains(inside [0], inside [1])) {
+            keptOutlines.add(outlines.get(i));
+          } else {
+            otherOutlines.add(outlines.get(i));
+          }
+        }
+      }
+      if (keptOutlines.isEmpty() && largestOutline != null) {
+        keptOutlines.add(largestOutline);
+        otherOutlines.remove(largestOutline);
+      }
+      // With the parts that a door or an opening in a wall joins to them: a room drawn over two spaces
+      boolean joined = !otherOutlines.isEmpty();
+      while (joined) {
+        joined = false;
+        for (HomePieceOfFurniture piece : home.getFurniture()) {
+          if (piece.isDoorOrWindow() && piece.getLevel() == room.getLevel() && !(piece instanceof HomeFurnitureGroup)
+              && piece.getElevation() < 15 && piece.getHeight() >= 150
+              && bounds.intersects(piece.getX() - 100, piece.getY() - 100, 200, 200)) {
+            // A place on each side of the door
+            double distance = piece.getDepth() / 2 + 20;
+            double dx = -Math.sin(piece.getAngle()) * distance;
+            double dy = Math.cos(piece.getAngle()) * distance;
+            for (int side = -1; side <= 1 && !joined; side += 2) {
+              boolean fromKept = false;
+              for (Path2D keptOutline : keptOutlines) {
+                fromKept |= keptOutline.contains(piece.getX() + side * dx, piece.getY() + side * dy);
+              }
+              if (fromKept) {
+                for (Path2D otherOutline : otherOutlines) {
+                  if (otherOutline.contains(piece.getX() - side * dx, piece.getY() - side * dy)) {
+                    keptOutlines.add(otherOutline);
+                    otherOutlines.remove(otherOutline);
+                    joined = true;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+          if (joined) {
             break;
           }
         }
       }
-      int best = 0;
+      parts = new Object [] {area, keptOutlines};
+      roomParts.put(room, parts);
+    }
+    if (!((Area)parts [0]).contains(x, y)) {
+      // In a wall
+      return false;
+    }
+    for (Object keptOutline : (List<?>)parts [1]) {
+      if (((Path2D)keptOutline).contains(x, y)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static Room [] getFacedRooms(Home home, Wall wall, List<HomePieceOfFurniture> slabs, Map<Room, Object []> roomParts) {
+    Room [] rooms = new Room [2];
+    double [] normal = getLeftNormal(wall);
+    if (normal == null) {
+      return rooms;
+    }
+    double nx = normal [0];
+    double ny = normal [1];
+    double distance = wall.getThickness() / 2 + 12;
+    float base = getElevation(wall.getLevel());
+    float top = base + Math.max(getWallHeight(home, wall, 0), getWallHeight(home, wall, 1));
+    for (int side = 0; side < 2; side++) {
+      int sign = side == 0 ? 1 : -1;
+      Map<Room, Integer> votes = new LinkedHashMap<Room, Integer>();
+      for (float t = 0.25f; t <= 0.75f; t += 0.25f) {
+        float x = (float)(wall.getXStart() + (wall.getXEnd() - wall.getXStart()) * t + sign * nx * distance);
+        float y = (float)(wall.getYStart() + (wall.getYEnd() - wall.getYStart()) * t + sign * ny * distance);
+        Room faced = null;
+        for (Room room : home.getRooms()) {
+          if (room.getLevel() == wall.getLevel() && isInRoom(home, room, x, y, roomParts)) {
+            faced = room;
+            break;
+          }
+        }
+        if (faced == null) {
+          // The room of another level that stands the most in front of the wall
+          double facedHeight = FACED_HEIGHT;
+          for (Room room : home.getRooms()) {
+            if (room.getLevel() != wall.getLevel() && isInRoom(home, room, x, y, roomParts)) {
+              float floor = getElevation(room.getLevel());
+              double ceiling = getCeilingElevation(home, room, slabs);
+              double height = Math.min(top, ceiling) - Math.max(base, floor);
+              if (!Double.isNaN(ceiling) && height >= facedHeight) {
+                facedHeight = height;
+                faced = room;
+              }
+            }
+          }
+        }
+        if (faced != null) {
+          Integer count = votes.get(faced);
+          votes.put(faced, Integer.valueOf(count != null ? count.intValue() + 1 : 1));
+        }
+      }
+      // Two of the three points at least: a room that only the end of the side reaches isn't the one it faces
+      int best = 1;
       for (Map.Entry<Room, Integer> vote : votes.entrySet()) {
         if (vote.getValue().intValue() > best) {
           best = vote.getValue().intValue();
@@ -996,34 +1509,206 @@ final class HomeDefects {
   }
 
   /**
+   * Returns the finishes that a room sees on a side of a wall, from its floor to its ceiling, each
+   * one as {from, to, color, texture} with heights above the floor of the room. From the foot of the
+   * wall up: its baseboard, if it has a color or a texture of its own, then the finishes given to the
+   * side by <code>left_finish</code> or <code>right_finish</code>, then the finish of the side itself.
+   * A baseboard as high as the room is thus the finish of that side for the room, whatever the side
+   * has behind it or above the ceiling.
+   */
+  private static List<Object []> getSeenFinishes(Home home, Wall wall, int side, Room room, List<HomePieceOfFurniture> slabs) {
+    float base = getElevation(wall.getLevel());
+    float wallHeight = Math.max(getWallHeight(home, wall, 0), getWallHeight(home, wall, 1));
+    double from = 0;
+    double to = wallHeight;
+    if (room != null) {
+      from = Math.max(0, getElevation(room.getLevel()) - base);
+      double ceiling = getCeilingElevation(home, room, slabs);
+      if (!Double.isNaN(ceiling)) {
+        to = Math.min(wallHeight, ceiling - base);
+      }
+      if (!(to > from + MIN_FINISH_HEIGHT)) {
+        from = 0;
+        to = wallHeight;
+      }
+    }
+    Integer sideColor = side == 0 ? wall.getLeftSideColor() : wall.getRightSideColor();
+    HomeTexture sideTexture = side == 0 ? wall.getLeftSideTexture() : wall.getRightSideTexture();
+    // {top above the foot of the wall, color, texture}, from the foot up
+    List<Object []> layers = new ArrayList<Object []>();
+    for (WallFinishBands.Band band : WallFinishBands.getBands(wall, side == 0)) {
+      // A finish with a sloped top follows the roof that meets the wall: what is above it is over that roof
+      layers.add(new Object [] {Double.valueOf(Math.max(band.getTop(), band.getTopAtEnd())), band.getColor(), band.getTexture()});
+    }
+    layers.add(new Object [] {Double.valueOf(Double.MAX_VALUE), sideColor, sideTexture});
+    com.eteks.sweethome3d.model.Baseboard baseboard = side == 0 ? wall.getLeftSideBaseboard() : wall.getRightSideBaseboard();
+    double baseboardTop = baseboard != null && (baseboard.getColor() != null || baseboard.getTexture() != null)
+        ? baseboard.getHeight() : 0;
+    List<Object []> finishes = new ArrayList<Object []>();
+    double bottom = from;
+    if (baseboardTop > from) {
+      // In front of the finishes behind it
+      finishes.add(new Object [] {Double.valueOf(0), Double.valueOf(Math.min(to, baseboardTop) - from),
+          baseboard.getColor(), baseboard.getTexture()});
+      bottom = Math.min(to, baseboardTop);
+    }
+    for (Object [] layer : layers) {
+      double top = Math.min(to, ((Double)layer [0]).doubleValue());
+      if (top > bottom) {
+        finishes.add(new Object [] {Double.valueOf(bottom - from), Double.valueOf(top - from), layer [1], layer [2]});
+        bottom = top;
+      }
+    }
+    // The strips too thin to be a finish, when there is another one
+    for (int i = finishes.size() - 1; i >= 0 && finishes.size() > 1; i--) {
+      if (((Double)finishes.get(i) [1]).doubleValue() - ((Double)finishes.get(i) [0]).doubleValue() < MIN_FINISH_HEIGHT) {
+        finishes.remove(i);
+      }
+    }
+    if (finishes.isEmpty()) {
+      finishes.add(new Object [] {Double.valueOf(0), Double.valueOf(to - from), sideColor, sideTexture});
+    }
+    return finishes;
+  }
+
+  /**
+   * Returns <code>true</code> if a side of a wall can't be seen because another wall stands in front of
+   * it, less than {@value #HIDDEN_SIDE_DISTANCE} cm away: the cavity between two walls drawn side by side.
+   * Lines drawn from the side at a quarter, half and three quarters of its length must all meet a wall
+   * nearly parallel that shares a part of its height.
+   * @param nx the direction the side faces
+   */
+  private static boolean isHiddenByWall(Home home, Wall wall, double nx, double ny, List<Wall> homeWalls) {
+    float base = getElevation(wall.getLevel());
+    float top = base + Math.max(getWallHeight(home, wall, 0), getWallHeight(home, wall, 1));
+    double ux = (wall.getXEnd() - wall.getXStart()) / wall.getLength();
+    double uy = (wall.getYEnd() - wall.getYStart()) / wall.getLength();
+    for (float t = 0.25f; t <= 0.75f; t += 0.25f) {
+      double x = wall.getXStart() + (wall.getXEnd() - wall.getXStart()) * t;
+      double y = wall.getYStart() + (wall.getYEnd() - wall.getYStart()) * t;
+      java.awt.geom.Line2D line = new java.awt.geom.Line2D.Double(
+          x + nx * (wall.getThickness() / 2 + 0.5), y + ny * (wall.getThickness() / 2 + 0.5),
+          x + nx * (wall.getThickness() / 2 + HIDDEN_SIDE_DISTANCE), y + ny * (wall.getThickness() / 2 + HIDDEN_SIDE_DISTANCE));
+      boolean hidden = false;
+      for (Wall other : homeWalls) {
+        if (other == wall || !isStraight(other) || other.getLength() < 1) {
+          continue;
+        }
+        float otherBase = getElevation(other.getLevel());
+        float otherTop = otherBase + Math.max(getWallHeight(home, other, 0), getWallHeight(home, other, 1));
+        double vx = (other.getXEnd() - other.getXStart()) / other.getLength();
+        double vy = (other.getYEnd() - other.getYStart()) / other.getLength();
+        if (otherBase >= top - 20 || otherTop <= base + 20 || Math.abs(ux * vy - uy * vx) > 0.5) {
+          continue;
+        }
+        float [][] otherPoints = other.getPoints();
+        for (int i = 0; i < otherPoints.length && !hidden; i++) {
+          float [] next = otherPoints [(i + 1) % otherPoints.length];
+          hidden = line.intersectsLine(otherPoints [i][0], otherPoints [i][1], next [0], next [1]);
+        }
+        if (hidden) {
+          break;
+        }
+      }
+      if (!hidden) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
    * Reports the sides of walls whose finish doesn't match what they face: an outside material on a side
    * that faces a room, an inside finish on a side that faces the outside, and sides left unpainted.
-   * A side faces the outside if it faces no room while the other side of its wall faces one.
+   * <ul><li>A side faces the outside if it faces no room, or a {@linkplain #isOutdoorRoom(Home, Room) room
+   * outdoors}, while the other side of its wall faces a room indoors.</li>
+   * <li>The finishes that a room sees are the ones between its floor and its ceiling: the baseboard of
+   * the side, the finishes given to it from its floor up (<code>left_finish</code>,
+   * <code>right_finish</code>), then the finish of the side itself. An outside material in any of them
+   * shows in the room; the lowest one is the finish of the side for the other checks.</li>
+   * <li>The room that a side faces is the part of it that its walls bound.</li>
+   * <li>A side hidden by another wall less than {@value #HIDDEN_SIDE_DISTANCE} cm away isn't reported
+   * and doesn't count as a part of the outside of the home.</li></ul>
    */
   static void checkWallFinishes(Home home, List<Wall> walls, List<Room> rooms, List<Issue> issues, int [] counts) {
     if (home.getRooms().isEmpty()) {
       return;
     }
     List<Wall> homeWalls = new ArrayList<Wall>(home.getWalls());
-    // {wall, side, room or null}
+    List<HomePieceOfFurniture> slabs = getCeilingSlabs(home);
+    List<RoofData> roofs = getRoofs(home);
+    Map<Room, Boolean> outdoorRooms = new HashMap<Room, Boolean>();
+    Map<Room, Object []> roomParts = new HashMap<Room, Object []>();
+    // {wall, side, room indoors or null, room outdoors or null, color, texture, outside material that the room sees or null,
+    //  height from which the room sees it}
     List<Object []> sides = new ArrayList<Object []>();
     int painted = 0;
     double outsideLength = 0;
     double outsideMaterialLength = 0;
     List<Object> insideFinishes = new ArrayList<Object>();
+    // {wall, side} of the unpainted sides that face a space without room between rooms
+    List<Object []> pocketSides = new ArrayList<Object []>();
     for (Wall wall : walls) {
       if (!homeWalls.contains(wall)) {
         continue;
       }
-      Room [] faced = getFacedRooms(home, wall);
+      Room [] faced = getFacedRooms(home, wall, slabs, roomParts);
+      Room [] outdoors = new Room [2];
+      boolean [] voids = new boolean [2];
+      for (int side = 0; side < 2; side++) {
+        if (faced [side] != null) {
+          if (isOutdoorRoom(home, faced [side], outdoorRooms, homeWalls, slabs, roofs)) {
+            outdoors [side] = faced [side];
+            faced [side] = null;
+          } else if (isVoidRoom(faced [side])) {
+            voids [side] = true;
+            faced [side] = null;
+          }
+        }
+      }
       if (faced [0] == null && faced [1] == null) {
         // A garden wall, or a wall in a part of the plan without rooms
         continue;
       }
+      double [] normal = getLeftNormal(wall);
       for (int side = 0; side < 2; side++) {
         Integer color = side == 0 ? wall.getLeftSideColor() : wall.getRightSideColor();
         HomeTexture texture = side == 0 ? wall.getLeftSideTexture() : wall.getRightSideTexture();
-        sides.add(new Object [] {wall, Integer.valueOf(side), faced [side]});
+        HomeTexture seenOutsideMaterial = null;
+        double seenOutsideFrom = 0;
+        if (faced [side] != null) {
+          // What the room sees from its floor to its ceiling: the baseboard of the side, the finishes
+          // given to it from the floor up, then its own finish. The lowest one is the finish of the side
+          // for the room; an outside material in any of them shows in the room
+          List<Object []> seenFinishes = getSeenFinishes(home, wall, side, faced [side], slabs);
+          color = (Integer)seenFinishes.get(0) [2];
+          texture = (HomeTexture)seenFinishes.get(0) [3];
+          for (Object [] finish : seenFinishes) {
+            if (seenOutsideMaterial == null && isOutsideMaterial((HomeTexture)finish [3])) {
+              seenOutsideMaterial = (HomeTexture)finish [3];
+              seenOutsideFrom = ((Double)finish [0]).doubleValue();
+            }
+          }
+        } else if (voids [side] || normal != null
+                   && (isHiddenByWall(home, wall, (side == 0 ? 1 : -1) * normal [0], (side == 0 ? 1 : -1) * normal [1], homeWalls))) {
+          // A side that nobody sees: the cavity between two walls, or a side that faces an attic or a crawl space
+          if (color != null || texture != null) {
+            painted++;
+          }
+          continue;
+        } else if (outdoors [side] == null && normal != null
+                   && isInsidePocket(home, wall, (side == 0 ? 1 : -1) * normal [0], (side == 0 ? 1 : -1) * normal [1],
+                          outdoorRooms, homeWalls, slabs, roofs)) {
+          // A closet or a shaft drawn without a room: not the outside of the home
+          if (color != null || texture != null) {
+            painted++;
+          } else {
+            pocketSides.add(new Object [] {wall, Integer.valueOf(side)});
+          }
+          continue;
+        }
+        sides.add(new Object [] {wall, Integer.valueOf(side), faced [side], outdoors [side], color, texture,
+            seenOutsideMaterial, Double.valueOf(seenOutsideFrom)});
         if (color != null || texture != null) {
           painted++;
         }
@@ -1047,26 +1732,104 @@ final class HomeDefects {
       Wall wall = (Wall)sideData [0];
       int side = ((Integer)sideData [1]).intValue();
       Room room = (Room)sideData [2];
-      Integer color = side == 0 ? wall.getLeftSideColor() : wall.getRightSideColor();
-      HomeTexture texture = side == 0 ? wall.getLeftSideTexture() : wall.getRightSideTexture();
+      Room outdoorRoom = (Room)sideData [3];
+      Integer color = (Integer)sideData [4];
+      HomeTexture texture = (HomeTexture)sideData [5];
       String label = "The " + (side == 0 ? "left" : "right") + " side of " + id(wall, "W", walls.indexOf(wall));
-      if (room != null && isOutsideMaterial(texture)) {
+      String outside = outdoorRoom != null
+          ? name(id(outdoorRoom, "R", rooms.indexOf(outdoorRoom)), outdoorRoom.getName()) + ", a room outdoors," : "the outside";
+      HomeTexture seenOutsideMaterial = (HomeTexture)sideData [6];
+      double seenOutsideFrom = ((Double)sideData [7]).doubleValue();
+      if (room != null && seenOutsideMaterial != null) {
         HomeDiagnostics.add(issues, counts, new Issue(Type.WALL_OUTSIDE_FINISH_INDOORS, label + " faces "
             + name(id(room, "R", rooms.indexOf(room)), room.getName()) + " with the outside material \""
-            + (texture.getName() != null ? texture.getName() : texture.getCatalogId()) + "\"", wall, room));
+            + (seenOutsideMaterial.getName() != null ? seenOutsideMaterial.getName() : seenOutsideMaterial.getCatalogId()) + "\""
+            // Above a baseboard or a finish that stops under the ceiling of the room
+            + (seenOutsideFrom >= MIN_FINISH_HEIGHT ? " from " + format(seenOutsideFrom)
+                + " cm above its floor, over the finish or the baseboard that stops there" : "")
+            // A room without ceiling may be a porch or a deck that nothing told apart
+            + (room.isCeilingVisible() ? "" : " (if this room is outdoors, modify_room with \"outdoor\":true tells it)"),
+            wall, room));
       } else if (room == null && outsideHasMaterial && !isOutsideMaterial(texture) && (color != null || texture != null)
                  && insideFinishes.contains(texture != null
                         ? (Object)(texture.getName() != null ? texture.getName() : texture.getCatalogId()) : (Object)color)) {
-        HomeDiagnostics.add(issues, counts, new Issue(Type.WALL_INSIDE_FINISH_OUTDOORS, label + " faces the outside with "
+        HomeDiagnostics.add(issues, counts, new Issue(Type.WALL_INSIDE_FINISH_OUTDOORS, label + " faces " + outside + " with "
             + (texture != null ? "the texture \"" + (texture.getName() != null ? texture.getName() : texture.getCatalogId()) + "\""
                 : String.format("the color #%06X", Integer.valueOf(color.intValue() & 0xFFFFFF)))
             + ", a finish of the rooms, where most of the outside of the home has a material of its own", wall, null));
       } else if (homePainted && color == null && texture == null) {
         HomeDiagnostics.add(issues, counts, new Issue(Type.WALL_SIDE_UNPAINTED, label + ", which faces "
-            + (room != null ? name(id(room, "R", rooms.indexOf(room)), room.getName()) : "the outside")
+            + (room != null ? name(id(room, "R", rooms.indexOf(room)), room.getName()) : outside.replaceAll(",$", ""))
             + ", has no color and no texture", wall, room));
       }
     }
+    if (homePainted) {
+      for (Object [] sideData : pocketSides) {
+        Wall wall = (Wall)sideData [0];
+        HomeDiagnostics.add(issues, counts, new Issue(Type.WALL_SIDE_UNPAINTED, "The "
+            + (((Integer)sideData [1]).intValue() == 0 ? "left" : "right") + " side of " + id(wall, "W", walls.indexOf(wall))
+            + ", which faces a space without room between rooms (a closet or a shaft that wasn't drawn as a room)"
+            + ", has no color and no texture", wall, null));
+      }
+    }
+  }
+
+  private static boolean isOutdoorRoom(Home home, Room room, Map<Room, Boolean> outdoorRooms, List<Wall> homeWalls,
+                                       List<HomePieceOfFurniture> slabs, List<RoofData> roofs) {
+    Boolean outdoor = outdoorRooms.get(room);
+    if (outdoor == null) {
+      outdoor = Boolean.valueOf(isOutdoorRoom(home, room, homeWalls, slabs, roofs));
+      outdoorRooms.put(room, outdoor);
+    }
+    return outdoor.booleanValue();
+  }
+
+  /**
+   * Returns <code>true</code> if a room is a space nobody stays in, as an attic or a crawl space: a room
+   * indoors that shows neither its floor nor a ceiling. The sides of walls that face it aren't seen.
+   */
+  static boolean isVoidRoom(Room room) {
+    return !room.isFloorVisible() && !room.isCeilingVisible()
+        && room.getProperty(ROOM_CEILING_HEIGHT_PROPERTY) == null
+        && room.getProperty(AssistantShapeCommands.ROOM_CEILING_PROPERTY) == null;
+  }
+
+  /**
+   * Returns <code>true</code> if a side of a wall that faces no room faces a space enclosed by the rooms of
+   * the home, as a closet under stairs or a shaft drawn without a room: from a point 25 cm in front of
+   * the side, rooms indoors are met within {@value #OPEN_SPACE_DEPTH} cm in two at least of the three
+   * directions straight ahead, to the left and to the right. The outside of a home meets rooms
+   * in one of them at most, at an inside corner.
+   */
+  private static boolean isInsidePocket(Home home, Wall wall, double nx, double ny, Map<Room, Boolean> outdoorRooms,
+                                        List<Wall> homeWalls, List<HomePieceOfFurniture> slabs, List<RoofData> roofs) {
+    double ux = (wall.getXEnd() - wall.getXStart()) / wall.getLength();
+    double uy = (wall.getYEnd() - wall.getYStart()) / wall.getLength();
+    double x = (wall.getXStart() + wall.getXEnd()) / 2 + nx * (wall.getThickness() / 2 + 25);
+    double y = (wall.getYStart() + wall.getYEnd()) / 2 + ny * (wall.getThickness() / 2 + 25);
+    double [][] directions = {{nx, ny}, {ux, uy}, {-ux, -uy}};
+    int met = 0;
+    for (double [] direction : directions) {
+      for (double depth = 0; depth <= OPEN_SPACE_DEPTH; depth += 25) {
+        Room room = getRoomAt(home, wall.getLevel(), (float)(x + direction [0] * depth), (float)(y + direction [1] * depth));
+        if (room != null) {
+          if (!isOutdoorRoom(home, room, outdoorRooms, homeWalls, slabs, roofs)) {
+            met++;
+          }
+          break;
+        }
+      }
+    }
+    return met >= 2;
+  }
+
+  private static Room getRoomAt(Home home, Level level, float x, float y) {
+    for (Room room : home.getRooms()) {
+      if (room.getLevel() == level && room.getPointCount() >= 3 && room.containsPoint(x, y, 0)) {
+        return room;
+      }
+    }
+    return null;
   }
 
   // ---- Items that cross another item ----

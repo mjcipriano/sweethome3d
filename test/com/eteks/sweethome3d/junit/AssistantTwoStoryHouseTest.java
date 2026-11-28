@@ -153,7 +153,7 @@ public class AssistantTwoStoryHouseTest {
         + "{\"action\":\"modify_room\",\"id\":\"R2\",\"ceiling_height\":220,\"wall_color\":\"#9FB8C8\"},"
         + "{\"action\":\"paint_rooms\",\"only\":\"unpainted\",\"color\":\"#EEEEEE\"},"
         + "{\"action\":\"add_opening\",\"wall\":\"W4\",\"center\":200,\"width\":120,\"bottom\":0,\"top\":210},"
-        + "{\"action\":\"add_header\",\"opening\":\"last\",\"height\":25}");
+        + "{\"action\":\"add_header\",\"opening\":\"last\",\"height\":25,\"thickness\":20}");
     assertTrue(summary, summary.contains("Added the header"));
     assertFalse(summary, summary.contains("failed"));
     assertNotNull(getPiece("Header"));

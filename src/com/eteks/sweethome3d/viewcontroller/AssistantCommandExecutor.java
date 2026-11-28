@@ -219,10 +219,39 @@ public class AssistantCommandExecutor {
    */
   public void setModelSizeProvider(ModelSizeProvider modelSizeProvider) {
     this.modelSizeProvider = modelSizeProvider;
+    if (modelSizeProvider instanceof ModelShapeProvider) {
+      // The object that measures models may give their triangles too
+      this.modelShapeProvider = (ModelShapeProvider)modelSizeProvider;
+    }
     if (modelSizeProvider instanceof ModelImageFilter) {
       // The object that reads models may change their images too
       this.modelImageFilter = (ModelImageFilter)modelSizeProvider;
     }
+  }
+
+  /**
+   * Reads the shape of the 3D models of pieces, for the commands that need more than their box:
+   * the height under a roof that no command described.
+   */
+  public interface ModelShapeProvider {
+    /**
+     * Returns the triangles of <code>model</code> in the units of its file, each one as the
+     * x, y and z of its three points, y upward. May be empty.
+     */
+    float [][] getTriangles(com.eteks.sweethome3d.model.Content model) throws java.io.IOException;
+  }
+
+  private ModelShapeProvider modelShapeProvider;
+
+  /**
+   * Sets the object that reads the shape of 3D models.
+   */
+  public void setModelShapeProvider(ModelShapeProvider modelShapeProvider) {
+    this.modelShapeProvider = modelShapeProvider;
+  }
+
+  ModelShapeProvider getModelShapeProvider() {
+    return this.modelShapeProvider;
   }
 
   /**

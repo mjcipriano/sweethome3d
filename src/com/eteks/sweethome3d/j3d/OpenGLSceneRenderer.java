@@ -147,6 +147,9 @@ public class OpenGLSceneRenderer {
   // the side of the first directional light but higher, and the lights of the scene fill the shadows
   private static final float SHADOW_KEY_LIGHT_FACTOR = 0.8f;
   private static final float SHADOW_FILL_LIGHT_FACTOR = 0.45f;
+  // The light which comes from below lights the ceilings and what is seen from under only: nothing of it
+  // fills the shadows that the main light casts, and dimmed as the other lights it left every ceiling dark gray
+  private static final float SHADOW_CEILING_LIGHT_FACTOR = 0.9f;
   private static final double SHADOW_KEY_LIGHT_ELEVATION = Math.toRadians(58);
   // Sine of the elevation under which the Sun casts no shadow
   private static final float  MINIMUM_SUN_HEIGHT = 0.004f;
@@ -1703,7 +1706,9 @@ public class OpenGLSceneRenderer {
             // The Sun doesn't light what's in its own shadow
           } else if (lightSet.count < MAX_LIGHTS) {
             addLight(lightSet, light.direction, light.color,
-                this.frameShadows && !background ? SHADOW_FILL_LIGHT_FACTOR : 1, viewMatrix);
+                this.frameShadows && !background
+                    ? (light.direction [1] < -0.7f ? SHADOW_CEILING_LIGHT_FACTOR : SHADOW_FILL_LIGHT_FACTOR)
+                    : 1, viewMatrix);
           }
           keyLight = false;
         } else {

@@ -413,17 +413,54 @@ class AssistantBuildingCommands {
     }
     final String name = command.getString("name");
     final boolean floorOffset = command.has("floor_offset");
-    final boolean ceiling = command.has("ceiling") || command.has("flat_ceiling_at");
-    final String ceilingMode = command.getString("ceiling") != null ? command.getString("ceiling") : "follow_roof";
+    // "ceiling" is the kind of ceiling, follow_roof or flat; true and false show and hide it, as "ceiling_visible"
+    Boolean shownCeiling = null;
+    String ceilingKind = command.getString("ceiling") != null
+        ? command.getString("ceiling").trim().toLowerCase(Locale.ENGLISH).replace('-', '_').replace(' ', '_') : null;
+    if (ceilingKind != null) {
+      if (ceilingKind.matches("true|visible|show|shown|yes|on")) {
+        shownCeiling = Boolean.TRUE;
+      } else if (ceilingKind.matches("false|hidden|hide|no|off")) {
+        shownCeiling = Boolean.FALSE;
+      } else if (!ceilingKind.matches("flat|level|none|default|follow_roof|roof|sloped")) {
+        notes.add("Ignored modify_room: \"ceiling\" is \"follow_roof\" (a ceiling under the slopes of the roof), \"flat\" "
+            + "(the flat ceiling again), or true or false to show or hide the ceiling as \"ceiling_visible\" does; "
+            + "\"ceiling_height\":N places it at a height. Nothing was changed");
+        return;
+      }
+    }
+    // The values that are true or false
+    for (String key : new String [] {"ceiling_visible", "floor_visible", "area_visible"}) {
+      Object value = command.getParameters().get(key);
+      if (value != null && !(value instanceof Boolean)
+          && !(value instanceof String && ((String)value).trim().toLowerCase(Locale.ENGLISH).matches("true|false"))) {
+        notes.add("Ignored modify_room: \"" + key + "\" is true or false, not " + value + ". Nothing was changed");
+        return;
+      }
+    }
+    final Boolean ceilingShown = command.has("ceiling_visible")
+        ? Boolean.valueOf(command.getBoolean("ceiling_visible", true)) : shownCeiling;
+    final boolean ceiling = command.has("ceiling") && shownCeiling == null || command.has("flat_ceiling_at");
+    final String ceilingMode = command.getString("ceiling") != null && shownCeiling == null ? command.getString("ceiling") : "follow_roof";
     final boolean followRoof = ceiling && !ceilingMode.trim().toLowerCase(Locale.ENGLISH).matches("flat|level|none|default");
     final boolean ceilingHeight = AssistantCeilingCommands.hasCeilingHeight(command);
     // The color of the walls of the rooms, which the wall sides that face them get
-    boolean wallFinish = this.executor.getWallFinishCommands().modifyRoomFinish(command, rooms, tally, notes);
-    if (wallFinish && !command.has("points") && !command.has("ceiling_visible") && !command.has("floor_visible")
+    boolean wallFinish;
+    try {
+      wallFinish = this.executor.getWallFinishCommands().modifyRoomFinish(command, rooms, tally, notes);
+    } catch (IOException ex) {
+      // A command that fails for one of its keys applies none of them
+      notes.add("Ignored modify_room" + ("see above".equals(ex.getMessage()) ? "" : " (" + ex.getMessage() + ")")
+          + ": nothing was changed, the other keys of this command included");
+      return;
+    }
+    // Whether the rooms are outdoors, for the checks of the finishes of the walls around them
+    wallFinish |= setRoomsOutdoor(command, rooms, tally, notes);
+    if (wallFinish && !command.has("points") && ceilingShown == null && !command.has("floor_visible")
         && !command.has("area_visible") && name == null && !floorOffset && !ceiling && !ceilingHeight) {
       return;
     }
-    if (!command.has("points") && !command.has("ceiling_visible") && !command.has("floor_visible")
+    if (!command.has("points") && ceilingShown == null && !command.has("floor_visible")
         && !command.has("area_visible") && name == null && !floorOffset && !ceiling && !ceilingHeight) {
       notes.add("Ignored modify_room: give at least one of \"ceiling_visible\", \"floor_visible\", "
           + "\"area_visible\", \"name\", \"points\", \"floor_offset\", \"ceiling\", \"flat_ceiling_at\", "
@@ -434,8 +471,8 @@ class AssistantBuildingCommands {
         public void run() {
           for (Selectable item : rooms) {
             Room room = (Room)item;
-            if (command.has("ceiling_visible")) {
-              room.setCeilingVisible(command.getBoolean("ceiling_visible", room.isCeilingVisible()));
+            if (ceilingShown != null) {
+              room.setCeilingVisible(ceilingShown.booleanValue());
             } else if (ceiling) {
               // The ceiling under the roof replaces the flat one at the height of the level
               room.setCeilingVisible(!followRoof);
@@ -1210,6 +1247,70 @@ class AssistantBuildingCommands {
         + ") cm (camera moves aren't undoable)");
   }
 
+  /**
+   * Handles the parameter <code>outdoor</code> of <code>modify_room</code>: <code>true</code> for a porch,
+   * a deck or a yard, <code>false</code> for a room indoors, <code>null</code> to let the checks tell.
+   * @return <code>true</code> if the command has this parameter
+   */
+  private boolean setRoomsOutdoor(AssistantCommand command, final List<Selectable> rooms, int [] tally, List<String> notes) {
+    if (!command.getParameters().containsKey("outdoor")) {
+      return false;
+    }
+    Object value = command.getParameters().get("outdoor");
+    final String outdoor;
+    if (value == null || "auto".equalsIgnoreCase(value.toString().trim())) {
+      outdoor = null;
+    } else if (value instanceof Boolean || "true".equalsIgnoreCase(value.toString().trim())
+               || "false".equalsIgnoreCase(value.toString().trim())) {
+      outdoor = String.valueOf(Boolean.parseBoolean(value.toString().trim()));
+    } else {
+      notes.add("Ignored \"outdoor\" in modify_room: it is true for a room outdoors (a porch, a deck, a yard), "
+          + "false for a room indoors, or null to let check_home tell from the ceiling and the walls of the room");
+      return true;
+    }
+    final List<String> oldValues = new ArrayList<String>();
+    int changed = 0;
+    for (Selectable room : rooms) {
+      String oldValue = ((Room)room).getProperty(HomeDefects.ROOM_OUTDOOR_PROPERTY);
+      oldValues.add(oldValue);
+      if (outdoor == null ? oldValue != null : !outdoor.equals(oldValue)) {
+        changed++;
+        ((Room)room).setProperty(HomeDefects.ROOM_OUTDOOR_PROPERTY, outdoor);
+      }
+    }
+    if (changed > 0) {
+      this.executor.beginTurnUpdate();
+      this.homeController.getUndoableEditSupport().postEdit(new javax.swing.undo.AbstractUndoableEdit() {
+          @Override
+          public void undo() {
+            super.undo();
+            for (int i = 0; i < rooms.size(); i++) {
+              ((Room)rooms.get(i)).setProperty(HomeDefects.ROOM_OUTDOOR_PROPERTY, oldValues.get(i));
+            }
+          }
+
+          @Override
+          public void redo() {
+            super.redo();
+            for (Selectable room : rooms) {
+              ((Room)room).setProperty(HomeDefects.ROOM_OUTDOOR_PROPERTY, outdoor);
+            }
+          }
+        });
+      tally [4] += changed;
+    }
+    StringBuilder text = new StringBuilder();
+    for (Selectable room : rooms) {
+      text.append(text.length() > 0 ? ", " : "").append(this.executor.getId(room));
+    }
+    notes.add(outdoor == null
+        ? "check_home tells by itself whether " + text + (rooms.size() == 1 ? " is" : " are") + " outdoors"
+        : text + (rooms.size() == 1 ? " is" : " are") + " now "
+            + (Boolean.parseBoolean(outdoor) ? "outdoors: an outside material on the walls around is right there"
+                : "indoors: an outside material on the walls that face it is reported"));
+    return true;
+  }
+
   // ---- Repair ----
 
   /**
@@ -1335,10 +1436,60 @@ class AssistantBuildingCommands {
       tally [4] += modifiedItems.size();
     }
     if (!deletedItems.isEmpty()) {
+      // The walls that each deleted wall joined, or that were joined to it: once it's gone, they meet each other
+      final List<List<Wall>> neighbors = new ArrayList<List<Wall>>();
+      for (Selectable item : deletedItems) {
+        if (item instanceof Wall) {
+          Wall deletedWall = (Wall)item;
+          List<Wall> wallNeighbors = new ArrayList<Wall>();
+          for (Wall wall : this.home.getWalls()) {
+            if (wall != deletedWall && !deletedItems.contains(wall) && wall.getLevel() == deletedWall.getLevel()
+                && (wall == deletedWall.getWallAtStart() || wall == deletedWall.getWallAtEnd()
+                    || wall.getWallAtStart() == deletedWall || wall.getWallAtEnd() == deletedWall)) {
+              wallNeighbors.add(wall);
+            }
+          }
+          for (Issue issue : issues) {
+            // The wall kept of two walls drawn at the same place takes the neighbors of the other one
+            if (issue.getType() == HomeDiagnostics.Type.DUPLICATE_WALL && issue.getItem() == deletedWall
+                && issue.getOtherItem() instanceof Wall && !deletedItems.contains(issue.getOtherItem())
+                && !wallNeighbors.contains(issue.getOtherItem())) {
+              wallNeighbors.add((Wall)issue.getOtherItem());
+            }
+          }
+          if (wallNeighbors.size() >= 2) {
+            neighbors.add(wallNeighbors);
+          }
+        }
+      }
       this.executor.beginTurnUpdate();
       this.homeController.getPlanController().deleteItems(deletedItems);
       tally [5] += deletedItems.size();
       fixed [0] += deletedItems.size();
+      // Joined in the same step: the next check would otherwise report walls that meet without being joined
+      final List<Selectable> rejoinedWalls = new ArrayList<Selectable>();
+      for (List<Wall> wallNeighbors : neighbors) {
+        for (Wall wall : wallNeighbors) {
+          if (this.home.getWalls().contains(wall)) {
+            addOnce(rejoinedWalls, wall);
+          }
+        }
+      }
+      if (rejoinedWalls.size() >= 2) {
+        this.executor.postModification(rejoinedWalls, new Runnable() {
+            public void run() {
+              for (List<Wall> wallNeighbors : neighbors) {
+                for (int i = 0; i < wallNeighbors.size(); i++) {
+                  for (int j = i + 1; j < wallNeighbors.size(); j++) {
+                    if (rejoinedWalls.contains(wallNeighbors.get(i)) && rejoinedWalls.contains(wallNeighbors.get(j))) {
+                      joinWalls(wallNeighbors.get(i), wallNeighbors.get(j));
+                    }
+                  }
+                }
+              }
+            }
+          });
+      }
     }
     // The walls that pass a roof get the height of its underside again
     for (java.util.Map.Entry<Selectable, List<Wall>> entry : roofWalls.entrySet()) {
@@ -1389,6 +1540,24 @@ class AssistantBuildingCommands {
       int count = 0;
       for (Selectable room : entry.getValue()) {
         if (this.home.getRooms().contains(room) && !ids.contains(this.executor.getId(room))) {
+          // Not a cut that would leave a dormer of the roof out: the roof stays as it is along that room
+          List<Object> idsWithRoom = new ArrayList<Object>(ids);
+          idsWithRoom.add(this.executor.getId(room));
+          List<Integer> lostDormers = this.executor.getShapeCommands().getDormersLostByClip(
+              (HomePieceOfFurniture)entry.getKey(), idsWithRoom);
+          if (lostDormers == null || !lostDormers.isEmpty()) {
+            String roomName = ((Room)room).getName();
+            notes.add("The roof " + this.executor.getId(entry.getKey()) + " wasn't cut along the room "
+                + this.executor.getId(room) + (roomName != null ? " \"" + roomName + "\"" : "") + ": "
+                + (lostDormers == null ? "it can't be clipped by that room"
+                    : (lostDormers.size() == 1 ? "its dormer " + lostDormers.get(0) : "its dormers " + lostDormers)
+                        + " couldn't be built anymore, " + (lostDormers.size() == 1 ? "its" : "their")
+                        + " place being in what that room cuts out of the roof")
+                + ". The roof still comes into that room: move or remove "
+                + (lostDormers != null && lostDormers.size() > 1 ? "these dormers" : "the dormer")
+                + " (modify_dormer, remove_dormer), or clip the roof with modify_roof");
+            continue;
+          }
           ids.add(this.executor.getId(room));
           count++;
         }

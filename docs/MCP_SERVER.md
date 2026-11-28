@@ -167,7 +167,7 @@ morning?"* - *"Go back to the version before the new roof."*
 
 | Tool | What it does |
 | --- | --- |
-| `save_version` | Saves a copy of the home with a `label` (or `name`) in the folder of versions beside its file, the one of **File > Versions...**. The home and its file don't change |
+| `save_version` | Saves a copy of the home with a `label` (or `name`) in the folder of versions beside its file, the one of **File > Versions...**. The home and its file don't change. The label is kept in the name of the file, up to 150 characters: commas and parentheses are kept, what a file name can't hold (`: / \ ? * " < > \|`) becomes a space, and the answer says when a label was shortened. The label given still designates the version |
 | `list_versions` | The versions, the most recent first, numbered from 1 |
 | `compare_versions` | From a `version` (its number or a part of its label) to the home now, or to another version (`with`): counts and areas, then the items added, removed, moved, resized or renamed, with their ids. `"picture":true` adds both states side by side It ends with what changed on the site: trees added, removed or changed, fences, and the earth moved |
 | `restore_version` | Replaces the levels and the items of the home by the ones of a version, as **one change that undo reverts**. The state before it is saved as a version first (`"keep_current":false` skips that). The file of the home isn't written |
@@ -299,16 +299,17 @@ when you walk through the home in 3D. Each one names its items by id.
 
 | Type | Severity | What is reported | `fix_home` |
 | --- | --- | --- | --- |
-| `roof_in_room` | error | A roof, its overhang, its gutters or its downspouts are inside the outline of a room, under its ceiling: the roof of a one-story wing in a two-story room, a porch roof that goes 20 cm into a foyer. The message gives the side of the room, how far the roof comes in, and the index of the edge of the roof to stop at the wall | No: change that edge with `modify_roof` |
+| `roof_in_room` | error | A roof, its overhang, its gutters or its downspouts are inside the outline of a room, under its ceiling: the roof of a one-story wing in a two-story room, a porch roof that goes 20 cm into a foyer. The message gives the side of the room, how far the roof comes in, and the number of the edge of the roof to stop at the wall | Cuts the roof along the walls of the room, its shape kept (as `clip_to_rooms`). A room whose cut would unbuild a dormer is skipped and named |
 | `overlapping_wall` | error | Two walls of a level drawn over each other for more than 10 cm, their middle lines within half a thickness, with their heights when they differ | Yes, when one covers 80 % of the other: the taller one is kept (the longer one at equal heights), put on the line of the other one if that one follows the axes of the plan and it doesn't, and made as long as both. Walls that share only a part of their length need a decision |
 | `door_misaligned` | warning | A door or a window turned by more than 1 degree from its wall, or more than a quarter of the thickness of the wall away from its middle line and out of one of its faces | Yes: it's turned along the wall, and brought back on its middle line if it came out of a face |
-| `wall_above_roof` | warning | A wall whose top passes the top of the roof over it by 2 to 120 cm | Yes: `fit_walls_to_roof` is run for exactly those walls |
-| `open_two_story_room` | warning | A room higher than its level, on a side of which the wall and the walls of the floors above stop under its ceiling | Yes: the wall is raised to the ceiling of the room |
+| `wall_above_roof` | warning | A wall whose top passes the top of the roof it stands under by 2 to 120 cm, unless it's the wall of a taller part of the building | Yes: `fit_walls_to_roof` is run for exactly those walls |
+| `tiny_wall`, `duplicate_wall` | warning | A wall too short to be seen, or drawn over another one | Yes: it is deleted, and the walls it joined are joined to each other in the same step |
+| `open_two_story_room` | warning | A room higher than its level, on a side of its outline where the wall and the walls of the floors above stop under its ceiling. An overlook and the low walls inside the open space aren't reported | Yes: the wall is raised to the ceiling of the room |
 | `ceiling_above_roof` | warning | The ceiling of a room, or a slab used as a ceiling, passes the roof that covers it: it shows from outside | No |
 | `roof_at_ceiling` | info | A roof within 3 cm of a ceiling over a quarter of it or more: they show through each other | No |
-| `wall_outside_finish_indoors` | warning | A side of a wall that faces a room has an outside material | No |
-| `wall_inside_finish_outdoors` | info | A side that faces the outside has a color or a texture used in the rooms, in a home where most of the outside has a material of its own | No |
-| `wall_side_unpainted` | info | A side that faces a room or the outside has no color and no texture, in a home where 30 % of the sides or more are painted | No |
+| `wall_outside_finish_indoors` | warning | A side of a wall that faces a room indoors has an outside material | No |
+| `wall_inside_finish_outdoors` | info | A side that faces the outside, or a room outdoors, has a color or a texture used in the rooms, in a home where most of the outside has a material of its own | No |
+| `wall_side_unpainted` | info | A side that can be seen has no color and no texture, in a home where 30 % of the sides or more are painted | No |
 
 How these are decided:
 
@@ -321,13 +322,76 @@ How these are decided:
   than the ceiling inside the outline of the room. When the roof covers less
   than half of the room, it's a roof that comes in; otherwise it's the roof
   of the room, and the ceiling is the one out of its place.
-- **A wall of a taller part of the building** isn't a wall above the roof:
-  a wall that passes the roof by more than 120 cm, or that stands on a floor
-  above it, is left out.
+- **A wall of a taller part of the building** isn't a wall above the roof.
+  These are left out:
+  - a wall that passes the roof by more than 120 cm, or that stands on a
+    floor above it;
+  - a wall that a wall of a level above continues;
+  - a wall of a room whose ceiling is higher than the roof where they meet,
+    when that roof doesn't cover the room 60 cm behind the wall, or when the
+    ceiling is higher than the top of the whole roof: the two-story wall that
+    a one-story roof runs into.
+- **The roof a wall stands under** is the one over most of its length. A
+  roof over less than 40 % of the part of the wall that roofs cover, as the
+  overhang of a porch roof across the end of a garage wall, isn't compared
+  with it.
 - **What a side of a wall faces.** Three points 12 cm away from the face are
-  looked for in the rooms of the level of the wall. A side that faces no room
-  faces the outside if the other side of its wall faces a room; the walls
-  that face no room at all (garden walls) are left out.
+  looked for in the rooms of the level of the wall, then in the rooms of the
+  other levels that stand in front of 50 cm of the height of the wall or
+  more: the two-story room that a wall of the floor above looks into, or a
+  garage whose floor is lower. A side that faces no room faces the outside if
+  the other side of its wall faces a room; the walls that face no room at all
+  (garden walls) are left out.
+- **A room is the part of its outline that its walls bound.** A room may be
+  drawn larger than the walls around it, as a bay whose outline runs outside
+  its angled walls. The walls of its level are taken out of its outline: the
+  room is the part that remains where its middle is, with the parts that a
+  door or an opening in a wall joins to it. The strip beyond the walls isn't
+  the room, so the siding on the outer side of the walls of the bay doesn't
+  face it. No rule depends on the length of a wall: a return of 30 cm whose
+  brick side stands in a garage is reported.
+- **A room outdoors** counts as the outside: siding or brick is right on the
+  sides that face it, and the paint of the rooms isn't. A room is outdoors
+  when, in this order:
+  1. its property `com.eteks.sweethome3d.outdoor` says so. `modify_room` sets
+     it with `"outdoor":true` or `false`, and removes it with `null`;
+  2. otherwise it is indoors if it has a ceiling (one that shows, a
+     `ceiling_height`, a ceiling that follows a roof, a slab over it) or the
+     floor of a room of a level above over it;
+  3. it's outdoors if a roof covers it and leaves nowhere 150 cm to stand: a
+     room drawn at the place of a bay roof or a porch roof;
+  4. it's outdoors if a quarter of its outline or more is open: no wall of
+     its level along the side, no other room of its level behind it, and no
+     roof that comes down to less than 150 cm above the floor there (the
+     eaves of an attic close its sides);
+  5. it's outdoors if walls close it and none of the roofs of the home covers
+     it (a courtyard);
+  6. otherwise its name tells: porch, deck, patio, terrace, balcony, veranda,
+     yard, garden, lawn, driveway, walkway, courtyard, carport, pergola.
+- **The finishes a room sees** on a side are the ones between its floor and
+  its ceiling. From the foot of the wall up: its baseboard, if it has a color
+  or a texture of its own, then the finishes by height (`left_finish`,
+  `right_finish`), then the finish of the side itself. A baseboard or a
+  finish as high as the ceiling of the room is the finish of that side for
+  the room, whatever the side has behind it or above the ceiling: homes made
+  before 7.34 often paint the lower part of a two-story wall with a baseboard
+  275 cm high. An outside material in what the room sees is reported, with
+  the height it starts at when a baseboard or a finish stops under the
+  ceiling. A finish with a sloped top (`"to":"roof"`) counts up to its higher
+  end: what is above it is over the roof that meets the wall.
+- **Sides that nobody sees** aren't reported and don't count as the outside
+  of the home: a side with another wall less than 45 cm in front of it (the
+  cavity between two walls drawn side by side), and a side that faces an
+  attic or a crawl space, a room that shows neither floor nor ceiling.
+- **A space without room between rooms**, as a closet under stairs that was
+  drawn with its walls only, isn't the outside: from 25 cm in front of the
+  side, rooms indoors are met within 3 m in two at least of the directions
+  straight ahead, left and right. An unpainted side there is reported as
+  facing such a space.
+- **A low wall inside a two-story space** doesn't leave the room open: the
+  room behind it is open to the same height, or, behind a closet or stairs
+  drawn without a room, the first rooms met in two of those three directions
+  are (the room itself counts where it turns around the closet).
 - **An outside material** is a texture whose name or catalog id holds one of
   these words: siding, clapboard, weatherboard, cladding, brick, shingle,
   stucco, roughcast, render, facade, exterior, stone wall, log wall, bardage,
@@ -564,7 +628,7 @@ part, and the point of the home it shows:
 
 | Item | Part told |
 | --- | --- |
-| A wall | Its left or right side with the color or the texture of that side, its baseboard, its top, or one of its ends |
+| A wall | Its left or right side with the finish drawn at that height: its baseboard with its color or its texture, one of its finishes by height (`left_finish` / `right_finish`) with its number and the height it goes up to, or the color or the texture of the side above them; its top, or one of its ends |
 | A room | Its floor or its ceiling |
 | A piece of furniture | The material of its model at that point, and the piece of a group |
 | A roof built by `add_roof` | Its material (slope, fascia, gutter...) and the distance to the closest edge of its outline, with the number of that edge |
@@ -609,13 +673,21 @@ version at the left and of the home now, or of another version, at the right.
 
 Most defects of a room are near its ceiling: a gap over a wall, a roof or a
 gutter coming through, a wall left one story tall in a two-story room.
-`inspect_room {"room":"R11"}` returns six pictures in one image, taken from
-the middle of the room at eye height:
+`inspect_room {"room":"R11"}` returns six pictures in one image, taken at eye
+height from the place of the room the farthest from its sides and from the
+walls that stand in it (the middle of a rectangular room; in an L-shaped
+room, a place in the L, not the center of its outline):
 
 1. to 4. toward the north, the east, the south and the west of the plan,
    the camera tilted up so that the top of each wall is in the picture;
 5. straight up;
 6. from a corner of the room, as `"view":"inside"`.
+
+When that place is less than 1.5 m from the side a picture looks at, as
+across a hallway, that picture is taken from the place of the room the
+farthest from that side instead, along the hallway: the answer says from
+where. The camera of the corner stands 45 cm at least from the sides when the
+room is wide enough, never in a wall, at a place that sees the middle.
 
 The answer gives the camera of each picture, to ask `get_3d_image` for one
 of them with `identify` or `labels`. In a room whose ceiling is hidden, the

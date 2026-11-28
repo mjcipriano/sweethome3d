@@ -226,9 +226,38 @@ ways stop it there; the first two keep its shape.
 
 | What you have | Command | Result |
 | --- | --- | --- |
-| An edge of the roof runs along the tall wall | `{"action":"modify_roof","roof":"F52","edge":{"index":4,"type":"clip"}}` | The roof is the one a hip at that edge gives, and it stops at the vertical plane of the edge: no overhang, fascia, soffit, gutter nor downspout there. Its top doesn't move |
+| An edge of the roof runs along the tall wall | `{"action":"modify_roof","roof":"F52","edge":{"index":4,"type":"clip"}}` | The roof keeps the shape it had at that edge and stops at the vertical plane of the edge: no overhang, fascia, soffit, gutter, downspout nor gable wall there. Its top doesn't move |
 | The roof was drawn over the taller part | `{"action":"modify_roof","roof":"F52","clip_to_walls":["W52","W78"]}` | The roof is cut at the face of each wall, and its slopes keep their planes. `"clip_to_rooms":["R11"]` cuts it around a room and its walls. `"clip":"taller_walls"` finds the rooms most of whose walls rise through the roof. `"clip":false` removes the cut |
 | The roof should lean on the wall | `"type":"abut"` | A lean-to rising toward the wall: the shape changes |
+
+What `clip` does depends on what the edge was:
+
+- **An eave** (a `hip` edge, with a slope rising from it): the slope stays, cut
+  at the plane of the edge.
+- **A gable**, or an edge between two gables of a shed or gable roof: it stays a
+  gable. The ridge, the slopes of the other edges and the top of the roof are
+  the same; only the overhang of the gable and its gable wall go, the taller
+  wall closing the roof there. In 7.34.0 such an edge became a hip, which
+  lowered the roof.
+
+The shape kept is stored with the edge as `"clip_of":"hip"` or `"gable"`, and
+may be given with it. In `add_roof`, a `clip` edge without it takes the shape
+the `type` of the roof gives to that edge.
+
+`clip_to_rooms` cuts a room and every wall along its sides. The overhangs
+are cut with the roof, the overhang of a gable as the one of an eave: nothing of
+a porch roof stays in the room beside its gable.
+
+A dormer whose place is clipped is kept. Its front stands at the face of the
+closest wall that clips the roof under it, and the dormer is cut with the roof
+behind the other walls. Along such a wall it has no front wall nor window of its
+own, the wall of the house closing it: a cross gable against the taller part of
+the house keeps covering the door that opens under it. A dormer may also stand
+with `"setback":0` on an edge without overhang, or on an edge of type `clip`.
+
+`fix_home` doesn't clip a roof along a room when that would leave one of its
+dormers out: its answer names the room and the dormer, and the defect stays
+reported.
 
 `clip_to_walls` removes what is behind each wall, seen from the middle of the
 roof, however far; `"clip_depth":N` limits it to N cm. `"clip":"taller_walls"`
@@ -383,6 +412,10 @@ and paints the wall sides that face the room:
 {"action":"modify_room","id":"R3","wall_texture":"Small bricks"}
 ```
 
+Every wall side that faces the room is painted, the ones that had a color or
+a texture too, and the answer counts them. `"only":"unpainted"` leaves the
+sides that have a finish, and `"paint_walls":false` only stores the finish.
+
 `paint_rooms` does it for every room at once, or for the ones of `"rooms"` or
 of a `"level"`:
 
@@ -434,7 +467,19 @@ floor up:
 
   The line is straight, from the height of the roof at one end of the wall to
   its height at the other end, lowered where needed to stay under the roof.
-  `"roof":"F510"` names the roof when several stand there.
+  The roof may be any piece: one built by `add_roof` or `auto_roof`, or a
+  piece tagged `roof` (a roof made by hand, by a plug-in, or imported), whose
+  underside is read in the triangles of its 3D model. `"roof":"F510"` names
+  the roof when several stand there, and may name a piece that has no tag.
+  When no roof is found in front of the side, the answer lists the roofs it
+  looked at with the reason each one doesn't count, and nothing is changed.
+- `"left_color"`, `"right_color"`, `"left_texture"` and `"right_texture"`
+  give a side one finish over its whole height (`"color"` and `"texture"`
+  for both sides); `null` removes it.
+- `modify_wall` changes nothing when one of its keys can't be applied: a
+  finish that finds no roof doesn't let the `"right_baseboard":false` of the
+  same command remove the baseboard. The answer then says "nothing was
+  changed".
 - `"right_finish"` works the same way. `false` removes the finishes of a side.
   The left side is at the left of who walks from the start of the wall to its
   end; `describe_item` gives both sides and their finishes.
@@ -480,6 +525,11 @@ Round walls can't be opened this way.
 - Its underside is at `"bottom"` above the floor: the top of the opening by
   default. It rises to the ceiling of the level, or to `"top"`, or by
   `"height"`.
+- Above a door, a window or an opening, the wall usually goes on up to the
+  ceiling: a header as thick as the wall would only double it. The part that
+  a wall already closes is left out, and the answer says so; where the wall
+  closes everything, nothing is added. Give a `"thickness"` larger than the
+  one of the wall for a beam that shows, or `"force":true` to build it anyway.
 - A header given by an opening or a wall follows its wall when `modify_wall`
   moves it, as openings do. It doesn't follow a wall moved by hand in the
   plan or by `move`.
@@ -609,14 +659,20 @@ as the level, and lists them. `"keep_wall_heights":true` is the default.
 
 In one undoable step, `open_to_above`:
 
-1. puts the ceiling of the room at the ceiling of `to_level` (the next level
-   above by default), as a sheet without thickness so it doesn't rise into the
-   roof. `"ceiling":"follow_roof"` gives it the ceiling under the roof instead,
+1. puts the ceiling of the room at the ceiling of `to_level`, as a sheet
+   without thickness so it doesn't rise into the roof. `to_level` is the next
+   level with rooms above by default: a level made for a roof or for helpers,
+   which holds no room, is never taken for a floor of the building, even when
+   it stands between the two. The ceiling is at the height that the rooms of
+   `to_level` got with `ceiling_height` when they have one, at the top of that
+   level otherwise. `"ceiling":"follow_roof"` gives it the ceiling under the roof instead,
    and `"ceiling":"none"` hides it;
 2. hides the floor and the ceiling of a room of the upper level drawn over it,
    and cuts the part above it out of a room that goes beyond it;
-3. closes its outline up to that ceiling. Where the walls of the upper level
-   already stand above the walls of the room, nothing changes. Where no wall
+3. closes its outline up to that ceiling. Where walls of any level already
+   close a side up to the ceiling - walls of the room two stories tall, walls
+   one above the other, or walls a little way from the side as around a
+   chimney breast - nothing changes and no wall is added. Where no wall
    stands above, the wall of the room is raised. Where the room is open on its
    own level, a wall is added on the upper level;
 4. makes the overlook, if `overlook` is given: on the side of the room facing

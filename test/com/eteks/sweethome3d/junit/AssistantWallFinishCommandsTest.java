@@ -399,9 +399,9 @@ public class AssistantWallFinishCommandsTest {
     assertTrue(summary, summary.contains("openings without door: " + HomeItemIds.getId(opening) + " from 100 to 280 cm"));
     assertFalse("Not a door of the schedules", run("{\"action\":\"door_schedule\"}").contains("Opening"));
 
-    // A header over it, up to the ceiling
+    // A header over it, up to the ceiling: the wall goes on above the opening, so it must be asked for
     String openingId = HomeItemIds.getId(opening);
-    summary = run("{\"action\":\"add_header\",\"opening\":\"" + openingId + "\",\"bottom\":200,\"color\":\"#FFFFFF\"}");
+    summary = run("{\"action\":\"add_header\",\"opening\":\"" + openingId + "\",\"bottom\":200,\"color\":\"#FFFFFF\",\"force\":true}");
     assertTrue(summary, summary.contains("Added the header"));
     assertTrue(summary, summary.contains("180 cm long"));
     assertEquals(2, this.home.getFurniture().size());

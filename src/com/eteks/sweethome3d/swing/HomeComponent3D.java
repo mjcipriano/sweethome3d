@@ -2750,7 +2750,8 @@ public class HomeComponent3D extends JComponent implements View3D, Printable {
               this.xLastMouseMove = ev.getX();
               this.yLastMouseMove = ev.getY();
             } else if (isEnabled()) {
-              requestFocusInWindow();
+              // Brings the keys back to this view, even after a dialog left the keyboard to no one
+              SwingTools.requestFocusAtMousePress(HomeComponent3D.this);
               this.xLastMouseMove = ev.getX();
               this.yLastMouseMove = ev.getY();
 
