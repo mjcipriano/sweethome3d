@@ -78,6 +78,39 @@ public final class HomeVersions {
     return versions;
   }
 
+  /** The longest label kept in the name of the file of a version. */
+  static final int MAX_LABEL_LENGTH = 150;
+  private static final int MIN_LABEL_LENGTH = 40;
+  private static final int MAX_PATH_LENGTH = 250;
+
+  /**
+   * Returns <code>label</code> as the name of a file can hold it under any system: its letters, its digits
+   * and <code>_ . , ( ) - + = ' ! @ # % & [ ]</code> kept, the other characters replaced by a space, without
+   * space nor dot at its end.
+   */
+  public static String cleanLabel(String label) {
+    if (label == null) {
+      return "";
+    }
+    String cleanLabel = label.replaceAll("[^\\p{L}\\p{N} _.,()+=\\[\\]'!@#%&-]", " ").replaceAll("\\s+", " ").trim();
+    // Windows drops the dots and the spaces at the end of a name
+    while (cleanLabel.endsWith(".") || cleanLabel.endsWith(" ")) {
+      cleanLabel = cleanLabel.substring(0, cleanLabel.length() - 1);
+    }
+    return cleanLabel;
+  }
+
+  /**
+   * Returns the label of a version without its date, from the name of its file.
+   */
+  public static String getLabelText(File version) {
+    String name = version.getName();
+    if (name.endsWith(EXTENSION)) {
+      name = name.substring(0, name.length() - EXTENSION.length());
+    }
+    return name.length() > DATE_FORMAT.length() ? name.substring(DATE_FORMAT.length()).trim() : "";
+  }
+
   /**
    * Returns the label and the date of a version, from the name of its file.
    */
@@ -107,9 +140,12 @@ public final class HomeVersions {
     if (!folder.isDirectory() && !folder.mkdirs()) {
       throw new RecorderException("Can't create the folder " + folder);
     }
-    String cleanLabel = label != null ? label.replaceAll("[^\\p{L}\\p{N} _.,()-]", " ").replaceAll("\\s+", " ").trim() : "";
-    if (cleanLabel.length() > 60) {
-      cleanLabel = cleanLabel.substring(0, 60).trim();
+    String cleanLabel = cleanLabel(label);
+    // As long as the name of a file may be, with its folder, where paths are the shortest (260 characters under Windows)
+    int maxLength = Math.max(MIN_LABEL_LENGTH, Math.min(MAX_LABEL_LENGTH,
+        MAX_PATH_LENGTH - folder.getAbsolutePath().length() - 1 - DATE_FORMAT.length() - 1 - EXTENSION.length() - 6));
+    if (cleanLabel.length() > maxLength) {
+      cleanLabel = cleanLabel(cleanLabel.substring(0, maxLength));
     }
     String date = new SimpleDateFormat(DATE_FORMAT).format(new Date());
     File file = new File(folder, date + (cleanLabel.length() > 0 ? " " + cleanLabel : "") + EXTENSION);
@@ -217,12 +253,18 @@ public final class HomeVersions {
       // A name
     }
     File match = null;
+    // The label as the name of a file holds it, and as the one of a version too long was shortened
+    String cleanText = cleanLabel(text).toLowerCase(Locale.ENGLISH);
     for (File version : versions) {
+      String labelText = getLabelText(version).toLowerCase(Locale.ENGLISH);
       if (version.getName().equalsIgnoreCase(text) || version.getPath().equals(text)
-          || getLabel(version).equalsIgnoreCase(text)) {
+          || getLabel(version).equalsIgnoreCase(text)
+          || cleanText.length() > 0 && labelText.equals(cleanText)) {
         return version;
       }
-      if (getLabel(version).toLowerCase(Locale.ENGLISH).contains(text.toLowerCase(Locale.ENGLISH))) {
+      if (getLabel(version).toLowerCase(Locale.ENGLISH).contains(text.toLowerCase(Locale.ENGLISH))
+          || cleanText.length() > 0 && (labelText.contains(cleanText)
+              || labelText.length() >= 30 && cleanText.startsWith(labelText))) {
         if (match != null) {
           return null;
         }

@@ -467,7 +467,19 @@ floor up:
 
   The line is straight, from the height of the roof at one end of the wall to
   its height at the other end, lowered where needed to stay under the roof.
-  `"roof":"F510"` names the roof when several stand there.
+  The roof may be any piece: one built by `add_roof` or `auto_roof`, or a
+  piece tagged `roof` (a roof made by hand, by a plug-in, or imported), whose
+  underside is read in the triangles of its 3D model. `"roof":"F510"` names
+  the roof when several stand there, and may name a piece that has no tag.
+  When no roof is found in front of the side, the answer lists the roofs it
+  looked at with the reason each one doesn't count, and nothing is changed.
+- `"left_color"`, `"right_color"`, `"left_texture"` and `"right_texture"`
+  give a side one finish over its whole height (`"color"` and `"texture"`
+  for both sides); `null` removes it.
+- `modify_wall` changes nothing when one of its keys can't be applied: a
+  finish that finds no roof doesn't let the `"right_baseboard":false` of the
+  same command remove the baseboard. The answer then says "nothing was
+  changed".
 - `"right_finish"` works the same way. `false` removes the finishes of a side.
   The left side is at the left of who walks from the start of the wall to its
   end; `describe_item` gives both sides and their finishes.

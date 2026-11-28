@@ -445,7 +445,15 @@ class AssistantBuildingCommands {
     final boolean followRoof = ceiling && !ceilingMode.trim().toLowerCase(Locale.ENGLISH).matches("flat|level|none|default");
     final boolean ceilingHeight = AssistantCeilingCommands.hasCeilingHeight(command);
     // The color of the walls of the rooms, which the wall sides that face them get
-    boolean wallFinish = this.executor.getWallFinishCommands().modifyRoomFinish(command, rooms, tally, notes);
+    boolean wallFinish;
+    try {
+      wallFinish = this.executor.getWallFinishCommands().modifyRoomFinish(command, rooms, tally, notes);
+    } catch (IOException ex) {
+      // A command that fails for one of its keys applies none of them
+      notes.add("Ignored modify_room" + ("see above".equals(ex.getMessage()) ? "" : " (" + ex.getMessage() + ")")
+          + ": nothing was changed, the other keys of this command included");
+      return;
+    }
     // Whether the rooms are outdoors, for the checks of the finishes of the walls around them
     wallFinish |= setRoomsOutdoor(command, rooms, tally, notes);
     if (wallFinish && !command.has("points") && ceilingShown == null && !command.has("floor_visible")

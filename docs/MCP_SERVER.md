@@ -167,7 +167,7 @@ morning?"* - *"Go back to the version before the new roof."*
 
 | Tool | What it does |
 | --- | --- |
-| `save_version` | Saves a copy of the home with a `label` (or `name`) in the folder of versions beside its file, the one of **File > Versions...**. The home and its file don't change |
+| `save_version` | Saves a copy of the home with a `label` (or `name`) in the folder of versions beside its file, the one of **File > Versions...**. The home and its file don't change. The label is kept in the name of the file, up to 150 characters: commas and parentheses are kept, what a file name can't hold (`: / \ ? * " < > \|`) becomes a space, and the answer says when a label was shortened. The label given still designates the version |
 | `list_versions` | The versions, the most recent first, numbered from 1 |
 | `compare_versions` | From a `version` (its number or a part of its label) to the home now, or to another version (`with`): counts and areas, then the items added, removed, moved, resized or renamed, with their ids. `"picture":true` adds both states side by side It ends with what changed on the site: trees added, removed or changed, fences, and the earth moved |
 | `restore_version` | Replaces the levels and the items of the home by the ones of a version, as **one change that undo reverts**. The state before it is saved as a version first (`"keep_current":false` skips that). The file of the home isn't written |
@@ -611,7 +611,7 @@ part, and the point of the home it shows:
 
 | Item | Part told |
 | --- | --- |
-| A wall | Its left or right side with the color or the texture of that side, its baseboard, its top, or one of its ends |
+| A wall | Its left or right side with the finish drawn at that height: its baseboard with its color or its texture, one of its finishes by height (`left_finish` / `right_finish`) with its number and the height it goes up to, or the color or the texture of the side above them; its top, or one of its ends |
 | A room | Its floor or its ceiling |
 | A piece of furniture | The material of its model at that point, and the piece of a group |
 | A roof built by `add_roof` | Its material (slope, fascia, gutter...) and the distance to the closest edge of its outline, with the number of that edge |
