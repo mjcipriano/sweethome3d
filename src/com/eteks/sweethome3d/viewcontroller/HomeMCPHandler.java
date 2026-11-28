@@ -2795,7 +2795,7 @@ public class HomeMCPHandler {
    * the id and the name of the item, and its part.
    */
   @SuppressWarnings("unchecked")
-  static String describeIdentifiedItem(Home drawnHome, IdentifiedItem identifiedItem) {
+  public static String describeIdentifiedItem(Home drawnHome, IdentifiedItem identifiedItem) {
     Object item = identifiedItem.getItem();
     float [] point = identifiedItem.getPoint();
     if (item == null || point == null) {
@@ -2837,10 +2837,44 @@ public class HomeMCPHandler {
           Integer color = left ? wall.getLeftSideColor() : wall.getRightSideColor();
           com.eteks.sweethome3d.model.HomeTexture texture = left ? wall.getLeftSideTexture() : wall.getRightSideTexture();
           com.eteks.sweethome3d.model.Baseboard baseboard = left ? wall.getLeftSideBaseboard() : wall.getRightSideBaseboard();
-          part = ", its " + (left ? "left" : "right") + " side"
-              + (baseboard != null && point [2] <= elevation + baseboard.getHeight() + 0.5 ? " at its baseboard" : "")
-              + (texture != null ? " (texture \"" + texture.getName() + "\")"
-                  : color != null ? " (color " + formatColor(color) + ")" : " (no color nor texture)");
+          // The finish drawn at that height of the side: its baseboard, which stands in front of the rest,
+          // one of the finishes that change with the height, or the finish of the side above them
+          double height = point [2] - elevation;
+          String sideFinish = texture != null ? "texture \"" + texture.getName() + "\""
+              : color != null ? "color " + formatColor(color) : "no color nor texture";
+          String finish = null;
+          if (baseboard != null && height <= baseboard.getHeight() + 0.5) {
+            finish = " at its baseboard, " + AssistantStructureCommands.format(baseboard.getHeight()) + " cm high ("
+                + (baseboard.getTexture() != null ? "texture \"" + baseboard.getTexture().getName() + "\""
+                    : baseboard.getColor() != null ? "color " + formatColor(baseboard.getColor())
+                    : "without color nor texture of its own, shown with the finish of the side: " + sideFinish) + ")";
+          } else {
+            List<WallFinishBands.Band> bands = WallFinishBands.getBands(wall, left);
+            if (!bands.isEmpty()) {
+              // The place of the point along the wall, from its start to its end
+              double length = Math.max(1E-3, Math.hypot(wall.getXEnd() - wall.getXStart(), wall.getYEnd() - wall.getYStart()));
+              double along = Math.max(0, Math.min(1, ((point [0] - wall.getXStart()) * (wall.getXEnd() - wall.getXStart())
+                  + (point [1] - wall.getYStart()) * (wall.getYEnd() - wall.getYStart())) / (length * length)));
+              for (int i = 0; i < bands.size() && finish == null; i++) {
+                WallFinishBands.Band band = bands.get(i);
+                if (height <= band.getTop() + (band.getTopAtEnd() - band.getTop()) * along + 0.5) {
+                  finish = ", finish " + (i + 1) + " of " + bands.size() + " from the floor ("
+                      + (band.getTexture() != null ? "texture \"" + band.getTexture().getName() + "\""
+                          : band.getColor() != null ? "color " + formatColor(band.getColor()) : "no color nor texture")
+                      + ", up to " + AssistantStructureCommands.format(band.getTop())
+                      + (band.getTopAtEnd() != band.getTop()
+                          ? " cm at the start of the wall and " + AssistantStructureCommands.format(band.getTopAtEnd()) + " cm at its end"
+                          : " cm")
+                      + "; modify_wall \"" + (left ? "left" : "right") + "_finish\" changes it)";
+                }
+              }
+              if (finish == null) {
+                finish = ", above its " + bands.size() + (bands.size() == 1 ? " finish" : " finishes")
+                    + " from the floor (" + sideFinish + ")";
+              }
+            }
+          }
+          part = ", its " + (left ? "left" : "right") + " side" + (finish != null ? finish : " (" + sideFinish + ")");
         }
       }
       return HomeItemIds.getId(wall) + " wall" + part + place;
@@ -4384,8 +4418,17 @@ public class HomeMCPHandler {
         }
       }
       java.io.File version = this.homeController.saveHomeVersion(label);
+      String kept = HomeVersions.getLabelText(version);
+      String cleaned = HomeVersions.cleanLabel(label);
       return toolResult("Saved the version \"" + HomeVersions.getLabel(version) + "\" (" + version.getPath()
-          + "). The home and its file didn't change. compare_versions and restore_version use it.", false);
+          + "). The home and its file didn't change. compare_versions and restore_version use it."
+          + (cleaned.length() > 0 && !kept.startsWith(cleaned)
+              ? " The label is kept in the name of the file, which holds " + kept.length() + " of its "
+                  + cleaned.length() + " characters here: it was shortened after \""
+                  + kept.substring(Math.max(0, kept.length() - 25)) + "\"."
+              : label != null && !cleaned.equals(label.trim().replaceAll("\\s+", " "))
+                  ? " The characters of the label that the name of a file can't hold were replaced."
+                  : ""), false);
     } else if ("restore_version".equals(name)) {
       java.io.File version = HomeVersions.find(this.home, token(arguments, "version"));
       if (version == null) {

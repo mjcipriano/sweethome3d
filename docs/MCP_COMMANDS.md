@@ -146,7 +146,7 @@ are still applied.
 | `add_room` | A room from `points` `[[x,y],...]`, without walls. Options: `floor_color`, `"ceiling_visible":false`, `floor_offset` with `slab_thickness` (see [Slabs](#slabs-and-ground)) |
 | `add_wall` | One wall: `x1`,`y1`,`x2`,`y2`, `thickness`, `height` |
 | `modify_room` | Changes rooms: `name`, `points` (one room at a time), `ceiling_visible`, `floor_visible`, `area_visible`, `floor_offset`, `ceiling` and `flat_ceiling_at` (see [ceilings under a roof](#ceilings-under-a-roof)). The room may also be given by `"room":"<name>"` |
-| `modify_wall` | Changes walls: `height`, `height_at_end` (a sloped top; 0 levels it), `thickness`, `arc_extent` in degrees (0 straightens it), `top_color`, `x1`...`y2`, `baseboard` |
+| `modify_wall` | Changes walls: `height`, `height_at_end` (a sloped top; 0 levels it), `thickness`, `arc_extent` in degrees (0 straightens it), `top_color`, `x1`...`y2`, `baseboard`, `left_color` / `right_color` / `color`, `left_texture` / `right_texture` / `texture`. When one of its keys can't be applied, nothing is changed; a key it doesn't have is reported with the key or the command to use |
 
 ```json
 {"action":"add_rectangular_room","name":"Kitchen","next_to":"Living room","side":"east","width":380,"depth":420}
@@ -171,7 +171,7 @@ removes it.
 | `modify_level` | `height` with `"keep_wall_heights":false` gives the new height to the walls that were as tall as the level; the answer lists them |
 | `open_to_above` | A two-story room in one step: `room`, `to_level`, `ceiling` (`level`, `follow_roof`, `none`), and `overlook` with `along` (`north`...), `railing` (a style of `add_railing` or a catalog name), `height`, `upper_wall` (`remove`, `low`). The levels without rooms (the one of a roof, of helpers) are ignored, the ceiling is the one of the rooms of `to_level` when they have a `ceiling_height`, and no wall is added along a side that walls of any level already close. The answer lists what is still inside the opened space |
 | `paint_rooms` | Gives each wall side the color or the texture of the room it faces: `rooms`, `level`, `"only":"unpainted\|all"`, `color` or `texture` for the rooms that have none |
-| `modify_wall` | Also `left_finish` / `right_finish`: up to 4 finishes from the floor up, each with `to` (a height, or `"roof"` to stop under a lower roof) and `color` or `texture`; `openings` replaces the openings of the wall |
+| `modify_wall` | Also `left_finish` / `right_finish`: up to 4 finishes from the floor up, each with `to` (a height, or `"roof"` to stop under a lower roof of any kind, named by `"roof":"F12"` if needed) and `color` or `texture`; `openings` replaces the openings of the wall |
 | `add_opening` | An opening in a straight wall without a door or a window: `wall`, `from` and `to` (cm from the start of the wall) or `center` and `width`, `bottom` and `top` or `height`, `lining`, `lining_color`. `delete` removes it |
 | `add_header` | A beam over an `opening` (an opening, a door or a window), along a `wall` with `from` and `to`, or between two `points`: `bottom`, `top` or `height`, `thickness`, `bearing`, `color`, `"to_walls":false`. What a wall as thick as the header already closes is left out, and nothing is added where it closes everything, unless `"force":true` |
 | `add_soffit` | A lowered part of a ceiling over `points`, or over a whole `room`: `bottom`, `top`, `color` or `texture` |

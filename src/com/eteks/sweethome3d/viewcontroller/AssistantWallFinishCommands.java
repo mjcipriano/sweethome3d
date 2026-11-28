@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -35,6 +36,7 @@ import com.eteks.sweethome3d.model.CatalogDoorOrWindow;
 import com.eteks.sweethome3d.model.CatalogTexture;
 import com.eteks.sweethome3d.model.Home;
 import com.eteks.sweethome3d.model.HomeDoorOrWindow;
+import com.eteks.sweethome3d.model.HomeFurnitureGroup;
 import com.eteks.sweethome3d.model.HomeObject;
 import com.eteks.sweethome3d.model.HomePieceOfFurniture;
 import com.eteks.sweethome3d.model.HomeTexture;
@@ -131,7 +133,9 @@ class AssistantWallFinishCommands {
         + "floor of the wall, and the last one, without \"to\", is the finish of the side up to its top; " + WallFinishBands.MAX_BANDS
         + " finishes at most under it. \"to_at_end\" gives an other height at the end of the wall, for a sloped line. \"to\":\"roof\" stops "
         + "a finish where a lower roof meets that side of the wall, so a two-story wall is painted as its room under the roof of a "
-        + "one-story wing and keeps its siding above; \"roof\":\"F12\" names that roof. Same for \"right_finish\"; false removes them. "
+        + "one-story wing and keeps its siding above. The roof is any piece built by add_roof or auto_roof, or tagged roof, "
+        + "measured in its 3D model; \"roof\":\"F12\" names it, whatever piece it is. When no roof is found, the reply lists "
+        + "the ones looked at and nothing is changed. Same for \"right_finish\"; false removes them. "
         + "The left side is at the left of who walks from the start of the wall to its end. Doors and windows cut these finishes as they "
         + "cut the wall. A baseboard still comes over them)\n"
         + "  {\"action\":\"add_opening\",\"wall\":\"W1\",\"from\":120,\"to\":300,\"bottom\":0,\"top\":210}  "
@@ -653,12 +657,20 @@ class AssistantWallFinishCommands {
    * Handles the parameters <code>wall_color</code> and <code>wall_texture</code> of <code>modify_room</code>:
    * they are stored in the rooms, and the wall sides that face these rooms get that finish.
    * @return <code>true</code> if the command had one of these parameters
+   * @throws IOException if they can't be applied: nothing was changed then, and nothing else of the
+   *           command must be. Its message is <code>see above</code> when the reason was added to the notes.
    */
-  boolean modifyRoomFinish(AssistantCommand command, List<Selectable> rooms, int [] tally, List<String> notes) {
+  boolean modifyRoomFinish(AssistantCommand command, List<Selectable> rooms, int [] tally, List<String> notes) throws IOException {
     if (!command.has("wall_color") && !command.has("wall_texture")) {
       return false;
     }
-    try {
+    {
+      // Checked before the rooms are changed
+      String only = command.getString("only") != null ? command.getString("only").trim().toLowerCase(Locale.ENGLISH) : "all";
+      if (!"unpainted".equals(only) && !"all".equals(only)) {
+        throw new IOException("\"only\" is \"all\" (the default: every wall side that faces the room is painted) or "
+            + "\"unpainted\" (the sides without color nor texture)");
+      }
       Map<String, Object> parameters = new LinkedHashMap<String, Object>();
       String color = command.getString("wall_color");
       String texture = command.getString("wall_texture");
@@ -693,20 +705,10 @@ class AssistantWallFinishCommands {
             + ": the walls keep the finish they have");
       } else if (command.getBoolean("paint_walls", true)) {
         // Every side that faces the room by default, or only the ones without color nor texture
-        String only = command.getString("only") != null ? command.getString("only").trim().toLowerCase(Locale.ENGLISH) : "all";
-        if (!"unpainted".equals(only) && !"all".equals(only)) {
-          notes.add("modify_room: \"only\" is \"all\" (the default: every wall side that faces the room is painted) or "
-              + "\"unpainted\" (the sides without color nor texture); no wall was painted");
-        } else {
-          paintSides(changedRooms, finishes, "all".equals(only), tally, notes, false);
-        }
+        paintSides(changedRooms, finishes, "all".equals(only), tally, notes, false);
       } else {
         notes.add("Stored " + finish.describe() + " as the wall finish of " + changedRooms.size()
             + (changedRooms.size() == 1 ? " room" : " rooms") + ": paint_rooms gives it to the walls");
-      }
-    } catch (IOException ex) {
-      if (!"see above".equals(ex.getMessage())) {
-        notes.add("Ignored the wall color of modify_room (" + ex.getMessage() + ")");
       }
     }
     return true;
@@ -720,34 +722,116 @@ class AssistantWallFinishCommands {
   // ---- Finishes that change with the height ----
 
   /**
-   * Handles the parameters <code>left_finish</code>, <code>right_finish</code> and <code>openings</code>
-   * of <code>modify_wall</code>.
-   * @return <code>true</code> if the command had one of these parameters
+   * A change of walls that was checked and is ready to be applied.
    */
-  boolean modifyWalls(AssistantCommand command, List<Selectable> walls, int [] tally, List<String> notes) {
-    boolean handled = false;
-    try {
-      for (int side = 0; side < 2; side++) {
-        String parameter = side == 0 ? "left_finish" : "right_finish";
-        if (command.has(parameter)) {
-          handled = true;
-          setFinishBands(command.getParameters().get(parameter), parameter, side == 0, walls, tally, notes);
-        }
-      }
-      if (command.has("openings")) {
-        handled = true;
-        setOpenings(command.getParameters().get("openings"), walls, tally, notes);
-      }
-    } catch (IOException ex) {
-      if (!"see above".equals(ex.getMessage())) {
-        notes.add("Ignored a part of modify_wall (" + ex.getMessage() + ")");
-      }
-    }
-    return handled;
+  private interface PreparedChange {
+    void apply(int [] tally, List<String> notes);
   }
 
-  private void setFinishBands(Object value, String parameter, final boolean leftSide, List<Selectable> walls,
-                              int [] tally, List<String> notes) throws IOException {
+  /**
+   * The changes of walls asked by a command, all checked: applying them can't fail.
+   */
+  final class WallChanges {
+    private final List<PreparedChange> changes = new ArrayList<PreparedChange>();
+
+    void apply(int [] tally, List<String> notes) {
+      for (PreparedChange change : this.changes) {
+        change.apply(tally, notes);
+      }
+    }
+  }
+
+  /** The keys of <code>modify_wall</code> that give a side its color or its texture, with the sides they change. */
+  private static final String [][] SIDE_FINISH_KEYS = {
+      {"left_color", "color", "left"}, {"right_color", "color", "right"}, {"color", "color", "both"},
+      {"left_texture", "texture", "left"}, {"right_texture", "texture", "right"}, {"texture", "texture", "both"}};
+
+  /**
+   * Checks the parameters <code>left_finish</code>, <code>right_finish</code>, <code>openings</code> and
+   * the colors and textures of the sides of <code>modify_wall</code>, without changing anything.
+   * @return the changes to apply, or <code>null</code> if the command has none of these parameters
+   * @throws IOException if one of them can't be applied: nothing of the command must be applied then.
+   *           Its message is <code>see above</code> when the reason was added to the notes.
+   */
+  WallChanges prepareWalls(AssistantCommand command, List<Selectable> walls, List<String> notes) throws IOException {
+    WallChanges changes = new WallChanges();
+    boolean handled = false;
+    // The finish of the top of each side, given once
+    String [] topFinishKeys = new String [2];
+    Finish [] sideFinishes = new Finish [2];
+    for (String [] key : SIDE_FINISH_KEYS) {
+      if (!command.has(key [0])) {
+        continue;
+      }
+      handled = true;
+      Object value = command.getParameters().get(key [0]);
+      boolean removed = value == null || Boolean.FALSE.equals(value) || isNone(value.toString());
+      Finish finish = null;
+      if (!removed) {
+        Map<String, Object> parameters = new LinkedHashMap<String, Object>();
+        for (String placementKey : new String [] {"category", "catalog_id", "scale", "angle", "offset_x", "offset_y",
+                                                  "texture_scale", "texture_angle"}) {
+          if ("texture".equals(key [1]) && command.has(placementKey)) {
+            parameters.put(placementKey, command.getParameters().get(placementKey));
+          }
+        }
+        parameters.put(key [1], value);
+        finish = getFinish(parameters, "modify_wall", notes);
+      }
+      for (int side = 0; side < 2; side++) {
+        if (!(side == 0 ? "right" : "left").equals(key [2])) {
+          if (topFinishKeys [side] != null) {
+            throw new IOException("\"" + topFinishKeys [side] + "\" and \"" + key [0] + "\" both give the finish of the "
+                + (side == 0 ? "left" : "right") + " side: give one of them");
+          }
+          topFinishKeys [side] = key [0];
+          sideFinishes [side] = finish;
+        }
+      }
+    }
+    for (int side = 0; side < 2; side++) {
+      String parameter = side == 0 ? "left_finish" : "right_finish";
+      if (command.has(parameter)) {
+        handled = true;
+        changes.changes.add(prepareFinishBands(command.getParameters().get(parameter), parameter, side == 0, walls,
+            topFinishKeys [side], notes));
+      }
+    }
+    for (int side = 0; side < 2; side++) {
+      if (topFinishKeys [side] != null) {
+        final boolean leftSide = side == 0;
+        final Finish finish = sideFinishes [side];
+        final List<Selectable> paintedWalls = new ArrayList<Selectable>(walls);
+        changes.changes.add(new PreparedChange() {
+            public void apply(int [] tally, List<String> notes) {
+              executor.postModification(paintedWalls, new Runnable() {
+                  public void run() {
+                    for (Selectable wall : paintedWalls) {
+                      paint((Wall)wall, leftSide, finish != null ? finish : new Finish(null, null));
+                    }
+                  }
+                });
+              tally [4] += paintedWalls.size();
+              notes.add("The " + (leftSide ? "left" : "right") + " side of "
+                  + (paintedWalls.size() == 1 ? executor.getId(paintedWalls.get(0)) : paintedWalls.size() + " walls")
+                  + (finish != null ? " shows " + finish.describe() : " has no color nor texture anymore"));
+            }
+          });
+      }
+    }
+    if (command.has("openings")) {
+      handled = true;
+      changes.changes.add(prepareOpenings(command.getParameters().get("openings"), walls, notes));
+    }
+    return handled ? changes : null;
+  }
+
+  /**
+   * Checks the finishes that change with the height of a side of walls.
+   * @param topFinishKey the other key of the command that gives the finish of the top of the side, if any
+   */
+  private PreparedChange prepareFinishBands(Object value, String parameter, final boolean leftSide, List<Selectable> walls,
+                                            String topFinishKey, List<String> notes) throws IOException {
     List<Map<?, ?>> items = new ArrayList<Map<?, ?>>();
     if (value instanceof List) {
       for (Object item : (List<?>)value) {
@@ -782,6 +866,10 @@ class AssistantWallFinishCommands {
         if (i != items.size() - 1) {
           throw new IOException("only the last finish of \"" + parameter + "\", the one up to the top of the wall, has no \"to\"");
         }
+        if (topFinishKey != null) {
+          throw new IOException("the last finish of \"" + parameter + "\" and \"" + topFinishKey
+              + "\" both give the finish of the top of the side: give one of them");
+        }
         topFinish = finish;
       } else {
         bands.add(new Object [] {item, finish});
@@ -793,8 +881,9 @@ class AssistantWallFinishCommands {
     if (!unknown.isEmpty()) {
       notes.add("The finishes of \"" + parameter + "\" don't know " + unknown + ", which had no effect: their keys are " + BAND_KEYS);
     }
-    List<HomeRoofs.Roof> roofs = null;
-    int changed = 0;
+    RoofSurfaces roofs = null;
+    // What each wall gets, computed for all of them before any is changed
+    final List<Object []> wallChanges = new ArrayList<Object []>();
     for (Selectable selectable : walls) {
       final Wall wall = (Wall)selectable;
       float wallHeight = wall.getHeight() != null ? wall.getHeight() : this.home.getWallHeight();
@@ -811,13 +900,14 @@ class AssistantWallFinishCommands {
         String origin = "";
         if ("roof".equalsIgnoreCase(String.valueOf(item.get("to")))) {
           if (roofs == null) {
-            roofs = HomeRoofs.get(this.home);
+            roofs = new RoofSurfaces();
           }
+          String [] roofNote = new String [1];
           float [] heights = getRoofLine(wall, leftSide, roofs,
-              item.get("roof") != null ? item.get("roof").toString() : null);
+              item.get("roof") != null ? item.get("roof").toString() : null, roofNote);
           top = heights [0];
           topAtEnd = heights [1];
-          origin = " under the roof " + this.executor.getId(roofs.get((int)heights [2]).piece);
+          origin = " under the roof " + roofNote [0];
         } else if (item.get("to") instanceof Number) {
           top = ((Number)item.get("to")).floatValue();
           topAtEnd = item.get("to_at_end") instanceof Number ? ((Number)item.get("to_at_end")).floatValue() : top;
@@ -843,43 +933,266 @@ class AssistantWallFinishCommands {
       }
       properties.put(WallFinishBands.getProperty(leftSide),
           descriptions.isEmpty() ? null : AssistantShapeCommands.toJson(descriptions));
-      if (topFinish != null) {
-        final Finish finish = topFinish;
-        this.executor.postModification(Collections.<Selectable>singletonList(wall), new Runnable() {
-            public void run() {
-              paint(wall, leftSide, finish);
-            }
-          });
-      }
-      setProperties(wall, properties);
-      changed++;
-      notes.add(texts.isEmpty()
-          ? "Removed the finishes that changed with the height of the " + (leftSide ? "left" : "right") + " side of "
-              + this.executor.getId(wall) + (topFinish != null ? ", which shows " + topFinish.describe() : "")
-          : "The " + (leftSide ? "left" : "right") + " side of " + this.executor.getId(wall) + " shows from its floor "
-              + list(texts, 10) + ", then " + (topFinish != null ? topFinish.describe()
-                  : "its own finish (" + (isPainted(wall, leftSide) ? "kept" : "the default color: give a last finish without \"to\" to set it") + ")")
-              + " above");
+      wallChanges.add(new Object [] {wall, properties, texts});
     }
-    tally [4] += changed;
+    final Finish finish = topFinish;
+    final String topKey = topFinishKey;
+    return new PreparedChange() {
+        @SuppressWarnings("unchecked")
+        public void apply(int [] tally, List<String> notes) {
+          for (Object [] wallChange : wallChanges) {
+            final Wall wall = (Wall)wallChange [0];
+            List<String> texts = (List<String>)wallChange [2];
+            if (finish != null) {
+              executor.postModification(Collections.<Selectable>singletonList(wall), new Runnable() {
+                  public void run() {
+                    paint(wall, leftSide, finish);
+                  }
+                });
+            }
+            setProperties(wall, (Map<String, Object>)wallChange [1]);
+            notes.add(texts.isEmpty()
+                ? "Removed the finishes that changed with the height of the " + (leftSide ? "left" : "right") + " side of "
+                    + executor.getId(wall) + (finish != null ? ", which shows " + finish.describe() : "")
+                : "The " + (leftSide ? "left" : "right") + " side of " + executor.getId(wall) + " shows from its floor "
+                    + list(texts, 10) + ", then " + (finish != null ? finish.describe()
+                        : topKey != null ? "the finish given by \"" + topKey + "\""
+                        : "its own finish (" + (isPainted(wall, leftSide) ? "kept" : "the default color: give a last finish without \"to\" to set it") + ")")
+                    + " above");
+          }
+          tally [4] += wallChanges.size();
+        }
+      };
+  }
+
+  /**
+   * A roof of the home with the way to know the height of its underside.
+   */
+  private abstract static class RoofSurface {
+    final HomePieceOfFurniture piece;
+    /** How its shape is known, when it isn't the one of its 3D model or of its description. */
+    String                     approximation;
+
+    RoofSurface(HomePieceOfFurniture piece) {
+      this.piece = piece;
+    }
+
+    /**
+     * Returns the elevation of the underside of the roof at a point of the plan, or NaN.
+     */
+    abstract double getUnderside(double x, double y, double from);
+  }
+
+  /**
+   * The roofs of the home, whatever built them: the ones described by <code>add_roof</code>, and the
+   * pieces tagged <code>roof</code> or kept as roofs, measured in the triangles of their 3D model.
+   */
+  private final class RoofSurfaces {
+    private List<RoofSurface>               surfaces;
+    private final Map<HomePieceOfFurniture, RoofSurface> named = new HashMap<HomePieceOfFurniture, RoofSurface>();
+
+    /**
+     * Returns the visible roofs of the home.
+     */
+    List<RoofSurface> get() {
+      if (this.surfaces == null) {
+        this.surfaces = new ArrayList<RoofSurface>();
+        List<HomePieceOfFurniture> described = new ArrayList<HomePieceOfFurniture>();
+        for (final HomeRoofs.Roof roof : HomeRoofs.get(home)) {
+          described.add(roof.piece);
+          this.surfaces.add(new RoofSurface(roof.piece) {
+              @Override
+              double getUnderside(double x, double y, double from) {
+                return roof.model.getGeometry().getCeilingHeight(x, y) + roof.elevation;
+              }
+            });
+        }
+        for (HomePieceOfFurniture piece : home.getFurniture()) {
+          if (piece.isVisible() && !described.contains(piece) && !(piece instanceof HomeFurnitureGroup)
+              && ("roof".equals(piece.getProperty(AssistantCommandExecutor.STRUCTURE_PROPERTY))
+                  || HomeItemTags.hasTag(piece, "roof"))
+              // Not the thin panels and the vents kept with the roofs
+              && Math.min(piece.getWidth(), piece.getDepth()) >= 30) {
+            this.surfaces.add(createSurface(piece));
+          }
+        }
+      }
+      return this.surfaces;
+    }
+
+    /**
+     * Returns the roof that the piece of the given id is, of any kind.
+     */
+    RoofSurface get(String id) throws IOException {
+      HomeObject item = HomeItemIds.find(home, id.trim());
+      if (!(item instanceof HomePieceOfFurniture)) {
+        throw new IOException("\"roof\":\"" + id + "\" isn't the id of a piece: give the id of the roof, like F12");
+      }
+      for (RoofSurface surface : get()) {
+        if (surface.piece == item) {
+          return surface;
+        }
+      }
+      RoofSurface surface = this.named.get(item);
+      if (surface == null) {
+        surface = createSurface((HomePieceOfFurniture)item);
+        this.named.put((HomePieceOfFurniture)item, surface);
+      }
+      return surface;
+    }
+
+    /**
+     * Returns the roof that a piece without description of roof is: the triangles of its
+     * 3D model placed in the home, or its box if its model can't be read.
+     */
+    private RoofSurface createSurface(final HomePieceOfFurniture piece) {
+      float [][] triangles = null;
+      String failure = null;
+      AssistantCommandExecutor.ModelShapeProvider provider = executor.getModelShapeProvider();
+      if (provider == null) {
+        failure = "3D models can't be read here";
+      } else if (piece.getPitch() != 0 || piece.getRoll() != 0) {
+        failure = "it's tilted";
+      } else {
+        try {
+          triangles = getTrianglesInHome(piece, provider.getTriangles(piece.getModel()));
+          if (triangles == null) {
+            failure = "its 3D model has no triangle";
+          }
+        } catch (IOException ex) {
+          failure = "its 3D model can't be read" + (ex.getMessage() != null ? ": " + ex.getMessage() : "");
+        } catch (RuntimeException ex) {
+          failure = "its 3D model can't be read";
+        }
+      }
+      if (triangles != null) {
+        final float [][] modelTriangles = triangles;
+        return new RoofSurface(piece) {
+            @Override
+            double getUnderside(double x, double y, double from) {
+              // The lowest triangle crossed by the vertical line of the point, above the floor
+              double underside = Double.NaN;
+              for (float [] t : modelTriangles) {
+                double d = (t [4] - t [7]) * (t [0] - t [6]) + (t [6] - t [3]) * (t [1] - t [7]);
+                if (Math.abs(d) < 1E-9) {
+                  continue;
+                }
+                double a = ((t [4] - t [7]) * (x - t [6]) + (t [6] - t [3]) * (y - t [7])) / d;
+                double b = ((t [7] - t [1]) * (x - t [6]) + (t [0] - t [6]) * (y - t [7])) / d;
+                double c = 1 - a - b;
+                if (a >= -1E-6 && b >= -1E-6 && c >= -1E-6) {
+                  double height = a * t [2] + b * t [5] + c * t [8];
+                  if (height > from && !(height >= underside)) {
+                    underside = height;
+                  }
+                }
+              }
+              return underside;
+            }
+          };
+      } else {
+        // Its box: what is under it is at the height of its bottom
+        final float [][] points = piece.getPoints();
+        RoofSurface surface = new RoofSurface(piece) {
+            @Override
+            double getUnderside(double x, double y, double from) {
+              double elevation = piece.getGroundElevation();
+              return piece.containsPoint((float)x, (float)y, 0) && points.length >= 3 && elevation > from ? elevation : Double.NaN;
+            }
+          };
+        surface.approximation = "the bottom of its box, as " + failure;
+        return surface;
+      }
+    }
+  }
+
+  /**
+   * Returns the triangles of the 3D model of a piece where the piece shows them in the home:
+   * each one as x, y and the elevation of its three points, or <code>null</code> if there's none.
+   * @param triangles the triangles of the model, each one as the x, y, z of its three points, y upward
+   */
+  static float [][] getTrianglesInHome(HomePieceOfFurniture piece, float [][] triangles) {
+    if (triangles == null || triangles.length == 0) {
+      return null;
+    }
+    // As the 3D view places a model: brought to the center of its box, turned by the rotation of the piece,
+    // brought to the center of its box again unless the piece says otherwise, then stretched to the size of the piece
+    float [] lower = {Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE};
+    float [] upper = {-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
+    for (float [] triangle : triangles) {
+      for (int j = 0; j < 9; j++) {
+        lower [j % 3] = Math.min(lower [j % 3], triangle [j]);
+        upper [j % 3] = Math.max(upper [j % 3], triangle [j]);
+      }
+    }
+    float [] modelCenter = {(lower [0] + upper [0]) / 2, (lower [1] + upper [1]) / 2, (lower [2] + upper [2]) / 2};
+    float [][] rotation = piece.getModelRotation();
+    float [][] turned = new float [triangles.length][9];
+    lower = new float [] {Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE};
+    upper = new float [] {-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
+    for (int i = 0; i < triangles.length; i++) {
+      for (int j = 0; j < 9; j += 3) {
+        float x = triangles [i][j] - modelCenter [0];
+        float y = triangles [i][j + 1] - modelCenter [1];
+        float z = triangles [i][j + 2] - modelCenter [2];
+        for (int k = 0; k < 3; k++) {
+          float value = rotation != null ? rotation [k][0] * x + rotation [k][1] * y + rotation [k][2] * z
+              : k == 0 ? x : k == 1 ? y : z;
+          turned [i][j + k] = value;
+          lower [k] = Math.min(lower [k], value);
+          upper [k] = Math.max(upper [k], value);
+        }
+      }
+    }
+    float [] center = new float [3];
+    float [] size = new float [3];
+    for (int k = 0; k < 3; k++) {
+      if (rotation != null && piece.isModelCenteredAtOrigin()) {
+        center [k] = (lower [k] + upper [k]) / 2;
+      }
+      size [k] = upper [k] - lower [k];
+      if (!(size [k] > 1E-6f)) {
+        size [k] = 1;
+      }
+    }
+    double cos = Math.cos(piece.getAngle());
+    double sin = Math.sin(piece.getAngle());
+    float elevation = piece.getGroundElevation();
+    float [][] placed = new float [triangles.length][9];
+    for (int i = 0; i < triangles.length; i++) {
+      for (int j = 0; j < 9; j += 3) {
+        double x = (turned [i][j] - center [0]) / size [0] * piece.getWidth() * (piece.isModelMirrored() ? -1 : 1);
+        double y = (turned [i][j + 2] - center [2]) / size [2] * piece.getDepth();
+        placed [i][j] = (float)(piece.getX() + x * cos - y * sin);
+        placed [i][j + 1] = (float)(piece.getY() + x * sin + y * cos);
+        placed [i][j + 2] = elevation + ((turned [i][j + 1] - center [1]) / size [1] + 0.5f) * piece.getHeight();
+      }
+    }
+    return placed;
+  }
+
+  private String describeRoof(HomePieceOfFurniture piece) {
+    return this.executor.getId(piece) + (piece.getName() != null ? " \"" + piece.getName() + "\"" : "");
   }
 
   /**
    * Returns the heights above the floor of <code>wall</code>, at its start and at its end, of a line
-   * that stays under the lowest roof standing in front of the given side, and the index of that roof.
+   * that stays under the lowest roof standing in front of the given side.
+   * @param roofNote receives the roof the line was taken under
    */
-  private float [] getRoofLine(Wall wall, boolean leftSide, List<HomeRoofs.Roof> roofs, String roofId) throws IOException {
+  private float [] getRoofLine(Wall wall, boolean leftSide, RoofSurfaces roofs, String roofId,
+                               String [] roofNote) throws IOException {
     float [][] side = getSidePoints(wall, leftSide);
     float [][] otherSide = getSidePoints(wall, !leftSide);
     float floor = getElevation(wall.getLevel());
     int samples = 21;
-    int bestRoof = -1;
+    RoofSurface bestRoof = null;
     double [] bestHeights = null;
-    for (int r = 0; r < roofs.size(); r++) {
-      HomeRoofs.Roof roof = roofs.get(r);
-      if (roofId != null && !roofId.trim().equalsIgnoreCase(this.executor.getId(roof.piece))) {
-        continue;
-      }
+    List<RoofSurface> candidates = roofId != null
+        ? Collections.singletonList(roofs.get(roofId))
+        : roofs.get();
+    List<String> reasons = new ArrayList<String>();
+    for (RoofSurface roof : candidates) {
       double [] heights = new double [samples];
       int count = 0;
       for (int i = 0; i < samples; i++) {
@@ -890,8 +1203,7 @@ class AssistantWallFinishCommands {
         double dy = point [1] - opposite [1];
         double length = Math.max(1E-3, Math.hypot(dx, dy));
         // The underside of the roof a little in front of the side
-        heights [i] = roof.model.getGeometry().getCeilingHeight(point [0] + dx / length * 3, point [1] + dy / length * 3)
-            + roof.elevation - floor;
+        heights [i] = roof.getUnderside(point [0] + dx / length * 3, point [1] + dy / length * 3, floor + 1) - floor;
         if (!Double.isNaN(heights [i]) && heights [i] > 0) {
           count++;
         } else {
@@ -908,14 +1220,42 @@ class AssistantWallFinishCommands {
         if (bestHeights == null || lowest < bestHeights [samples]) {
           bestHeights = Arrays.copyOf(heights, samples + 1);
           bestHeights [samples] = lowest;
-          bestRoof = r;
+          bestRoof = roof;
         }
+      } else if (reasons.size() < 12) {
+        // Why this roof doesn't count
+        float [][] points = roof.piece.getPoints();
+        double distance = Double.MAX_VALUE;
+        float [] middle = getPointAlong(side, 0.5);
+        for (int i = 0; i < points.length; i++) {
+          float [] next = points [(i + 1) % points.length];
+          distance = Math.min(distance, java.awt.geom.Line2D.ptSegDist(points [i][0], points [i][1], next [0], next [1],
+              middle [0], middle [1]));
+        }
+        float top = roof.piece.getGroundElevation() + roof.piece.getHeight();
+        reasons.add(describeRoof(roof.piece) + (top <= floor + 1
+            ? " is under the floor of the wall"
+            : roof.piece.containsPoint(middle [0], middle [1], 0)
+                ? " has nothing above the points just in front of that side"
+                    + (roof.approximation != null ? " (read as " + roof.approximation + ")" : "")
+                : " isn't over that side (" + format(Math.round(distance)) + " cm from its middle)"));
       }
     }
     if (bestHeights == null) {
-      throw new IOException("no roof" + (roofId != null ? " " + roofId : "") + " stands in front of the "
-          + (leftSide ? "left" : "right") + " side of " + this.executor.getId(wall) + ": give \"to\" as a height");
+      String sideName = (leftSide ? "left" : "right") + " side of " + this.executor.getId(wall);
+      throw new IOException(roofId != null
+          ? "the roof " + reasons.get(0).replace(" isn't over that side", " isn't over the " + sideName)
+              .replace("in front of that side", "in front of the " + sideName) + ": give \"to\" as a height"
+          : candidates.isEmpty()
+              ? "this home has no roof (no piece built by add_roof or auto_roof, nor tagged roof) to stop the finish of the "
+                  + sideName + " under: give \"to\" as a height, or \"roof\":\"<id>\" with the id of the piece that is the roof"
+              : "no roof stands in front of the " + sideName + ". Roofs looked at: " + list(reasons, 12)
+                  + (candidates.size() > reasons.size() ? ", and " + (candidates.size() - reasons.size()) + " more" : "")
+                  + ". Give \"roof\":\"<id>\" with the id of the piece that is the roof there, whatever built it, "
+                  + "or \"to\" as a height");
     }
+    roofNote [0] = describeRoof(bestRoof.piece) + (bestRoof.approximation != null
+        ? " (its height taken as " + bestRoof.approximation + ")" : "");
     // The line through the heights at both ends of the part under the roof, lowered to stay under the roof
     int first = 0;
     int last = samples - 1;
@@ -939,7 +1279,7 @@ class AssistantWallFinishCommands {
       // A roof that goes down under the floor before the end of the wall
       top = topAtEnd = (float)Math.max(1, bestHeights [samples]);
     }
-    return new float [] {top, topAtEnd, bestRoof};
+    return new float [] {top, topAtEnd};
   }
 
   /**
@@ -1170,11 +1510,11 @@ class AssistantWallFinishCommands {
   /**
    * Replaces the openings of walls by the ones described by <code>value</code>.
    */
-  private void setOpenings(Object value, List<Selectable> walls, int [] tally, List<String> notes) throws IOException {
+  private PreparedChange prepareOpenings(Object value, List<Selectable> walls, List<String> notes) throws IOException {
     if (walls.size() != 1) {
       throw new IOException("\"openings\" describes the openings of one wall, not of " + walls.size());
     }
-    Wall wall = getWall(this.executor.getId(walls.get(0)), "modify_wall");
+    final Wall wall = getWall(this.executor.getId(walls.get(0)), "modify_wall");
     List<Map<?, ?>> items = new ArrayList<Map<?, ?>>();
     if (value instanceof List) {
       for (Object item : (List<?>)value) {
@@ -1187,9 +1527,9 @@ class AssistantWallFinishCommands {
       throw new IOException("\"openings\" lists the openings of the wall, like [{\"from\":120,\"to\":300,\"bottom\":0,\"top\":210}], "
           + "or is [] to remove them");
     }
-    List<HomeDoorOrWindow> openings = new ArrayList<HomeDoorOrWindow>();
-    List<String> unknown = new ArrayList<String>();
-    List<String> texts = new ArrayList<String>();
+    final List<HomeDoorOrWindow> openings = new ArrayList<HomeDoorOrWindow>();
+    final List<String> unknown = new ArrayList<String>();
+    final List<String> texts = new ArrayList<String>();
     for (Map<?, ?> item : items) {
       for (Object key : item.keySet()) {
         if (!OPENING_KEYS.contains(key) && !unknown.contains(String.valueOf(key))) {
@@ -1201,30 +1541,34 @@ class AssistantWallFinishCommands {
       openings.add(opening);
       texts.add(describeOpening(opening, place));
     }
-    List<HomePieceOfFurniture> previous = getOpenings(wall);
-    if (!previous.isEmpty()) {
-      this.executor.beginTurnUpdate();
-      this.homeController.getPlanController().deleteItems(new ArrayList<Selectable>(previous));
-      tally [5] += previous.size();
-    }
-    for (HomeDoorOrWindow opening : openings) {
-      checkOverlap(wall, opening, previous, notes);
-      this.executor.getShapeCommands().add(opening);
-      tally [1]++;
-    }
-    StringBuilder ids = new StringBuilder();
-    for (HomeDoorOrWindow opening : openings) {
-      ids.append(ids.length() > 0 ? ", " : "").append(this.executor.getId(opening));
-    }
-    notes.add(openings.isEmpty()
-        ? "Removed the " + previous.size() + " openings without door of " + this.executor.getId(wall)
-        : this.executor.getId(wall) + " has " + openings.size() + (openings.size() == 1 ? " opening" : " openings")
-            + " without door nor window (" + ids + "): " + list(texts, 10)
-            + (previous.isEmpty() ? "" : ". They replace the " + previous.size() + " it had"));
-    if (!unknown.isEmpty()) {
-      notes.add("The openings of modify_wall don't know " + unknown + ", which had no effect: their keys are "
-          + OPENING_KEYS.subList(3, OPENING_KEYS.size()));
-    }
+    return new PreparedChange() {
+        public void apply(int [] tally, List<String> notes) {
+          List<HomePieceOfFurniture> previous = getOpenings(wall);
+          if (!previous.isEmpty()) {
+            executor.beginTurnUpdate();
+            homeController.getPlanController().deleteItems(new ArrayList<Selectable>(previous));
+            tally [5] += previous.size();
+          }
+          for (HomeDoorOrWindow opening : openings) {
+            checkOverlap(wall, opening, previous, notes);
+            executor.getShapeCommands().add(opening);
+            tally [1]++;
+          }
+          StringBuilder ids = new StringBuilder();
+          for (HomeDoorOrWindow opening : openings) {
+            ids.append(ids.length() > 0 ? ", " : "").append(executor.getId(opening));
+          }
+          notes.add(openings.isEmpty()
+              ? "Removed the " + previous.size() + " openings without door of " + executor.getId(wall)
+              : executor.getId(wall) + " has " + openings.size() + (openings.size() == 1 ? " opening" : " openings")
+                  + " without door nor window (" + ids + "): " + list(texts, 10)
+                  + (previous.isEmpty() ? "" : ". They replace the " + previous.size() + " it had"));
+          if (!unknown.isEmpty()) {
+            notes.add("The openings of modify_wall don't know " + unknown + ", which had no effect: their keys are "
+                + OPENING_KEYS.subList(3, OPENING_KEYS.size()));
+          }
+        }
+      };
   }
 
   /**

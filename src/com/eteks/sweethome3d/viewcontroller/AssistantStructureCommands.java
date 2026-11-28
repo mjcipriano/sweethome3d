@@ -20,6 +20,7 @@
 package com.eteks.sweethome3d.viewcontroller;
 
 import java.text.NumberFormat;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -533,15 +534,28 @@ class AssistantStructureCommands {
         baseboardChanged [1] = true;
       }
     }
-    // Finishes that change with the height and openings without door
-    boolean finishChanged = this.executor.getWallFinishCommands().modifyWalls(command, walls, tally, notes);
+    // The finishes of the sides, the ones that change with the height and the openings without door are checked
+    // before anything is changed: a command that fails for one of its keys applies none of them
+    AssistantWallFinishCommands.WallChanges finishChanges;
+    try {
+      finishChanges = this.executor.getWallFinishCommands().prepareWalls(command, walls, notes);
+    } catch (IOException ex) {
+      notes.add("Ignored modify_wall" + ("see above".equals(ex.getMessage()) ? "" : " (" + ex.getMessage() + ")")
+          + ": nothing was changed, the other keys of this command included");
+      return;
+    }
+    warnUnknownWallKeys(command);
+    if (finishChanges != null) {
+      finishChanges.apply(tally, notes);
+    }
     if (Double.isNaN(height) && !command.has("height_at_end") && Double.isNaN(thickness) && !command.has("arc_extent")
         && !moved && !command.has("top_color") && !baseboardChanged [0] && !baseboardChanged [1]) {
-      if (finishChanged) {
+      if (finishChanges != null) {
         return;
       }
       notes.add("Ignored modify_wall: give at least one of \"height\", \"height_at_end\", \"thickness\", \"arc_extent\", "
-          + "\"top_color\", \"baseboard\", \"x1\", \"y1\", \"x2\" and \"y2\"");
+          + "\"top_color\", \"baseboard\", \"left_color\", \"right_color\", \"left_texture\", \"right_texture\", "
+          + "\"left_finish\", \"right_finish\", \"openings\", \"x1\", \"y1\", \"x2\" and \"y2\"");
       return;
     }
     this.executor.postModification(walls, new Runnable() {
@@ -602,6 +616,55 @@ class AssistantStructureCommands {
       note.append("; and ").append(walls.size() - 10).append(" more walls");
     }
     notes.add(note.toString());
+  }
+
+  private static final List<String> MODIFY_WALL_KEYS = java.util.Arrays.asList("action", "id", "ids", "target", "where",
+      "height", "height_at_end", "thickness", "arc_extent", "x1", "y1", "x2", "y2", "top_color",
+      "baseboard", "left_baseboard", "right_baseboard", "left_color", "right_color", "color",
+      "left_texture", "right_texture", "texture", "category", "catalog_id", "scale", "angle", "offset_x", "offset_y",
+      "texture_scale", "texture_angle", "left_finish", "right_finish", "openings");
+
+  /**
+   * Warns about the keys of <code>modify_wall</code> that it doesn't read, naming the command
+   * or the key that does what such a key suggests.
+   */
+  private void warnUnknownWallKeys(AssistantCommand command) {
+    List<String> unknown = new ArrayList<String>();
+    List<String> hints = new ArrayList<String>();
+    for (String key : command.getParameters().keySet()) {
+      if (!MODIFY_WALL_KEYS.contains(key) && !key.startsWith("_")) {
+        unknown.add(key);
+        String lowerKey = key.toLowerCase(Locale.ENGLISH);
+        String hint = lowerKey.contains("color") || lowerKey.contains("colour") || lowerKey.contains("paint")
+                ? "the color of a side is \"left_color\" or \"right_color\" (or set_color with \"part\":\"left|right\")"
+            : lowerKey.contains("texture") || lowerKey.contains("material")
+                ? "the texture of a side is \"left_texture\" or \"right_texture\" (or set_texture with \"part\":\"left|right\")"
+            : lowerKey.contains("finish") || lowerKey.contains("band")
+                ? "the finishes by height of a side are \"left_finish\" and \"right_finish\""
+            : lowerKey.contains("opening") || lowerKey.contains("door") || lowerKey.contains("window")
+                ? "add_opening opens a wall, add_door and add_window put a door or a window in it"
+            : lowerKey.contains("level") || lowerKey.contains("floor")
+                ? "the level of a wall isn't changed by modify_wall: \"where\":{\"level\":\"<name>\"} designates the walls of a level"
+            : lowerKey.equals("length") || lowerKey.contains("start") || lowerKey.contains("end") || lowerKey.contains("point")
+                ? "the ends of a wall are \"x1\", \"y1\", \"x2\" and \"y2\""
+            : lowerKey.contains("visible") || lowerKey.contains("delete") || lowerKey.contains("remove")
+                ? "delete removes a wall"
+            : null;
+        if (hint != null && !hints.contains(hint)) {
+          hints.add(hint);
+        }
+      }
+    }
+    if (!unknown.isEmpty()) {
+      List<String> valid = new ArrayList<String>(MODIFY_WALL_KEYS);
+      valid.remove("action");
+      StringBuilder text = new StringBuilder("Warning: modify_wall ignored "
+          + (unknown.size() == 1 ? "the key " : "the keys ") + unknown);
+      for (String hint : hints) {
+        text.append(": ").append(hint);
+      }
+      this.executor.warn(text + ". Its keys: " + valid);
+    }
   }
 
   private String describeWall(Wall wall, boolean complete) {
